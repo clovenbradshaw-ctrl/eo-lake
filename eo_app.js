@@ -695,7 +695,9 @@ function importData() {
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target.result);
-        getDataWorkbench()?.importData(data);
+        // Extract name from file (remove .json extension)
+        const importName = file.name.replace(/\.json$/i, '');
+        getDataWorkbench()?.importData(data, importName);
         closeModal();
         alert('Data imported successfully!');
       } catch (err) {
