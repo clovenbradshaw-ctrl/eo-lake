@@ -279,6 +279,9 @@
     </div>
   </div>
 
+  <!-- Principles Transparency Panel Container -->
+  <div id="principles-panel" class="principles-panel"></div>
+
   <!-- Scripts - Core EO Modules -->
   <script src="eo_event_store.js"></script>
   <script src="eo_horizon.js"></script>
@@ -293,6 +296,9 @@
   <script src="eo_graph.js"></script>
   <script src="eo_data_workbench.js"></script>
 
+  <!-- Scripts - Transparency -->
+  <script src="eo_principles_transparency.js"></script>
+
   <!-- Scripts - UI Controllers -->
   <script src="eo_app.js"></script>
   <script src="eo_workbench.js"></script>
@@ -303,6 +309,19 @@
       // Initialize the data workbench
       if (window.initApp) {
         window.initApp();
+      }
+
+      // Initialize the transparency panel
+      if (window.initTransparencyPanel) {
+        const transparency = window.initTransparencyPanel({
+          eventBus: window.getEventBus ? window.getEventBus() : null
+        });
+        transparency.init('principles-panel');
+
+        // Connect to app if available
+        if (window.EOApp) {
+          transparency.connect(window.EOApp);
+        }
       }
     });
   </script>
