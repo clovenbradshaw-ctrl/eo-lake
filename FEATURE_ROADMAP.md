@@ -18,6 +18,25 @@ EO Lake currently includes:
 - Sync protocol infrastructure (Bloom filters, protocol messages)
 - Basic graph visualization with force-directed layouts
 - Event bus for reactive updates
+- **9 Rules Transparency Panel** - Real-time visibility into how operations align with EO principles
+
+---
+
+## Recently Completed
+
+### Principles Transparency Panel
+**Status:** COMPLETE
+
+A transparent window showing how all app operations work according to the Nine Rules:
+
+- [x] **9 Rules Display**: All rules shown with real-time compliance status
+- [x] **Live Operations Log**: Every operation mapped to rules it upholds
+- [x] **Provenance Visualization**: How Meant events ground in Given events
+- [x] **Event Log View**: Append-only history with Given/Meant distinction
+- [x] **Rule Touch Tracking**: Animated feedback when rules are invoked
+- [x] **Compliance Checking**: Run audits and see violations per-rule
+
+**File:** `eo_principles_transparency.js`
 
 ---
 
