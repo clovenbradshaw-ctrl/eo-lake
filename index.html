@@ -1,1 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Experience Engine - EO Lake</title>
+  <link rel="stylesheet" href="eo_styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <div class="logo-icon">EO</div>
+          <span>Experience Engine</span>
+        </div>
+      </div>
 
+      <nav class="sidebar-nav">
+        <div class="nav-section">
+          <div class="nav-section-title">Main</div>
+          <div class="nav-item active" data-view="dashboard">
+            <span class="nav-item-icon">📊</span>
+            <span>Dashboard</span>
+          </div>
+          <div class="nav-item" data-view="events">
+            <span class="nav-item-icon">📋</span>
+            <span>Event Log</span>
+            <span class="nav-item-badge" id="nav-event-count">0</span>
+          </div>
+          <div class="nav-item" data-view="entities">
+            <span class="nav-item-icon">📦</span>
+            <span>Entities</span>
+          </div>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-title">System</div>
+          <div class="nav-item" data-view="compliance">
+            <span class="nav-item-icon">✓</span>
+            <span>Compliance</span>
+          </div>
+          <div class="nav-item" data-view="settings">
+            <span class="nav-item-icon">⚙</span>
+            <span>Settings</span>
+          </div>
+        </div>
+
+        <div class="nav-section">
+          <div class="nav-section-title">Quick Actions</div>
+          <div class="nav-item" id="btn-new-given">
+            <span class="nav-item-icon" style="color: var(--given-color);">+</span>
+            <span>New Given</span>
+          </div>
+          <div class="nav-item" id="btn-new-meant">
+            <span class="nav-item-icon" style="color: var(--meant-color);">+</span>
+            <span>New Interpretation</span>
+          </div>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <header class="header">
+        <div class="header-left">
+          <h1 class="header-title">Dashboard</h1>
+        </div>
+        <div class="header-right">
+          <div class="compliance-badge full" id="compliance-badge">
+            <span>9/9</span>
+            <span>FULL CONFORMANCE</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="content-area">
+        <!-- Dashboard View -->
+        <section class="view-section" data-view="dashboard">
+          <!-- Stats -->
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Statistics</h2>
+            </div>
+            <div class="panel-content">
+              <div class="stats-grid">
+                <div class="stat-card">
+                  <div class="stat-value" id="stat-total-events">0</div>
+                  <div class="stat-label">Total Events</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value" id="stat-given-count">0</div>
+                  <div class="stat-label">Given (Raw)</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value" id="stat-meant-count">0</div>
+                  <div class="stat-label">Meant (Interpreted)</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-value" id="stat-horizons">1</div>
+                  <div class="stat-label">Horizons</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Events -->
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">
+                <span class="panel-title-icon given"></span>
+                <span class="panel-title-icon meant"></span>
+                Recent Events
+              </h2>
+              <div class="panel-actions">
+                <button class="btn btn-outline btn-icon" id="btn-export" title="Export">↓</button>
+              </div>
+            </div>
+            <div class="panel-content">
+              <div class="event-log" id="event-log-container">
+                <div class="empty-state">
+                  <div class="empty-state-icon">📋</div>
+                  <div class="empty-state-title">No events yet</div>
+                  <div class="empty-state-description">
+                    Record your first experience to get started
+                  </div>
+                  <button class="btn btn-given" id="btn-first-given">Record First Experience</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Events View -->
+        <section class="view-section" data-view="events" style="display: none;">
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">
+                <span class="panel-title-icon given"></span>
+                <span class="panel-title-icon meant"></span>
+                Full Event Log
+              </h2>
+              <div class="panel-actions">
+                <div class="tabs">
+                  <button class="tab active" data-filter="all">All</button>
+                  <button class="tab" data-filter="given">Given</button>
+                  <button class="tab" data-filter="meant">Meant</button>
+                </div>
+              </div>
+            </div>
+            <div class="panel-content">
+              <div class="event-log" id="event-log-container-full" style="max-height: 600px;">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Entities View -->
+        <section class="view-section" data-view="entities" style="display: none;">
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Derived Entities</h2>
+              <div class="panel-actions">
+                <button class="btn btn-outline">Refresh</button>
+              </div>
+            </div>
+            <div class="panel-content">
+              <div class="entity-grid" id="entity-grid-container">
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Compliance View -->
+        <section class="view-section" data-view="compliance" style="display: none;">
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">The Nine Rules</h2>
+              <div class="panel-actions">
+                <button class="btn btn-primary" id="btn-run-compliance">Run Audit</button>
+              </div>
+            </div>
+            <div class="panel-content" id="compliance-report">
+              <div class="rule-list">
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 1: Distinction</div>
+                    <div class="rule-description">Given ⊕ Meant, exhaustive and exclusive</div>
+                  </div>
+                </div>
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 2: Impenetrability</div>
+                    <div class="rule-description">Given derives only from Given (anti-confabulation)</div>
+                  </div>
+                </div>
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 3: Ineliminability</div>
+                    <div class="rule-description">Given cannot be erased (anti-gaslighting)</div>
+                  </div>
+                </div>
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 4: Perspectivality</div>
+                    <div class="rule-description">No universal access; horizon mediates all</div>
+                  </div>
+                </div>
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 5: Restrictivity</div>
+                    <div class="rule-description">Refinement only restricts availability</div>
+                  </div>
+                </div>
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 6: Coherence</div>
+                    <div class="rule-description">Valid inference survives refinement</div>
+                  </div>
+                </div>
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 7: Groundedness</div>
+                    <div class="rule-description">All interpretations have provenance in Given</div>
+                  </div>
+                </div>
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 8: Determinacy</div>
+                    <div class="rule-description">Meaning crystallizes at minimal horizons</div>
+                  </div>
+                </div>
+                <div class="rule-item">
+                  <div class="rule-status pass">✓</div>
+                  <div class="rule-info">
+                    <div class="rule-name">Rule 9: Defeasibility</div>
+                    <div class="rule-description">Interpretations supersedable; no global ordering</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">About Experience Engines</h2>
+            </div>
+            <div class="panel-content">
+              <p style="color: var(--text-secondary); line-height: 1.8;">
+                An Experience Engine is a system that preserves the relationship between raw experience
+                (the <strong style="color: var(--given-color)">Given</strong>) and derived meaning
+                (the <strong style="color: var(--meant-color)">Meant</strong>). The nine rules protect
+                against three failure modes that corrupt meaning over time:
+              </p>
+              <ul style="color: var(--text-secondary); margin: 16px 0; padding-left: 24px; line-height: 1.8;">
+                <li><strong>Confabulation</strong> — When interpretation produces raw experience (Rules 1, 2)</li>
+                <li><strong>Gaslighting</strong> — When raw experience can be erased or edited (Rule 3)</li>
+                <li><strong>Dogmatism</strong> — When interpretations cannot be revised (Rules 7, 8, 9)</li>
+              </ul>
+              <p style="color: var(--text-secondary); line-height: 1.8;">
+                Rules 4, 5, and 6 govern the <strong>Horizon-Lattice</strong> — the perspectival structure
+                that mediates all access. There is no view from nowhere.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Settings View -->
+        <section class="view-section" data-view="settings" style="display: none;">
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Application Settings</h2>
+            </div>
+            <div class="panel-content">
+              <div class="form-group">
+                <label class="form-label">Current Workspace</label>
+                <input type="text" class="form-input" id="setting-workspace" value="default" disabled>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Current Actor ID</label>
+                <input type="text" class="form-input" id="setting-actor" disabled>
+              </div>
+              <div class="form-group">
+                <label class="form-label">Auto-Save Interval (ms)</label>
+                <input type="number" class="form-input" value="30000" disabled>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Cloud Sync (Coming Soon)</h2>
+            </div>
+            <div class="panel-content">
+              <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                Cloud synchronization will be available in a future update. The sync protocol
+                is designed to preserve all nine rules during distributed operation.
+              </p>
+              <div class="form-group">
+                <label class="form-label">API Endpoint</label>
+                <input type="text" class="form-input" placeholder="https://api.example.com/sync" disabled>
+              </div>
+              <button class="btn btn-outline" disabled>Configure Sync</button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Data Management</h2>
+            </div>
+            <div class="panel-content">
+              <div style="display: flex; gap: 12px;">
+                <button class="btn btn-outline" id="btn-export-settings">Export All Data</button>
+                <button class="btn btn-outline" id="btn-import-settings">Import Data</button>
+                <button class="btn btn-outline" style="color: var(--accent-red);" id="btn-clear-data">Clear All Data</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">Modal Title</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- Modal content -->
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline">Cancel</button>
+        <button class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="eo_event_store.js"></script>
+  <script src="eo_horizon.js"></script>
+  <script src="eo_compliance.js"></script>
+  <script src="eo_state_derivation.js"></script>
+  <script src="eo_persistence.js"></script>
+  <script src="eo_sync.js"></script>
+  <script src="eo_app.js"></script>
+  <script src="eo_workbench.js"></script>
+</body>
+</html>
