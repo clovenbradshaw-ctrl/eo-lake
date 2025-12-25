@@ -24,10 +24,18 @@
             <span class="nav-item-icon">📊</span>
             <span>Dashboard</span>
           </div>
+          <div class="nav-item" data-view="workbench">
+            <span class="nav-item-icon">⚡</span>
+            <span>Workbench</span>
+          </div>
           <div class="nav-item" data-view="events">
             <span class="nav-item-icon">📋</span>
             <span>Event Log</span>
             <span class="nav-item-badge" id="nav-event-count">0</span>
+          </div>
+          <div class="nav-item" data-view="graph">
+            <span class="nav-item-icon">⬡</span>
+            <span>Graph</span>
           </div>
           <div class="nav-item" data-view="entities">
             <span class="nav-item-icon">📦</span>
@@ -128,6 +136,32 @@
                   <button class="btn btn-given" id="btn-first-given">Record First Experience</button>
                 </div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Workbench View -->
+        <section class="view-section" data-view="workbench" style="display: none; height: calc(100vh - var(--header-height) - 40px);">
+          <div id="data-workbench-container" style="height: 100%;"></div>
+        </section>
+
+        <!-- Graph View -->
+        <section class="view-section" data-view="graph" style="display: none;">
+          <div class="panel" style="height: calc(100vh - var(--header-height) - 80px);">
+            <div class="panel-header">
+              <h2 class="panel-title">Experience Graph</h2>
+              <div class="panel-actions">
+                <div class="tabs" id="graph-layout-tabs">
+                  <button class="tab active" data-layout="force">Force</button>
+                  <button class="tab" data-layout="hierarchical">Hierarchy</button>
+                  <button class="tab" data-layout="timeline">Timeline</button>
+                </div>
+                <button class="btn btn-outline btn-icon" id="btn-graph-center" title="Center View">⌾</button>
+                <button class="btn btn-outline btn-icon" id="btn-graph-refresh" title="Refresh">↻</button>
+              </div>
+            </div>
+            <div class="panel-content" style="height: calc(100% - 60px); padding: 0;">
+              <div id="graph-container" style="width: 100%; height: 100%;"></div>
             </div>
           </div>
         </section>
@@ -347,14 +381,89 @@
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Scripts - Core Modules -->
   <script src="eo_event_store.js"></script>
   <script src="eo_horizon.js"></script>
   <script src="eo_compliance.js"></script>
   <script src="eo_state_derivation.js"></script>
   <script src="eo_persistence.js"></script>
   <script src="eo_sync.js"></script>
+
+  <!-- Scripts - Feature Modules -->
+  <script src="eo_event_bus.js"></script>
+  <script src="eo_views.js"></script>
+  <script src="eo_graph.js"></script>
+  <script src="eo_data_workbench.js"></script>
+
+  <!-- Scripts - UI Controllers -->
   <script src="eo_app.js"></script>
   <script src="eo_workbench.js"></script>
+
+  <!-- Initialize Advanced Features -->
+  <script>
+    // Initialize components after app is ready
+    document.addEventListener('DOMContentLoaded', () => {
+      // App initialization happens in eo_workbench.js
+      // Additional graph and workbench initialization here
+
+      // Graph view initialization
+      const graphContainer = document.getElementById('graph-container');
+      let graph = null;
+
+      // Graph layout tabs
+      document.querySelectorAll('#graph-layout-tabs .tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('#graph-layout-tabs .tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          if (graph) {
+            graph.setLayout(tab.dataset.layout);
+          }
+        });
+      });
+
+      // Graph controls
+      document.getElementById('btn-graph-center')?.addEventListener('click', () => {
+        if (graph) graph.centerView();
+      });
+
+      document.getElementById('btn-graph-refresh')?.addEventListener('click', () => {
+        if (graph) graph.refresh();
+      });
+
+      // Initialize graph when view is shown
+      const graphSection = document.querySelector('[data-view="graph"]');
+      const observer = new MutationObserver(() => {
+        if (graphSection.style.display !== 'none' && !graph && window.app) {
+          graph = initGraph('graph-container', window.app);
+          graph.centerView();
+        } else if (graphSection.style.display !== 'none' && graph) {
+          graph.refresh();
+          graph.centerView();
+        }
+      });
+      observer.observe(graphSection, { attributes: true, attributeFilter: ['style'] });
+
+      // Initialize data workbench when view is shown
+      let dataWorkbench = null;
+      const workbenchSection = document.querySelector('[data-view="workbench"]');
+      const wbObserver = new MutationObserver(() => {
+        if (workbenchSection.style.display !== 'none' && !dataWorkbench && window.app) {
+          dataWorkbench = initDataWorkbench('data-workbench-container', window.app);
+        } else if (workbenchSection.style.display !== 'none' && dataWorkbench) {
+          dataWorkbench.refresh();
+        }
+      });
+      wbObserver.observe(workbenchSection, { attributes: true, attributeFilter: ['style'] });
+
+      // Connect event bus when app is ready
+      const checkApp = setInterval(() => {
+        if (window.app) {
+          clearInterval(checkApp);
+          connectEventBus(window.app);
+          console.log('Experience Engine: Advanced features initialized');
+        }
+      }, 100);
+    });
+  </script>
 </body>
 </html>

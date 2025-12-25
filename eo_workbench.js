@@ -102,7 +102,9 @@ class EOWorkbench {
     // Update header title
     const titles = {
       dashboard: 'Dashboard',
+      workbench: 'Data Workbench',
       events: 'Event Log',
+      graph: 'Experience Graph',
       entities: 'Entities',
       compliance: 'Compliance',
       settings: 'Settings'
