@@ -74,17 +74,32 @@ const SynthesisMode = Object.freeze({
  * Edge events represent relationships between items in the graph.
  * They are first-class Given events, immutable and append-only.
  *
+ * PROVENANCE: Unlike graph DBs that store edges as facts, EO stores
+ * edges as claims with context. The context envelope captures:
+ * - source: Where did this claim come from? (e.g., 'linkedin_scrape', 'contract_47')
+ * - confidence: How certain are we? (0.0 - 1.0)
+ * - document_ref: What document backs this claim?
+ * - observed_date: When was this observed?
+ *
+ * This enables investigative workflows where *who said this* matters
+ * as much as *what they said*.
+ *
  * @param {Object} params - Edge parameters
  * @param {string} params.from - Source node ID
  * @param {string} params.to - Target node ID
  * @param {string} params.type - Edge type (e.g., 'knows', 'employed_by')
  * @param {Object} params.properties - Edge properties (e.g., { since: 2019 })
- * @param {string} params.actor - Who created this edge
- * @param {Object} params.context - Context envelope
+ * @param {string} params.actor - Who created this edge (agent)
+ * @param {Object} params.context - Context envelope for provenance
+ * @param {string} params.context.source - Data source (e.g., 'crm', 'linkedin', 'contract_47')
+ * @param {number} params.context.confidence - Confidence score 0.0-1.0
+ * @param {string} params.context.document_ref - Reference to backing document
+ * @param {string} params.context.observed_date - When this was observed
+ * @param {string} params.supersedes - Previous edge event this updates (for SUP)
  * @returns {Object} Edge event ready for appending to event store
  */
 function createEdgeEvent(params) {
-  const { from, to, type, properties = {}, actor, context = {} } = params;
+  const { from, to, type, properties = {}, actor, context = {}, supersedes = null } = params;
 
   if (!from || !to || !type) {
     throw new Error('Edge requires from, to, and type');
@@ -92,7 +107,7 @@ function createEdgeEvent(params) {
 
   const eventId = generateEdgeId(from, to, type);
 
-  return {
+  const event = {
     id: eventId,
     type: 'given',
     actor: actor || 'system',
@@ -102,6 +117,10 @@ function createEdgeEvent(params) {
       workspace: context.workspace || 'default',
       schemaVersion: context.schemaVersion || '1.0',
       source: context.source || 'graph_input',
+      // Provenance fields (EO additions beyond standard graph DBs)
+      confidence: context.confidence !== undefined ? context.confidence : 1.0,
+      document_ref: context.document_ref || null,
+      observed_date: context.observed_date || new Date().toISOString(),
       ...context
     },
     payload: {
@@ -114,6 +133,13 @@ function createEdgeEvent(params) {
       }
     }
   };
+
+  // Support for edge supersession (SUP - conflicting edges)
+  if (supersedes) {
+    event.supersedes = supersedes;
+  }
+
+  return event;
 }
 
 /**
@@ -195,6 +221,18 @@ function generateNodeEventId(nodeId) {
  * This is a READ-ONLY view built from edge events in the event store.
  * It provides O(1) lookups for graph traversal operations.
  *
+ * PROVENANCE SUPPORT:
+ * Unlike standard graph indexes, EdgeIndex preserves the full event context
+ * for each edge, enabling queries like:
+ * - "Show me edges from LinkedIn only"
+ * - "Filter edges with confidence >= 0.8"
+ * - "What edges came from contract_47?"
+ *
+ * CONFLICTING EDGES (SUP):
+ * When multiple sources report different facts about the same relationship,
+ * EdgeIndex maintains all versions. The byFromTo index stores arrays of
+ * competing edge versions that can be filtered by context.
+ *
  * COMPLIANCE: This is a derived view (Rule 7 - all interpretations grounded)
  */
 class EdgeIndex {
@@ -204,6 +242,18 @@ class EdgeIndex {
     this.byTo = new Map();        // nodeId -> Edge[]
     this.byType = new Map();      // edgeType -> Edge[]
     this.byId = new Map();        // edgeId -> Edge
+
+    // Compound indexes for edge-level SUP (conflicting edges)
+    this.byFromTo = new Map();    // "from:to" -> Edge[] (all versions of same edge)
+    this.byFromToType = new Map(); // "from:to:type" -> Edge[] (all versions)
+
+    // Provenance indexes
+    this.bySource = new Map();    // source -> Edge[]
+    this.byDocumentRef = new Map(); // document_ref -> Edge[]
+
+    // Supersession tracking
+    this.supersededBy = new Map(); // edgeId -> edgeId (what supersedes this)
+    this.supersedes = new Map();   // edgeId -> edgeId (what this supersedes)
 
     // Node index
     this.nodes = new Map();       // nodeId -> Node
@@ -217,6 +267,11 @@ class EdgeIndex {
   /**
    * Rebuild index from event store
    *
+   * Rebuilds all indexes from the event log, preserving:
+   * - Full context/provenance for each edge
+   * - Supersession chains for conflicting edges
+   * - Source and document reference indexes
+   *
    * @param {Array} events - Array of events from event store
    */
   rebuild(events) {
@@ -227,7 +282,13 @@ class EdgeIndex {
         this.indexNode(event.payload.node, event.id);
       }
       if (event.payload?.action === 'edge_create' && event.payload?.edge) {
-        this.indexEdge(event.payload.edge, event.id);
+        // Pass full context and supersession info
+        this.indexEdge(
+          event.payload.edge,
+          event.id,
+          event.context || {},
+          event.supersedes || null
+        );
       }
     }
 
@@ -247,16 +308,32 @@ class EdgeIndex {
   }
 
   /**
-   * Index a single edge
+   * Index a single edge with full context and provenance
+   *
+   * @param {Object} edge - Edge payload from event
+   * @param {string} eventId - Event ID
+   * @param {Object} context - Event context (source, confidence, document_ref, etc.)
+   * @param {string} supersedes - ID of edge event this supersedes (if any)
    */
-  indexEdge(edge, eventId) {
+  indexEdge(edge, eventId, context = {}, supersedes = null) {
     const indexed = {
       id: eventId,
       from: edge.from,
       to: edge.to,
       type: edge.type,
       properties: edge.properties || {},
-      _eventId: eventId
+      // Provenance - what EO adds beyond standard graph DBs
+      context: {
+        source: context.source || 'unknown',
+        confidence: context.confidence !== undefined ? context.confidence : 1.0,
+        document_ref: context.document_ref || null,
+        observed_date: context.observed_date || null,
+        workspace: context.workspace || 'default',
+        ...context
+      },
+      _eventId: eventId,
+      _supersedes: supersedes,
+      _supersededBy: null
     };
 
     // Index by ID
@@ -280,6 +357,46 @@ class EdgeIndex {
     }
     this.byType.get(edge.type).push(indexed);
 
+    // Index by from:to pair (for SUP - conflicting edges)
+    const fromToKey = `${edge.from}:${edge.to}`;
+    if (!this.byFromTo.has(fromToKey)) {
+      this.byFromTo.set(fromToKey, []);
+    }
+    this.byFromTo.get(fromToKey).push(indexed);
+
+    // Index by from:to:type (for SUP - conflicting edges of same type)
+    const fromToTypeKey = `${edge.from}:${edge.to}:${edge.type}`;
+    if (!this.byFromToType.has(fromToTypeKey)) {
+      this.byFromToType.set(fromToTypeKey, []);
+    }
+    this.byFromToType.get(fromToTypeKey).push(indexed);
+
+    // Index by source (provenance)
+    const source = context.source || 'unknown';
+    if (!this.bySource.has(source)) {
+      this.bySource.set(source, []);
+    }
+    this.bySource.get(source).push(indexed);
+
+    // Index by document_ref (provenance)
+    if (context.document_ref) {
+      if (!this.byDocumentRef.has(context.document_ref)) {
+        this.byDocumentRef.set(context.document_ref, []);
+      }
+      this.byDocumentRef.get(context.document_ref).push(indexed);
+    }
+
+    // Track supersession
+    if (supersedes) {
+      this.supersedes.set(eventId, supersedes);
+      this.supersededBy.set(supersedes, eventId);
+      // Mark the superseded edge
+      const supersededEdge = this.byId.get(supersedes);
+      if (supersededEdge) {
+        supersededEdge._supersededBy = eventId;
+      }
+    }
+
     this.edgeCount++;
   }
 
@@ -291,6 +408,12 @@ class EdgeIndex {
     this.byTo.clear();
     this.byType.clear();
     this.byId.clear();
+    this.byFromTo.clear();
+    this.byFromToType.clear();
+    this.bySource.clear();
+    this.byDocumentRef.clear();
+    this.supersededBy.clear();
+    this.supersedes.clear();
     this.nodes.clear();
     this.edgeCount = 0;
     this.nodeCount = 0;
@@ -320,37 +443,57 @@ class EdgeIndex {
   /**
    * Single-hop traversal (this is CON - Connection operator)
    *
+   * Supports context-aware filtering, enabling queries like:
+   * "Trace money, but only through edges I can document"
+   * "Follow relationships with confidence >= 0.8"
+   *
    * @param {string} nodeId - Starting node
    * @param {Object} options - Traversal options
    * @param {string} options.direction - 'out', 'in', or 'both'
    * @param {string[]} options.edgeTypes - Filter by edge types (null = all)
    * @param {Function} options.edgeFilter - Custom edge filter function
+   * @param {Object} options.edgeContext - Context filter (EO addition)
+   * @param {Object} options.edgeContext.confidence - e.g., { '>=': 0.8 }
+   * @param {string|string[]} options.edgeContext.source - Filter by source(s)
+   * @param {boolean} options.edgeContext.excludeSuperseded - Only active edges
+   * @param {boolean} options.activeOnly - Shorthand for excludeSuperseded: true
    * @returns {Edge[]} Matching edges
    */
   traverse(nodeId, options = {}) {
     const {
       direction = Direction.OUT,
       edgeTypes = null,
-      edgeFilter = null
+      edgeFilter = null,
+      edgeContext = null,
+      activeOnly = false
     } = options;
 
     let edges = [];
 
-    // Collect outgoing edges
+    // Collect outgoing edges (optionally only active)
     if (direction === Direction.OUT || direction === Direction.BOTH) {
-      const outgoing = this.byFrom.get(nodeId) || [];
+      const outgoing = activeOnly
+        ? this.getActiveEdgesFrom(nodeId)
+        : (this.byFrom.get(nodeId) || []);
       edges.push(...outgoing);
     }
 
-    // Collect incoming edges
+    // Collect incoming edges (optionally only active)
     if (direction === Direction.IN || direction === Direction.BOTH) {
-      const incoming = this.byTo.get(nodeId) || [];
+      const incoming = activeOnly
+        ? this.getActiveEdgesTo(nodeId)
+        : (this.byTo.get(nodeId) || []);
       edges.push(...incoming);
     }
 
     // Filter by edge types
     if (edgeTypes && edgeTypes.length > 0) {
       edges = edges.filter(e => edgeTypes.includes(e.type));
+    }
+
+    // Apply context filter (EO addition - what graph DBs don't provide)
+    if (edgeContext) {
+      edges = this.filterByContext(edges, edgeContext);
     }
 
     // Apply custom filter
@@ -382,8 +525,176 @@ class EdgeIndex {
       edgeCount: this.edgeCount,
       edgeTypes: Array.from(this.byType.keys()),
       nodeTypes: Array.from(new Set(Array.from(this.nodes.values()).map(n => n.type))),
+      sources: Array.from(this.bySource.keys()),
+      conflictingEdgeCount: this.countConflictingEdges(),
       lastRebuild: this.lastRebuild
     };
+  }
+
+  // ============================================================================
+  // PROVENANCE QUERIES (What EO adds beyond standard graph DBs)
+  // ============================================================================
+
+  /**
+   * Get edges from a specific source
+   * "Show me all edges from LinkedIn"
+   */
+  getEdgesBySource(source) {
+    return this.bySource.get(source) || [];
+  }
+
+  /**
+   * Get edges backed by a specific document
+   * "What edges came from contract_47?"
+   */
+  getEdgesByDocumentRef(documentRef) {
+    return this.byDocumentRef.get(documentRef) || [];
+  }
+
+  /**
+   * Get all versions of an edge between two nodes (SUP)
+   * Returns all edge events for the same from:to pair, allowing you to see
+   * conflicting claims from different sources.
+   *
+   * Example: CRM says Bob works at Metro, LinkedIn says he left
+   */
+  getEdgeVersions(fromId, toId, edgeType = null) {
+    if (edgeType) {
+      const key = `${fromId}:${toId}:${edgeType}`;
+      return this.byFromToType.get(key) || [];
+    }
+    const key = `${fromId}:${toId}`;
+    return this.byFromTo.get(key) || [];
+  }
+
+  /**
+   * Get only active (non-superseded) edges from a node
+   * Filters out edges that have been replaced by newer versions
+   */
+  getActiveEdgesFrom(nodeId, options = {}) {
+    const allEdges = this.byFrom.get(nodeId) || [];
+    return allEdges.filter(e => !e._supersededBy);
+  }
+
+  /**
+   * Get only active (non-superseded) edges to a node
+   */
+  getActiveEdgesTo(nodeId, options = {}) {
+    const allEdges = this.byTo.get(nodeId) || [];
+    return allEdges.filter(e => !e._supersededBy);
+  }
+
+  /**
+   * Filter edges by context criteria
+   * Supports:
+   * - confidence: { '>=': 0.8 } or { '>': 0.5 }
+   * - source: 'linkedin' or ['linkedin', 'crm']
+   * - excludeSuperseded: true
+   *
+   * @param {Edge[]} edges - Edges to filter
+   * @param {Object} contextFilter - Filter criteria
+   * @returns {Edge[]} Filtered edges
+   */
+  filterByContext(edges, contextFilter) {
+    if (!contextFilter) return edges;
+
+    return edges.filter(edge => {
+      const ctx = edge.context || {};
+
+      // Confidence filter
+      if (contextFilter.confidence) {
+        const conf = ctx.confidence ?? 1.0;
+        if (contextFilter.confidence['>='] !== undefined && conf < contextFilter.confidence['>=']) {
+          return false;
+        }
+        if (contextFilter.confidence['>'] !== undefined && conf <= contextFilter.confidence['>']) {
+          return false;
+        }
+        if (contextFilter.confidence['<='] !== undefined && conf > contextFilter.confidence['<=']) {
+          return false;
+        }
+        if (contextFilter.confidence['<'] !== undefined && conf >= contextFilter.confidence['<']) {
+          return false;
+        }
+        if (contextFilter.confidence['='] !== undefined && conf !== contextFilter.confidence['=']) {
+          return false;
+        }
+      }
+
+      // Source filter
+      if (contextFilter.source) {
+        const sources = Array.isArray(contextFilter.source)
+          ? contextFilter.source
+          : [contextFilter.source];
+        if (!sources.includes(ctx.source)) {
+          return false;
+        }
+      }
+
+      // Exclude superseded edges
+      if (contextFilter.excludeSuperseded && edge._supersededBy) {
+        return false;
+      }
+
+      // Document ref filter
+      if (contextFilter.document_ref) {
+        if (ctx.document_ref !== contextFilter.document_ref) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }
+
+  /**
+   * Count edges that have conflicts (multiple versions)
+   */
+  countConflictingEdges() {
+    let count = 0;
+    for (const [key, versions] of this.byFromToType) {
+      if (versions.length > 1) {
+        count += versions.length;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Get all edges with conflicts for investigation
+   * Returns edges grouped by from:to:type key
+   */
+  getConflictingEdges() {
+    const conflicts = {};
+    for (const [key, versions] of this.byFromToType) {
+      if (versions.length > 1) {
+        conflicts[key] = versions;
+      }
+    }
+    return conflicts;
+  }
+
+  /**
+   * Get the supersession chain for an edge
+   * Returns array from oldest to newest version
+   */
+  getSupersessionChain(edgeId) {
+    const chain = [];
+    let current = edgeId;
+
+    // Walk backwards to find oldest
+    while (this.supersedes.has(current)) {
+      current = this.supersedes.get(current);
+    }
+
+    // Now walk forwards collecting the chain
+    chain.push(this.byId.get(current));
+    while (this.supersededBy.has(current)) {
+      current = this.supersededBy.get(current);
+      chain.push(this.byId.get(current));
+    }
+
+    return chain.filter(Boolean);
   }
 }
 
@@ -634,12 +945,20 @@ function matchesPropertyFilter(properties, filter) {
 /**
  * Apply CON (Connection) operator
  *
- * Traverse edges from current nodes.
+ * Traverse edges from current nodes with optional context filtering.
+ *
+ * EO ADDITION: edgeContext parameter enables context-aware traversal:
+ * "Trace money, but only through edges I can document"
  *
  * @param {Object} params - CON parameters
  * @param {string[]} params.edgeTypes - Edge types to follow (null = all)
  * @param {string} params.direction - 'out', 'in', 'both'
  * @param {Object} params.edgeFilter - Edge property filter
+ * @param {Object} params.edgeContext - Context filter (EO addition)
+ * @param {Object} params.edgeContext.confidence - e.g., { '>=': 0.8 }
+ * @param {string|string[]} params.edgeContext.source - Filter by source(s)
+ * @param {boolean} params.edgeContext.excludeSuperseded - Only active edges
+ * @param {boolean} params.activeOnly - Shorthand for excludeSuperseded: true
  * @param {string} params.return - 'nodes', 'edges', 'both'
  * @param {TraversalState} state - Current state
  * @param {EdgeIndex} index - Edge index
@@ -654,7 +973,10 @@ function applyCON(params, state, index) {
     const edges = index.traverse(nodeId, {
       direction: params.direction || Direction.OUT,
       edgeTypes: params.edgeTypes,
-      edgeFilter: params.edgeFilter ? (e) => matchesPropertyFilter(e.properties, params.edgeFilter) : null
+      edgeFilter: params.edgeFilter ? (e) => matchesPropertyFilter(e.properties, params.edgeFilter) : null,
+      // EO addition: context-aware filtering
+      edgeContext: params.edgeContext || null,
+      activeOnly: params.activeOnly || false
     });
 
     for (const edge of edges) {
@@ -1122,7 +1444,13 @@ class GraphTraversalEngine {
             this.index.indexNode(event.payload.node, event.id);
           }
           if (event.payload?.action === 'edge_create') {
-            this.index.indexEdge(event.payload.edge, event.id);
+            // Pass full context and supersession info for provenance tracking
+            this.index.indexEdge(
+              event.payload.edge,
+              event.id,
+              event.context || {},
+              event.supersedes || null
+            );
           }
         });
         this._subscribed = true;
@@ -1160,10 +1488,21 @@ class GraphTraversalEngine {
   }
 
   /**
-   * Add an edge
+   * Add an edge with provenance context
+   *
+   * @param {string} from - Source node ID
+   * @param {string} to - Target node ID
+   * @param {string} type - Edge type
+   * @param {Object} properties - Edge properties
+   * @param {string} actor - Who created this edge
+   * @param {Object} context - Provenance context
+   * @param {string} context.source - Data source (e.g., 'crm', 'linkedin')
+   * @param {number} context.confidence - Confidence score 0.0-1.0
+   * @param {string} context.document_ref - Reference to backing document
+   * @param {string} supersedes - ID of edge event this supersedes (for conflicts)
    */
-  addEdge(from, to, type, properties = {}, actor = 'system', context = {}) {
-    const event = createEdgeEvent({ from, to, type, properties, actor, context });
+  addEdge(from, to, type, properties = {}, actor = 'system', context = {}, supersedes = null) {
+    const event = createEdgeEvent({ from, to, type, properties, actor, context, supersedes });
 
     if (this.eventStore) {
       const result = this.eventStore.append(event);
@@ -1172,7 +1511,7 @@ class GraphTraversalEngine {
       }
     } else {
       // Direct index update if no event store
-      this.index.indexEdge({ from, to, type, properties }, event.id);
+      this.index.indexEdge({ from, to, type, properties }, event.id, context, supersedes);
     }
 
     return event;
@@ -1281,6 +1620,135 @@ class GraphTraversalEngine {
   getStats() {
     return this.index.getStats();
   }
+
+  // ============================================================================
+  // PROVENANCE QUERIES (What EO adds beyond standard graph DBs)
+  // ============================================================================
+
+  /**
+   * Get edges from a specific data source
+   * "Show me all edges from LinkedIn"
+   */
+  getEdgesBySource(source) {
+    return this.index.getEdgesBySource(source);
+  }
+
+  /**
+   * Get edges backed by a specific document
+   * "What edges came from contract_47?"
+   */
+  getEdgesByDocumentRef(documentRef) {
+    return this.index.getEdgesByDocumentRef(documentRef);
+  }
+
+  /**
+   * Get all versions of an edge (for investigating conflicts)
+   * Example: CRM says Bob works at Metro, LinkedIn says he left
+   */
+  getEdgeVersions(fromId, toId, edgeType = null) {
+    return this.index.getEdgeVersions(fromId, toId, edgeType);
+  }
+
+  /**
+   * Get all edges with conflicts for investigation
+   */
+  getConflictingEdges() {
+    return this.index.getConflictingEdges();
+  }
+
+  /**
+   * Get the supersession chain for an edge
+   */
+  getSupersessionChain(edgeId) {
+    return this.index.getSupersessionChain(edgeId);
+  }
+
+  /**
+   * Context-aware path finding
+   *
+   * Example: "Trace money, but only through edges I can document"
+   *
+   * @param {string} fromId - Starting node
+   * @param {string} toId - Target node
+   * @param {Object} options - Path finding options
+   * @param {Object} options.edgeContext - Context filter
+   * @param {Object} options.edgeContext.confidence - e.g., { '>=': 0.8 }
+   * @param {string|string[]} options.edgeContext.source - Filter by source(s)
+   * @param {boolean} options.activeOnly - Only use active (non-superseded) edges
+   */
+  findPathsWithContext(fromId, toId, options = {}) {
+    const maxDepth = options.maxDepth || 6;
+    const edgeTypes = options.edgeTypes || null;
+    const direction = options.direction || Direction.BOTH;
+    const edgeContext = options.edgeContext || null;
+    const activeOnly = options.activeOnly || false;
+
+    const pipeline = [
+      { op: GraphOperator.SEG, params: { nodeId: fromId } },
+      {
+        op: GraphOperator.REC,
+        params: {
+          pipeline: [
+            {
+              op: GraphOperator.CON,
+              params: {
+                direction,
+                edgeTypes,
+                edgeContext,
+                activeOnly,
+                return: 'both'
+              }
+            },
+            { op: GraphOperator.SEG, params: { excludeVisited: true } }
+          ],
+          until: {
+            targetReached: toId,
+            maxDepth
+          },
+          collect: CollectMode.PATHS
+        }
+      },
+      { op: GraphOperator.SUP, params: { mode: 'all_paths' } }
+    ];
+
+    return this.execute(pipeline, { startNodes: fromId });
+  }
+
+  /**
+   * Traverse with context filtering
+   *
+   * @param {string} startId - Starting node
+   * @param {number} maxHops - Maximum traversal depth
+   * @param {Object} options - Traversal options
+   * @param {Object} options.edgeContext - Context filter
+   */
+  traverseWithContext(startId, maxHops, options = {}) {
+    const edgeTypes = options.edgeTypes || null;
+    const direction = options.direction || Direction.BOTH;
+    const nodeType = options.nodeType || null;
+    const edgeContext = options.edgeContext || null;
+    const activeOnly = options.activeOnly || false;
+
+    const pipeline = [
+      { op: GraphOperator.SEG, params: { nodeId: startId } },
+      {
+        op: GraphOperator.REC,
+        params: {
+          pipeline: [
+            {
+              op: GraphOperator.CON,
+              params: { direction, edgeTypes, edgeContext, activeOnly }
+            },
+            { op: GraphOperator.SEG, params: { excludeVisited: true, nodeType } }
+          ],
+          until: { maxDepth: maxHops },
+          collect: CollectMode.NODES
+        }
+      }
+    ];
+
+    return this.execute(pipeline, { startNodes: startId });
+  }
 }
 
 // ============================================================================
@@ -1289,10 +1757,16 @@ class GraphTraversalEngine {
 
 /**
  * Load the Nashville investigation demo data
+ *
+ * Demonstrates EO's provenance features:
+ * - Edges with different sources (CRM, LinkedIn, contracts)
+ * - Confidence scores
+ * - Document references
+ * - Conflicting edges (Bob's employment status)
  */
 function loadNashvilleDemo(engine) {
-  const actor = 'demo_loader';
-  const context = { workspace: 'nashville_investigation', source: 'demo' };
+  const actor = 'michael';  // Investigative journalist
+  const baseContext = { workspace: 'nashville_investigation' };
 
   // NODES
   const nodes = [
@@ -1307,31 +1781,113 @@ function loadNashvilleDemo(engine) {
     { id: 'contract_2', type: 'contract', properties: { amount: 89000, date: '2023-07-22' } }
   ];
 
-  // EDGES
+  // EDGES WITH RICH PROVENANCE
+  // Note: Edges include source, confidence, and document_ref for provenance tracking
   const edges = [
-    { from: 'alice', to: 'bob', type: 'knows', properties: { since: 2019 } },
-    { from: 'bob', to: 'carol', type: 'knows', properties: { since: 2021 } },
-    { from: 'carol', to: 'dave', type: 'knows', properties: { since: 2018 } },
-    { from: 'dave', to: 'alice', type: 'knows', properties: { since: 2020 } },
-    { from: 'alice', to: 'bob', type: 'worked_with', properties: { project: 'housing initiative' } },
-    { from: 'bob', to: 'metro', type: 'employed_by', properties: { role: 'analyst', start: 2020 } },
-    { from: 'carol', to: 'ohs', type: 'employed_by', properties: { role: 'director', start: 2022 } },
-    { from: 'carol', to: 'acme_llc', type: 'owns', properties: { percent: 100 } },
-    { from: 'ohs', to: 'metro', type: 'part_of', properties: {} },
-    { from: 'ohs', to: 'contract_1', type: 'awarded', properties: {} },
-    { from: 'contract_1', to: 'acme_llc', type: 'paid_to', properties: {} },
-    { from: 'dave', to: 'carol', type: 'married_to', properties: {} },
-    { from: 'bob', to: 'contract_1', type: 'approved', properties: { date: '2023-03-10' } }
+    // Social connections (from LinkedIn with varying confidence)
+    {
+      from: 'alice', to: 'bob', type: 'knows',
+      properties: { since: 2019 },
+      context: { source: 'linkedin', confidence: 0.9, observed_date: '2025-01-15' }
+    },
+    {
+      from: 'bob', to: 'carol', type: 'knows',
+      properties: { since: 2021 },
+      context: { source: 'linkedin', confidence: 0.7, observed_date: '2025-01-15' }
+    },
+    {
+      from: 'carol', to: 'dave', type: 'knows',
+      properties: { since: 2018 },
+      context: { source: 'linkedin', confidence: 0.85, observed_date: '2025-01-15' }
+    },
+    {
+      from: 'dave', to: 'alice', type: 'knows',
+      properties: { since: 2020 },
+      context: { source: 'interview', confidence: 1.0, document_ref: 'interview_transcript_001.pdf' }
+    },
+    {
+      from: 'alice', to: 'bob', type: 'worked_with',
+      properties: { project: 'housing initiative' },
+      context: { source: 'metro_records', confidence: 1.0, document_ref: 'project_roster_2021.pdf' }
+    },
+
+    // CONFLICTING EDGES: Bob's employment status
+    // CRM says Bob currently works at Metro
+    {
+      from: 'bob', to: 'metro', type: 'employed_by',
+      properties: { role: 'analyst', start: 2020, current: true },
+      context: { source: 'crm', confidence: 0.8, observed_date: '2025-01-10' }
+    },
+    // LinkedIn says he left in 2023
+    {
+      from: 'bob', to: 'metro', type: 'employed_by',
+      properties: { role: 'analyst', start: 2020, end_date: '2023-11' },
+      context: { source: 'linkedin', confidence: 0.7, observed_date: '2025-01-15' }
+    },
+    // A 2024 contract lists him as Metro employee (strong evidence)
+    {
+      from: 'bob', to: 'metro', type: 'employed_by',
+      properties: { role: 'analyst', start: 2020, current: true, as_of: '2024-03' },
+      context: { source: 'contract_47', confidence: 1.0, document_ref: 'contract_47_sig_page.pdf' }
+    },
+
+    // Carol's employment - backed by official records
+    {
+      from: 'carol', to: 'ohs', type: 'employed_by',
+      properties: { role: 'director', start: 2022 },
+      context: { source: 'metro_hr', confidence: 1.0, document_ref: 'hr_roster_2023.xlsx' }
+    },
+
+    // Carol's ownership of Acme - from SoS records
+    {
+      from: 'carol', to: 'acme_llc', type: 'owns',
+      properties: { percent: 100 },
+      context: { source: 'sos_filings', confidence: 1.0, document_ref: 'acme_llc_filing.pdf' }
+    },
+
+    // Organizational structure
+    {
+      from: 'ohs', to: 'metro', type: 'part_of',
+      properties: {},
+      context: { source: 'metro_records', confidence: 1.0 }
+    },
+
+    // Contract awards and payments - critical path edges with high confidence
+    {
+      from: 'ohs', to: 'contract_1', type: 'awarded',
+      properties: {},
+      context: { source: 'procurement_records', confidence: 1.0, document_ref: 'award_notice_2023_047.pdf' }
+    },
+    {
+      from: 'contract_1', to: 'acme_llc', type: 'paid_to',
+      properties: {},
+      context: { source: 'finance_records', confidence: 1.0, document_ref: 'payment_voucher_2023_1234.pdf' }
+    },
+
+    // Marriage - from public records
+    {
+      from: 'dave', to: 'carol', type: 'married_to',
+      properties: {},
+      context: { source: 'marriage_records', confidence: 1.0, document_ref: 'marriage_cert_2015.pdf' }
+    },
+
+    // Bob approved the contract - documented
+    {
+      from: 'bob', to: 'contract_1', type: 'approved',
+      properties: { date: '2023-03-10' },
+      context: { source: 'approval_log', confidence: 1.0, document_ref: 'contract_approval_log.xlsx' }
+    }
   ];
 
   // Add nodes
   for (const node of nodes) {
-    engine.addNode(node.id, node.type, node.properties, actor, context);
+    engine.addNode(node.id, node.type, node.properties, actor, { ...baseContext, source: 'demo' });
   }
 
-  // Add edges
+  // Add edges with provenance context
   for (const edge of edges) {
-    engine.addEdge(edge.from, edge.to, edge.type, edge.properties, actor, context);
+    const edgeContext = { ...baseContext, ...edge.context };
+    engine.addEdge(edge.from, edge.to, edge.type, edge.properties || {}, actor, edgeContext);
   }
 
   return { nodeCount: nodes.length, edgeCount: edges.length };
