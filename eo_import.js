@@ -634,6 +634,11 @@ class ImportOrchestrator {
       return type === 'checkbox' ? false : '';
     }
 
+    // Preserve nested objects and arrays as-is for proper rendering
+    if (typeof value === 'object') {
+      return value;
+    }
+
     const strValue = String(value).trim();
 
     switch (type) {

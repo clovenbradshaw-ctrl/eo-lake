@@ -1202,7 +1202,16 @@ class EODataWorkbench {
         break;
 
       default:
-        content = value ? this._escapeHtml(String(value)) : '<span class="cell-empty">-</span>';
+        // Handle nested objects and arrays properly
+        if (value !== null && value !== undefined) {
+          if (typeof value === 'object') {
+            content = this._renderNestedValue(value);
+          } else {
+            content = this._escapeHtml(String(value));
+          }
+        } else {
+          content = '<span class="cell-empty">-</span>';
+        }
     }
 
     return `<td class="${cellClass}" data-field-id="${field.id}">${content}</td>`;
@@ -2816,6 +2825,286 @@ class EODataWorkbench {
     const div = document.createElement('div');
     div.textContent = String(text);
     return div.innerHTML;
+  }
+
+  /**
+   * Render a nested value (object or array) for display in a table cell
+   */
+  _renderNestedValue(value, depth = 0) {
+    if (value === null || value === undefined) {
+      return '<span class="cell-empty">-</span>';
+    }
+
+    // Prevent infinite nesting - show JSON after max depth
+    const MAX_DEPTH = 3;
+    if (depth >= MAX_DEPTH) {
+      return `<span class="nested-json-preview">${this._escapeHtml(JSON.stringify(value))}</span>`;
+    }
+
+    // Array of objects -> nested table
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return '<span class="cell-empty">[]</span>';
+      }
+
+      // Array of primitives -> comma-separated badges
+      if (value.every(item => typeof item !== 'object' || item === null)) {
+        return this._renderPrimitiveArray(value);
+      }
+
+      // Array of objects -> nested table
+      return this._renderNestedTable(value, depth);
+    }
+
+    // Single object -> key-value display
+    if (typeof value === 'object') {
+      return this._renderNestedObject(value, depth);
+    }
+
+    // Primitive value
+    return this._escapeHtml(String(value));
+  }
+
+  /**
+   * Render an array of primitive values as badges/chips
+   */
+  _renderPrimitiveArray(arr) {
+    const items = arr.slice(0, 10); // Limit display
+    const hasMore = arr.length > 10;
+
+    let html = '<div class="nested-array-badges">';
+    items.forEach(item => {
+      html += `<span class="nested-badge">${this._escapeHtml(String(item))}</span>`;
+    });
+    if (hasMore) {
+      html += `<span class="nested-badge nested-more">+${arr.length - 10} more</span>`;
+    }
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Render an array of objects as a nested table
+   */
+  _renderNestedTable(arr, depth) {
+    // Filter to only objects
+    const objects = arr.filter(item => typeof item === 'object' && item !== null && !Array.isArray(item));
+
+    if (objects.length === 0) {
+      // Mixed array - show as JSON
+      return `<span class="nested-json-preview">${this._escapeHtml(JSON.stringify(arr))}</span>`;
+    }
+
+    // Get all unique keys from all objects
+    const keys = new Set();
+    objects.forEach(obj => Object.keys(obj).forEach(k => keys.add(k)));
+    const headers = Array.from(keys);
+
+    // Limit columns for readability
+    const displayHeaders = headers.slice(0, 6);
+    const hasMoreCols = headers.length > 6;
+
+    // Limit rows
+    const displayRows = objects.slice(0, 5);
+    const hasMoreRows = objects.length > 5;
+
+    let html = '<div class="nested-table-container">';
+    html += '<table class="nested-table">';
+
+    // Header
+    html += '<thead><tr>';
+    displayHeaders.forEach(h => {
+      html += `<th>${this._escapeHtml(h)}</th>`;
+    });
+    if (hasMoreCols) {
+      html += '<th class="nested-more-col">...</th>';
+    }
+    html += '</tr></thead>';
+
+    // Body
+    html += '<tbody>';
+    displayRows.forEach(obj => {
+      html += '<tr>';
+      displayHeaders.forEach(h => {
+        const cellValue = obj[h];
+        html += `<td>${this._renderNestedValue(cellValue, depth + 1)}</td>`;
+      });
+      if (hasMoreCols) {
+        html += '<td class="nested-more-col">...</td>';
+      }
+      html += '</tr>';
+    });
+
+    if (hasMoreRows) {
+      html += `<tr class="nested-more-row"><td colspan="${displayHeaders.length + (hasMoreCols ? 1 : 0)}">+${objects.length - 5} more rows</td></tr>`;
+    }
+    html += '</tbody></table>';
+
+    // Add expand button for full view
+    html += `<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(JSON.stringify(arr)))})"><i class="ph ph-arrows-out-simple"></i></button>`;
+    html += '</div>';
+
+    return html;
+  }
+
+  /**
+   * Render a single object as key-value pairs
+   */
+  _renderNestedObject(obj, depth) {
+    const keys = Object.keys(obj);
+
+    if (keys.length === 0) {
+      return '<span class="cell-empty">{}</span>';
+    }
+
+    // For small objects (1-2 keys), show inline
+    if (keys.length <= 2 && keys.every(k => typeof obj[k] !== 'object')) {
+      return '<span class="nested-object-inline">' +
+        keys.map(k => `<span class="nested-kv"><span class="nested-key">${this._escapeHtml(k)}:</span> <span class="nested-val">${this._escapeHtml(String(obj[k]))}</span></span>`).join(' ') +
+        '</span>';
+    }
+
+    // For larger objects, show as compact table
+    const displayKeys = keys.slice(0, 4);
+    const hasMore = keys.length > 4;
+
+    let html = '<div class="nested-object-container">';
+    html += '<div class="nested-object-grid">';
+    displayKeys.forEach(k => {
+      html += `<div class="nested-object-row">`;
+      html += `<span class="nested-key">${this._escapeHtml(k)}</span>`;
+      html += `<span class="nested-val">${this._renderNestedValue(obj[k], depth + 1)}</span>`;
+      html += '</div>';
+    });
+    if (hasMore) {
+      html += `<div class="nested-object-more">+${keys.length - 4} more fields</div>`;
+    }
+    html += '</div>';
+
+    // Add expand button
+    html += `<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(JSON.stringify(obj)))})"><i class="ph ph-arrows-out-simple"></i></button>`;
+    html += '</div>';
+
+    return html;
+  }
+
+  /**
+   * Show modal with full nested data view
+   */
+  _showNestedDataModal(jsonString) {
+    const data = JSON.parse(jsonString);
+
+    // Create modal content
+    const modalContent = document.createElement('div');
+    modalContent.className = 'nested-data-modal';
+
+    // Render full data recursively
+    if (Array.isArray(data)) {
+      modalContent.innerHTML = this._renderFullNestedTable(data);
+    } else {
+      modalContent.innerHTML = this._renderFullNestedObject(data);
+    }
+
+    // Show in modal
+    const modal = document.getElementById('modal-overlay');
+    const modalBody = modal.querySelector('.modal-body');
+    const modalTitle = modal.querySelector('.modal-title');
+
+    if (modal && modalBody && modalTitle) {
+      modalTitle.textContent = 'Nested Data';
+      modalBody.innerHTML = '';
+      modalBody.appendChild(modalContent);
+      modal.classList.add('active');
+    }
+  }
+
+  /**
+   * Render full nested table for modal view
+   */
+  _renderFullNestedTable(arr) {
+    if (!Array.isArray(arr) || arr.length === 0) {
+      return '<p class="cell-empty">No data</p>';
+    }
+
+    // Get all unique keys
+    const keys = new Set();
+    arr.forEach(item => {
+      if (typeof item === 'object' && item !== null) {
+        Object.keys(item).forEach(k => keys.add(k));
+      }
+    });
+    const headers = Array.from(keys);
+
+    let html = '<div class="nested-modal-table-wrapper">';
+    html += '<table class="nested-modal-table">';
+
+    // Header
+    html += '<thead><tr>';
+    headers.forEach(h => {
+      html += `<th>${this._escapeHtml(h)}</th>`;
+    });
+    html += '</tr></thead>';
+
+    // Body
+    html += '<tbody>';
+    arr.forEach((item, idx) => {
+      if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+        html += '<tr>';
+        headers.forEach(h => {
+          const cellValue = item[h];
+          html += `<td>${this._renderModalCellValue(cellValue)}</td>`;
+        });
+        html += '</tr>';
+      } else {
+        html += `<tr><td colspan="${headers.length}">${this._renderModalCellValue(item)}</td></tr>`;
+      }
+    });
+    html += '</tbody></table></div>';
+
+    return html;
+  }
+
+  /**
+   * Render full nested object for modal view
+   */
+  _renderFullNestedObject(obj) {
+    if (typeof obj !== 'object' || obj === null) {
+      return `<p>${this._escapeHtml(String(obj))}</p>`;
+    }
+
+    let html = '<div class="nested-modal-object">';
+    Object.entries(obj).forEach(([key, value]) => {
+      html += '<div class="nested-modal-field">';
+      html += `<div class="nested-modal-key">${this._escapeHtml(key)}</div>`;
+      html += `<div class="nested-modal-value">${this._renderModalCellValue(value)}</div>`;
+      html += '</div>';
+    });
+    html += '</div>';
+
+    return html;
+  }
+
+  /**
+   * Render a cell value for modal display (recursive)
+   */
+  _renderModalCellValue(value) {
+    if (value === null || value === undefined) {
+      return '<span class="cell-empty">-</span>';
+    }
+
+    if (Array.isArray(value)) {
+      if (value.length === 0) return '<span class="cell-empty">[]</span>';
+      if (value.every(item => typeof item !== 'object' || item === null)) {
+        return value.map(v => `<span class="nested-badge">${this._escapeHtml(String(v))}</span>`).join(' ');
+      }
+      return this._renderFullNestedTable(value);
+    }
+
+    if (typeof value === 'object') {
+      return this._renderFullNestedObject(value);
+    }
+
+    return this._escapeHtml(String(value));
   }
 
   // --------------------------------------------------------------------------

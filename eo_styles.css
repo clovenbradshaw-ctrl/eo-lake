@@ -1009,6 +1009,251 @@ html, body {
   color: var(--field-formula);
 }
 
+/* ===== Nested Data Display ===== */
+
+/* Container for nested tables */
+.nested-table-container {
+  position: relative;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.nested-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.nested-table th,
+.nested-table td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-secondary);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nested-table th {
+  background: var(--bg-quaternary);
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.nested-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.nested-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.nested-more-col,
+.nested-more-row td {
+  color: var(--text-muted);
+  font-style: italic;
+  text-align: center;
+}
+
+/* Nested object display */
+.nested-object-container {
+  position: relative;
+}
+
+.nested-object-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.nested-object-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.nested-object-inline {
+  font-size: 12px;
+}
+
+.nested-kv {
+  display: inline-flex;
+  gap: 4px;
+  margin-right: 8px;
+}
+
+.nested-key {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 10px;
+}
+
+.nested-val {
+  color: var(--text-primary);
+}
+
+.nested-object-more {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: italic;
+  padding-top: 2px;
+}
+
+/* Array badges for primitive arrays */
+.nested-array-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.nested-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-secondary);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nested-more {
+  background: transparent;
+  color: var(--text-muted);
+  font-style: italic;
+  border-style: dashed;
+}
+
+/* Expand button for full view */
+.nested-expand-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  z-index: 5;
+}
+
+.nested-table-container:hover .nested-expand-btn,
+.nested-object-container:hover .nested-expand-btn {
+  opacity: 1;
+}
+
+.nested-expand-btn:hover {
+  background: var(--bg-hover);
+}
+
+.nested-expand-btn i {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* JSON preview for deeply nested or complex data */
+.nested-json-preview {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+}
+
+/* Modal view for full nested data */
+.nested-data-modal {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.nested-modal-table-wrapper {
+  overflow-x: auto;
+}
+
+.nested-modal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.nested-modal-table th,
+.nested-modal-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border: 1px solid var(--border-secondary);
+  vertical-align: top;
+}
+
+.nested-modal-table th {
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  color: var(--text-primary);
+  position: sticky;
+  top: 0;
+}
+
+.nested-modal-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.nested-modal-object {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nested-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nested-modal-key {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.nested-modal-value {
+  color: var(--text-primary);
+  padding-left: 12px;
+  border-left: 2px solid var(--border-secondary);
+}
+
+/* Make cells with nested content expand more */
+.data-table td:has(.nested-table-container),
+.data-table td:has(.nested-object-container) {
+  min-width: 250px;
+  vertical-align: top;
+  padding: 6px 8px;
+}
+
 /* Add Row */
 .add-row-cell {
   border-bottom: none;
