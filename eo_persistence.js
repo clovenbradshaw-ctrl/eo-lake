@@ -20,7 +20,7 @@
 class IndexedDBBackend {
   constructor(dbName = 'eo_experience_engine') {
     this.dbName = dbName;
-    this.version = 1;
+    this.version = 2; // Incremented for graph traversal indexes
     this.db = null;
   }
 
@@ -51,6 +51,14 @@ class IndexedDBBackend {
           eventStore.createIndex('logicalClock', 'logicalClock', { unique: false });
           eventStore.createIndex('actor', 'actor', { unique: false });
           eventStore.createIndex('workspace', 'context.workspace', { unique: false });
+          // Graph traversal indexes for edges
+          eventStore.createIndex('action', 'payload.action', { unique: false });
+          eventStore.createIndex('edge_from', 'payload.edge.from', { unique: false });
+          eventStore.createIndex('edge_to', 'payload.edge.to', { unique: false });
+          eventStore.createIndex('edge_type', 'payload.edge.type', { unique: false });
+          // Context indexes for provenance queries
+          eventStore.createIndex('context_source', 'context.source', { unique: false });
+          eventStore.createIndex('context_confidence', 'context.confidence', { unique: false });
         }
 
         // Horizons store
@@ -290,6 +298,118 @@ class IndexedDBBackend {
       oldestEvent: events[0]?.timestamp,
       newestEvent: events[events.length - 1]?.timestamp
     };
+  }
+
+  // ============================================================================
+  // GRAPH TRAVERSAL INDEX QUERIES
+  // ============================================================================
+
+  /**
+   * Get edge events by source node (outgoing edges)
+   * Uses the edge_from index for O(1) lookup
+   */
+  async getEdgesFrom(nodeId) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('events', 'readonly');
+      const store = tx.objectStore('events');
+      const index = store.index('edge_from');
+      const request = index.getAll(nodeId);
+
+      request.onsuccess = () => {
+        const edges = request.result.filter(e => e.payload?.action === 'edge_create');
+        resolve(edges);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get edge events by target node (incoming edges)
+   * Uses the edge_to index for O(1) lookup
+   */
+  async getEdgesTo(nodeId) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('events', 'readonly');
+      const store = tx.objectStore('events');
+      const index = store.index('edge_to');
+      const request = index.getAll(nodeId);
+
+      request.onsuccess = () => {
+        const edges = request.result.filter(e => e.payload?.action === 'edge_create');
+        resolve(edges);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get edge events by edge type
+   * Uses the edge_type index
+   */
+  async getEdgesByType(edgeType) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('events', 'readonly');
+      const store = tx.objectStore('events');
+      const index = store.index('edge_type');
+      const request = index.getAll(edgeType);
+
+      request.onsuccess = () => {
+        const edges = request.result.filter(e => e.payload?.action === 'edge_create');
+        resolve(edges);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get edge events by source (provenance)
+   * Uses the context_source index
+   */
+  async getEdgesBySource(source) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('events', 'readonly');
+      const store = tx.objectStore('events');
+      const index = store.index('context_source');
+      const request = index.getAll(source);
+
+      request.onsuccess = () => {
+        const edges = request.result.filter(e => e.payload?.action === 'edge_create');
+        resolve(edges);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get all edge events (for rebuilding EdgeIndex)
+   * Uses the action index
+   */
+  async getAllEdgeEvents() {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('events', 'readonly');
+      const store = tx.objectStore('events');
+      const index = store.index('action');
+      const request = index.getAll('edge_create');
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get all node events (for rebuilding index)
+   * Uses the action index
+   */
+  async getAllNodeEvents() {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('events', 'readonly');
+      const store = tx.objectStore('events');
+      const index = store.index('action');
+      const request = index.getAll('node_create');
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
   }
 
   /**
