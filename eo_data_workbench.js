@@ -463,10 +463,13 @@ class EODataWorkbench {
     };
 
     // Tab management state
-    this.recentlyClosedTabs = [];
-    this.maxRecentlyClosedTabs = 10;
+    this.tossedItems = []; // Items that have been tossed (not deleted, just out of view)
+    this.maxTossedItems = 10;
     this.tabListDropdownOpen = false;
     this.tabContextMenuOpen = false;
+
+    // Pick Up state - for grabbing data from various sources
+    this.pickedUp = null; // Currently picked up item { type, data, source }
   }
 
   _attachEventListeners() {
@@ -974,8 +977,8 @@ class EODataWorkbench {
         </div>
         <span class="tab-title">${this._escapeHtml(view.name)}</span>
         <div class="tab-modified"></div>
-        <div class="tab-close" title="Close tab (Ctrl+W)">
-          <i class="ph ph-x"></i>
+        <div class="tab-toss" title="Toss tab (Ctrl+W)">
+          <i class="ph ph-arrow-bend-up-right"></i>
         </div>
         ${view.id === this.currentViewId ? '<div class="tab-curve-right"></div>' : ''}
       </div>
@@ -998,16 +1001,16 @@ class EODataWorkbench {
 
       // Click to select tab
       tab.addEventListener('click', (e) => {
-        if (!e.target.closest('.tab-close')) {
+        if (!e.target.closest('.tab-toss')) {
           this._selectView(viewId);
         }
       });
 
-      // Middle-click to close tab
+      // Middle-click to toss tab
       tab.addEventListener('auxclick', (e) => {
         if (e.button === 1) {
           e.preventDefault();
-          this._closeTab(viewId);
+          this._tossTab(viewId);
         }
       });
 
@@ -1017,10 +1020,10 @@ class EODataWorkbench {
         this._showTabContextMenu(e, viewId);
       });
 
-      // Close button
-      tab.querySelector('.tab-close')?.addEventListener('click', (e) => {
+      // Toss button
+      tab.querySelector('.tab-toss')?.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._closeTab(viewId);
+        this._tossTab(viewId);
       });
 
       // Drag and drop for reordering
@@ -1169,12 +1172,14 @@ class EODataWorkbench {
   }
 
   /**
-   * Close a tab
+   * Toss a tab - removes from view but nothing is ever deleted
+   * Tossed items can be picked back up from the tossed items list
    */
-  _closeTab(viewId) {
+  _tossTab(viewId) {
     const set = this.getCurrentSet();
     if (!set || set.views.length <= 1) {
-      // Can't close the last tab
+      // Can't toss the last tab
+      this._showToast('Cannot toss the last tab', 'warning');
       return;
     }
 
@@ -1183,20 +1188,21 @@ class EODataWorkbench {
 
     const view = set.views[viewIndex];
 
-    // Save to recently closed
-    this.recentlyClosedTabs.unshift({
+    // Toss to the tossed items pile (nothing is ever deleted)
+    this.tossedItems.unshift({
+      type: 'view',
       view: { ...view },
       setId: set.id,
-      closedAt: new Date().toISOString()
+      tossedAt: new Date().toISOString()
     });
-    if (this.recentlyClosedTabs.length > this.maxRecentlyClosedTabs) {
-      this.recentlyClosedTabs.pop();
+    if (this.tossedItems.length > this.maxTossedItems) {
+      this.tossedItems.pop();
     }
 
-    // Remove the view
+    // Remove the view from current set
     set.views.splice(viewIndex, 1);
 
-    // If we're closing the current view, switch to adjacent tab
+    // If we're tossing the current view, switch to adjacent tab
     if (this.currentViewId === viewId) {
       const newIndex = Math.min(viewIndex, set.views.length - 1);
       this.currentViewId = set.views[newIndex]?.id;
@@ -1206,31 +1212,174 @@ class EODataWorkbench {
     this._renderView();
     this._updateBreadcrumb();
     this._saveData();
+    this._showToast(`Tossed "${view.name}" - pick it up from the tossed pile`, 'info');
   }
 
   /**
-   * Reopen the last closed tab
+   * Pick up the last tossed item (restore it)
    */
-  _reopenClosedTab() {
-    if (this.recentlyClosedTabs.length === 0) return;
-
-    const closedTab = this.recentlyClosedTabs.shift();
-    const set = this.sets.find(s => s.id === closedTab.setId);
-    if (!set) return;
-
-    // Restore the view
-    set.views.push(closedTab.view);
-    this.currentViewId = closedTab.view.id;
-
-    if (this.currentSetId !== closedTab.setId) {
-      this.currentSetId = closedTab.setId;
-      this._renderSidebar();
+  _pickUpLastTossed() {
+    if (this.tossedItems.length === 0) {
+      this._showToast('Nothing in the tossed pile to pick up', 'info');
+      return;
     }
 
-    this._renderViewsNav();
-    this._renderView();
-    this._updateBreadcrumb();
-    this._saveData();
+    const tossedItem = this.tossedItems.shift();
+
+    if (tossedItem.type === 'view') {
+      const set = this.sets.find(s => s.id === tossedItem.setId);
+      if (!set) {
+        this._showToast('Original set no longer exists', 'warning');
+        return;
+      }
+
+      // Restore the view
+      set.views.push(tossedItem.view);
+      this.currentViewId = tossedItem.view.id;
+
+      if (this.currentSetId !== tossedItem.setId) {
+        this.currentSetId = tossedItem.setId;
+        this._renderSidebar();
+      }
+
+      this._renderViewsNav();
+      this._renderView();
+      this._updateBreadcrumb();
+      this._saveData();
+      this._showToast(`Picked up view "${tossedItem.view.name}"`, 'success');
+    } else if (tossedItem.type === 'record') {
+      const set = this.sets.find(s => s.id === tossedItem.setId);
+      if (!set) {
+        this._showToast('Original set no longer exists', 'warning');
+        return;
+      }
+
+      // Restore the record
+      set.records.push(tossedItem.record);
+
+      if (this.currentSetId !== tossedItem.setId) {
+        this.currentSetId = tossedItem.setId;
+        this._renderSidebar();
+      }
+
+      this._renderView();
+      this._saveData();
+      this._showToast('Picked up record', 'success');
+    }
+  }
+
+  /**
+   * Pick up data from various sources (field, column, record, view)
+   * This allows users to "grab" data and move/copy it elsewhere
+   */
+  _pickUp(type, data, source) {
+    this.pickedUp = {
+      type,      // 'field', 'column', 'record', 'view', 'selection'
+      data,      // The actual data being picked up
+      source,    // Where it came from { setId, viewId, recordId?, fieldId? }
+      pickedAt: new Date().toISOString()
+    };
+
+    // Update UI to show something is picked up
+    this._updatePickedUpIndicator();
+    this._showToast(`Picked up ${type}`, 'info');
+  }
+
+  /**
+   * Put down (drop) the currently picked up item
+   */
+  _putDown(targetType, target) {
+    if (!this.pickedUp) {
+      this._showToast('Nothing picked up to put down', 'warning');
+      return;
+    }
+
+    const { type, data, source } = this.pickedUp;
+
+    // Handle different put down scenarios
+    switch (targetType) {
+      case 'field':
+        // Put field value into another field
+        if (type === 'field') {
+          this._putFieldIntoField(data, target);
+        }
+        break;
+      case 'record':
+        // Put data into a record
+        if (type === 'record') {
+          this._mergeRecords(data, target);
+        }
+        break;
+      case 'view':
+        // Add record(s) to a view's set
+        if (type === 'record' || type === 'selection') {
+          this._addToSet(data, target);
+        }
+        break;
+    }
+
+    this._clearPickedUp();
+  }
+
+  /**
+   * Clear the picked up state
+   */
+  _clearPickedUp() {
+    this.pickedUp = null;
+    this._updatePickedUpIndicator();
+  }
+
+  /**
+   * Update the UI to show what's currently picked up
+   */
+  _updatePickedUpIndicator() {
+    let indicator = document.getElementById('picked-up-indicator');
+
+    if (!this.pickedUp) {
+      if (indicator) indicator.remove();
+      document.body.classList.remove('has-picked-up');
+      return;
+    }
+
+    document.body.classList.add('has-picked-up');
+
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.id = 'picked-up-indicator';
+      indicator.className = 'picked-up-indicator';
+      document.body.appendChild(indicator);
+    }
+
+    const typeIcons = {
+      field: 'ph-text-aa',
+      column: 'ph-columns',
+      record: 'ph-rows',
+      view: 'ph-table',
+      selection: 'ph-selection'
+    };
+
+    const typeLabels = {
+      field: 'cell value',
+      column: 'column',
+      record: 'record',
+      view: 'view',
+      selection: `${this.selectedRecords?.size || 0} records`
+    };
+
+    indicator.innerHTML = `
+      <div class="picked-up-content">
+        <i class="ph ${typeIcons[this.pickedUp.type] || 'ph-hand-grabbing'}"></i>
+        <span>Holding ${typeLabels[this.pickedUp.type] || this.pickedUp.type}</span>
+        <button class="picked-up-drop" title="Put down (Esc)">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+    `;
+
+    indicator.querySelector('.picked-up-drop')?.addEventListener('click', () => {
+      this._clearPickedUp();
+      this._showToast('Dropped picked up item', 'info');
+    });
   }
 
   /**
@@ -1394,24 +1543,44 @@ class EODataWorkbench {
               </div>
               <span class="tab-list-item-title">${this._escapeHtml(view.name)}</span>
               ${set.views.length > 1 ? `
-                <div class="tab-list-item-close" data-view-id="${view.id}">
-                  <i class="ph ph-x"></i>
+                <div class="tab-list-item-toss" data-view-id="${view.id}" title="Toss">
+                  <i class="ph ph-arrow-bend-up-right"></i>
                 </div>
               ` : ''}
             </div>
           `).join('')}
         </div>
-        ${this.recentlyClosedTabs.length > 0 ? `
-          <div class="tab-list-section recently-closed">
-            <div class="tab-list-section-title">Recently Closed</div>
-            ${this.recentlyClosedTabs.slice(0, 5).map(item => `
-              <div class="tab-list-item" data-restore-view-id="${item.view.id}">
-                <div class="tab-list-item-icon">
-                  <i class="ph ${this._getViewIcon(item.view.type)}"></i>
-                </div>
-                <span class="tab-list-item-title">${this._escapeHtml(item.view.name)}</span>
-              </div>
-            `).join('')}
+        ${this.tossedItems.length > 0 ? `
+          <div class="tab-list-section tossed-pile">
+            <div class="tab-list-section-title">
+              <i class="ph ph-hand-grabbing"></i>
+              Tossed (Pick Up)
+            </div>
+            ${this.tossedItems.slice(0, 5).map((item, index) => {
+              if (item.type === 'view') {
+                return `
+                  <div class="tab-list-item" data-pickup-index="${index}">
+                    <div class="tab-list-item-icon">
+                      <i class="ph ${this._getViewIcon(item.view.type)}"></i>
+                    </div>
+                    <span class="tab-list-item-title">${this._escapeHtml(item.view.name)}</span>
+                    <span class="tab-list-item-hint">view</span>
+                  </div>
+                `;
+              } else if (item.type === 'record') {
+                const primaryValue = Object.values(item.record.values)[0] || 'Untitled';
+                return `
+                  <div class="tab-list-item" data-pickup-index="${index}">
+                    <div class="tab-list-item-icon">
+                      <i class="ph ph-rows"></i>
+                    </div>
+                    <span class="tab-list-item-title">${this._escapeHtml(String(primaryValue).slice(0, 30))}</span>
+                    <span class="tab-list-item-hint">record</span>
+                  </div>
+                `;
+              }
+              return '';
+            }).join('')}
           </div>
         ` : ''}
       </div>
@@ -1423,36 +1592,44 @@ class EODataWorkbench {
     // Attach handlers
     dropdown.querySelectorAll('.tab-list-item[data-view-id]').forEach(item => {
       item.addEventListener('click', (e) => {
-        if (!e.target.closest('.tab-list-item-close')) {
+        if (!e.target.closest('.tab-list-item-toss')) {
           this._selectView(item.dataset.viewId);
           this._closeTabListDropdown();
         }
       });
     });
 
-    dropdown.querySelectorAll('.tab-list-item-close').forEach(btn => {
+    dropdown.querySelectorAll('.tab-list-item-toss').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._closeTab(btn.dataset.viewId);
+        this._tossTab(btn.dataset.viewId);
         // Re-render dropdown
         this._closeTabListDropdown();
         this._openTabListDropdown();
       });
     });
 
-    dropdown.querySelectorAll('.tab-list-item[data-restore-view-id]').forEach(item => {
+    dropdown.querySelectorAll('.tab-list-item[data-pickup-index]').forEach(item => {
       item.addEventListener('click', () => {
-        const viewId = item.dataset.restoreViewId;
-        const tabIndex = this.recentlyClosedTabs.findIndex(t => t.view.id === viewId);
-        if (tabIndex !== -1) {
-          const closedTab = this.recentlyClosedTabs.splice(tabIndex, 1)[0];
-          const set = this.sets.find(s => s.id === closedTab.setId);
+        const index = parseInt(item.dataset.pickupIndex, 10);
+        if (index >= 0 && index < this.tossedItems.length) {
+          const tossedItem = this.tossedItems.splice(index, 1)[0];
+          const set = this.sets.find(s => s.id === tossedItem.setId);
+
           if (set) {
-            set.views.push(closedTab.view);
-            this.currentViewId = closedTab.view.id;
-            this._renderViewsNav();
-            this._renderView();
-            this._saveData();
+            if (tossedItem.type === 'view') {
+              set.views.push(tossedItem.view);
+              this.currentViewId = tossedItem.view.id;
+              this._renderViewsNav();
+              this._renderView();
+              this._saveData();
+              this._showToast(`Picked up view "${tossedItem.view.name}"`, 'success');
+            } else if (tossedItem.type === 'record') {
+              set.records.push(tossedItem.record);
+              this._renderView();
+              this._saveData();
+              this._showToast('Picked up record', 'success');
+            }
           }
         }
         this._closeTabListDropdown();
@@ -1507,18 +1684,18 @@ class EODataWorkbench {
         <span>Move Right</span>
       </div>
       <div class="tab-context-separator"></div>
-      <div class="tab-context-item ${canClose ? '' : 'disabled'}" data-action="close">
-        <i class="ph ph-x"></i>
-        <span>Close Tab</span>
+      <div class="tab-context-item ${canClose ? '' : 'disabled'}" data-action="toss">
+        <i class="ph ph-arrow-bend-up-right"></i>
+        <span>Toss Tab</span>
         <span class="shortcut">Ctrl+W</span>
       </div>
-      <div class="tab-context-item ${canClose && set.views.length > 1 ? '' : 'disabled'}" data-action="close-others">
-        <i class="ph ph-x-circle"></i>
-        <span>Close Other Tabs</span>
+      <div class="tab-context-item ${canClose && set.views.length > 1 ? '' : 'disabled'}" data-action="toss-others">
+        <i class="ph ph-arrows-out-line-horizontal"></i>
+        <span>Toss Other Tabs</span>
       </div>
-      <div class="tab-context-item ${canClose && !isLast ? '' : 'disabled'}" data-action="close-right">
+      <div class="tab-context-item ${canClose && !isLast ? '' : 'disabled'}" data-action="toss-right">
         <i class="ph ph-arrow-line-right"></i>
-        <span>Close Tabs to the Right</span>
+        <span>Toss Tabs to the Right</span>
       </div>
       <div class="tab-context-separator"></div>
       <div class="tab-context-item" data-action="toggle-provenance">
@@ -1589,17 +1766,18 @@ class EODataWorkbench {
         }
         break;
 
-      case 'close':
-        this._closeTab(viewId);
+      case 'toss':
+        this._tossTab(viewId);
         break;
 
-      case 'close-others':
-        const viewsToClose = set.views.filter(v => v.id !== viewId);
-        viewsToClose.forEach(v => {
-          this.recentlyClosedTabs.unshift({
+      case 'toss-others':
+        const viewsToToss = set.views.filter(v => v.id !== viewId);
+        viewsToToss.forEach(v => {
+          this.tossedItems.unshift({
+            type: 'view',
             view: { ...v },
             setId: set.id,
-            closedAt: new Date().toISOString()
+            tossedAt: new Date().toISOString()
           });
         });
         set.views = [view];
@@ -1607,15 +1785,17 @@ class EODataWorkbench {
         this._renderViewsNav();
         this._renderView();
         this._saveData();
+        this._showToast(`Tossed ${viewsToToss.length} tabs`, 'info');
         break;
 
-      case 'close-right':
+      case 'toss-right':
         const rightViews = set.views.slice(viewIndex + 1);
         rightViews.forEach(v => {
-          this.recentlyClosedTabs.unshift({
+          this.tossedItems.unshift({
+            type: 'view',
             view: { ...v },
             setId: set.id,
-            closedAt: new Date().toISOString()
+            tossedAt: new Date().toISOString()
           });
         });
         set.views = set.views.slice(0, viewIndex + 1);
@@ -1625,6 +1805,7 @@ class EODataWorkbench {
         this._renderViewsNav();
         this._renderView();
         this._saveData();
+        this._showToast(`Tossed ${rightViews.length} tabs`, 'info');
         break;
 
       case 'toggle-provenance':
@@ -1684,11 +1865,11 @@ class EODataWorkbench {
   }
 
   /**
-   * Close current tab
+   * Toss current tab
    */
-  _closeCurrentTab() {
+  _tossCurrentTab() {
     if (this.currentViewId) {
-      this._closeTab(this.currentViewId);
+      this._tossTab(this.currentViewId);
     }
   }
 
@@ -3568,19 +3749,31 @@ class EODataWorkbench {
     const menu = this.elements.contextMenu;
     if (!menu) return;
 
+    const hasPickedUp = this.pickedUp && this.pickedUp.type === 'record';
+
     menu.innerHTML = `
       <div class="context-menu-item" data-action="open">
         <i class="ph ph-arrow-square-out"></i>
         <span>Open record</span>
       </div>
+      <div class="context-menu-item" data-action="pick-up">
+        <i class="ph ph-hand-grabbing"></i>
+        <span>Pick up record</span>
+      </div>
+      ${hasPickedUp ? `
+        <div class="context-menu-item" data-action="put-down">
+          <i class="ph ph-hand-pointing"></i>
+          <span>Put down here (merge)</span>
+        </div>
+      ` : ''}
       <div class="context-menu-item" data-action="duplicate">
         <i class="ph ph-copy"></i>
         <span>Duplicate</span>
       </div>
       <div class="context-menu-divider"></div>
-      <div class="context-menu-item danger" data-action="delete">
-        <i class="ph ph-trash"></i>
-        <span>Delete</span>
+      <div class="context-menu-item warning" data-action="toss">
+        <i class="ph ph-arrow-bend-up-right"></i>
+        <span>Toss record</span>
       </div>
     `;
 
@@ -3615,15 +3808,88 @@ class EODataWorkbench {
           case 'open':
             this._showRecordDetail(recordId);
             break;
+          case 'pick-up':
+            const set = this.getCurrentSet();
+            const record = set?.records.find(r => r.id === recordId);
+            if (record) {
+              this._pickUp('record', { ...record }, {
+                setId: set.id,
+                viewId: this.currentViewId,
+                recordId
+              });
+            }
+            break;
+          case 'put-down':
+            if (this.pickedUp?.type === 'record') {
+              this._mergeRecords(this.pickedUp.data, recordId);
+              this._clearPickedUp();
+            }
+            break;
           case 'duplicate':
             this.duplicateRecord(recordId);
             break;
-          case 'delete':
-            this.deleteRecord(recordId);
+          case 'toss':
+            this._tossRecord(recordId);
             break;
         }
       });
     });
+  }
+
+  /**
+   * Toss a record (not deleted, just removed from view)
+   */
+  _tossRecord(recordId) {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    const recordIndex = set.records.findIndex(r => r.id === recordId);
+    if (recordIndex === -1) return;
+
+    const record = set.records[recordIndex];
+
+    // Add to tossed items
+    this.tossedItems.unshift({
+      type: 'record',
+      record: { ...record },
+      setId: set.id,
+      tossedAt: new Date().toISOString()
+    });
+
+    if (this.tossedItems.length > this.maxTossedItems) {
+      this.tossedItems.pop();
+    }
+
+    // Remove from set
+    set.records.splice(recordIndex, 1);
+
+    this._renderView();
+    this._saveData();
+    this._showToast('Record tossed - pick it up from the tossed pile', 'info');
+  }
+
+  /**
+   * Merge two records together
+   */
+  _mergeRecords(sourceRecord, targetRecordId) {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    const targetRecord = set.records.find(r => r.id === targetRecordId);
+    if (!targetRecord) return;
+
+    // Merge values from source into target (source wins for non-empty values)
+    Object.entries(sourceRecord.values).forEach(([fieldId, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        targetRecord.values[fieldId] = value;
+      }
+    });
+
+    targetRecord.updatedAt = new Date().toISOString();
+
+    this._renderView();
+    this._saveData();
+    this._showToast('Records merged', 'success');
   }
 
   _showFieldContextMenu(e, fieldId) {
@@ -5142,16 +5408,22 @@ class EODataWorkbench {
       this._createNewTab();
     }
 
-    // Ctrl + W to close current tab
+    // Ctrl + W to toss current tab
     if ((e.metaKey || e.ctrlKey) && e.key === 'w' && !e.target.closest('input, textarea')) {
       e.preventDefault();
-      this._closeCurrentTab();
+      this._tossCurrentTab();
     }
 
-    // Ctrl + Shift + T to reopen closed tab
+    // Ctrl + Shift + T to pick up last tossed tab
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'T' && !e.target.closest('input, textarea')) {
       e.preventDefault();
-      this._reopenClosedTab();
+      this._pickUpLastTossed();
+    }
+
+    // Escape also clears picked up item
+    if (e.key === 'Escape' && this.pickedUp) {
+      this._clearPickedUp();
+      this._showToast('Dropped picked up item', 'info');
     }
 
     // ========== UNDO/REDO ==========

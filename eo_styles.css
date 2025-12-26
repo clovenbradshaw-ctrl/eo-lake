@@ -2174,6 +2174,14 @@ html, body {
   color: var(--danger-500);
 }
 
+.context-menu-item.warning {
+  color: var(--warning-500);
+}
+
+.context-menu-item.warning i {
+  color: var(--warning-500);
+}
+
 .context-menu-divider {
   height: 1px;
   background: var(--border-primary);
@@ -4400,7 +4408,7 @@ html, body {
   color: var(--text-primary);
 }
 
-.browser-tab:hover .tab-close {
+.browser-tab:hover .tab-toss {
   opacity: 1;
 }
 
@@ -4470,8 +4478,8 @@ html, body {
   font-weight: 500;
 }
 
-/* Tab Close Button */
-.tab-close {
+/* Tab Toss Button */
+.tab-toss {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4482,24 +4490,26 @@ html, body {
   opacity: 0;
   transition: var(--transition-fast);
   flex-shrink: 0;
+  cursor: pointer;
 }
 
-.tab-close:hover {
+.tab-toss:hover {
   background: var(--bg-hover);
-  color: var(--text-primary);
+  color: var(--warning-500);
 }
 
-.tab-close:active {
-  background: var(--danger-500);
+.tab-toss:active {
+  background: var(--warning-500);
   color: white;
 }
 
-.browser-tab.active .tab-close {
+.browser-tab.active .tab-toss {
   opacity: 0.7;
 }
 
-.browser-tab.active .tab-close:hover {
+.browser-tab.active .tab-toss:hover {
   opacity: 1;
+  color: var(--warning-500);
 }
 
 /* Tab Modified Indicator */
@@ -4516,7 +4526,7 @@ html, body {
   display: block;
 }
 
-.browser-tab.modified .tab-close {
+.browser-tab.modified .tab-toss {
   display: none;
 }
 
@@ -4524,7 +4534,7 @@ html, body {
   display: none;
 }
 
-.browser-tab.modified:hover .tab-close {
+.browser-tab.modified:hover .tab-toss {
   display: flex;
 }
 
@@ -4687,7 +4697,7 @@ html, body {
   text-overflow: ellipsis;
 }
 
-.tab-list-item-close {
+.tab-list-item-toss {
   width: 20px;
   height: 20px;
   display: flex;
@@ -4697,33 +4707,58 @@ html, body {
   color: var(--text-muted);
   opacity: 0;
   transition: var(--transition-fast);
+  cursor: pointer;
 }
 
-.tab-list-item:hover .tab-list-item-close {
+.tab-list-item:hover .tab-list-item-toss {
   opacity: 1;
 }
 
-.tab-list-item-close:hover {
+.tab-list-item-toss:hover {
   background: rgba(255, 255, 255, 0.1);
-  color: var(--text-primary);
+  color: var(--warning-500);
 }
 
-.tab-list-item.active .tab-list-item-close:hover {
+.tab-list-item.active .tab-list-item-toss:hover {
   background: rgba(255, 255, 255, 0.2);
-  color: white;
+  color: var(--warning-400);
 }
 
-/* Recently Closed Section */
-.tab-list-section.recently-closed .tab-list-item {
+/* Tossed Pile Section */
+.tab-list-section.tossed-pile .tab-list-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--warning-400);
+}
+
+.tab-list-section.tossed-pile .tab-list-item {
   color: var(--text-muted);
 }
 
-.tab-list-section.recently-closed .tab-list-item-icon {
+.tab-list-section.tossed-pile .tab-list-item-icon {
   color: var(--text-muted);
 }
 
-.tab-list-section.recently-closed .tab-list-item:hover {
+.tab-list-section.tossed-pile .tab-list-item:hover {
   color: var(--text-primary);
+  background: rgba(var(--warning-500-rgb), 0.1);
+}
+
+.tab-list-section.tossed-pile .tab-list-item:hover .tab-list-item-icon {
+  color: var(--warning-400);
+}
+
+.tab-list-item-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  opacity: 0;
+  transition: var(--transition-fast);
+}
+
+.tab-list-item:hover .tab-list-item-hint {
+  opacity: 1;
 }
 
 /* Tab Context Menu */
@@ -4836,7 +4871,7 @@ html, body {
 }
 
 .browser-tab.pinned .tab-title,
-.browser-tab.pinned .tab-close {
+.browser-tab.pinned .tab-toss {
   display: none;
 }
 
@@ -4882,7 +4917,7 @@ html, body {
     font-size: 12px;
   }
 
-  .tab-close {
+  .tab-toss {
     width: 16px;
     height: 16px;
   }
@@ -5097,4 +5132,81 @@ td.col-provenance:hover {
 .provenance-field .inherited {
   opacity: 0.7;
   font-style: italic;
+}
+
+/* ===== Pick Up Indicator ===== */
+/* Shows when user has "picked up" data they're carrying */
+
+.picked-up-indicator {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10000;
+  pointer-events: auto;
+}
+
+.picked-up-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, var(--primary-600), var(--primary-700));
+  color: white;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  font-size: 13px;
+  font-weight: 500;
+  animation: picked-up-bounce 0.4s ease-out;
+}
+
+@keyframes picked-up-bounce {
+  0% {
+    transform: translateX(-50%) translateY(20px);
+    opacity: 0;
+  }
+  50% {
+    transform: translateX(-50%) translateY(-5px);
+  }
+  100% {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+.picked-up-content i {
+  font-size: 18px;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.picked-up-drop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.picked-up-drop:hover {
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+}
+
+.picked-up-drop i {
+  font-size: 12px;
+}
+
+/* Grabbable elements highlight when something is picked up */
+body.has-picked-up .cell:hover,
+body.has-picked-up .record-row:hover,
+body.has-picked-up .browser-tab:hover {
+  outline: 2px dashed var(--primary-400);
+  outline-offset: -2px;
 }
