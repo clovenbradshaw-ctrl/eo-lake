@@ -208,6 +208,27 @@
         </button>
       </div>
 
+      <!-- Browser-Style Tab Bar -->
+      <div class="tab-bar" id="tab-bar">
+        <div class="tab-bar-scroll-left" id="tab-scroll-left" style="display: none;">
+          <i class="ph ph-caret-left"></i>
+        </div>
+        <div class="tab-bar-tabs" id="tab-bar-tabs">
+          <!-- Tabs rendered dynamically -->
+        </div>
+        <div class="tab-bar-scroll-right" id="tab-scroll-right" style="display: none;">
+          <i class="ph ph-caret-right"></i>
+        </div>
+        <button class="tab-bar-new-tab" id="new-tab-btn" title="New tab (Ctrl+T)">
+          <i class="ph ph-plus"></i>
+        </button>
+        <div class="tab-bar-actions">
+          <button class="tab-bar-action-btn" id="tab-list-btn" title="View all tabs">
+            <i class="ph ph-caret-down"></i>
+          </button>
+        </div>
+      </div>
+
       <!-- Content Area -->
       <div class="content-area" id="content-area">
         <!-- Workbench rendered here -->
@@ -482,6 +503,41 @@
           <div class="shortcut-item">
             <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>S</kbd></span>
             <span class="shortcut-desc">Create snapshot</span>
+          </div>
+        </div>
+        <div class="shortcuts-section">
+          <h4>Tabs</h4>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>T</kbd></span>
+            <span class="shortcut-desc">New tab</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>W</kbd></span>
+            <span class="shortcut-desc">Close current tab</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Tab</kbd></span>
+            <span class="shortcut-desc">Next tab</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd></span>
+            <span class="shortcut-desc">Previous tab</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd></span>
+            <span class="shortcut-desc">Reopen closed tab</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>1</kbd>-<kbd>9</kbd></span>
+            <span class="shortcut-desc">Switch to tab 1-9</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Middle-click</kbd></span>
+            <span class="shortcut-desc">Close tab</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Double-click</kbd></span>
+            <span class="shortcut-desc">Rename tab</span>
           </div>
         </div>
       </div>

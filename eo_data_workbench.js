@@ -432,8 +432,21 @@ class EODataWorkbench {
       recordCount: document.getElementById('record-count'),
       selectedCount: document.getElementById('selected-count'),
       currentSetName: document.getElementById('current-set-name'),
-      currentViewName: document.getElementById('current-view-name')
+      currentViewName: document.getElementById('current-view-name'),
+      // Tab bar elements
+      tabBar: document.getElementById('tab-bar'),
+      tabBarTabs: document.getElementById('tab-bar-tabs'),
+      newTabBtn: document.getElementById('new-tab-btn'),
+      tabListBtn: document.getElementById('tab-list-btn'),
+      tabScrollLeft: document.getElementById('tab-scroll-left'),
+      tabScrollRight: document.getElementById('tab-scroll-right')
     };
+
+    // Tab management state
+    this.recentlyClosedTabs = [];
+    this.maxRecentlyClosedTabs = 10;
+    this.tabListDropdownOpen = false;
+    this.tabContextMenuOpen = false;
   }
 
   _attachEventListeners() {
@@ -547,6 +560,40 @@ class EODataWorkbench {
       searchInput.addEventListener('focus', () => this._showSearchResults());
       searchInput.addEventListener('blur', () => setTimeout(() => this._hideSearchResults(), 200));
     }
+
+    // Tab bar event listeners
+    this._attachTabBarListeners();
+  }
+
+  /**
+   * Attach tab bar event listeners
+   */
+  _attachTabBarListeners() {
+    // New tab button
+    this.elements.newTabBtn?.addEventListener('click', () => this._createNewTab());
+
+    // Tab list dropdown button
+    this.elements.tabListBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._toggleTabListDropdown();
+    });
+
+    // Tab scroll buttons
+    this.elements.tabScrollLeft?.addEventListener('click', () => this._scrollTabs('left'));
+    this.elements.tabScrollRight?.addEventListener('click', () => this._scrollTabs('right'));
+
+    // Check for tab overflow on resize
+    window.addEventListener('resize', () => this._checkTabOverflow());
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.tab-list-dropdown') && !e.target.closest('#tab-list-btn')) {
+        this._closeTabListDropdown();
+      }
+      if (!e.target.closest('.tab-context-menu')) {
+        this._closeTabContextMenu();
+      }
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -868,6 +915,749 @@ class EODataWorkbench {
         this._showViewContextMenu(e, item.dataset.viewId);
       });
     });
+
+    // Also render the tab bar
+    this._renderTabBar();
+  }
+
+  // --------------------------------------------------------------------------
+  // Browser-Style Tab Bar
+  // --------------------------------------------------------------------------
+
+  /**
+   * Render the browser-style tab bar
+   */
+  _renderTabBar() {
+    const container = this.elements.tabBarTabs;
+    const set = this.getCurrentSet();
+    if (!container) return;
+
+    if (!set) {
+      container.innerHTML = '';
+      return;
+    }
+
+    const viewIcons = {
+      table: 'ph-table',
+      cards: 'ph-cards',
+      kanban: 'ph-kanban',
+      calendar: 'ph-calendar-blank',
+      graph: 'ph-graph'
+    };
+
+    container.innerHTML = set.views.map(view => `
+      <div class="browser-tab ${view.id === this.currentViewId ? 'active' : ''}"
+           data-view-id="${view.id}"
+           draggable="true">
+        <div class="tab-icon">
+          <i class="ph ${viewIcons[view.type] || 'ph-table'}"></i>
+        </div>
+        <span class="tab-title">${this._escapeHtml(view.name)}</span>
+        <div class="tab-modified"></div>
+        <div class="tab-close" title="Close tab (Ctrl+W)">
+          <i class="ph ph-x"></i>
+        </div>
+        ${view.id === this.currentViewId ? '<div class="tab-curve-right"></div>' : ''}
+      </div>
+    `).join('');
+
+    // Attach event handlers to tabs
+    this._attachTabEventHandlers();
+    this._checkTabOverflow();
+  }
+
+  /**
+   * Attach event handlers to tab elements
+   */
+  _attachTabEventHandlers() {
+    const container = this.elements.tabBarTabs;
+    if (!container) return;
+
+    container.querySelectorAll('.browser-tab').forEach(tab => {
+      const viewId = tab.dataset.viewId;
+
+      // Click to select tab
+      tab.addEventListener('click', (e) => {
+        if (!e.target.closest('.tab-close')) {
+          this._selectView(viewId);
+        }
+      });
+
+      // Middle-click to close tab
+      tab.addEventListener('auxclick', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          this._closeTab(viewId);
+        }
+      });
+
+      // Right-click context menu
+      tab.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showTabContextMenu(e, viewId);
+      });
+
+      // Close button
+      tab.querySelector('.tab-close')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._closeTab(viewId);
+      });
+
+      // Drag and drop for reordering
+      tab.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', viewId);
+        tab.classList.add('dragging');
+      });
+
+      tab.addEventListener('dragend', () => {
+        tab.classList.remove('dragging');
+        container.querySelectorAll('.browser-tab').forEach(t => {
+          t.classList.remove('drag-over', 'drag-over-right');
+        });
+      });
+
+      tab.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const draggingTab = container.querySelector('.dragging');
+        if (draggingTab && draggingTab !== tab) {
+          const rect = tab.getBoundingClientRect();
+          const midpoint = rect.left + rect.width / 2;
+          tab.classList.remove('drag-over', 'drag-over-right');
+          if (e.clientX < midpoint) {
+            tab.classList.add('drag-over');
+          } else {
+            tab.classList.add('drag-over-right');
+          }
+        }
+      });
+
+      tab.addEventListener('dragleave', () => {
+        tab.classList.remove('drag-over', 'drag-over-right');
+      });
+
+      tab.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const draggedViewId = e.dataTransfer.getData('text/plain');
+        const targetViewId = viewId;
+        if (draggedViewId !== targetViewId) {
+          const rect = tab.getBoundingClientRect();
+          const midpoint = rect.left + rect.width / 2;
+          const insertAfter = e.clientX >= midpoint;
+          this._reorderTabs(draggedViewId, targetViewId, insertAfter);
+        }
+        tab.classList.remove('drag-over', 'drag-over-right');
+      });
+
+      // Double-click to rename
+      tab.addEventListener('dblclick', (e) => {
+        if (!e.target.closest('.tab-close')) {
+          this._renameTab(viewId);
+        }
+      });
+    });
+  }
+
+  /**
+   * Create a new tab
+   */
+  _createNewTab() {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    // Show a quick menu to choose view type
+    this._showNewViewTypeMenu();
+  }
+
+  /**
+   * Show menu to select new view type
+   */
+  _showNewViewTypeMenu() {
+    const existing = document.querySelector('.tab-new-menu');
+    if (existing) existing.remove();
+
+    const btn = this.elements.newTabBtn;
+    const rect = btn.getBoundingClientRect();
+
+    const menu = document.createElement('div');
+    menu.className = 'tab-context-menu tab-new-menu';
+    menu.style.left = `${rect.left}px`;
+    menu.style.top = `${rect.bottom + 4}px`;
+    menu.innerHTML = `
+      <div class="tab-context-item" data-type="table">
+        <i class="ph ph-table"></i>
+        <span>Table View</span>
+      </div>
+      <div class="tab-context-item" data-type="cards">
+        <i class="ph ph-cards"></i>
+        <span>Cards View</span>
+      </div>
+      <div class="tab-context-item" data-type="kanban">
+        <i class="ph ph-kanban"></i>
+        <span>Kanban View</span>
+      </div>
+      <div class="tab-context-item" data-type="calendar">
+        <i class="ph ph-calendar-blank"></i>
+        <span>Calendar View</span>
+      </div>
+      <div class="tab-context-item" data-type="graph">
+        <i class="ph ph-graph"></i>
+        <span>Graph View</span>
+      </div>
+    `;
+
+    document.body.appendChild(menu);
+
+    menu.querySelectorAll('.tab-context-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const viewType = item.dataset.type;
+        this._addNewTabOfType(viewType);
+        menu.remove();
+      });
+    });
+
+    // Close on click outside
+    setTimeout(() => {
+      document.addEventListener('click', function closeMenu(e) {
+        if (!e.target.closest('.tab-new-menu')) {
+          menu.remove();
+          document.removeEventListener('click', closeMenu);
+        }
+      });
+    }, 0);
+  }
+
+  /**
+   * Add a new tab of specific type
+   */
+  _addNewTabOfType(viewType) {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    const viewCount = set.views.filter(v => v.type === viewType).length;
+    const name = viewCount > 0
+      ? `${viewType.charAt(0).toUpperCase() + viewType.slice(1)} View ${viewCount + 1}`
+      : `${viewType.charAt(0).toUpperCase() + viewType.slice(1)} View`;
+
+    const view = createView(name, viewType);
+    set.views.push(view);
+    this.currentViewId = view.id;
+
+    this._renderViewsNav();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
+  }
+
+  /**
+   * Close a tab
+   */
+  _closeTab(viewId) {
+    const set = this.getCurrentSet();
+    if (!set || set.views.length <= 1) {
+      // Can't close the last tab
+      return;
+    }
+
+    const viewIndex = set.views.findIndex(v => v.id === viewId);
+    if (viewIndex === -1) return;
+
+    const view = set.views[viewIndex];
+
+    // Save to recently closed
+    this.recentlyClosedTabs.unshift({
+      view: { ...view },
+      setId: set.id,
+      closedAt: new Date().toISOString()
+    });
+    if (this.recentlyClosedTabs.length > this.maxRecentlyClosedTabs) {
+      this.recentlyClosedTabs.pop();
+    }
+
+    // Remove the view
+    set.views.splice(viewIndex, 1);
+
+    // If we're closing the current view, switch to adjacent tab
+    if (this.currentViewId === viewId) {
+      const newIndex = Math.min(viewIndex, set.views.length - 1);
+      this.currentViewId = set.views[newIndex]?.id;
+    }
+
+    this._renderViewsNav();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
+  }
+
+  /**
+   * Reopen the last closed tab
+   */
+  _reopenClosedTab() {
+    if (this.recentlyClosedTabs.length === 0) return;
+
+    const closedTab = this.recentlyClosedTabs.shift();
+    const set = this.sets.find(s => s.id === closedTab.setId);
+    if (!set) return;
+
+    // Restore the view
+    set.views.push(closedTab.view);
+    this.currentViewId = closedTab.view.id;
+
+    if (this.currentSetId !== closedTab.setId) {
+      this.currentSetId = closedTab.setId;
+      this._renderSidebar();
+    }
+
+    this._renderViewsNav();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
+  }
+
+  /**
+   * Reorder tabs via drag and drop
+   */
+  _reorderTabs(draggedViewId, targetViewId, insertAfter) {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    const draggedIndex = set.views.findIndex(v => v.id === draggedViewId);
+    const targetIndex = set.views.findIndex(v => v.id === targetViewId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    const [draggedView] = set.views.splice(draggedIndex, 1);
+    let insertIndex = targetIndex;
+    if (draggedIndex < targetIndex) insertIndex--;
+    if (insertAfter) insertIndex++;
+
+    set.views.splice(insertIndex, 0, draggedView);
+
+    this._renderViewsNav();
+    this._saveData();
+  }
+
+  /**
+   * Rename a tab
+   */
+  _renameTab(viewId) {
+    const set = this.getCurrentSet();
+    const view = set?.views.find(v => v.id === viewId);
+    if (!view) return;
+
+    const tab = this.elements.tabBarTabs?.querySelector(`[data-view-id="${viewId}"]`);
+    if (!tab) return;
+
+    const titleEl = tab.querySelector('.tab-title');
+    const currentName = view.name;
+
+    // Create inline input
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.className = 'tab-rename-input';
+    input.style.cssText = `
+      flex: 1;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--primary-500);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 13px;
+      color: var(--text-primary);
+      outline: none;
+    `;
+
+    titleEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    const finishRename = () => {
+      const newName = input.value.trim() || currentName;
+      view.name = newName;
+
+      const newTitle = document.createElement('span');
+      newTitle.className = 'tab-title';
+      newTitle.textContent = newName;
+      input.replaceWith(newTitle);
+
+      this._renderViewsNav();
+      this._saveData();
+    };
+
+    input.addEventListener('blur', finishRename);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+      } else if (e.key === 'Escape') {
+        input.value = currentName;
+        input.blur();
+      }
+    });
+  }
+
+  /**
+   * Check if tabs overflow and show scroll buttons
+   */
+  _checkTabOverflow() {
+    const container = this.elements.tabBarTabs;
+    if (!container) return;
+
+    const hasOverflow = container.scrollWidth > container.clientWidth;
+    const scrollLeft = this.elements.tabScrollLeft;
+    const scrollRight = this.elements.tabScrollRight;
+
+    if (hasOverflow) {
+      scrollLeft.style.display = container.scrollLeft > 0 ? 'flex' : 'none';
+      scrollRight.style.display =
+        container.scrollLeft < container.scrollWidth - container.clientWidth
+          ? 'flex'
+          : 'none';
+    } else {
+      scrollLeft.style.display = 'none';
+      scrollRight.style.display = 'none';
+    }
+  }
+
+  /**
+   * Scroll tabs in direction
+   */
+  _scrollTabs(direction) {
+    const container = this.elements.tabBarTabs;
+    if (!container) return;
+
+    const scrollAmount = 200;
+    container.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth'
+    });
+
+    setTimeout(() => this._checkTabOverflow(), 300);
+  }
+
+  /**
+   * Toggle tab list dropdown
+   */
+  _toggleTabListDropdown() {
+    if (this.tabListDropdownOpen) {
+      this._closeTabListDropdown();
+    } else {
+      this._openTabListDropdown();
+    }
+  }
+
+  /**
+   * Open tab list dropdown
+   */
+  _openTabListDropdown() {
+    this._closeTabListDropdown(); // Remove any existing
+
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    const btn = this.elements.tabListBtn;
+    const tabBar = this.elements.tabBar;
+
+    const dropdown = document.createElement('div');
+    dropdown.className = 'tab-list-dropdown';
+    dropdown.innerHTML = `
+      <div class="tab-list-header">
+        <h4>Open Tabs</h4>
+        <span>${set.views.length} tabs</span>
+      </div>
+      <div class="tab-list-body">
+        <div class="tab-list-section">
+          ${set.views.map(view => `
+            <div class="tab-list-item ${view.id === this.currentViewId ? 'active' : ''}"
+                 data-view-id="${view.id}">
+              <div class="tab-list-item-icon">
+                <i class="ph ${this._getViewIcon(view.type)}"></i>
+              </div>
+              <span class="tab-list-item-title">${this._escapeHtml(view.name)}</span>
+              ${set.views.length > 1 ? `
+                <div class="tab-list-item-close" data-view-id="${view.id}">
+                  <i class="ph ph-x"></i>
+                </div>
+              ` : ''}
+            </div>
+          `).join('')}
+        </div>
+        ${this.recentlyClosedTabs.length > 0 ? `
+          <div class="tab-list-section recently-closed">
+            <div class="tab-list-section-title">Recently Closed</div>
+            ${this.recentlyClosedTabs.slice(0, 5).map(item => `
+              <div class="tab-list-item" data-restore-view-id="${item.view.id}">
+                <div class="tab-list-item-icon">
+                  <i class="ph ${this._getViewIcon(item.view.type)}"></i>
+                </div>
+                <span class="tab-list-item-title">${this._escapeHtml(item.view.name)}</span>
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    tabBar.appendChild(dropdown);
+    this.tabListDropdownOpen = true;
+
+    // Attach handlers
+    dropdown.querySelectorAll('.tab-list-item[data-view-id]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (!e.target.closest('.tab-list-item-close')) {
+          this._selectView(item.dataset.viewId);
+          this._closeTabListDropdown();
+        }
+      });
+    });
+
+    dropdown.querySelectorAll('.tab-list-item-close').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._closeTab(btn.dataset.viewId);
+        // Re-render dropdown
+        this._closeTabListDropdown();
+        this._openTabListDropdown();
+      });
+    });
+
+    dropdown.querySelectorAll('.tab-list-item[data-restore-view-id]').forEach(item => {
+      item.addEventListener('click', () => {
+        const viewId = item.dataset.restoreViewId;
+        const tabIndex = this.recentlyClosedTabs.findIndex(t => t.view.id === viewId);
+        if (tabIndex !== -1) {
+          const closedTab = this.recentlyClosedTabs.splice(tabIndex, 1)[0];
+          const set = this.sets.find(s => s.id === closedTab.setId);
+          if (set) {
+            set.views.push(closedTab.view);
+            this.currentViewId = closedTab.view.id;
+            this._renderViewsNav();
+            this._renderView();
+            this._saveData();
+          }
+        }
+        this._closeTabListDropdown();
+      });
+    });
+  }
+
+  /**
+   * Close tab list dropdown
+   */
+  _closeTabListDropdown() {
+    const dropdown = document.querySelector('.tab-list-dropdown');
+    if (dropdown) dropdown.remove();
+    this.tabListDropdownOpen = false;
+  }
+
+  /**
+   * Show tab context menu
+   */
+  _showTabContextMenu(e, viewId) {
+    this._closeTabContextMenu();
+
+    const set = this.getCurrentSet();
+    const view = set?.views.find(v => v.id === viewId);
+    if (!view) return;
+
+    const viewIndex = set.views.findIndex(v => v.id === viewId);
+    const isFirst = viewIndex === 0;
+    const isLast = viewIndex === set.views.length - 1;
+    const canClose = set.views.length > 1;
+
+    const menu = document.createElement('div');
+    menu.className = 'tab-context-menu';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    menu.innerHTML = `
+      <div class="tab-context-item" data-action="duplicate">
+        <i class="ph ph-copy"></i>
+        <span>Duplicate Tab</span>
+      </div>
+      <div class="tab-context-item" data-action="rename">
+        <i class="ph ph-pencil"></i>
+        <span>Rename Tab</span>
+      </div>
+      <div class="tab-context-separator"></div>
+      <div class="tab-context-item ${isFirst ? 'disabled' : ''}" data-action="move-left">
+        <i class="ph ph-arrow-left"></i>
+        <span>Move Left</span>
+      </div>
+      <div class="tab-context-item ${isLast ? 'disabled' : ''}" data-action="move-right">
+        <i class="ph ph-arrow-right"></i>
+        <span>Move Right</span>
+      </div>
+      <div class="tab-context-separator"></div>
+      <div class="tab-context-item ${canClose ? '' : 'disabled'}" data-action="close">
+        <i class="ph ph-x"></i>
+        <span>Close Tab</span>
+        <span class="shortcut">Ctrl+W</span>
+      </div>
+      <div class="tab-context-item ${canClose && set.views.length > 1 ? '' : 'disabled'}" data-action="close-others">
+        <i class="ph ph-x-circle"></i>
+        <span>Close Other Tabs</span>
+      </div>
+      <div class="tab-context-item ${canClose && !isLast ? '' : 'disabled'}" data-action="close-right">
+        <i class="ph ph-arrow-line-right"></i>
+        <span>Close Tabs to the Right</span>
+      </div>
+    `;
+
+    document.body.appendChild(menu);
+    this.tabContextMenuOpen = true;
+
+    // Position adjustment if off-screen
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth) {
+      menu.style.left = `${window.innerWidth - rect.width - 8}px`;
+    }
+    if (rect.bottom > window.innerHeight) {
+      menu.style.top = `${window.innerHeight - rect.height - 8}px`;
+    }
+
+    // Attach handlers
+    menu.querySelectorAll('.tab-context-item:not(.disabled)').forEach(item => {
+      item.addEventListener('click', () => {
+        const action = item.dataset.action;
+        this._handleTabContextAction(action, viewId);
+        this._closeTabContextMenu();
+      });
+    });
+  }
+
+  /**
+   * Handle tab context menu action
+   */
+  _handleTabContextAction(action, viewId) {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    const viewIndex = set.views.findIndex(v => v.id === viewId);
+    const view = set.views[viewIndex];
+
+    switch (action) {
+      case 'duplicate':
+        const dupView = createView(`${view.name} (Copy)`, view.type, { ...view.config });
+        set.views.splice(viewIndex + 1, 0, dupView);
+        this.currentViewId = dupView.id;
+        this._renderViewsNav();
+        this._renderView();
+        this._saveData();
+        break;
+
+      case 'rename':
+        this._renameTab(viewId);
+        break;
+
+      case 'move-left':
+        if (viewIndex > 0) {
+          [set.views[viewIndex - 1], set.views[viewIndex]] = [set.views[viewIndex], set.views[viewIndex - 1]];
+          this._renderViewsNav();
+          this._saveData();
+        }
+        break;
+
+      case 'move-right':
+        if (viewIndex < set.views.length - 1) {
+          [set.views[viewIndex], set.views[viewIndex + 1]] = [set.views[viewIndex + 1], set.views[viewIndex]];
+          this._renderViewsNav();
+          this._saveData();
+        }
+        break;
+
+      case 'close':
+        this._closeTab(viewId);
+        break;
+
+      case 'close-others':
+        const viewsToClose = set.views.filter(v => v.id !== viewId);
+        viewsToClose.forEach(v => {
+          this.recentlyClosedTabs.unshift({
+            view: { ...v },
+            setId: set.id,
+            closedAt: new Date().toISOString()
+          });
+        });
+        set.views = [view];
+        this.currentViewId = viewId;
+        this._renderViewsNav();
+        this._renderView();
+        this._saveData();
+        break;
+
+      case 'close-right':
+        const rightViews = set.views.slice(viewIndex + 1);
+        rightViews.forEach(v => {
+          this.recentlyClosedTabs.unshift({
+            view: { ...v },
+            setId: set.id,
+            closedAt: new Date().toISOString()
+          });
+        });
+        set.views = set.views.slice(0, viewIndex + 1);
+        if (!set.views.find(v => v.id === this.currentViewId)) {
+          this.currentViewId = viewId;
+        }
+        this._renderViewsNav();
+        this._renderView();
+        this._saveData();
+        break;
+    }
+  }
+
+  /**
+   * Close tab context menu
+   */
+  _closeTabContextMenu() {
+    const menu = document.querySelector('.tab-context-menu:not(.tab-new-menu)');
+    if (menu) menu.remove();
+    this.tabContextMenuOpen = false;
+  }
+
+  /**
+   * Get view type icon class
+   */
+  _getViewIcon(viewType) {
+    const icons = {
+      table: 'ph-table',
+      cards: 'ph-cards',
+      kanban: 'ph-kanban',
+      calendar: 'ph-calendar-blank',
+      graph: 'ph-graph'
+    };
+    return icons[viewType] || 'ph-table';
+  }
+
+  /**
+   * Navigate to next tab
+   */
+  _nextTab() {
+    const set = this.getCurrentSet();
+    if (!set || set.views.length <= 1) return;
+
+    const currentIndex = set.views.findIndex(v => v.id === this.currentViewId);
+    const nextIndex = (currentIndex + 1) % set.views.length;
+    this._selectView(set.views[nextIndex].id);
+  }
+
+  /**
+   * Navigate to previous tab
+   */
+  _prevTab() {
+    const set = this.getCurrentSet();
+    if (!set || set.views.length <= 1) return;
+
+    const currentIndex = set.views.findIndex(v => v.id === this.currentViewId);
+    const prevIndex = (currentIndex - 1 + set.views.length) % set.views.length;
+    this._selectView(set.views[prevIndex].id);
+  }
+
+  /**
+   * Close current tab
+   */
+  _closeCurrentTab() {
+    if (this.currentViewId) {
+      this._closeTab(this.currentViewId);
+    }
   }
 
   _selectSet(setId) {
@@ -3220,6 +4010,8 @@ class EODataWorkbench {
       this._hideKeyboardShortcuts();
       this._hideFilterPanel();
       this._hideSortPanel();
+      this._closeTabListDropdown();
+      this._closeTabContextMenu();
       this.elements.contextMenu?.classList.remove('active');
       this.elements.fieldTypePicker?.classList.remove('active');
       this.elements.detailPanel?.classList.remove('open');
@@ -3234,6 +4026,55 @@ class EODataWorkbench {
       e.preventDefault();
       this._showKeyboardShortcuts();
     }
+
+    // ========== TAB SHORTCUTS ==========
+
+    // Ctrl + T for new tab
+    if ((e.metaKey || e.ctrlKey) && e.key === 't' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._createNewTab();
+    }
+
+    // Ctrl + W to close current tab
+    if ((e.metaKey || e.ctrlKey) && e.key === 'w' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._closeCurrentTab();
+    }
+
+    // Ctrl + Shift + T to reopen closed tab
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'T' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._reopenClosedTab();
+    }
+
+    // Ctrl + Tab to go to next tab
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault();
+      this._nextTab();
+    }
+
+    // Ctrl + Shift + Tab to go to previous tab
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Tab' && e.shiftKey) {
+      e.preventDefault();
+      this._prevTab();
+    }
+
+    // Ctrl + 1-9 to switch to specific tab (1-indexed)
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+      const tabIndex = parseInt(e.key, 10);
+      if (tabIndex >= 1 && tabIndex <= 9) {
+        const set = this.getCurrentSet();
+        if (set && set.views.length > 0) {
+          const viewIndex = tabIndex === 9 ? set.views.length - 1 : Math.min(tabIndex - 1, set.views.length - 1);
+          if (set.views[viewIndex]) {
+            e.preventDefault();
+            this._selectView(set.views[viewIndex].id);
+          }
+        }
+      }
+    }
+
+    // ========== RECORD SHORTCUTS ==========
 
     // Cmd/Ctrl + N for new record
     if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !e.target.closest('input, textarea')) {
@@ -3281,7 +4122,7 @@ class EODataWorkbench {
       }
     }
 
-    // Number keys for view switching (1-5)
+    // Number keys for view TYPE switching (1-5) - only when not using Ctrl
     if (!e.target.closest('input, textarea') && !e.metaKey && !e.ctrlKey && !e.altKey) {
       const viewMap = { '1': 'table', '2': 'cards', '3': 'kanban', '4': 'calendar', '5': 'graph' };
       if (viewMap[e.key]) {
