@@ -1381,11 +1381,16 @@ class EODataWorkbench {
 
   _renderTextEditor(cell, field, value) {
     const isLongText = field.type === FieldTypes.LONG_TEXT;
-    const tag = isLongText ? 'textarea' : 'input';
 
-    cell.innerHTML = `<${tag} type="text" class="cell-input">${value || ''}</${tag}>`;
+    // Create element properly - input needs value attribute, not inner content
+    const input = document.createElement(isLongText ? 'textarea' : 'input');
+    input.type = 'text';
+    input.className = 'cell-input';
+    input.value = value || '';
 
-    const input = cell.querySelector('.cell-input');
+    cell.innerHTML = '';
+    cell.appendChild(input);
+
     input.focus();
     input.select?.();
 
