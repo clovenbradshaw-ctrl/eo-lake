@@ -657,11 +657,22 @@ function showSettingsModal() {
   modalTitle.textContent = 'Settings';
   modalBody.innerHTML = `
     <div class="form-group">
+      <label class="form-label">Import Data</label>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
+        <button class="btn btn-primary" onclick="closeModal(); setTimeout(showImportModal, 100);">
+          <i class="ph ph-file-csv"></i> Import CSV / JSON
+        </button>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+        Import data from CSV or JSON files with automatic field type detection.
+      </p>
+    </div>
+    <div class="form-group">
       <label class="form-label">Data Management</label>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-        <button class="btn btn-secondary" onclick="exportAllData()"><i class="ph ph-export"></i> Export</button>
-        <button class="btn btn-secondary" onclick="importData()"><i class="ph ph-download"></i> Import</button>
-        <button class="btn btn-danger" onclick="clearAllData()"><i class="ph ph-trash"></i> Clear</button>
+        <button class="btn btn-secondary" onclick="exportAllData()"><i class="ph ph-export"></i> Export JSON</button>
+        <button class="btn btn-secondary" onclick="importLegacyData()"><i class="ph ph-download"></i> Import JSON (Legacy)</button>
+        <button class="btn btn-danger" onclick="clearAllData()"><i class="ph ph-trash"></i> Clear All</button>
       </div>
     </div>
     <div class="form-group">
@@ -698,7 +709,7 @@ function exportAllData() {
   closeModal();
 }
 
-function importData() {
+function importLegacyData() {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json';
@@ -721,6 +732,13 @@ function importData() {
     reader.readAsText(file);
   };
   input.click();
+}
+
+// Keep old name for backwards compatibility
+function importData() {
+  // Use new import modal by default
+  closeModal();
+  setTimeout(showImportModal, 100);
 }
 
 function clearAllData() {
@@ -810,6 +828,7 @@ if (typeof window !== 'undefined') {
   window.initApp = initApp;
   window.exportAllData = exportAllData;
   window.importData = importData;
+  window.importLegacyData = importLegacyData;
   window.clearAllData = clearAllData;
   window.closeModal = closeModal;
 }
