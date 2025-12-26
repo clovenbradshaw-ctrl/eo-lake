@@ -165,6 +165,13 @@ function createView(name, type, config = {}) {
       groups: config.groups || [],
       hiddenFields: config.hiddenFields || [],
       fieldOrder: config.fieldOrder || [],
+      // Deduplication config
+      deduplication: config.deduplication || {
+        enabled: false,
+        fields: [],           // Field IDs to use for duplicate detection
+        strategy: 'newest',   // 'newest', 'oldest', 'merge'
+        caseSensitive: false  // Whether string comparison is case-sensitive
+      },
       // View-specific config
       ...config
     },
@@ -568,6 +575,12 @@ class EODataWorkbench {
     document.getElementById('sort-apply')?.addEventListener('click', () => this._applySorts());
     document.getElementById('sort-clear')?.addEventListener('click', () => this._clearSorts());
 
+    // Deduplication panel
+    document.getElementById('btn-dedupe')?.addEventListener('click', () => this._toggleDedupePanel());
+    document.getElementById('dedupe-panel-close')?.addEventListener('click', () => this._hideDedupePanel());
+    document.getElementById('dedupe-apply')?.addEventListener('click', () => this._applyDeduplicationConfig());
+    document.getElementById('dedupe-clear')?.addEventListener('click', () => this._clearDeduplicationConfig());
+
     // Global search
     const searchInput = document.getElementById('global-search');
     if (searchInput) {
@@ -695,7 +708,140 @@ class EODataWorkbench {
       });
     }
 
+    // Apply deduplication
+    records = this._applyDeduplication(records, view, set);
+
     return records;
+  }
+
+  /**
+   * Apply deduplication to records based on view config
+   * @param {Array} records - Records to deduplicate
+   * @param {Object} view - Current view with deduplication config
+   * @param {Object} set - Current set with field definitions
+   * @returns {Array} Deduplicated records
+   */
+  _applyDeduplication(records, view, set) {
+    const dedupeConfig = view?.config?.deduplication;
+
+    // If deduplication is not enabled or no fields specified, return original records
+    if (!dedupeConfig?.enabled || !dedupeConfig?.fields?.length) {
+      return records;
+    }
+
+    const { fields: dedupeFieldIds, strategy = 'newest', caseSensitive = false } = dedupeConfig;
+
+    // Create a map to track unique records by their dedupe key
+    const uniqueRecords = new Map();
+
+    for (const record of records) {
+      // Build the dedupe key from specified fields
+      const keyParts = dedupeFieldIds.map(fieldId => {
+        const field = set.fields.find(f => f.id === fieldId);
+        let value = record.values[fieldId];
+
+        // Handle linked records - use the linked record's primary value for comparison
+        if (field?.type === FieldTypes.LINK && value) {
+          value = this._resolveLinkValue(value, field);
+        }
+
+        // Normalize string values for case-insensitive comparison
+        if (typeof value === 'string' && !caseSensitive) {
+          value = value.toLowerCase().trim();
+        }
+
+        return value ?? '';
+      });
+
+      const dedupeKey = keyParts.join('|||');
+
+      if (!uniqueRecords.has(dedupeKey)) {
+        // First occurrence - add to map
+        uniqueRecords.set(dedupeKey, record);
+      } else {
+        // Duplicate found - apply strategy
+        const existing = uniqueRecords.get(dedupeKey);
+
+        switch (strategy) {
+          case 'newest':
+            // Keep the record with the more recent updatedAt/createdAt
+            const existingTime = new Date(existing.updatedAt || existing.createdAt).getTime();
+            const currentTime = new Date(record.updatedAt || record.createdAt).getTime();
+            if (currentTime > existingTime) {
+              uniqueRecords.set(dedupeKey, record);
+            }
+            break;
+
+          case 'oldest':
+            // Keep the record with the older createdAt
+            const existingCreated = new Date(existing.createdAt).getTime();
+            const currentCreated = new Date(record.createdAt).getTime();
+            if (currentCreated < existingCreated) {
+              uniqueRecords.set(dedupeKey, record);
+            }
+            break;
+
+          case 'merge':
+            // Merge non-empty values from the newer record into the older one
+            const merged = this._mergeRecords(existing, record);
+            uniqueRecords.set(dedupeKey, merged);
+            break;
+
+          default:
+            // Default to newest
+            break;
+        }
+      }
+    }
+
+    return Array.from(uniqueRecords.values());
+  }
+
+  /**
+   * Resolve link field value to a comparable string
+   */
+  _resolveLinkValue(linkValue, field) {
+    if (!linkValue) return '';
+
+    // Link values can be a single ID or array of IDs
+    const linkedSetId = field.options?.linkedSetId;
+    const linkedSet = this.sets.find(s => s.id === linkedSetId);
+    if (!linkedSet) return String(linkValue);
+
+    // Get the linked record(s) and return their primary field value
+    const ids = Array.isArray(linkValue) ? linkValue : [linkValue];
+    const primaryField = linkedSet.fields.find(f => f.isPrimary);
+
+    const values = ids.map(id => {
+      const linkedRecord = linkedSet.records.find(r => r.id === id);
+      if (linkedRecord && primaryField) {
+        return linkedRecord.values[primaryField.id] || '';
+      }
+      return '';
+    });
+
+    return values.join(', ');
+  }
+
+  /**
+   * Merge two records, keeping non-empty values from the newer one
+   */
+  _mergeRecords(older, newer) {
+    const merged = { ...older };
+    merged.values = { ...older.values };
+
+    // Merge values from newer record if they're non-empty
+    for (const [key, value] of Object.entries(newer.values)) {
+      if (value != null && value !== '' &&
+          (merged.values[key] == null || merged.values[key] === '')) {
+        merged.values[key] = value;
+      }
+    }
+
+    // Update timestamp to reflect merge
+    merged.updatedAt = new Date().toISOString();
+
+    return merged;
   }
 
   _matchesFilter(value, filter) {
@@ -4723,6 +4869,180 @@ class EODataWorkbench {
     this._hideSortPanel();
     this._renderView();
     this._saveData();
+  }
+
+  // --------------------------------------------------------------------------
+  // Deduplication Panel
+  // --------------------------------------------------------------------------
+
+  _toggleDedupePanel() {
+    const panel = document.getElementById('dedupe-panel');
+    if (!panel) return;
+
+    if (panel.style.display === 'none') {
+      this._showDedupePanel();
+    } else {
+      this._hideDedupePanel();
+    }
+  }
+
+  _showDedupePanel() {
+    // Hide other panels
+    this._hideFilterPanel();
+    this._hideSortPanel();
+
+    const panel = document.getElementById('dedupe-panel');
+    if (!panel) return;
+
+    panel.style.display = 'block';
+
+    // Populate fields
+    this._populateDedupeFields();
+
+    // Load current config
+    const view = this.getCurrentView();
+    const dedupeConfig = view?.config?.deduplication || { enabled: false, fields: [], strategy: 'newest', caseSensitive: false };
+
+    // Set enable toggle
+    const enabledCheckbox = document.getElementById('dedupe-enabled');
+    if (enabledCheckbox) {
+      enabledCheckbox.checked = dedupeConfig.enabled;
+    }
+
+    // Set strategy
+    const strategySelect = document.getElementById('dedupe-strategy');
+    if (strategySelect) {
+      strategySelect.value = dedupeConfig.strategy || 'newest';
+    }
+
+    // Set case sensitive
+    const caseSensitiveCheckbox = document.getElementById('dedupe-case-sensitive');
+    if (caseSensitiveCheckbox) {
+      caseSensitiveCheckbox.checked = dedupeConfig.caseSensitive || false;
+    }
+
+    // Check selected fields
+    const selectedFields = dedupeConfig.fields || [];
+    const fieldsContainer = document.getElementById('dedupe-fields');
+    if (fieldsContainer) {
+      fieldsContainer.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.checked = selectedFields.includes(checkbox.value);
+      });
+    }
+  }
+
+  _hideDedupePanel() {
+    const panel = document.getElementById('dedupe-panel');
+    if (panel) {
+      panel.style.display = 'none';
+    }
+  }
+
+  _populateDedupeFields() {
+    const container = document.getElementById('dedupe-fields');
+    if (!container) return;
+
+    const set = this.getCurrentSet();
+    const fields = set?.fields || [];
+
+    container.innerHTML = fields.map(field => `
+      <label class="dedupe-field-item">
+        <input type="checkbox" value="${field.id}">
+        <i class="ph ${FieldTypeIcons[field.type] || 'ph-text-aa'} field-icon"></i>
+        <span class="field-name">${this._escapeHtml(field.name)}</span>
+      </label>
+    `).join('');
+  }
+
+  _applyDeduplicationConfig() {
+    const view = this.getCurrentView();
+    if (!view) return;
+
+    // Ensure deduplication config exists
+    if (!view.config.deduplication) {
+      view.config.deduplication = {
+        enabled: false,
+        fields: [],
+        strategy: 'newest',
+        caseSensitive: false
+      };
+    }
+
+    // Get enabled state
+    const enabledCheckbox = document.getElementById('dedupe-enabled');
+    view.config.deduplication.enabled = enabledCheckbox?.checked || false;
+
+    // Get selected fields
+    const fieldsContainer = document.getElementById('dedupe-fields');
+    const selectedFields = [];
+    if (fieldsContainer) {
+      fieldsContainer.querySelectorAll('input[type="checkbox"]:checked').forEach(checkbox => {
+        selectedFields.push(checkbox.value);
+      });
+    }
+    view.config.deduplication.fields = selectedFields;
+
+    // Get strategy
+    const strategySelect = document.getElementById('dedupe-strategy');
+    view.config.deduplication.strategy = strategySelect?.value || 'newest';
+
+    // Get case sensitive
+    const caseSensitiveCheckbox = document.getElementById('dedupe-case-sensitive');
+    view.config.deduplication.caseSensitive = caseSensitiveCheckbox?.checked || false;
+
+    this._hideDedupePanel();
+    this._renderView();
+    this._saveData();
+
+    if (view.config.deduplication.enabled && selectedFields.length > 0) {
+      const originalCount = this.getCurrentSet()?.records?.length || 0;
+      const filteredCount = this.getFilteredRecords().length;
+      const deduped = originalCount - filteredCount;
+      if (deduped > 0) {
+        this._showToast(`Deduplication active: ${deduped} duplicate${deduped !== 1 ? 's' : ''} hidden`, 'info');
+      } else {
+        this._showToast('Deduplication enabled (no duplicates found)', 'info');
+      }
+    } else if (!view.config.deduplication.enabled) {
+      this._showToast('Deduplication disabled', 'info');
+    } else {
+      this._showToast('Select at least one field for deduplication', 'warning');
+    }
+  }
+
+  _clearDeduplicationConfig() {
+    const view = this.getCurrentView();
+    if (view && view.config.deduplication) {
+      view.config.deduplication = {
+        enabled: false,
+        fields: [],
+        strategy: 'newest',
+        caseSensitive: false
+      };
+    }
+
+    // Reset UI
+    const enabledCheckbox = document.getElementById('dedupe-enabled');
+    if (enabledCheckbox) enabledCheckbox.checked = false;
+
+    const fieldsContainer = document.getElementById('dedupe-fields');
+    if (fieldsContainer) {
+      fieldsContainer.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.checked = false;
+      });
+    }
+
+    const strategySelect = document.getElementById('dedupe-strategy');
+    if (strategySelect) strategySelect.value = 'newest';
+
+    const caseSensitiveCheckbox = document.getElementById('dedupe-case-sensitive');
+    if (caseSensitiveCheckbox) caseSensitiveCheckbox.checked = false;
+
+    this._hideDedupePanel();
+    this._renderView();
+    this._saveData();
+
+    this._showToast('Deduplication disabled', 'info');
   }
 
   // --------------------------------------------------------------------------

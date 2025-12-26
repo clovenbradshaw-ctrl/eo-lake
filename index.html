@@ -170,6 +170,10 @@
               <i class="ph ph-sort-ascending"></i>
               <span class="btn-label">Sort</span>
             </button>
+            <button class="header-btn" id="btn-dedupe" title="Deduplicate records by field values">
+              <i class="ph ph-stack"></i>
+              <span class="btn-label">Dedupe</span>
+            </button>
             <button class="header-btn" id="btn-snapshot" title="Create Snapshot (Rule 9: Immutable capture)">
               <i class="ph ph-camera"></i>
               <span class="btn-label">Snapshot</span>
@@ -354,6 +358,49 @@
     <div class="sort-panel-footer">
       <button class="btn btn-secondary" id="sort-clear">Clear All</button>
       <button class="btn btn-primary" id="sort-apply">Apply Sort</button>
+    </div>
+  </div>
+
+  <!-- Deduplication Panel -->
+  <div class="dedupe-panel" id="dedupe-panel" style="display: none;">
+    <div class="dedupe-panel-header">
+      <h4><i class="ph ph-stack"></i> Deduplicate Records</h4>
+      <button class="dedupe-panel-close" id="dedupe-panel-close">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    <div class="dedupe-panel-body">
+      <div class="dedupe-enable-toggle">
+        <label class="toggle-switch">
+          <input type="checkbox" id="dedupe-enabled">
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="toggle-label">Enable deduplication</span>
+      </div>
+      <div class="dedupe-fields-section">
+        <label class="dedupe-label">Match records by these fields:</label>
+        <div class="dedupe-fields" id="dedupe-fields">
+          <!-- Dedupe field checkboxes added dynamically -->
+        </div>
+      </div>
+      <div class="dedupe-strategy-section">
+        <label class="dedupe-label">When duplicates found:</label>
+        <select class="dedupe-strategy-select" id="dedupe-strategy">
+          <option value="newest">Keep newest record</option>
+          <option value="oldest">Keep oldest record</option>
+          <option value="merge">Merge records (fill missing values)</option>
+        </select>
+      </div>
+      <div class="dedupe-options-section">
+        <label class="checkbox-label">
+          <input type="checkbox" id="dedupe-case-sensitive">
+          <span>Case-sensitive matching</span>
+        </label>
+      </div>
+    </div>
+    <div class="dedupe-panel-footer">
+      <button class="btn btn-secondary" id="dedupe-clear">Disable</button>
+      <button class="btn btn-primary" id="dedupe-apply">Apply</button>
     </div>
   </div>
 
