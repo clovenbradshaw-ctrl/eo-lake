@@ -2165,6 +2165,66 @@ class EODataWorkbench {
     this._renderView();
   }
 
+  _changeFieldType(fieldId, newType) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    const oldType = field.type;
+
+    // Don't do anything if the type hasn't changed
+    if (oldType === newType) return;
+
+    // Record the change in activity stream
+    this._createEOEvent('field_type_changed', {
+      setId: set.id,
+      setName: set.name,
+      fieldId: field.id,
+      fieldName: field.name,
+      oldType: oldType,
+      newType: newType
+    });
+
+    // Update the field type
+    field.type = newType;
+
+    // Reset type-specific options for the new type
+    field.options = {};
+    switch (newType) {
+      case FieldTypes.SELECT:
+      case FieldTypes.MULTI_SELECT:
+        field.options.choices = [
+          { id: generateId(), name: 'Option 1', color: 'blue' },
+          { id: generateId(), name: 'Option 2', color: 'green' },
+          { id: generateId(), name: 'Option 3', color: 'yellow' }
+        ];
+        break;
+      case FieldTypes.NUMBER:
+        field.options.precision = 0;
+        field.options.format = 'number';
+        break;
+      case FieldTypes.DATE:
+        field.options.includeTime = false;
+        field.options.format = 'local';
+        break;
+      case FieldTypes.LINK:
+        field.options.linkedSetId = null;
+        field.options.allowMultiple = false;
+        break;
+      case FieldTypes.FORMULA:
+        field.options.formula = '';
+        break;
+      case FieldTypes.ROLLUP:
+        field.options.linkedFieldId = null;
+        field.options.rollupFieldId = null;
+        field.options.aggregation = 'SUM';
+        break;
+    }
+
+    this._saveData();
+    this._renderView();
+  }
+
   // --------------------------------------------------------------------------
   // Context Menus
   // --------------------------------------------------------------------------
@@ -2221,10 +2281,34 @@ class EODataWorkbench {
     const field = set?.fields.find(f => f.id === fieldId);
     if (!field) return;
 
+    // Get friendly type name for display
+    const typeNames = {
+      'text': 'Text',
+      'longText': 'Long text',
+      'number': 'Number',
+      'select': 'Single select',
+      'multiSelect': 'Multiple select',
+      'date': 'Date',
+      'checkbox': 'Checkbox',
+      'link': 'Link',
+      'attachment': 'Attachment',
+      'url': 'URL',
+      'email': 'Email',
+      'phone': 'Phone',
+      'formula': 'Formula',
+      'rollup': 'Rollup',
+      'count': 'Count',
+      'autonumber': 'Autonumber'
+    };
+
     menu.innerHTML = `
       <div class="context-menu-item" data-action="rename">
         <i class="ph ph-pencil"></i>
         <span>Rename field</span>
+      </div>
+      <div class="context-menu-item" data-action="change-type">
+        <i class="ph ${FieldTypeIcons[field.type]}"></i>
+        <span>Change type (${typeNames[field.type] || field.type})</span>
       </div>
       <div class="context-menu-item" data-action="hide">
         <i class="ph ph-eye-slash"></i>
@@ -2244,13 +2328,18 @@ class EODataWorkbench {
     menu.classList.add('active');
 
     menu.querySelectorAll('.context-menu-item').forEach(item => {
-      item.addEventListener('click', () => {
+      item.addEventListener('click', (clickEvent) => {
         menu.classList.remove('active');
         const action = item.dataset.action;
 
         switch (action) {
           case 'rename':
             this._showRenameFieldModal(fieldId);
+            break;
+          case 'change-type':
+            this._showFieldTypePicker(clickEvent, (newType) => {
+              this._changeFieldType(fieldId, newType);
+            });
             break;
           case 'hide':
             this._hideField(fieldId);
@@ -2324,12 +2413,25 @@ class EODataWorkbench {
   // Field Type Picker
   // --------------------------------------------------------------------------
 
-  _showFieldTypePicker(e) {
+  _showFieldTypePicker(e, callback = null) {
     const picker = this.elements.fieldTypePicker;
     if (!picker) return;
 
     const rect = e.target.closest('th, button').getBoundingClientRect();
-    picker.style.left = rect.left + 'px';
+    const pickerWidth = 240; // matches CSS width
+    const viewportWidth = window.innerWidth;
+
+    // Calculate left position, ensuring picker doesn't go off the right edge
+    let left = rect.left;
+    if (left + pickerWidth > viewportWidth - 10) {
+      left = viewportWidth - pickerWidth - 10;
+    }
+    // Ensure it doesn't go off the left edge either
+    if (left < 10) {
+      left = 10;
+    }
+
+    picker.style.left = left + 'px';
     picker.style.top = (rect.bottom + 4) + 'px';
     picker.classList.add('active');
 
@@ -2337,7 +2439,11 @@ class EODataWorkbench {
       item.addEventListener('click', () => {
         picker.classList.remove('active');
         const type = item.dataset.type;
-        this._addField(type);
+        if (callback) {
+          callback(type);
+        } else {
+          this._addField(type);
+        }
       }, { once: true });
     });
   }
