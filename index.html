@@ -30,7 +30,7 @@
       <div class="sidebar-search">
         <div class="search-input-wrapper">
           <i class="ph ph-magnifying-glass"></i>
-          <input type="text" placeholder="Search..." id="global-search">
+          <input type="text" placeholder="Search records, sets... (Ctrl+/)" id="global-search">
         </div>
       </div>
 
@@ -94,6 +94,10 @@
 
       <!-- Sidebar Footer -->
       <div class="sidebar-footer">
+        <div class="nav-item" id="nav-keyboard-shortcuts" title="Keyboard Shortcuts (?)">
+          <i class="ph ph-keyboard"></i>
+          <span>Shortcuts</span>
+        </div>
         <div class="nav-item" id="nav-settings">
           <i class="ph ph-gear"></i>
           <span>Settings</span>
@@ -179,6 +183,31 @@
         </div>
       </header>
 
+      <!-- Bulk Actions Toolbar (shown when records selected) -->
+      <div class="bulk-actions-toolbar" id="bulk-actions-toolbar" style="display: none;">
+        <div class="bulk-actions-info">
+          <i class="ph ph-check-square"></i>
+          <span id="bulk-selected-count">0 selected</span>
+        </div>
+        <div class="bulk-actions-buttons">
+          <button class="bulk-action-btn" id="bulk-duplicate" title="Duplicate selected">
+            <i class="ph ph-copy"></i>
+            <span>Duplicate</span>
+          </button>
+          <button class="bulk-action-btn" id="bulk-export" title="Export selected">
+            <i class="ph ph-export"></i>
+            <span>Export</span>
+          </button>
+          <button class="bulk-action-btn danger" id="bulk-delete" title="Delete selected">
+            <i class="ph ph-trash"></i>
+            <span>Delete</span>
+          </button>
+        </div>
+        <button class="bulk-actions-close" id="bulk-actions-close" title="Clear selection">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+
       <!-- Content Area -->
       <div class="content-area" id="content-area">
         <!-- Workbench rendered here -->
@@ -254,6 +283,59 @@
     <!-- Context menu items rendered dynamically -->
   </div>
 
+  <!-- Advanced Filter Panel -->
+  <div class="filter-panel" id="filter-panel" style="display: none;">
+    <div class="filter-panel-header">
+      <h4><i class="ph ph-funnel"></i> Filter Records</h4>
+      <button class="filter-panel-close" id="filter-panel-close">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    <div class="filter-panel-body">
+      <div class="filter-groups" id="filter-groups">
+        <!-- Filter rows added dynamically -->
+      </div>
+      <button class="add-filter-btn" id="add-filter-btn">
+        <i class="ph ph-plus"></i>
+        <span>Add filter</span>
+      </button>
+      <div class="filter-logic-toggle">
+        <span class="filter-logic-label">Match</span>
+        <select class="filter-logic-select" id="filter-logic">
+          <option value="and">All filters (AND)</option>
+          <option value="or">Any filter (OR)</option>
+        </select>
+      </div>
+    </div>
+    <div class="filter-panel-footer">
+      <button class="btn btn-secondary" id="filter-clear">Clear All</button>
+      <button class="btn btn-primary" id="filter-apply">Apply Filter</button>
+    </div>
+  </div>
+
+  <!-- Sort Panel -->
+  <div class="sort-panel" id="sort-panel" style="display: none;">
+    <div class="sort-panel-header">
+      <h4><i class="ph ph-sort-ascending"></i> Sort Records</h4>
+      <button class="sort-panel-close" id="sort-panel-close">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    <div class="sort-panel-body">
+      <div class="sort-rules" id="sort-rules">
+        <!-- Sort rules added dynamically -->
+      </div>
+      <button class="add-sort-btn" id="add-sort-btn">
+        <i class="ph ph-plus"></i>
+        <span>Add sort</span>
+      </button>
+    </div>
+    <div class="sort-panel-footer">
+      <button class="btn btn-secondary" id="sort-clear">Clear All</button>
+      <button class="btn btn-primary" id="sort-apply">Apply Sort</button>
+    </div>
+  </div>
+
   <!-- Field Type Picker -->
   <div class="field-type-picker" id="field-type-picker">
     <div class="field-type-list">
@@ -320,6 +402,88 @@
       <div class="field-type-item" data-type="autonumber">
         <i class="ph ph-number-square-one"></i>
         <span>Autonumber</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Keyboard Shortcuts Modal -->
+  <div class="shortcuts-modal-overlay" id="shortcuts-modal" style="display: none;">
+    <div class="shortcuts-modal">
+      <div class="shortcuts-modal-header">
+        <h3><i class="ph ph-keyboard"></i> Keyboard Shortcuts</h3>
+        <button class="shortcuts-modal-close" id="shortcuts-modal-close">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+      <div class="shortcuts-modal-body">
+        <div class="shortcuts-section">
+          <h4>General</h4>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>?</kbd></span>
+            <span class="shortcut-desc">Show keyboard shortcuts</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Esc</kbd></span>
+            <span class="shortcut-desc">Close modal/panel, cancel edit</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>/</kbd></span>
+            <span class="shortcut-desc">Focus search</span>
+          </div>
+        </div>
+        <div class="shortcuts-section">
+          <h4>Records</h4>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>N</kbd></span>
+            <span class="shortcut-desc">Add new record</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Delete</kbd></span>
+            <span class="shortcut-desc">Delete selected records</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>D</kbd></span>
+            <span class="shortcut-desc">Duplicate selected records</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>A</kbd></span>
+            <span class="shortcut-desc">Select all records</span>
+          </div>
+        </div>
+        <div class="shortcuts-section">
+          <h4>Editing</h4>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Enter</kbd></span>
+            <span class="shortcut-desc">Confirm edit / Open selected record</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Tab</kbd></span>
+            <span class="shortcut-desc">Move to next cell</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Shift</kbd>+<kbd>Tab</kbd></span>
+            <span class="shortcut-desc">Move to previous cell</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Double-click</kbd></span>
+            <span class="shortcut-desc">Edit cell</span>
+          </div>
+        </div>
+        <div class="shortcuts-section">
+          <h4>Views</h4>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>1</kbd>-<kbd>5</kbd></span>
+            <span class="shortcut-desc">Switch view (Table, Cards, Kanban, Calendar, Graph)</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>F</kbd></span>
+            <span class="shortcut-desc">Open filter/focus panel</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>S</kbd></span>
+            <span class="shortcut-desc">Create snapshot</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>

@@ -511,6 +511,42 @@ class EODataWorkbench {
 
     // New workspace button
     document.getElementById('btn-new-workspace')?.addEventListener('click', () => this._showNewWorkspaceModal());
+
+    // Keyboard shortcuts modal
+    document.getElementById('nav-keyboard-shortcuts')?.addEventListener('click', () => this._showKeyboardShortcuts());
+    document.getElementById('shortcuts-modal-close')?.addEventListener('click', () => this._hideKeyboardShortcuts());
+    document.getElementById('shortcuts-modal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'shortcuts-modal') this._hideKeyboardShortcuts();
+    });
+
+    // Bulk actions toolbar
+    document.getElementById('bulk-duplicate')?.addEventListener('click', () => this._bulkDuplicate());
+    document.getElementById('bulk-export')?.addEventListener('click', () => this._bulkExport());
+    document.getElementById('bulk-delete')?.addEventListener('click', () => this._bulkDelete());
+    document.getElementById('bulk-actions-close')?.addEventListener('click', () => this._clearSelection());
+
+    // Filter panel
+    document.getElementById('btn-filter')?.removeEventListener('click', () => {});
+    document.getElementById('btn-filter')?.addEventListener('click', () => this._toggleFilterPanel());
+    document.getElementById('filter-panel-close')?.addEventListener('click', () => this._hideFilterPanel());
+    document.getElementById('add-filter-btn')?.addEventListener('click', () => this._addFilterRow());
+    document.getElementById('filter-apply')?.addEventListener('click', () => this._applyFilters());
+    document.getElementById('filter-clear')?.addEventListener('click', () => this._clearFilters());
+
+    // Sort panel
+    document.getElementById('btn-sort')?.addEventListener('click', () => this._toggleSortPanel());
+    document.getElementById('sort-panel-close')?.addEventListener('click', () => this._hideSortPanel());
+    document.getElementById('add-sort-btn')?.addEventListener('click', () => this._addSortRow());
+    document.getElementById('sort-apply')?.addEventListener('click', () => this._applySorts());
+    document.getElementById('sort-clear')?.addEventListener('click', () => this._clearSorts());
+
+    // Global search
+    const searchInput = document.getElementById('global-search');
+    if (searchInput) {
+      searchInput.addEventListener('input', (e) => this._handleSearch(e.target.value));
+      searchInput.addEventListener('focus', () => this._showSearchResults());
+      searchInput.addEventListener('blur', () => setTimeout(() => this._hideSearchResults(), 200));
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -2926,35 +2962,215 @@ class EODataWorkbench {
     const body = document.getElementById('detail-panel-body');
     if (!panel || !body) return;
 
+    this.currentDetailRecordId = recordId;
+
     const fields = set.fields;
     const primaryField = fields.find(f => f.isPrimary) || fields[0];
     const title = record.values[primaryField?.id] || 'Untitled';
 
     body.innerHTML = `
       <div class="detail-record">
-        <h2 style="font-size: 18px; margin-bottom: 16px;">${this._escapeHtml(title)}</h2>
+        <h2 style="font-size: 18px; margin-bottom: 16px;">
+          <i class="ph ph-note" style="color: var(--primary-500);"></i>
+          ${this._escapeHtml(title)}
+        </h2>
         ${fields.map(field => {
           const value = record.values[field.id];
+          const isEditable = ![FieldTypes.FORMULA, FieldTypes.ROLLUP, FieldTypes.COUNT, FieldTypes.AUTONUMBER].includes(field.type);
           return `
-            <div class="form-group">
-              <label class="form-label">
-                <i class="ph ${FieldTypeIcons[field.type]}" style="margin-right: 4px;"></i>
+            <div class="detail-field-group" data-field-id="${field.id}">
+              <div class="detail-field-label">
+                <i class="ph ${FieldTypeIcons[field.type]}"></i>
                 ${this._escapeHtml(field.name)}
-              </label>
-              <div class="detail-value">${this._formatCellValueSimple(value, field)}</div>
+              </div>
+              <div class="detail-field-value ${isEditable ? 'editable' : ''}"
+                   data-field-id="${field.id}"
+                   data-record-id="${recordId}"
+                   ${isEditable ? 'title="Click to edit"' : ''}>
+                ${this._renderDetailFieldValue(field, value)}
+              </div>
             </div>
           `;
         }).join('')}
+        <div class="detail-actions">
+          <button class="detail-action-btn" id="detail-duplicate">
+            <i class="ph ph-copy"></i>
+            <span>Duplicate</span>
+          </button>
+          <button class="detail-action-btn danger" id="detail-delete">
+            <i class="ph ph-trash"></i>
+            <span>Delete</span>
+          </button>
+        </div>
         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
           <div style="font-size: 11px; color: var(--text-muted);">
-            Created: ${new Date(record.createdAt).toLocaleString()}<br>
-            Updated: ${new Date(record.updatedAt).toLocaleString()}
+            <i class="ph ph-clock"></i> Created: ${new Date(record.createdAt).toLocaleString()}<br>
+            <i class="ph ph-pencil"></i> Updated: ${new Date(record.updatedAt).toLocaleString()}<br>
+            <i class="ph ph-hash"></i> ID: ${record.id}
           </div>
         </div>
       </div>
     `;
 
+    // Add click handlers for editable fields
+    body.querySelectorAll('.detail-field-value.editable').forEach(el => {
+      el.addEventListener('click', () => {
+        this._startDetailFieldEdit(el);
+      });
+    });
+
+    // Action buttons
+    document.getElementById('detail-duplicate')?.addEventListener('click', () => {
+      this.duplicateRecord(recordId);
+      this._showToast('Record duplicated', 'success');
+    });
+
+    document.getElementById('detail-delete')?.addEventListener('click', () => {
+      if (confirm('Delete this record?')) {
+        this.deleteRecord(recordId);
+        panel.classList.remove('open');
+        this._showToast('Record deleted', 'success');
+      }
+    });
+
     panel.classList.add('open');
+  }
+
+  _renderDetailFieldValue(field, value) {
+    if (value === null || value === undefined || value === '') {
+      return '<span class="cell-empty">Empty - click to add</span>';
+    }
+
+    switch (field.type) {
+      case FieldTypes.CHECKBOX:
+        return `<i class="ph ${value ? 'ph-check-square' : 'ph-square'}" style="font-size: 18px; color: ${value ? 'var(--success-500)' : 'var(--text-muted)'}"></i>`;
+      case FieldTypes.SELECT:
+        const choice = field.options?.choices?.find(c => c.id === value);
+        return choice ? `<span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>` : this._escapeHtml(String(value));
+      case FieldTypes.MULTI_SELECT:
+        if (Array.isArray(value)) {
+          return value.map(v => {
+            const c = field.options?.choices?.find(ch => ch.id === v);
+            return c ? `<span class="select-tag color-${c.color || 'gray'}">${this._escapeHtml(c.name)}</span>` : '';
+          }).join(' ');
+        }
+        return '<span class="cell-empty">-</span>';
+      case FieldTypes.DATE:
+        return this._formatDate(value, field);
+      case FieldTypes.URL:
+        return `<a href="${this._escapeHtml(value)}" target="_blank" style="color: var(--primary-500);">${this._escapeHtml(value)}</a>`;
+      case FieldTypes.EMAIL:
+        return `<a href="mailto:${this._escapeHtml(value)}" style="color: var(--primary-500);">${this._escapeHtml(value)}</a>`;
+      default:
+        if (typeof value === 'object') {
+          return `<code style="font-size: 11px;">${this._escapeHtml(JSON.stringify(value, null, 2).substring(0, 100))}...</code>`;
+        }
+        return this._escapeHtml(String(value));
+    }
+  }
+
+  _startDetailFieldEdit(el) {
+    const fieldId = el.dataset.fieldId;
+    const recordId = el.dataset.recordId;
+
+    const set = this.getCurrentSet();
+    const record = set?.records.find(r => r.id === recordId);
+    const field = set?.fields.find(f => f.id === fieldId);
+
+    if (!record || !field) return;
+
+    const currentValue = record.values[fieldId];
+
+    el.classList.add('editing');
+
+    // Create appropriate editor based on field type
+    switch (field.type) {
+      case FieldTypes.CHECKBOX:
+        // Toggle immediately
+        this._updateRecordValue(recordId, fieldId, !currentValue);
+        el.classList.remove('editing');
+        el.innerHTML = this._renderDetailFieldValue(field, !currentValue);
+        this._renderView();
+        break;
+
+      case FieldTypes.SELECT:
+        el.innerHTML = `
+          <select class="detail-editor">
+            <option value="">Select...</option>
+            ${(field.options?.choices || []).map(c =>
+              `<option value="${c.id}" ${c.id === currentValue ? 'selected' : ''}>${this._escapeHtml(c.name)}</option>`
+            ).join('')}
+          </select>
+        `;
+        const selectEditor = el.querySelector('select');
+        selectEditor.focus();
+        selectEditor.addEventListener('change', () => {
+          this._updateRecordValue(recordId, fieldId, selectEditor.value || null);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderDetailFieldValue(field, selectEditor.value || null);
+          this._renderView();
+        });
+        selectEditor.addEventListener('blur', () => {
+          el.classList.remove('editing');
+          el.innerHTML = this._renderDetailFieldValue(field, record.values[fieldId]);
+        });
+        break;
+
+      case FieldTypes.DATE:
+        el.innerHTML = `<input type="${field.options?.includeTime ? 'datetime-local' : 'date'}" class="detail-editor" value="${currentValue || ''}">`;
+        const dateEditor = el.querySelector('input');
+        dateEditor.focus();
+        dateEditor.addEventListener('change', () => {
+          this._updateRecordValue(recordId, fieldId, dateEditor.value || null);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderDetailFieldValue(field, dateEditor.value || null);
+          this._renderView();
+        });
+        dateEditor.addEventListener('blur', () => {
+          setTimeout(() => {
+            el.classList.remove('editing');
+            el.innerHTML = this._renderDetailFieldValue(field, record.values[fieldId]);
+          }, 100);
+        });
+        break;
+
+      case FieldTypes.LONG_TEXT:
+        el.innerHTML = `<textarea class="detail-editor" rows="4">${this._escapeHtml(currentValue || '')}</textarea>`;
+        const textareaEditor = el.querySelector('textarea');
+        textareaEditor.focus();
+        textareaEditor.addEventListener('blur', () => {
+          this._updateRecordValue(recordId, fieldId, textareaEditor.value);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderDetailFieldValue(field, textareaEditor.value);
+          this._renderView();
+        });
+        break;
+
+      default:
+        el.innerHTML = `<input type="text" class="detail-editor" value="${this._escapeHtml(currentValue || '')}">`;
+        const inputEditor = el.querySelector('input');
+        inputEditor.focus();
+        inputEditor.select();
+
+        const saveInput = () => {
+          this._updateRecordValue(recordId, fieldId, inputEditor.value);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderDetailFieldValue(field, inputEditor.value);
+          this._renderView();
+        };
+
+        inputEditor.addEventListener('blur', saveInput);
+        inputEditor.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            saveInput();
+          }
+          if (e.key === 'Escape') {
+            el.classList.remove('editing');
+            el.innerHTML = this._renderDetailFieldValue(field, currentValue);
+          }
+        });
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -2988,6 +3204,9 @@ class EODataWorkbench {
       this.elements.selectedCount.querySelector('span:last-child').textContent =
         `${this.selectedRecords.size} selected`;
     }
+
+    // Update bulk actions toolbar
+    this._updateBulkActionsToolbar();
   }
 
   // --------------------------------------------------------------------------
@@ -2998,6 +3217,9 @@ class EODataWorkbench {
     // Escape to close modals/menus
     if (e.key === 'Escape') {
       this._closeModal();
+      this._hideKeyboardShortcuts();
+      this._hideFilterPanel();
+      this._hideSortPanel();
       this.elements.contextMenu?.classList.remove('active');
       this.elements.fieldTypePicker?.classList.remove('active');
       this.elements.detailPanel?.classList.remove('open');
@@ -3007,18 +3229,550 @@ class EODataWorkbench {
       }
     }
 
+    // ? to show keyboard shortcuts
+    if (e.key === '?' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._showKeyboardShortcuts();
+    }
+
     // Cmd/Ctrl + N for new record
     if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !e.target.closest('input, textarea')) {
       e.preventDefault();
       this.addRecord();
     }
 
+    // Cmd/Ctrl + D for duplicate
+    if ((e.metaKey || e.ctrlKey) && e.key === 'd' && !e.target.closest('input, textarea')) {
+      if (this.selectedRecords.size > 0) {
+        e.preventDefault();
+        this._bulkDuplicate();
+      }
+    }
+
+    // Cmd/Ctrl + A to select all
+    if ((e.metaKey || e.ctrlKey) && e.key === 'a' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._selectAll();
+    }
+
+    // Cmd/Ctrl + F for filter
+    if ((e.metaKey || e.ctrlKey) && e.key === 'f' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._toggleFilterPanel();
+    }
+
+    // Cmd/Ctrl + S for snapshot
+    if ((e.metaKey || e.ctrlKey) && e.key === 's' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._showNewSnapshotModal();
+    }
+
+    // Cmd/Ctrl + / to focus search
+    if ((e.metaKey || e.ctrlKey) && e.key === '/' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      document.getElementById('global-search')?.focus();
+    }
+
     // Delete selected records
     if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.closest('input, textarea')) {
       if (this.selectedRecords.size > 0) {
         e.preventDefault();
-        this.selectedRecords.forEach(id => this.deleteRecord(id));
+        this._bulkDelete();
       }
+    }
+
+    // Number keys for view switching (1-5)
+    if (!e.target.closest('input, textarea') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      const viewMap = { '1': 'table', '2': 'cards', '3': 'kanban', '4': 'calendar', '5': 'graph' };
+      if (viewMap[e.key]) {
+        e.preventDefault();
+        this._switchViewType(viewMap[e.key]);
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Keyboard Shortcuts Modal
+  // --------------------------------------------------------------------------
+
+  _showKeyboardShortcuts() {
+    const modal = document.getElementById('shortcuts-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+    }
+  }
+
+  _hideKeyboardShortcuts() {
+    const modal = document.getElementById('shortcuts-modal');
+    if (modal) {
+      modal.style.display = 'none';
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Bulk Operations
+  // --------------------------------------------------------------------------
+
+  _selectAll() {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    set.records.forEach(r => this.selectedRecords.add(r.id));
+    this._renderTableView();
+    this._updateBulkActionsToolbar();
+  }
+
+  _clearSelection() {
+    this.selectedRecords.clear();
+    this._renderTableView();
+    this._updateBulkActionsToolbar();
+  }
+
+  _updateBulkActionsToolbar() {
+    const toolbar = document.getElementById('bulk-actions-toolbar');
+    const countEl = document.getElementById('bulk-selected-count');
+
+    if (!toolbar) return;
+
+    if (this.selectedRecords.size > 0) {
+      toolbar.style.display = 'flex';
+      if (countEl) {
+        countEl.textContent = `${this.selectedRecords.size} selected`;
+      }
+    } else {
+      toolbar.style.display = 'none';
+    }
+  }
+
+  _bulkDuplicate() {
+    if (this.selectedRecords.size === 0) return;
+
+    const count = this.selectedRecords.size;
+    this.selectedRecords.forEach(id => {
+      this.duplicateRecord(id);
+    });
+
+    this._showToast(`Duplicated ${count} record${count !== 1 ? 's' : ''}`, 'success');
+  }
+
+  _bulkExport() {
+    if (this.selectedRecords.size === 0) return;
+
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    const selectedData = set.records.filter(r => this.selectedRecords.has(r.id));
+    const exportData = {
+      setName: set.name,
+      fields: set.fields,
+      records: selectedData,
+      exportedAt: new Date().toISOString()
+    };
+
+    const json = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${set.name}_export_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+
+    URL.revokeObjectURL(url);
+    this._showToast(`Exported ${this.selectedRecords.size} record${this.selectedRecords.size !== 1 ? 's' : ''}`, 'success');
+  }
+
+  _bulkDelete() {
+    if (this.selectedRecords.size === 0) return;
+
+    const count = this.selectedRecords.size;
+    if (!confirm(`Delete ${count} record${count !== 1 ? 's' : ''}? This cannot be undone.`)) {
+      return;
+    }
+
+    const idsToDelete = [...this.selectedRecords];
+    idsToDelete.forEach(id => this.deleteRecord(id));
+
+    this.selectedRecords.clear();
+    this._updateBulkActionsToolbar();
+    this._showToast(`Deleted ${count} record${count !== 1 ? 's' : ''}`, 'success');
+  }
+
+  // --------------------------------------------------------------------------
+  // Toast Notifications
+  // --------------------------------------------------------------------------
+
+  _showToast(message, type = 'info') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+    }
+
+    const icons = {
+      success: 'ph-check-circle',
+      error: 'ph-x-circle',
+      warning: 'ph-warning',
+      info: 'ph-info'
+    };
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+      <i class="ph ${icons[type] || 'ph-info'} toast-icon"></i>
+      <span class="toast-message">${this._escapeHtml(message)}</span>
+      <button class="toast-close"><i class="ph ph-x"></i></button>
+    `;
+
+    container.appendChild(toast);
+
+    toast.querySelector('.toast-close').addEventListener('click', () => {
+      toast.classList.add('toast-out');
+      setTimeout(() => toast.remove(), 300);
+    });
+
+    setTimeout(() => {
+      if (toast.parentElement) {
+        toast.classList.add('toast-out');
+        setTimeout(() => toast.remove(), 300);
+      }
+    }, 4000);
+  }
+
+  // --------------------------------------------------------------------------
+  // Advanced Filter Panel
+  // --------------------------------------------------------------------------
+
+  _toggleFilterPanel() {
+    const panel = document.getElementById('filter-panel');
+    if (!panel) return;
+
+    if (panel.style.display === 'none') {
+      this._showFilterPanel();
+    } else {
+      this._hideFilterPanel();
+    }
+  }
+
+  _showFilterPanel() {
+    const panel = document.getElementById('filter-panel');
+    if (!panel) return;
+
+    // Close sort panel if open
+    this._hideSortPanel();
+
+    panel.style.display = 'block';
+
+    // Initialize with one empty filter if none exist
+    const filterGroups = document.getElementById('filter-groups');
+    if (filterGroups && filterGroups.children.length === 0) {
+      this._addFilterRow();
+    }
+  }
+
+  _hideFilterPanel() {
+    const panel = document.getElementById('filter-panel');
+    if (panel) {
+      panel.style.display = 'none';
+    }
+  }
+
+  _addFilterRow() {
+    const container = document.getElementById('filter-groups');
+    if (!container) return;
+
+    const set = this.getCurrentSet();
+    const fields = set?.fields || [];
+
+    const row = document.createElement('div');
+    row.className = 'filter-row';
+    row.innerHTML = `
+      <select class="filter-field">
+        <option value="">Select field...</option>
+        ${fields.map(f => `<option value="${f.id}">${this._escapeHtml(f.name)}</option>`).join('')}
+      </select>
+      <select class="filter-operator">
+        <option value="contains">contains</option>
+        <option value="equals">equals</option>
+        <option value="not_equals">does not equal</option>
+        <option value="is_empty">is empty</option>
+        <option value="is_not_empty">is not empty</option>
+        <option value="greater_than">greater than</option>
+        <option value="less_than">less than</option>
+      </select>
+      <input type="text" class="filter-value" placeholder="Value...">
+      <button class="filter-remove-btn" title="Remove filter">
+        <i class="ph ph-x"></i>
+      </button>
+    `;
+
+    row.querySelector('.filter-remove-btn').addEventListener('click', () => row.remove());
+
+    // Hide value input for is_empty/is_not_empty
+    row.querySelector('.filter-operator').addEventListener('change', (e) => {
+      const valueInput = row.querySelector('.filter-value');
+      if (e.target.value === 'is_empty' || e.target.value === 'is_not_empty') {
+        valueInput.style.display = 'none';
+      } else {
+        valueInput.style.display = 'block';
+      }
+    });
+
+    container.appendChild(row);
+  }
+
+  _applyFilters() {
+    const view = this.getCurrentView();
+    if (!view) return;
+
+    const rows = document.querySelectorAll('#filter-groups .filter-row');
+    const logic = document.getElementById('filter-logic')?.value || 'and';
+
+    view.config.filters = [];
+    view.config.filterLogic = logic;
+
+    rows.forEach(row => {
+      const fieldId = row.querySelector('.filter-field')?.value;
+      const operator = row.querySelector('.filter-operator')?.value;
+      const value = row.querySelector('.filter-value')?.value;
+
+      if (fieldId) {
+        view.config.filters.push({ fieldId, operator, filterValue: value });
+      }
+    });
+
+    this._hideFilterPanel();
+    this._renderView();
+    this._saveData();
+
+    const count = view.config.filters.length;
+    if (count > 0) {
+      this._showToast(`Applied ${count} filter${count !== 1 ? 's' : ''}`, 'info');
+    }
+  }
+
+  _clearFilters() {
+    const view = this.getCurrentView();
+    if (view) {
+      view.config.filters = [];
+      view.config.filterLogic = 'and';
+    }
+
+    const container = document.getElementById('filter-groups');
+    if (container) {
+      container.innerHTML = '';
+    }
+
+    this._hideFilterPanel();
+    this._renderView();
+    this._saveData();
+  }
+
+  // --------------------------------------------------------------------------
+  // Sort Panel
+  // --------------------------------------------------------------------------
+
+  _toggleSortPanel() {
+    const panel = document.getElementById('sort-panel');
+    if (!panel) return;
+
+    if (panel.style.display === 'none') {
+      this._showSortPanel();
+    } else {
+      this._hideSortPanel();
+    }
+  }
+
+  _showSortPanel() {
+    const panel = document.getElementById('sort-panel');
+    if (!panel) return;
+
+    // Close filter panel if open
+    this._hideFilterPanel();
+
+    panel.style.display = 'block';
+
+    // Initialize with one empty sort if none exist
+    const sortRules = document.getElementById('sort-rules');
+    if (sortRules && sortRules.children.length === 0) {
+      this._addSortRow();
+    }
+  }
+
+  _hideSortPanel() {
+    const panel = document.getElementById('sort-panel');
+    if (panel) {
+      panel.style.display = 'none';
+    }
+  }
+
+  _addSortRow() {
+    const container = document.getElementById('sort-rules');
+    if (!container) return;
+
+    const set = this.getCurrentSet();
+    const fields = set?.fields || [];
+
+    const row = document.createElement('div');
+    row.className = 'sort-row';
+    row.innerHTML = `
+      <select class="sort-field">
+        <option value="">Select field...</option>
+        ${fields.map(f => `<option value="${f.id}">${this._escapeHtml(f.name)}</option>`).join('')}
+      </select>
+      <select class="sort-direction">
+        <option value="asc">Ascending (A-Z)</option>
+        <option value="desc">Descending (Z-A)</option>
+      </select>
+      <button class="sort-remove-btn" title="Remove sort">
+        <i class="ph ph-x"></i>
+      </button>
+    `;
+
+    row.querySelector('.sort-remove-btn').addEventListener('click', () => row.remove());
+
+    container.appendChild(row);
+  }
+
+  _applySorts() {
+    const view = this.getCurrentView();
+    if (!view) return;
+
+    const rows = document.querySelectorAll('#sort-rules .sort-row');
+
+    view.config.sorts = [];
+
+    rows.forEach(row => {
+      const fieldId = row.querySelector('.sort-field')?.value;
+      const direction = row.querySelector('.sort-direction')?.value;
+
+      if (fieldId) {
+        view.config.sorts.push({ fieldId, direction });
+      }
+    });
+
+    this._hideSortPanel();
+    this._renderView();
+    this._saveData();
+
+    const count = view.config.sorts.length;
+    if (count > 0) {
+      this._showToast(`Applied ${count} sort${count !== 1 ? 's' : ''}`, 'info');
+    }
+  }
+
+  _clearSorts() {
+    const view = this.getCurrentView();
+    if (view) {
+      view.config.sorts = [];
+    }
+
+    const container = document.getElementById('sort-rules');
+    if (container) {
+      container.innerHTML = '';
+    }
+
+    this._hideSortPanel();
+    this._renderView();
+    this._saveData();
+  }
+
+  // --------------------------------------------------------------------------
+  // Global Search
+  // --------------------------------------------------------------------------
+
+  _handleSearch(query) {
+    if (!query || query.length < 2) {
+      this._hideSearchResults();
+      return;
+    }
+
+    const results = [];
+    const lowerQuery = query.toLowerCase();
+
+    // Search across all sets and records
+    this.sets.forEach(set => {
+      // Search set name
+      if (set.name.toLowerCase().includes(lowerQuery)) {
+        results.push({ type: 'set', id: set.id, name: set.name, icon: 'ph-table' });
+      }
+
+      // Search records
+      set.records.forEach(record => {
+        const primaryField = set.fields.find(f => f.isPrimary) || set.fields[0];
+        const primaryValue = record.values[primaryField?.id];
+
+        if (primaryValue && String(primaryValue).toLowerCase().includes(lowerQuery)) {
+          results.push({
+            type: 'record',
+            id: record.id,
+            setId: set.id,
+            name: primaryValue,
+            setName: set.name,
+            icon: 'ph-note'
+          });
+        }
+      });
+    });
+
+    this._renderSearchResults(results.slice(0, 10));
+  }
+
+  _renderSearchResults(results) {
+    let dropdown = document.querySelector('.search-results-dropdown');
+
+    if (results.length === 0) {
+      if (dropdown) dropdown.remove();
+      return;
+    }
+
+    if (!dropdown) {
+      dropdown = document.createElement('div');
+      dropdown.className = 'search-results-dropdown';
+      document.querySelector('.sidebar-search')?.appendChild(dropdown);
+    }
+
+    dropdown.innerHTML = results.map(r => `
+      <div class="search-result-item" data-type="${r.type}" data-id="${r.id}" data-set-id="${r.setId || ''}">
+        <i class="ph ${r.icon}"></i>
+        <span class="result-title">${this._escapeHtml(r.name)}</span>
+        <span class="result-type">${r.type}${r.setName ? ` · ${this._escapeHtml(r.setName)}` : ''}</span>
+      </div>
+    `).join('');
+
+    dropdown.querySelectorAll('.search-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const type = item.dataset.type;
+        if (type === 'set') {
+          this._selectSet(item.dataset.id);
+        } else if (type === 'record') {
+          if (item.dataset.setId) {
+            this._selectSet(item.dataset.setId);
+          }
+          this._showRecordDetail(item.dataset.id);
+        }
+        this._hideSearchResults();
+        document.getElementById('global-search').value = '';
+      });
+    });
+  }
+
+  _showSearchResults() {
+    const dropdown = document.querySelector('.search-results-dropdown');
+    const searchWrapper = document.querySelector('.sidebar-search');
+    if (searchWrapper) {
+      searchWrapper.classList.add('focused');
+    }
+  }
+
+  _hideSearchResults() {
+    const dropdown = document.querySelector('.search-results-dropdown');
+    if (dropdown) dropdown.remove();
+
+    const searchWrapper = document.querySelector('.sidebar-search');
+    if (searchWrapper) {
+      searchWrapper.classList.remove('focused');
     }
   }
 
