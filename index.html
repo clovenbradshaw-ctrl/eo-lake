@@ -327,6 +327,11 @@
   <!-- Principles Transparency Panel Container -->
   <div id="principles-panel" class="principles-panel"></div>
 
+  <!-- Linked Records Help Button -->
+  <button class="linked-records-help-btn" id="linked-records-help" title="Linked Records Guide">
+    <i class="ph ph-link"></i>
+  </button>
+
   <!-- Scripts - Core EO Modules -->
   <script src="eo_event_store.js"></script>
   <script src="eo_horizon.js"></script>
@@ -341,6 +346,7 @@
   <script src="eo_view_hierarchy.js"></script>
   <script src="eo_graph.js"></script>
   <script src="eo_import.js"></script>
+  <script src="eo_linked_records.js"></script>
   <script src="eo_data_workbench.js"></script>
 
   <!-- Scripts - Transparency -->
@@ -364,6 +370,16 @@
       // Initialize the main application (this will connect the transparency panel)
       if (window.initApp) {
         await window.initApp();
+      }
+
+      // Initialize linked records help button
+      const helpBtn = document.getElementById('linked-records-help');
+      if (helpBtn) {
+        helpBtn.addEventListener('click', () => {
+          if (window.toggleLinkedRecordsDocs) {
+            window.toggleLinkedRecordsDocs();
+          }
+        });
       }
     });
   </script>

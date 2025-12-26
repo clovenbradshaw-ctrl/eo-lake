@@ -217,6 +217,9 @@ class EODataWorkbench {
     // Initialize View Hierarchy Registry
     this._initViewHierarchy();
 
+    // Initialize Linked Records System
+    this._initLinkedRecords();
+
     // Load persisted data
     this._loadData();
 
@@ -286,6 +289,17 @@ class EODataWorkbench {
     this.viewRegistry.subscribe?.((eventType, data) => {
       this._handleRegistryEvent(eventType, data);
     });
+  }
+
+  /**
+   * Initialize the Linked Records system
+   */
+  _initLinkedRecords() {
+    if (typeof initLinkedRecords === 'function') {
+      this.linkedRecordViewer = initLinkedRecords(this);
+    } else {
+      this.linkedRecordViewer = null;
+    }
   }
 
   /**
@@ -1177,12 +1191,17 @@ class EODataWorkbench {
         if (Array.isArray(value) && value.length > 0) {
           content = '<div class="cell-link">';
           value.forEach(linkedId => {
-            // Find linked record name
-            const linkedSet = this.sets.find(s => s.id === field.options.linkedSetId);
-            const linkedRecord = linkedSet?.records.find(r => r.id === linkedId);
-            const primaryField = linkedSet?.fields.find(f => f.isPrimary);
-            const name = linkedRecord?.values[primaryField?.id] || linkedId;
-            content += `<span class="link-chip" data-linked-id="${linkedId}"><i class="ph ph-link"></i>${this._escapeHtml(name)}</span>`;
+            // Use enhanced link viewer if available
+            if (this.linkedRecordViewer) {
+              content += this.linkedRecordViewer.renderLinkChip(linkedId, field, record);
+            } else {
+              // Fallback to basic rendering
+              const linkedSet = this.sets.find(s => s.id === field.options.linkedSetId);
+              const linkedRecord = linkedSet?.records.find(r => r.id === linkedId);
+              const primaryField = linkedSet?.fields.find(f => f.isPrimary);
+              const name = linkedRecord?.values[primaryField?.id] || linkedId;
+              content += `<span class="link-chip" data-linked-id="${linkedId}"><i class="ph ph-link"></i>${this._escapeHtml(name)}</span>`;
+            }
           });
           content += '</div>';
         } else {
@@ -1334,6 +1353,11 @@ class EODataWorkbench {
     document.querySelectorAll('.th-resize-handle').forEach(handle => {
       this._attachResizeHandler(handle);
     });
+
+    // Attach linked records event listeners
+    if (this.linkedRecordViewer) {
+      this.linkedRecordViewer.attachEventListeners(this.container);
+    }
   }
 
   _startCellEdit(cell) {
@@ -2690,6 +2714,19 @@ class EODataWorkbench {
     const primaryField = fields.find(f => f.isPrimary) || fields[0];
     const title = record.values[primaryField?.id] || 'Untitled';
 
+    // Check if record has any link fields
+    const hasLinkFields = fields.some(f => f.type === 'link');
+
+    // Render backlinks panel if linked record viewer is available
+    let backlinksHtml = '';
+    let traversalHtml = '';
+    if (this.linkedRecordViewer) {
+      backlinksHtml = this.linkedRecordViewer.renderBacklinksPanel(record, set);
+      if (hasLinkFields) {
+        traversalHtml = this.linkedRecordViewer.renderTraversalView(record, set, 2);
+      }
+    }
+
     body.innerHTML = `
       <div class="detail-record">
         <h2 style="font-size: 18px; margin-bottom: 16px;">${this._escapeHtml(title)}</h2>
@@ -2705,6 +2742,21 @@ class EODataWorkbench {
             </div>
           `;
         }).join('')}
+
+        <!-- Backlinks Section -->
+        ${backlinksHtml ? `
+          <div style="margin-top: 16px; border-top: 1px solid var(--border-primary);">
+            ${backlinksHtml}
+          </div>
+        ` : ''}
+
+        <!-- Relationship Traversal Section -->
+        ${traversalHtml ? `
+          <div style="border-top: 1px solid var(--border-primary);">
+            ${traversalHtml}
+          </div>
+        ` : ''}
+
         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
           <div style="font-size: 11px; color: var(--text-muted);">
             Created: ${new Date(record.createdAt).toLocaleString()}<br>
@@ -2713,6 +2765,11 @@ class EODataWorkbench {
         </div>
       </div>
     `;
+
+    // Attach linked records event listeners to detail panel
+    if (this.linkedRecordViewer) {
+      this.linkedRecordViewer.attachEventListeners(body);
+    }
 
     panel.classList.add('open');
   }

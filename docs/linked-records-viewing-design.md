@@ -1,378 +1,349 @@
-# Intelligent Linked Records Viewing Design
+# Intelligent Linked Records Viewing System
 
-## Executive Summary
+## Overview
 
-EO-Lake's event-sourced, local-first architecture provides unique advantages for linked record viewing that sidestep traditional schema-first limitations.
+EO-Lake's Intelligent Linked Records system provides advanced capabilities for viewing, navigating, and understanding relationships between records. Our event-sourced, local-first architecture enables features that would be prohibitively expensive in traditional systems.
+
+---
+
+## Implementation Architecture
+
+### Core Components
+
+```
+eo_linked_records.js
+├── LinkResolutionService     - Core link resolution and caching
+├── LinkedRecordViewer        - UI rendering and interaction handling
+└── LinkedRecordsDocViewer    - In-app documentation viewer
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `eo_linked_records.js` | Core linked records functionality |
+| `eo_styles.css` | CSS styles for linked record UI components |
+| `eo_data_workbench.js` | Integration with workbench rendering |
+| `index.html` | Help button and script loading |
+
+---
+
+## Features
+
+### 1. Enhanced Link Chips
+
+Link chips now display:
+- **Health indicator** - Color-coded status icon
+- **Primary value** - The linked record's name
+- **Expand button** - Toggle inline expansion
+
+```javascript
+renderLinkChip(linkedId, field, parentRecord)
+```
+
+### 2. Link Health Indicators
+
+Visual status for each link:
+
+| Status | Icon | Color | Meaning |
+|--------|------|-------|---------|
+| Active | `ph-check-circle` | Green | Record exists and accessible |
+| Archived | `ph-archive` | Yellow | Record exists but archived |
+| Orphaned | `ph-warning-circle` | Red | Reference exists but record deleted |
+| Restricted | `ph-lock` | Purple | Outside current horizon |
+
+### 3. Inline Expansion
+
+Click the expand button on any link chip to see:
+- Preview fields from the linked record
+- Backlinks (records that link to this one)
+- Navigation and graph view buttons
+
+```javascript
+renderInlineExpansion(linkedId, setId)
+```
+
+### 4. Automatic Backlink Discovery
+
+Unlike traditional databases requiring explicit reverse-link fields, EO-Lake automatically discovers all records that link to any given record:
+
+```javascript
+findBacklinks(recordId, setId)
+// Returns: [{ set, records, count }, ...]
+```
+
+Backlinks are grouped by source set with counts and appear in:
+- Inline expansion panels
+- Record detail panel
+- Full backlinks panel view
+
+### 5. Multi-Hop Relationship Traversal
+
+Explore relationship chains with configurable depth:
+
+```
+Customer → Orders → Products → Suppliers
+```
+
+```javascript
+traverseLinks(record, set, depth = 2, visited = new Set())
+// Returns: LinkTree { record, set, primaryValue, children, isLeaf, isCycle }
+```
+
+Features:
+- Cycle detection with visual indicators
+- Expandable/collapsible tree nodes
+- Depth control (1-5 levels)
+
+### 6. Hover Previews
+
+Hovering over a link chip shows a quick preview popup with:
+- Record title
+- Source set name
+- Top 3 preview fields
+
+### 7. Graph Visualization
+
+View relationships as an interactive network graph:
+- Nodes represent records
+- Edges represent links
+- Color-coded by set
+- Radial layout from focused record
+
+### 8. Provenance Tracking
+
+For EO-compliant systems, link provenance is available:
+
+```javascript
+getLinkProvenance(recordId, fieldId, linkedId)
+// Returns: { eventId, timestamp, actor, type, mode, provenance }
+```
+
+### 9. Aggregate Statistics
+
+Compute statistics across linked records:
+
+```javascript
+computeAggregates(record, set)
+// Returns: { totalLinks, linksBySet, backlinks, backlinksBySet }
+```
 
 ---
 
 ## Schema-First Limitations That DON'T Affect Us
 
-### 1. **N+1 Query Problem** ❌ NOT A PROBLEM
-
-**Traditional Schema-First Pain:**
-```sql
--- Load 100 records, then 100 separate queries for linked records
-SELECT * FROM orders;           -- 1 query
-SELECT * FROM customers WHERE id = ?;  -- N queries
-```
-
-**Why EO-Lake is Different:**
-- All data is local (IndexedDB) - no network latency
-- Entities are derived from event log in memory
-- Can resolve unlimited links in O(1) per link via index lookups
-- No database connection overhead
-
-### 2. **Schema Migration Complexity** ❌ NOT A PROBLEM
-
-**Traditional Pain:**
-- Adding a relationship field requires ALTER TABLE
-- Changing relationship type requires data migration
-- Breaking changes require coordinated deploys
-
-**Why EO-Lake is Different:**
-- Event sourcing preserves historical interpretations
-- Schema is a "Meant" (interpretation) not a constraint
-- Old events don't break when schema evolves
-- Can retroactively reinterpret relationships
-
-### 3. **Circular Reference Handling** ❌ NOT A PROBLEM
-
-**Traditional Pain:**
-```javascript
-// ORMs explode or require special config
-user.posts.author.posts.author... // Stack overflow
-```
-
-**Why EO-Lake is Different:**
-- Graph system already handles cycles (eo_graph.js)
-- Visited-set tracking in traversal (getProvenanceChain)
-- Visualization layouts designed for cycles
-- Max-depth controls prevent infinite expansion
-
-### 4. **Deep Nesting Performance** ❌ NOT A PROBLEM
-
-**Traditional Pain:**
-- SQL JOINs degrade exponentially with depth
-- 5+ level joins become prohibitively slow
-- Must denormalize or use graph databases
-
-**Why EO-Lake is Different:**
-- Local storage = O(1) access per entity
-- No JOIN operation - direct ID lookup
-- Can traverse 100+ levels without network cost
-- Memory is the only constraint (abundant on modern devices)
-
-### 5. **Cross-Schema Queries** ❌ NOT A PROBLEM
-
-**Traditional Pain:**
-- Different tables need explicit JOINs
-- Cross-database relationships require federation
-- Schema boundaries create query silos
-
-**Why EO-Lake is Different:**
-- All Sets live in same entity namespace
-- LINK field simply references any Set by ID
-- Entity derivation doesn't care about Set boundaries
-- Can query relationships across any Set types
-
-### 6. **Relationship Cardinality Enforcement** ❌ NOT A PROBLEM
-
-**Traditional Pain:**
-- Foreign keys enforce 1:1, 1:N, N:M at DB level
-- Changing cardinality requires schema migration
-- Orphaned references cause errors
-
-**Why EO-Lake is Different:**
-- LINK field's `allowMultiple` is interpretive, not enforced
-- Orphaned links gracefully show ID as fallback
-- Can change cardinality without data loss
-- Events preserve what WAS linked even if target deleted
-
-### 7. **Permission Inheritance Complexity** ❌ NOT A PROBLEM
-
-**Traditional Pain:**
-- Row-level security on linked records is complex
-- "Can see order but not customer" requires views
-- Cascading permissions need recursive checks
-
-**Why EO-Lake is Different:**
-- Horizon Lattice provides natural scope boundaries
-- Link visibility respects horizon inclusion
-- Perspectival views automatically filter
-- No special permission JOIN logic needed
+| Traditional Problem | EO-Lake Solution |
+|---------------------|------------------|
+| **N+1 Query Problem** | All data is local (IndexedDB). O(1) lookups per record. |
+| **Schema Migration Pain** | Event-sourced with append-only log. Schema is interpretation. |
+| **Circular References** | Graph-based with visited-set tracking. Cycles detected. |
+| **Deep Nesting Performance** | O(1) access per entity. 100+ levels without degradation. |
+| **Cross-Schema Queries** | All Sets in same namespace. LINK references any Set. |
+| **Orphaned Reference Errors** | Graceful degradation shows ID with warning icon. |
+| **Permission Complexity** | Horizon Lattice provides natural scope boundaries. |
 
 ---
 
-## Intelligent Viewing Opportunities
+## Usage Guide
 
-### 1. **Inline Record Expansion**
+### Creating Link Fields
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Task: "Design homepage"                                     │
-│ Status: In Progress                                         │
-│ Assignee: [▼ Sarah Chen]                                    │
-│           ┌─────────────────────────────────────┐           │
-│           │ 📧 sarah@example.com                │           │
-│           │ 🏢 Engineering                       │           │
-│           │ 📊 5 other tasks assigned           │           │
-│           └─────────────────────────────────────┘           │
-│ Project: [Homepage Redesign →]                              │
-└─────────────────────────────────────────────────────────────┘
-```
+1. Add a new field to your set
+2. Select "Link to record" as the field type
+3. Choose which set to link to
+4. Optionally enable "Allow multiple" for many-to-many
 
-**Implementation Approach:**
-- Click/hover on link chip expands inline panel
-- Show primary field + configurable "preview fields"
-- Include rollup summary (count of backlinks)
-- "→" link navigates to full record
+### Viewing Linked Records
 
-### 2. **Bi-directional Link Discovery**
+- **Hover** over a link chip for quick preview
+- **Click expand button** (▼) for inline details
+- **Click link text** to navigate to that record
+- **Click graph icon** to see relationship visualization
 
-Show automatic backlinks without explicit reverse-link fields:
+### Finding Backlinks
+
+Backlinks appear automatically in:
+- Expanded link views
+- Record detail panel (right sidebar)
+- Show which records reference the current one
+
+### Relationship Traversal
+
+In the record detail panel:
+1. Look for "Relationship Tree" section
+2. Expand/collapse nodes to explore
+3. Adjust depth slider for more levels
+4. Click any node to navigate
+
+### Accessing Documentation
+
+Click the floating link button (bottom-right) to open the in-app documentation viewer.
+
+---
+
+## CSS Classes Reference
+
+### Link Chips
+- `.link-chip.enhanced` - Enhanced link chip container
+- `.link-health-indicator` - Health status icon
+- `.link-chip-text` - Link display text
+- `.link-expand-btn` - Expand/collapse button
+
+### Expansion Panel
+- `.link-expansion` - Expansion container
+- `.link-expansion-header` - Header with title and actions
+- `.link-expansion-body` - Content area
+- `.preview-fields` - Grid of preview fields
+- `.link-backlinks` - Backlinks section
+
+### Backlinks
+- `.backlinks-panel` - Full backlinks panel
+- `.backlink-set-group` - Grouped by source set
+- `.backlink-record-item` - Individual backlink entry
+- `.backlink-chip` - Inline backlink badge
+
+### Traversal
+- `.traversal-view` - Traversal container
+- `.traversal-tree` - Tree structure
+- `.tree-node` - Individual tree node
+- `.tree-branch` - Child branch connector
+- `.cycle-indicator` - Circular reference warning
+
+### Graph
+- `.relationship-graph` - Graph container
+- `.graph-svg` - SVG element
+- `.graph-node` - Node group
+
+### Documentation
+- `.docs-viewer-overlay` - Modal overlay
+- `.docs-viewer` - Documentation panel
+- `.docs-toc` - Table of contents
+- `.docs-content` - Main content area
+
+---
+
+## API Reference
+
+### LinkResolutionService
 
 ```javascript
-// Scan all Sets for LINK fields pointing to this record
-function findBacklinks(recordId, targetSetId) {
-  const backlinks = [];
+const service = new LinkResolutionService(workbench);
 
-  for (const set of this.sets) {
-    const linkFields = set.fields.filter(f =>
-      f.type === 'link' && f.options.linkedSetId === targetSetId
-    );
+// Resolve a link
+const resolved = service.resolveLink(recordId, setId);
 
-    for (const record of set.records) {
-      for (const field of linkFields) {
-        if (record.values[field.id]?.includes(recordId)) {
-          backlinks.push({ set, record, field });
-        }
-      }
-    }
-  }
+// Find backlinks
+const backlinks = service.findBacklinks(recordId, setId);
 
-  return backlinks;
+// Traverse links
+const tree = service.traverseLinks(record, set, depth);
+
+// Get provenance
+const provenance = service.getLinkProvenance(recordId, fieldId, linkedId);
+
+// Compute aggregates
+const stats = service.computeAggregates(record, set);
+
+// Clear caches
+service.clearCache();
+```
+
+### LinkedRecordViewer
+
+```javascript
+const viewer = new LinkedRecordViewer(workbench);
+
+// Render components
+const chipHtml = viewer.renderLinkChip(linkedId, field, parentRecord);
+const expansionHtml = viewer.renderInlineExpansion(linkedId, setId);
+const backlinksHtml = viewer.renderBacklinksPanel(record, set);
+const traversalHtml = viewer.renderTraversalView(record, set, maxDepth);
+const graphHtml = viewer.renderRelationshipGraph(record, set, container);
+
+// Attach event listeners
+viewer.attachEventListeners(container);
+```
+
+### Global Functions
+
+```javascript
+// Initialize system
+const viewer = initLinkedRecords(workbench);
+
+// Get instances
+const viewer = getLinkedRecordViewer();
+const docs = getLinkDocsViewer();
+
+// Toggle documentation
+toggleLinkedRecordsDocs();
+```
+
+---
+
+## Integration Points
+
+### Workbench Initialization
+
+```javascript
+// In EODataWorkbench.init()
+this._initLinkedRecords();
+```
+
+### Cell Rendering
+
+```javascript
+// In _renderCell() for LINK fields
+if (this.linkedRecordViewer) {
+  content += this.linkedRecordViewer.renderLinkChip(linkedId, field, record);
 }
 ```
 
-**Display:**
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Customer: "Acme Corp"                                       │
-├─────────────────────────────────────────────────────────────┤
-│ ⬇️ LINKED FROM (backlinks)                                  │
-│   Orders (3): #001, #002, #003                              │
-│   Support Tickets (1): "API Integration Help"               │
-│   Invoices (3): INV-2024-001, INV-2024-002...              │
-└─────────────────────────────────────────────────────────────┘
-```
+### Event Listeners
 
-### 3. **Relationship Graph View**
-
-Leverage existing `eo_graph.js` for linked record visualization:
-
-```
-                    ┌──────────────┐
-                    │   Project    │
-                    │  "Homepage"  │
-                    └──────┬───────┘
-                           │
-              ┌────────────┼────────────┐
-              │            │            │
-        ┌─────▼─────┐ ┌────▼────┐ ┌─────▼─────┐
-        │   Task    │ │  Task   │ │   Task    │
-        │ "Design"  │ │ "Build" │ │ "Deploy"  │
-        └─────┬─────┘ └────┬────┘ └───────────┘
-              │            │
-        ┌─────▼─────┐ ┌────▼────┐
-        │   User    │ │  User   │
-        │  "Sarah"  │ │ "Mike"  │
-        └───────────┘ └─────────┘
-```
-
-**New Edge Type:**
 ```javascript
-// Add to GraphEdgeType
-RECORD_LINK: 'record_link'  // Direct record-to-record relationship
-```
-
-### 4. **Multi-Hop Traversal View**
-
-Show relationship chains with depth control:
-
-```
-Customer → Orders → Line Items → Products → Suppliers
-
-[Depth: 1] [2] [3] [4]  [Relationship Path: ________________]
-
-Starting from: "Acme Corp"
-├─ Orders (3 records)
-│  └─ Line Items (12 records)
-│     └─ Products (8 unique)
-│        └─ Suppliers (3 unique)
-```
-
-**Implementation:**
-```javascript
-function traverseLinks(record, depth = 2, visited = new Set()) {
-  if (depth === 0 || visited.has(record.id)) return { record, children: [] };
-  visited.add(record.id);
-
-  const set = this.sets.find(s => s.id === record.setId);
-  const linkFields = set.fields.filter(f => f.type === 'link');
-
-  const children = [];
-  for (const field of linkFields) {
-    const linkedIds = record.values[field.id] || [];
-    const linkedSet = this.sets.find(s => s.id === field.options.linkedSetId);
-
-    for (const linkedId of linkedIds) {
-      const linkedRecord = linkedSet?.records.find(r => r.id === linkedId);
-      if (linkedRecord) {
-        children.push({
-          field: field.name,
-          ...traverseLinks(linkedRecord, depth - 1, visited)
-        });
-      }
-    }
-  }
-
-  return { record, children };
+// After table rendering
+if (this.linkedRecordViewer) {
+  this.linkedRecordViewer.attachEventListeners(this.container);
 }
 ```
 
-### 5. **Provenance-Traced Relationships**
-
-Show WHY records are linked (unique to EO-Lake):
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Link: Task "Design" → User "Sarah"                          │
-├─────────────────────────────────────────────────────────────┤
-│ 📜 Provenance Trail                                         │
-│                                                             │
-│ Given: "Received Slack message from @manager"               │
-│   ↓ interpreted as                                          │
-│ Meant: "Assign Sarah to Design task"                        │
-│   ↓ recorded at                                             │
-│ Timestamp: 2024-01-15 10:32:04                              │
-│ Actor: workspace_admin                                       │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 6. **Contextual Field Selection**
-
-Smart preview showing relevant fields based on context:
+### Detail Panel
 
 ```javascript
-// Determine preview fields based on viewing context
-function getContextualPreviewFields(linkedSet, viewingContext) {
-  const primary = linkedSet.fields.find(f => f.isPrimary);
-
-  // Context-aware field selection
-  const contextFields = {
-    // When viewing from Orders, show customer contact info
-    'Order.Customer': ['email', 'phone', 'company'],
-    // When viewing from Tasks, show user's current load
-    'Task.Assignee': ['email', 'department', 'activeTaskCount'],
-    // When viewing from Invoice, show payment status
-    'Invoice.Customer': ['balance', 'paymentTerms', 'lastPayment']
-  };
-
-  const key = `${viewingContext.setName}.${viewingContext.fieldName}`;
-  const extraFields = contextFields[key] || [];
-
-  return [primary, ...linkedSet.fields.filter(f =>
-    extraFields.includes(f.name)
-  )];
-}
-```
-
-### 7. **Aggregate Rollups Across Links**
-
-Auto-compute statistics from linked records:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Customer: "Acme Corp"                                       │
-├─────────────────────────────────────────────────────────────┤
-│ 📊 Computed from Links                                      │
-│                                                             │
-│ Total Orders: 47                                            │
-│ Total Revenue: $125,340                                     │
-│ Avg Order Value: $2,667                                     │
-│ Open Support Tickets: 2                                     │
-│ Last Activity: 3 days ago                                   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### 8. **Link Health Indicators**
-
-Visual indicators for link status:
-
-```
-┌──────────────────────────────────────────────────┐
-│ Related Records                                  │
-│                                                  │
-│ [✓ Active Customer] - linked, accessible         │
-│ [⚠ Archived Project] - linked, but archived     │
-│ [❌ #deleted_123] - orphaned reference           │
-│ [🔒 Confidential Doc] - linked, no horizon access│
-└──────────────────────────────────────────────────┘
+// In _showRecordDetail()
+backlinksHtml = this.linkedRecordViewer.renderBacklinksPanel(record, set);
+traversalHtml = this.linkedRecordViewer.renderTraversalView(record, set, 2);
 ```
 
 ---
 
-## Proposed Component Architecture
+## Performance Considerations
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   LinkedRecordViewer                        │
-│                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ LinkResolutionService                                │   │
-│  │ - resolveLink(recordId) → DerivedEntity             │   │
-│  │ - findBacklinks(recordId) → BacklinkResult[]        │   │
-│  │ - traverseLinks(record, depth) → LinkTree           │   │
-│  │ - getProvenance(linkEvent) → ProvenanceChain        │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                           │                                 │
-│  ┌────────────┬───────────┼───────────┬────────────┐       │
-│  │            │           │           │            │       │
-│  ▼            ▼           ▼           ▼            ▼       │
-│ Inline     Backlink    Graph      Multi-hop    Rollup     │
-│ Expander   Panel       View       Navigator    Calculator  │
-└─────────────────────────────────────────────────────────────┘
-```
+### Caching
+
+- Link resolution cached for 5 seconds
+- Backlink discovery cached separately
+- Cache cleared on data changes
+
+### Lazy Loading
+
+- Expansion panels render on demand
+- Tree nodes expand incrementally
+- Graph builds only visible nodes
+
+### Memory Efficiency
+
+- Visited sets prevent infinite loops
+- Depth limits prevent excessive traversal
+- Stale cache entries auto-expire
 
 ---
 
-## Implementation Priority
+## Future Enhancements
 
-| Feature | Complexity | Value | Priority |
-|---------|------------|-------|----------|
-| Inline Expansion | Low | High | P0 |
-| Backlink Discovery | Medium | High | P0 |
-| Link Health Indicators | Low | Medium | P1 |
-| Contextual Previews | Medium | Medium | P1 |
-| Multi-hop Traversal | Medium | High | P1 |
-| Graph Integration | Low* | High | P1 |
-| Provenance Display | Medium | Medium | P2 |
-| Aggregate Rollups | High | Medium | P2 |
-
-*Low because eo_graph.js already exists
-
----
-
-## Key Advantages Summary
-
-| Traditional Schema-First | EO-Lake Approach |
-|--------------------------|------------------|
-| Network-bound queries | Local-first, instant |
-| Rigid cardinality | Flexible interpretation |
-| Schema migrations | Append-only evolution |
-| Orphan errors | Graceful degradation |
-| Permission complexity | Horizon-based scoping |
-| Cycle prevention | Graph-native handling |
-
-The event-sourced, local-first architecture means we can implement features that would be prohibitively expensive in traditional systems - like showing full provenance trails for every link, computing real-time backlinks without explicit reverse fields, and traversing arbitrary-depth relationship chains without performance degradation.
+1. **Link Analytics** - Relationship density heatmaps
+2. **Smart Suggestions** - AI-powered link recommendations
+3. **Bulk Link Operations** - Multi-select linking
+4. **Link History Timeline** - Visual history of relationship changes
+5. **Cross-Workspace Links** - Links spanning horizon boundaries
+6. **Link Templates** - Predefined relationship patterns
