@@ -4115,15 +4115,17 @@ class EODataWorkbench {
       case FieldTypes.DATE:
         el.innerHTML = `<input type="${field.options?.includeTime ? 'datetime-local' : 'date'}" class="detail-editor" value="${currentValue || ''}">`;
         const dateEditor = el.querySelector('input');
+        let dateBlurTimeout = null;
         dateEditor.focus();
         dateEditor.addEventListener('change', () => {
+          if (dateBlurTimeout) clearTimeout(dateBlurTimeout);
           this._updateRecordValue(recordId, fieldId, dateEditor.value || null);
           el.classList.remove('editing');
           el.innerHTML = this._renderDetailFieldValue(field, dateEditor.value || null);
           this._renderView();
         });
         dateEditor.addEventListener('blur', () => {
-          setTimeout(() => {
+          dateBlurTimeout = setTimeout(() => {
             el.classList.remove('editing');
             el.innerHTML = this._renderDetailFieldValue(field, record.values[fieldId]);
           }, 100);
