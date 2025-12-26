@@ -843,6 +843,7 @@ html, body {
 
 .data-table td.cell-editable {
   cursor: text;
+  transition: background-color 0.1s ease, box-shadow 0.15s ease;
 }
 
 .data-table td.cell-editable:hover {
@@ -865,6 +866,16 @@ html, body {
   font-size: 13px;
   font-family: inherit;
   outline: none;
+  animation: cellInputFadeIn 0.1s ease-out;
+}
+
+@keyframes cellInputFadeIn {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* Cell Value Display */
@@ -891,10 +902,20 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
 }
 
 .cell-checkbox i {
   font-size: 18px;
+  transition: color 0.1s ease, transform 0.1s ease;
+}
+
+.cell-checkbox:hover i {
+  transform: scale(1.1);
+}
+
+.cell-checkbox:active i {
+  transform: scale(0.95);
 }
 
 .cell-checkbox .checked {

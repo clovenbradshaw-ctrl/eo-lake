@@ -1257,89 +1257,104 @@ class EODataWorkbench {
   }
 
   _attachTableEventListeners() {
-    // Select all checkbox
-    document.getElementById('select-all')?.addEventListener('change', (e) => {
-      const set = this.getCurrentSet();
-      if (!set) return;
+    const table = document.querySelector('.data-table');
+    if (!table) return;
 
-      if (e.target.checked) {
-        set.records.forEach(r => this.selectedRecords.add(r.id));
-      } else {
-        this.selectedRecords.clear();
+    // Use event delegation for most table interactions
+    // This greatly reduces the number of event listeners for better performance
+
+    // Delegated click handler for the entire table
+    table.addEventListener('click', (e) => {
+      const target = e.target;
+
+      // Select all checkbox
+      if (target.id === 'select-all') {
+        const set = this.getCurrentSet();
+        if (!set) return;
+        if (target.checked) {
+          set.records.forEach(r => this.selectedRecords.add(r.id));
+        } else {
+          this.selectedRecords.clear();
+        }
+        this._renderTableView();
+        return;
       }
 
-      this._renderTableView();
-    });
-
-    // Row checkboxes
-    document.querySelectorAll('.row-checkbox[data-record-id]').forEach(checkbox => {
-      checkbox.addEventListener('change', (e) => {
-        const recordId = e.target.dataset.recordId;
-        if (e.target.checked) {
+      // Row checkbox
+      if (target.classList.contains('row-checkbox') && target.dataset.recordId) {
+        const recordId = target.dataset.recordId;
+        if (target.checked) {
           this.selectedRecords.add(recordId);
         } else {
           this.selectedRecords.delete(recordId);
         }
         this._updateStatus();
+        const row = target.closest('tr');
+        row?.classList.toggle('selected', target.checked);
+        return;
+      }
 
-        // Update row highlight
-        const row = e.target.closest('tr');
-        row?.classList.toggle('selected', e.target.checked);
-      });
-    });
-
-    // Cell click for editing
-    document.querySelectorAll('.data-table td.cell-editable').forEach(cell => {
-      cell.addEventListener('dblclick', (e) => {
-        this._startCellEdit(cell);
-      });
-    });
-
-    // Checkbox cells - single click to toggle
-    document.querySelectorAll('.cell-checkbox').forEach(cell => {
-      const td = cell.closest('td');
-      td?.addEventListener('click', () => {
-        const recordId = td.closest('tr')?.dataset.recordId;
-        const fieldId = td.dataset.fieldId;
+      // Checkbox cell toggle (single click)
+      const checkboxCell = target.closest('.cell-checkbox');
+      if (checkboxCell) {
+        const td = checkboxCell.closest('td');
+        const recordId = td?.closest('tr')?.dataset.recordId;
+        const fieldId = td?.dataset.fieldId;
         if (recordId && fieldId) {
+          e.stopPropagation(); // Prevent row click
           this._toggleCheckbox(recordId, fieldId);
         }
-      });
+        return;
+      }
+
+      // Field header dropdown
+      const dropdown = target.closest('.th-dropdown');
+      if (dropdown) {
+        e.stopPropagation();
+        const th = dropdown.closest('th');
+        this._showFieldContextMenu(e, th.dataset.fieldId);
+        return;
+      }
+
+      // Add column button
+      if (target.closest('#add-column-btn')) {
+        this._showFieldTypePicker(e);
+        return;
+      }
+
+      // Add record buttons
+      if (target.closest('#add-row-btn') || target.closest('#add-row-cell') || target.closest('#add-first-record')) {
+        this.addRecord();
+        return;
+      }
+
+      // Row click for detail panel (but not on checkboxes or editing cells)
+      if (target.type !== 'checkbox' && !target.closest('.cell-editing')) {
+        const row = target.closest('tr[data-record-id]');
+        if (row) {
+          this._showRecordDetail(row.dataset.recordId);
+        }
+      }
     });
 
-    // Row click for detail panel
-    document.querySelectorAll('.data-table tbody tr[data-record-id]').forEach(row => {
-      row.addEventListener('click', (e) => {
-        if (e.target.type === 'checkbox' || e.target.closest('.cell-editing')) return;
-        this._showRecordDetail(row.dataset.recordId);
-      });
+    // Delegated double-click for cell editing
+    table.addEventListener('dblclick', (e) => {
+      const cell = e.target.closest('td.cell-editable');
+      if (cell && !cell.classList.contains('cell-editing')) {
+        this._startCellEdit(cell);
+      }
+    });
 
-      row.addEventListener('contextmenu', (e) => {
+    // Delegated context menu for rows
+    table.addEventListener('contextmenu', (e) => {
+      const row = e.target.closest('tr[data-record-id]');
+      if (row) {
         e.preventDefault();
         this._showRecordContextMenu(e, row.dataset.recordId);
-      });
+      }
     });
 
-    // Add record buttons
-    document.getElementById('add-row-btn')?.addEventListener('click', () => this.addRecord());
-    document.getElementById('add-row-cell')?.addEventListener('click', () => this.addRecord());
-    document.getElementById('add-first-record')?.addEventListener('click', () => this.addRecord());
-
-    // Add column button
-    document.getElementById('add-column-btn')?.addEventListener('click', (e) => {
-      this._showFieldTypePicker(e);
-    });
-
-    // Field header dropdowns
-    document.querySelectorAll('.th-dropdown').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const th = btn.closest('th');
-        this._showFieldContextMenu(e, th.dataset.fieldId);
-      });
-    });
-
-    // Column resize handles
+    // Column resize handles still need individual attachment for drag state
     document.querySelectorAll('.th-resize-handle').forEach(handle => {
       this._attachResizeHandler(handle);
     });
@@ -1364,7 +1379,9 @@ class EODataWorkbench {
       return;
     }
 
-    this.editingCell = { cell, recordId, fieldId };
+    // Store original content for cancel restoration (avoids full re-render)
+    const originalContent = cell.innerHTML;
+    this.editingCell = { cell, recordId, fieldId, originalContent, field };
     cell.classList.add('cell-editing');
 
     const currentValue = record.values[fieldId];
@@ -1474,7 +1491,7 @@ class EODataWorkbench {
   _endCellEdit() {
     if (!this.editingCell) return;
 
-    const { cell, recordId, fieldId } = this.editingCell;
+    const { cell, recordId, fieldId, field } = this.editingCell;
     const input = cell.querySelector('.cell-input');
 
     if (input) {
@@ -1482,14 +1499,109 @@ class EODataWorkbench {
       this._updateRecordValue(recordId, fieldId, newValue);
     }
 
+    // Clear editing state first
+    const editingRef = this.editingCell;
     this.editingCell = null;
-    this._renderTableView();
+
+    // Use requestAnimationFrame for smoother update
+    requestAnimationFrame(() => {
+      this._updateCellDisplay(editingRef.cell, editingRef.recordId, editingRef.field);
+    });
   }
 
   _cancelCellEdit() {
     if (!this.editingCell) return;
+
+    const { cell, originalContent } = this.editingCell;
     this.editingCell = null;
-    this._renderTableView();
+
+    // Restore original content directly - no re-render needed
+    requestAnimationFrame(() => {
+      cell.innerHTML = originalContent;
+      cell.classList.remove('cell-editing');
+    });
+  }
+
+  /**
+   * Update only the specific cell's display content without re-rendering the table.
+   * This is the key performance optimization for inline editing.
+   */
+  _updateCellDisplay(cell, recordId, field) {
+    const set = this.getCurrentSet();
+    const record = set?.records.find(r => r.id === recordId);
+    if (!record || !field) return;
+
+    const value = record.values[field.id];
+    cell.classList.remove('cell-editing');
+
+    // Generate new cell content based on field type
+    cell.innerHTML = this._renderCellContent(field, value);
+
+    // Re-attach click handler for checkbox cells
+    if (field.type === FieldTypes.CHECKBOX) {
+      const checkbox = cell.querySelector('.cell-checkbox');
+      if (checkbox) {
+        cell.onclick = () => {
+          this._toggleCheckbox(recordId, field.id);
+        };
+      }
+    }
+  }
+
+  /**
+   * Render just the inner content of a cell (without the td wrapper).
+   * Used for targeted cell updates.
+   */
+  _renderCellContent(field, value) {
+    switch (field.type) {
+      case FieldTypes.TEXT:
+      case FieldTypes.LONG_TEXT:
+        return value ? this._escapeHtml(value) : '<span class="cell-empty">Empty</span>';
+
+      case FieldTypes.NUMBER:
+        return value != null ? `<span class="cell-number">${this._formatNumber(value, field)}</span>` : '<span class="cell-empty">-</span>';
+
+      case FieldTypes.CHECKBOX:
+        return `
+          <div class="cell-checkbox">
+            <i class="ph ${value ? 'ph-check-square checked' : 'ph-square unchecked'}"></i>
+          </div>
+        `;
+
+      case FieldTypes.SELECT:
+        if (value) {
+          const choice = field.options?.choices?.find(c => c.id === value);
+          if (choice) {
+            return `<span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>`;
+          }
+        }
+        return '<span class="cell-empty">-</span>';
+
+      case FieldTypes.MULTI_SELECT:
+        if (Array.isArray(value) && value.length > 0) {
+          let content = '<div class="cell-select">';
+          value.forEach(v => {
+            const choice = field.options?.choices?.find(c => c.id === v);
+            if (choice) {
+              content += `<span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>`;
+            }
+          });
+          return content + '</div>';
+        }
+        return '<span class="cell-empty">-</span>';
+
+      case FieldTypes.DATE:
+        return value ? `<span class="cell-date">${this._formatDate(value, field)}</span>` : '<span class="cell-empty">-</span>';
+
+      case FieldTypes.URL:
+        return value ? `<span class="cell-url"><a href="${this._escapeHtml(value)}" target="_blank">${this._escapeHtml(value)}</a></span>` : '<span class="cell-empty">-</span>';
+
+      case FieldTypes.EMAIL:
+        return value ? `<span class="cell-url"><a href="mailto:${this._escapeHtml(value)}">${this._escapeHtml(value)}</a></span>` : '<span class="cell-empty">-</span>';
+
+      default:
+        return value ? this._escapeHtml(String(value)) : '<span class="cell-empty">-</span>';
+    }
   }
 
   _updateCellValue(value) {
@@ -1522,11 +1634,19 @@ class EODataWorkbench {
   _toggleCheckbox(recordId, fieldId) {
     const set = this.getCurrentSet();
     const record = set?.records.find(r => r.id === recordId);
-    if (!record) return;
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!record || !field) return;
 
     const currentValue = record.values[fieldId];
     this._updateRecordValue(recordId, fieldId, !currentValue);
-    this._renderTableView();
+
+    // Find the cell and update only its content - no full re-render
+    const cell = document.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
+    if (cell) {
+      requestAnimationFrame(() => {
+        this._updateCellDisplay(cell, recordId, field);
+      });
+    }
   }
 
   _attachResizeHandler(handle) {
