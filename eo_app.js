@@ -497,6 +497,12 @@ async function initApp(options = {}) {
   // Update sync status indicator
   updateSyncStatus('synced');
 
+  // Connect the event bus to the app (enables reactive updates)
+  if (window.connectEventBus) {
+    window.connectEventBus(_app);
+    console.log('EO Lake: Event bus connected to EOApp');
+  }
+
   // Connect transparency panel to the app
   if (window.getTransparencyPanel) {
     const transparency = window.getTransparencyPanel();

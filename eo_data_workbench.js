@@ -2795,13 +2795,8 @@ class EODataWorkbench {
 
     try {
       // Create a Given event for raw data changes
-      this.eoApp.recordExperience({
-        type: 'given',
-        payload: {
-          action,
-          ...data
-        }
-      });
+      // Using 'received' mode since this is user input data
+      this.eoApp.recordGiven('received', data, { action });
     } catch (e) {
       console.error('Failed to create EO event:', e);
     }

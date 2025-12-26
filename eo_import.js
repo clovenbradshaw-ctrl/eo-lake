@@ -598,6 +598,20 @@ class ImportOrchestrator {
     this.workbench.currentSetId = set.id;
     this.workbench.currentViewId = set.views[0]?.id;
 
+    // Create EO event for the import
+    if (this.workbench.eoApp) {
+      try {
+        this.workbench.eoApp.recordGiven('received', {
+          setId: set.id,
+          setName: set.name,
+          recordCount: set.records.length,
+          fieldCount: set.fields.length
+        }, { action: 'import_data' });
+      } catch (e) {
+        console.error('Failed to create EO import event:', e);
+      }
+    }
+
     // Save and refresh UI immediately
     this.workbench._saveData();
     this.workbench._renderSidebar();
