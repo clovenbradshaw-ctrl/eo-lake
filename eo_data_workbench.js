@@ -495,6 +495,13 @@ class EODataWorkbench {
       this.elements.sidebar.classList.toggle('mobile-open');
     });
 
+    // Import button
+    document.getElementById('btn-import')?.addEventListener('click', () => {
+      if (typeof showImportModal === 'function') {
+        showImportModal();
+      }
+    });
+
     // Filter/Sort buttons - Now opens Focus modal (Rule 5)
     document.getElementById('btn-filter')?.addEventListener('click', () => this._showNewFocusModal());
     document.getElementById('btn-sort')?.addEventListener('click', () => this._showSortPanel());
