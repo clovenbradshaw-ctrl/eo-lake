@@ -3353,12 +3353,24 @@ class EODataWorkbench {
     const picker = this.elements.fieldTypePicker;
     if (!picker) return;
 
-    const rect = e.target.closest('th, button').getBoundingClientRect();
     const pickerWidth = 240; // matches CSS width
     const viewportWidth = window.innerWidth;
 
+    // Try to get position from th/button, or fall back to event coordinates
+    const targetElement = e.target.closest('th, button, .context-menu-item');
+    let left, top;
+
+    if (targetElement) {
+      const rect = targetElement.getBoundingClientRect();
+      left = rect.left;
+      top = rect.bottom + 4;
+    } else {
+      // Fallback to event coordinates
+      left = e.pageX || e.clientX || 100;
+      top = e.pageY || e.clientY || 100;
+    }
+
     // Calculate left position, ensuring picker doesn't go off the right edge
-    let left = rect.left;
     if (left + pickerWidth > viewportWidth - 10) {
       left = viewportWidth - pickerWidth - 10;
     }
@@ -3368,7 +3380,7 @@ class EODataWorkbench {
     }
 
     picker.style.left = left + 'px';
-    picker.style.top = (rect.bottom + 4) + 'px';
+    picker.style.top = top + 'px';
     picker.classList.add('active');
 
     picker.querySelectorAll('.field-type-item').forEach(item => {
