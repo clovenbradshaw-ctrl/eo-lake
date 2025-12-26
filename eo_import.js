@@ -471,15 +471,31 @@ class ImportOrchestrator {
   }
 
   /**
-   * Check if text is valid JSON
+   * Check if text is valid JSON or JavaScript module syntax
    */
   _isJSON(text) {
+    // First, try standard JSON parse
     try {
       JSON.parse(text);
       return true;
     } catch {
-      return false;
+      // Not valid JSON, but check if it's JavaScript module syntax
+      // which we can also handle
     }
+
+    // Check for JavaScript module syntax (const/let/var declarations with arrays/objects)
+    const hasJSModuleSyntax = /^\s*(const|let|var)\s+\w+\s*=\s*[\[\{]/m.test(text);
+    if (hasJSModuleSyntax) {
+      return true;
+    }
+
+    // Check for export statements with data
+    const hasExportWithData = /^\s*export\s+(const|let|var|default)\s+/m.test(text);
+    if (hasExportWithData) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
