@@ -6,6 +6,11 @@
  * This implements the core event store that serves as the foundation of the
  * Experience Engine. All state is derived from this log.
  *
+ * Now integrated with EO Layer 4 Operators:
+ * - Every event records which EO operator(s) were applied
+ * - Operator(Target) ⟨ in Context ⟩ is the canonical form
+ * - Legacy actions are automatically mapped to operators
+ *
  * Enforces:
  * - Rule 1: Distinction (Given vs Meant partition)
  * - Rule 2: Impenetrability (Given derives only from Given)
@@ -78,6 +83,29 @@ class EOEventStore {
 
     // Frozen state (prevents appends when true)
     this._frozen = false;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // EO Operator Indexes (Layer 4 Integration)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    // Index by operator for fast operator-based queries
+    this._byOperator = new Map();
+
+    // Index by target entity for entity-centric queries
+    this._byEntity = new Map();
+
+    // Activity store integration (lazy initialized)
+    this._activityStore = null;
+  }
+
+  /**
+   * Get or create activity store integration
+   */
+  async getActivityStore() {
+    if (!this._activityStore && typeof window !== 'undefined' && window.EOActivity) {
+      this._activityStore = await window.EOActivity.getStore();
+    }
+    return this._activityStore;
   }
 
   /**
@@ -268,9 +296,20 @@ class EOEventStore {
 
     // Assign logical clock
     this._logicalClock++;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // EO Operator Integration
+    // Derive operators from payload.action if not explicitly provided
+    // ─────────────────────────────────────────────────────────────────────────
+    let operators = event.operators;
+    if (!operators && event.payload?.action) {
+      operators = this._deriveOperators(event.payload.action);
+    }
+
     const finalEvent = {
       ...event,
-      logicalClock: this._logicalClock
+      logicalClock: this._logicalClock,
+      operators: operators || null // EO Layer 4 operators
     };
 
     // Freeze the event object to prevent mutation (Rule 3)
@@ -283,13 +322,134 @@ class EOEventStore {
     this._log.push(finalEvent);
     this._index.set(finalEvent.id, finalEvent);
 
+    // Index by operators
+    this._indexByOperator(finalEvent);
+
+    // Index by entity
+    this._indexByEntity(finalEvent);
+
     // Notify subscribers
     this._notifySubscribers(finalEvent);
 
     // Check if any parked events can now be processed
     this._processParked();
 
+    // Record activity atom asynchronously (non-blocking)
+    this._recordActivity(finalEvent);
+
     return { success: true, eventId: finalEvent.id };
+  }
+
+  /**
+   * Derive EO operators from legacy action string
+   */
+  _deriveOperators(action) {
+    if (typeof window !== 'undefined' && window.EOOperators?.mapLegacy) {
+      return window.EOOperators.mapLegacy(action);
+    }
+    // Fallback mapping for when EOOperators isn't loaded
+    return this._fallbackOperatorMapping(action);
+  }
+
+  /**
+   * Fallback operator mapping when EOOperators module isn't available
+   */
+  _fallbackOperatorMapping(action) {
+    const lower = action.toLowerCase();
+    if (lower.includes('create') || lower.includes('add') || lower.includes('new')) return ['INS'];
+    if (lower.includes('delete') || lower.includes('remove') || lower.includes('tombstone')) return ['NUL'];
+    if (lower.includes('update') || lower.includes('rename') || lower.includes('set')) return ['DES'];
+    if (lower.includes('link') || lower.includes('connect')) return ['CON'];
+    if (lower.includes('unlink') || lower.includes('filter')) return ['SEG'];
+    if (lower.includes('merge') || lower.includes('combine')) return ['SYN'];
+    if (lower.includes('toggle') || lower.includes('switch')) return ['ALT'];
+    if (lower.includes('horizon') || lower.includes('overlay')) return ['SUP'];
+    if (lower.includes('self') || lower.includes('auto') || lower.includes('migrate')) return ['REC'];
+    return ['DES']; // Default to designation
+  }
+
+  /**
+   * Index event by its operators
+   */
+  _indexByOperator(event) {
+    if (!event.operators) return;
+    for (const op of event.operators) {
+      if (!this._byOperator.has(op)) {
+        this._byOperator.set(op, new Set());
+      }
+      this._byOperator.get(op).add(event.id);
+    }
+  }
+
+  /**
+   * Index event by target entity
+   */
+  _indexByEntity(event) {
+    const entityId = event.payload?.targetId ||
+                     event.payload?.recordId ||
+                     event.payload?.setId ||
+                     event.payload?.viewId ||
+                     event.payload?.entityId;
+    if (entityId) {
+      if (!this._byEntity.has(entityId)) {
+        this._byEntity.set(entityId, []);
+      }
+      this._byEntity.get(entityId).push(event.id);
+    }
+  }
+
+  /**
+   * Record activity atom for this event (async, non-blocking)
+   */
+  async _recordActivity(event) {
+    try {
+      const store = await this.getActivityStore();
+      if (!store || !event.operators) return;
+
+      // Build target from event payload
+      const target = {
+        id: event.payload?.targetId || event.payload?.recordId || event.payload?.setId || event.id,
+        positionType: event.payload?.entityType || 'event',
+        previousValue: event.payload?.previousValue,
+        newValue: event.payload?.newValue || event.payload?.value
+      };
+
+      // Build context from event
+      const context = {
+        epistemic: {
+          agent: event.actor,
+          method: event.type === 'given' ? (event.mode || 'received') : 'interpretation',
+          source: event.context?.source || 'event_store'
+        },
+        semantic: {
+          term: event.payload?.action,
+          definition: event.frame?.purpose,
+          jurisdiction: event.context?.workspace
+        },
+        situational: {
+          scale: 'event',
+          timeframe: event.timestamp,
+          background: event.context?.background
+        }
+      };
+
+      // Record one atom per operator in sequence
+      for (let i = 0; i < event.operators.length; i++) {
+        const atom = window.EOActivity.createAtom({
+          operator: event.operators[i],
+          target,
+          context
+        }, {
+          logicalClock: event.logicalClock,
+          sequenceIndex: event.operators.length > 1 ? i : null
+        });
+
+        await store.record(atom);
+      }
+    } catch (err) {
+      // Non-blocking - log but don't fail the event append
+      console.warn('Failed to record activity:', err);
+    }
   }
 
   /**
@@ -421,6 +581,143 @@ class EOEventStore {
    */
   getMeant() {
     return this.getByType(EventType.MEANT);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EO Operator Query Methods (Layer 4)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Get events by operator
+   * @param {string} operator - One of: NUL, DES, INS, SEG, CON, ALT, SYN, SUP, REC
+   */
+  getByOperator(operator) {
+    const ids = this._byOperator.get(operator);
+    if (!ids) return [];
+    return Array.from(ids).map(id => this._index.get(id)).filter(Boolean);
+  }
+
+  /**
+   * Get events for an entity
+   */
+  getByEntity(entityId) {
+    const ids = this._byEntity.get(entityId);
+    if (!ids) return [];
+    return ids.map(id => this._index.get(id)).filter(Boolean);
+  }
+
+  /**
+   * Get operator statistics
+   */
+  getOperatorStats() {
+    const stats = {};
+    for (const [op, ids] of this._byOperator) {
+      stats[op] = ids.size;
+    }
+    return stats;
+  }
+
+  /**
+   * Query events with operator-based filters
+   * @param {Object} filters
+   * @param {string|string[]} filters.operators - Filter by operator(s)
+   * @param {string} filters.entityId - Filter by target entity
+   * @param {boolean} filters.dangerousOnly - Only SYN and REC operators
+   * @param {string} filters.startTime - ISO timestamp
+   * @param {string} filters.endTime - ISO timestamp
+   * @param {number} filters.limit - Max results
+   */
+  queryByOperator(filters = {}) {
+    let results = [...this._log];
+
+    // Filter by operators
+    if (filters.operators) {
+      const ops = Array.isArray(filters.operators) ? filters.operators : [filters.operators];
+      results = results.filter(e => e.operators && e.operators.some(op => ops.includes(op)));
+    }
+
+    // Filter dangerous only (SYN, REC)
+    if (filters.dangerousOnly) {
+      results = results.filter(e => e.operators && e.operators.some(op => op === 'SYN' || op === 'REC'));
+    }
+
+    // Filter by entity
+    if (filters.entityId) {
+      const entityEvents = new Set(this._byEntity.get(filters.entityId) || []);
+      results = results.filter(e => entityEvents.has(e.id));
+    }
+
+    // Filter by time range
+    if (filters.startTime) {
+      results = results.filter(e => e.timestamp >= filters.startTime);
+    }
+    if (filters.endTime) {
+      results = results.filter(e => e.timestamp <= filters.endTime);
+    }
+
+    // Sort by timestamp descending (most recent first)
+    results.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+
+    // Limit
+    if (filters.limit) {
+      results = results.slice(0, filters.limit);
+    }
+
+    return results;
+  }
+
+  /**
+   * Get the transformation history for an entity
+   * Returns all operations applied to this entity in chronological order
+   */
+  getEntityHistory(entityId) {
+    return this.getByEntity(entityId).sort((a, b) =>
+      a.timestamp.localeCompare(b.timestamp)
+    );
+  }
+
+  /**
+   * Detect dangerous operator patterns
+   * Returns events that might need review
+   */
+  detectDangerousPatterns() {
+    const dangerous = [];
+
+    // Find all SYN (synthesize) - potential data loss
+    const synEvents = this.getByOperator('SYN');
+    for (const event of synEvents) {
+      dangerous.push({
+        event,
+        reason: 'SYN operator - data synthesis may lose original boundaries',
+        severity: 'warning'
+      });
+    }
+
+    // Find all REC (recurse) - self-modification
+    const recEvents = this.getByOperator('REC');
+    for (const event of recEvents) {
+      dangerous.push({
+        event,
+        reason: 'REC operator - self-modification can cause cascades',
+        severity: 'critical'
+      });
+    }
+
+    // Find sequences where REC isn't last
+    for (const event of this._log) {
+      if (event.operators && event.operators.includes('REC')) {
+        const recIndex = event.operators.indexOf('REC');
+        if (recIndex < event.operators.length - 1) {
+          dangerous.push({
+            event,
+            reason: 'REC operator not at end of sequence - may cause unintended effects',
+            severity: 'warning'
+          });
+        }
+      }
+    }
+
+    return dangerous;
   }
 
   /**
