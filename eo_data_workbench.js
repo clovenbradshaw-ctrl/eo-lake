@@ -112,24 +112,39 @@ function createField(name, type, options = {}) {
       field.options.choices = options.choices || [];
       break;
     case FieldTypes.NUMBER:
-      field.options.precision = options.precision || 0;
+      field.options.precision = options.precision ?? 0;
       field.options.format = options.format || 'number'; // number, currency, percent
       break;
     case FieldTypes.DATE:
       field.options.includeTime = options.includeTime || false;
-      field.options.format = options.format || 'local';
+      field.options.dateFormat = options.dateFormat || 'local'; // local, friendly, us, european, iso
+      field.options.timeFormat = options.timeFormat || '12h'; // 12h, 24h
       break;
     case FieldTypes.LINK:
       field.options.linkedSetId = options.linkedSetId || null;
       field.options.allowMultiple = options.allowMultiple || false;
       break;
+    case FieldTypes.ATTACHMENT:
+      field.options.maxFiles = options.maxFiles || null; // null = unlimited
+      break;
+    case FieldTypes.PHONE:
+      field.options.defaultCountry = options.defaultCountry || 'US';
+      break;
     case FieldTypes.FORMULA:
       field.options.formula = options.formula || '';
+      field.options.resultType = options.resultType || 'text'; // text, number, date, checkbox
       break;
     case FieldTypes.ROLLUP:
       field.options.linkedFieldId = options.linkedFieldId || null;
       field.options.rollupFieldId = options.rollupFieldId || null;
-      field.options.aggregation = options.aggregation || 'SUM';
+      field.options.aggregation = options.aggregation || 'SUM'; // SUM, AVG, MIN, MAX, COUNT, COUNTA, etc.
+      break;
+    case FieldTypes.COUNT:
+      field.options.linkedFieldId = options.linkedFieldId || null;
+      break;
+    case FieldTypes.AUTONUMBER:
+      field.options.prefix = options.prefix || '';
+      field.options.startValue = options.startValue ?? 1;
       break;
   }
 
@@ -2241,19 +2256,34 @@ class EODataWorkbench {
         break;
       case FieldTypes.DATE:
         field.options.includeTime = false;
-        field.options.format = 'local';
+        field.options.dateFormat = 'local';
+        field.options.timeFormat = '12h';
         break;
       case FieldTypes.LINK:
         field.options.linkedSetId = null;
         field.options.allowMultiple = false;
         break;
+      case FieldTypes.ATTACHMENT:
+        field.options.maxFiles = null;
+        break;
+      case FieldTypes.PHONE:
+        field.options.defaultCountry = 'US';
+        break;
       case FieldTypes.FORMULA:
         field.options.formula = '';
+        field.options.resultType = 'text';
         break;
       case FieldTypes.ROLLUP:
         field.options.linkedFieldId = null;
         field.options.rollupFieldId = null;
         field.options.aggregation = 'SUM';
+        break;
+      case FieldTypes.COUNT:
+        field.options.linkedFieldId = null;
+        break;
+      case FieldTypes.AUTONUMBER:
+        field.options.prefix = '';
+        field.options.startValue = 1;
         break;
     }
 
@@ -2285,8 +2315,26 @@ class EODataWorkbench {
       </div>
     `;
 
-    menu.style.left = e.pageX + 'px';
-    menu.style.top = e.pageY + 'px';
+    // Calculate position with viewport boundary checking
+    const menuWidth = 200;
+    const menuHeight = 130;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = e.pageX;
+    let top = e.pageY;
+
+    if (left + menuWidth > viewportWidth - 10) {
+      left = viewportWidth - menuWidth - 10;
+    }
+    if (left < 10) left = 10;
+    if (top + menuHeight > viewportHeight - 10) {
+      top = viewportHeight - menuHeight - 10;
+    }
+    if (top < 10) top = 10;
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
     menu.classList.add('active');
 
     menu.querySelectorAll('.context-menu-item').forEach(item => {
@@ -2359,8 +2407,34 @@ class EODataWorkbench {
       ` : ''}
     `;
 
-    menu.style.left = e.pageX + 'px';
-    menu.style.top = e.pageY + 'px';
+    // Calculate position with viewport boundary checking
+    const menuWidth = 200; // approximate width based on min-width: 180px + padding
+    const menuHeight = field.isPrimary ? 120 : 160; // approximate height
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = e.pageX;
+    let top = e.pageY;
+
+    // Prevent menu from going off right edge
+    if (left + menuWidth > viewportWidth - 10) {
+      left = viewportWidth - menuWidth - 10;
+    }
+    // Prevent menu from going off left edge
+    if (left < 10) {
+      left = 10;
+    }
+    // Prevent menu from going off bottom edge
+    if (top + menuHeight > viewportHeight - 10) {
+      top = viewportHeight - menuHeight - 10;
+    }
+    // Prevent menu from going off top edge
+    if (top < 10) {
+      top = 10;
+    }
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
     menu.classList.add('active');
 
     menu.querySelectorAll('.context-menu-item').forEach(item => {
@@ -2408,8 +2482,26 @@ class EODataWorkbench {
       </div>
     `;
 
-    menu.style.left = e.pageX + 'px';
-    menu.style.top = e.pageY + 'px';
+    // Calculate position with viewport boundary checking
+    const menuWidth = 200;
+    const menuHeight = 130;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = e.pageX;
+    let top = e.pageY;
+
+    if (left + menuWidth > viewportWidth - 10) {
+      left = viewportWidth - menuWidth - 10;
+    }
+    if (left < 10) left = 10;
+    if (top + menuHeight > viewportHeight - 10) {
+      top = viewportHeight - menuHeight - 10;
+    }
+    if (top < 10) top = 10;
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
     menu.classList.add('active');
 
     menu.querySelectorAll('.context-menu-item').forEach(item => {
@@ -2440,8 +2532,26 @@ class EODataWorkbench {
       </div>
     `;
 
-    menu.style.left = e.pageX + 'px';
-    menu.style.top = e.pageY + 'px';
+    // Calculate position with viewport boundary checking
+    const viewMenuWidth = 200;
+    const viewMenuHeight = 130;
+    const vWidth = window.innerWidth;
+    const vHeight = window.innerHeight;
+
+    let viewLeft = e.pageX;
+    let viewTop = e.pageY;
+
+    if (viewLeft + viewMenuWidth > vWidth - 10) {
+      viewLeft = vWidth - viewMenuWidth - 10;
+    }
+    if (viewLeft < 10) viewLeft = 10;
+    if (viewTop + viewMenuHeight > vHeight - 10) {
+      viewTop = vHeight - viewMenuHeight - 10;
+    }
+    if (viewTop < 10) viewTop = 10;
+
+    menu.style.left = viewLeft + 'px';
+    menu.style.top = viewTop + 'px';
     menu.classList.add('active');
   }
 
