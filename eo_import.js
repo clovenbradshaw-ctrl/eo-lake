@@ -483,10 +483,163 @@ class ImportOrchestrator {
   }
 
   /**
+   * Convert JavaScript module syntax to JSON-parseable format
+   * Handles: const nodes = [...], export { ... }, etc.
+   */
+  _convertJSModuleToJSON(text) {
+    // Check if this looks like JS module syntax
+    const hasConstDeclaration = /^\s*(const|let|var)\s+\w+\s*=/m.test(text);
+    const hasExport = /^\s*export\s+/m.test(text);
+
+    if (!hasConstDeclaration && !hasExport) {
+      return null; // Not JS module syntax, return null to try regular JSON parse
+    }
+
+    // Extract variable assignments
+    const result = {};
+
+    // Pattern to match: const/let/var varName = <value>
+    // This handles arrays and objects spanning multiple lines
+    const varPattern = /(?:const|let|var)\s+(\w+)\s*=\s*/g;
+    let match;
+    const varPositions = [];
+
+    while ((match = varPattern.exec(text)) !== null) {
+      varPositions.push({
+        name: match[1],
+        start: match.index + match[0].length
+      });
+    }
+
+    // For each variable, extract its value
+    for (let i = 0; i < varPositions.length; i++) {
+      const varInfo = varPositions[i];
+      const startPos = varInfo.start;
+
+      // Find the end of this value (next const/let/var or export or end)
+      let endSearchPos = i < varPositions.length - 1
+        ? text.lastIndexOf(';', varPositions[i + 1].start)
+        : text.length;
+
+      // Extract the value portion
+      let valueText = text.substring(startPos, endSearchPos);
+
+      // Remove trailing export statement if present
+      const exportIndex = valueText.search(/\n\s*export\s+/);
+      if (exportIndex !== -1) {
+        valueText = valueText.substring(0, exportIndex);
+      }
+
+      // Clean up: remove trailing semicolons and whitespace
+      valueText = valueText.replace(/;\s*$/, '').trim();
+
+      // Try to find the balanced end of the array/object
+      const firstChar = valueText[0];
+      if (firstChar === '[' || firstChar === '{') {
+        const closingChar = firstChar === '[' ? ']' : '}';
+        let depth = 0;
+        let inString = false;
+        let stringChar = null;
+        let endPos = 0;
+
+        for (let j = 0; j < valueText.length; j++) {
+          const char = valueText[j];
+          const prevChar = j > 0 ? valueText[j - 1] : '';
+
+          if (inString) {
+            if (char === stringChar && prevChar !== '\\') {
+              inString = false;
+            }
+          } else {
+            if (char === '"' || char === "'" || char === '`') {
+              inString = true;
+              stringChar = char;
+            } else if (char === firstChar) {
+              depth++;
+            } else if (char === closingChar) {
+              depth--;
+              if (depth === 0) {
+                endPos = j + 1;
+                break;
+              }
+            }
+          }
+        }
+
+        if (endPos > 0) {
+          valueText = valueText.substring(0, endPos);
+        }
+      }
+
+      // Convert JS object syntax to JSON:
+      // - Unquoted property names: { id: "value" } -> { "id": "value" }
+      // - Single quotes to double quotes (but be careful with nested quotes)
+      let jsonText = valueText;
+
+      // Replace unquoted property names (simple approach for common patterns)
+      // Match: word followed by colon, not inside a string
+      jsonText = jsonText.replace(/(\{|\,)\s*(\w+)\s*:/g, '$1"$2":');
+
+      // Handle single-quoted strings (convert to double quotes)
+      // This is a simplified conversion - works for most cases
+      jsonText = jsonText.replace(/'([^'\\]*(\\.[^'\\]*)*)'/g, '"$1"');
+
+      try {
+        result[varInfo.name] = JSON.parse(jsonText);
+      } catch (e) {
+        // If JSON parse fails, try a more lenient approach using Function constructor
+        try {
+          // Safe evaluation for data literals only
+          const fn = new Function('return ' + valueText);
+          result[varInfo.name] = fn();
+        } catch (e2) {
+          console.warn(`Failed to parse variable ${varInfo.name}:`, e2.message);
+        }
+      }
+    }
+
+    return Object.keys(result).length > 0 ? result : null;
+  }
+
+  /**
    * Parse JSON into normalized format
    */
   _parseJSON(text) {
-    const data = JSON.parse(text);
+    // First, try to handle JavaScript module syntax
+    const jsModuleData = this._convertJSModuleToJSON(text);
+
+    let data;
+    if (jsModuleData) {
+      // JS module with nodes/edges arrays (graph data)
+      if (jsModuleData.nodes && Array.isArray(jsModuleData.nodes)) {
+        // This is graph data - return nodes as records
+        // Each node should have its properties flattened
+        const nodes = jsModuleData.nodes.map(node => {
+          const record = {
+            id: node.id,
+            type: node.type,
+            ...node.properties
+          };
+          // Only include subtype if defined
+          if (node.subtype) {
+            record.subtype = node.subtype;
+          }
+          return record;
+        });
+        data = nodes;
+      } else {
+        // Check for other common array variable names
+        const arrayVars = Object.keys(jsModuleData).filter(k => Array.isArray(jsModuleData[k]));
+        if (arrayVars.length > 0) {
+          // Use the first array found
+          data = jsModuleData[arrayVars[0]];
+        } else {
+          data = jsModuleData;
+        }
+      }
+    } else {
+      data = JSON.parse(text);
+    }
 
     // Handle different JSON structures
     let records = [];
