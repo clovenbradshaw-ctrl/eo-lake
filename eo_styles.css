@@ -5708,3 +5708,167 @@ body.has-picked-up .browser-tab:hover {
   outline: 2px dashed var(--primary-400);
   outline-offset: -2px;
 }
+
+/* ===== Data Import Landing Page ===== */
+/* Shown when no data exists - Clio Events Export with ICS import */
+
+.data-import-landing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  padding: 48px 24px;
+  gap: 32px;
+}
+
+.import-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  max-width: 400px;
+  width: 100%;
+}
+
+.import-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.import-section-header i {
+  font-size: 24px;
+  color: var(--given-color);
+}
+
+.import-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--given-color);
+  margin: 0;
+}
+
+.import-subsection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
+.import-subsection-label {
+  font-size: 14px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ICS Dropzone */
+.ics-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border: 2px dashed var(--border-secondary);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s;
+  background: var(--bg-secondary);
+  width: 100%;
+}
+
+.ics-dropzone:hover,
+.ics-dropzone.dragover {
+  border-color: var(--primary);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.ics-dropzone.has-file {
+  border-style: solid;
+  border-color: var(--given-color);
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.ics-dropzone .dropzone-content {
+  text-align: center;
+  padding: 24px;
+}
+
+.ics-dropzone .dropzone-icon {
+  font-size: 36px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.ics-dropzone:hover .dropzone-icon,
+.ics-dropzone.dragover .dropzone-icon {
+  color: var(--primary);
+}
+
+.ics-dropzone .dropzone-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ics-dropzone .dropzone-subtext {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.ics-dropzone .dropzone-success .dropzone-icon {
+  color: var(--given-color);
+}
+
+.ics-dropzone .dropzone-error .dropzone-icon {
+  color: var(--danger);
+}
+
+/* Generate Button */
+.btn-generate {
+  width: 100%;
+  padding: 14px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: var(--radius-lg);
+  gap: 10px;
+}
+
+.btn-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-generate i {
+  font-size: 18px;
+}
+
+/* Import Divider */
+.import-divider {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 300px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.import-divider::before,
+.import-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-primary);
+}
+
+/* Secondary Import Section */
+.import-section-secondary {
+  flex-direction: row;
+  gap: 12px;
+}
+
+.import-section-secondary .btn {
+  flex: 1;
+}
