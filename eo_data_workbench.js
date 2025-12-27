@@ -491,6 +491,11 @@ class EODataWorkbench {
       this._showNewSetModal();
     });
 
+    // Import data button
+    document.getElementById('btn-import-data')?.addEventListener('click', () => {
+      this._showImportModal();
+    });
+
     // New view button
     document.getElementById('btn-new-view')?.addEventListener('click', () => {
       this._showNewViewModal();
@@ -734,10 +739,189 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderSidebar() {
+    this._renderSourcesNav();
     this._renderWorkspacesNav();
     this._renderSetsNav();
     this._renderViewsNav();
     this._renderFocusesNav();
+  }
+
+  /**
+   * Render sources navigation (import hierarchy)
+   * Shows data sources grouped by import origin
+   */
+  _renderSourcesNav() {
+    const container = document.getElementById('sources-nav');
+    if (!container) return;
+
+    // Group sets by their source
+    const sourceGroups = new Map();
+    const noSource = [];
+
+    for (const set of this.sets) {
+      const prov = set.datasetProvenance;
+      if (prov && (prov.originalFilename || prov.provenance?.source)) {
+        const sourceName = prov.originalFilename || prov.provenance?.source || 'Unknown';
+        const sourceKey = sourceName.toLowerCase();
+        if (!sourceGroups.has(sourceKey)) {
+          sourceGroups.set(sourceKey, {
+            name: sourceName,
+            importedAt: prov.importedAt,
+            provenance: prov.provenance,
+            sets: []
+          });
+        }
+        sourceGroups.get(sourceKey).sets.push(set);
+      } else {
+        noSource.push(set);
+      }
+    }
+
+    // Sort sources by import date (newest first)
+    const sortedSources = Array.from(sourceGroups.values()).sort((a, b) => {
+      if (!a.importedAt) return 1;
+      if (!b.importedAt) return -1;
+      return new Date(b.importedAt) - new Date(a.importedAt);
+    });
+
+    if (sortedSources.length === 0 && noSource.length === 0) {
+      container.innerHTML = `
+        <div class="nav-item empty-hint" id="import-first-data">
+          <i class="ph ph-file-arrow-down"></i>
+          <span>Import data</span>
+        </div>
+      `;
+      container.querySelector('#import-first-data')?.addEventListener('click', () => {
+        this._showImportModal();
+      });
+      return;
+    }
+
+    let html = '';
+
+    // Render sources with their sets as a tree
+    for (const source of sortedSources) {
+      const isExpanded = this.expandedSources?.has(source.name) ?? true;
+      const sourceIcon = this._getSourceIcon(source.name);
+      const provenanceInfo = this._formatSourceProvenance(source);
+
+      html += `
+        <div class="source-group ${isExpanded ? 'expanded' : ''}" data-source="${this._escapeHtml(source.name)}">
+          <div class="source-header" title="${provenanceInfo}">
+            <i class="ph ph-caret-right source-toggle"></i>
+            <i class="ph ${sourceIcon} source-icon"></i>
+            <span class="source-name">${this._escapeHtml(this._truncateSourceName(source.name))}</span>
+            <span class="source-count">${source.sets.length}</span>
+          </div>
+          <div class="source-children">
+            ${source.sets.map(set => `
+              <div class="nav-item source-set-item ${set.id === this.currentSetId ? 'active' : ''}"
+                   data-set-id="${set.id}">
+                <i class="ph ph-arrow-elbow-down-right tree-line"></i>
+                <i class="${set.icon || 'ph ph-table'}"></i>
+                <span>${this._escapeHtml(set.name)}</span>
+                <span class="nav-item-count">${set.records.length}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Render sets without provenance
+    if (noSource.length > 0) {
+      html += `
+        <div class="source-group expanded" data-source="__manual__">
+          <div class="source-header" title="Manually created sets">
+            <i class="ph ph-caret-right source-toggle"></i>
+            <i class="ph ph-pencil-simple source-icon"></i>
+            <span class="source-name">Manual</span>
+            <span class="source-count">${noSource.length}</span>
+          </div>
+          <div class="source-children">
+            ${noSource.map(set => `
+              <div class="nav-item source-set-item ${set.id === this.currentSetId ? 'active' : ''}"
+                   data-set-id="${set.id}">
+                <i class="ph ph-arrow-elbow-down-right tree-line"></i>
+                <i class="${set.icon || 'ph ph-table'}"></i>
+                <span>${this._escapeHtml(set.name)}</span>
+                <span class="nav-item-count">${set.records.length}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+
+    // Attach event handlers
+    container.querySelectorAll('.source-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        const group = header.closest('.source-group');
+        group.classList.toggle('expanded');
+        const sourceName = group.dataset.source;
+        if (!this.expandedSources) this.expandedSources = new Set();
+        if (group.classList.contains('expanded')) {
+          this.expandedSources.add(sourceName);
+        } else {
+          this.expandedSources.delete(sourceName);
+        }
+      });
+    });
+
+    container.querySelectorAll('.source-set-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._selectSet(item.dataset.setId);
+      });
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showSetContextMenu(e, item.dataset.setId);
+      });
+    });
+  }
+
+  /**
+   * Get icon for source file type
+   */
+  _getSourceIcon(filename) {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'csv': return 'ph-file-csv';
+      case 'json': return 'ph-file-code';
+      case 'xlsx':
+      case 'xls': return 'ph-file-xls';
+      default: return 'ph-file';
+    }
+  }
+
+  /**
+   * Truncate source name for display
+   */
+  _truncateSourceName(name) {
+    if (name.length > 20) {
+      return name.slice(0, 17) + '...';
+    }
+    return name;
+  }
+
+  /**
+   * Format provenance info for tooltip
+   */
+  _formatSourceProvenance(source) {
+    const parts = [];
+    if (source.importedAt) {
+      parts.push(`Imported: ${new Date(source.importedAt).toLocaleDateString()}`);
+    }
+    if (source.provenance?.agent) {
+      parts.push(`From: ${source.provenance.agent}`);
+    }
+    if (source.provenance?.method) {
+      parts.push(`Via: ${source.provenance.method}`);
+    }
+    return parts.join('\n') || source.name;
   }
 
   /**
@@ -915,7 +1099,8 @@ class EODataWorkbench {
       cards: 'ph-cards',
       kanban: 'ph-kanban',
       calendar: 'ph-calendar-blank',
-      graph: 'ph-graph'
+      graph: 'ph-graph',
+      filesystem: 'ph-folder-open'
     };
 
     container.innerHTML = set.views.map(view => `
@@ -965,7 +1150,8 @@ class EODataWorkbench {
       cards: 'ph-cards',
       kanban: 'ph-kanban',
       calendar: 'ph-calendar-blank',
-      graph: 'ph-graph'
+      graph: 'ph-graph',
+      filesystem: 'ph-folder-open'
     };
 
     container.innerHTML = set.views.map(view => `
@@ -1174,6 +1360,7 @@ class EODataWorkbench {
   /**
    * Toss a tab - removes from view but nothing is ever deleted
    * Tossed items can be picked back up from the tossed items list
+   * Shows undo toast for 5 seconds to allow recovery
    */
   _tossTab(viewId) {
     const set = this.getCurrentSet();
@@ -1187,6 +1374,7 @@ class EODataWorkbench {
     if (viewIndex === -1) return;
 
     const view = set.views[viewIndex];
+    const wasCurrentView = this.currentViewId === viewId;
 
     // Toss to the tossed items pile (nothing is ever deleted)
     this.tossedItems.unshift({
@@ -1203,7 +1391,7 @@ class EODataWorkbench {
     set.views.splice(viewIndex, 1);
 
     // If we're tossing the current view, switch to adjacent tab
-    if (this.currentViewId === viewId) {
+    if (wasCurrentView) {
       const newIndex = Math.min(viewIndex, set.views.length - 1);
       this.currentViewId = set.views[newIndex]?.id;
     }
@@ -1212,7 +1400,33 @@ class EODataWorkbench {
     this._renderView();
     this._updateBreadcrumb();
     this._saveData();
-    this._showToast(`Tossed "${view.name}" - pick it up from the tossed pile`, 'info');
+
+    // Show undo toast with countdown
+    this._showToast(`Tossed "${view.name}"`, 'info', {
+      countdown: 5000,
+      action: {
+        label: 'Undo',
+        callback: () => {
+          // Restore the view at its original position
+          const tossedIndex = this.tossedItems.findIndex(
+            t => t.type === 'view' && t.view.id === view.id
+          );
+          if (tossedIndex !== -1) {
+            this.tossedItems.splice(tossedIndex, 1);
+            // Re-insert at original position
+            set.views.splice(viewIndex, 0, view);
+            if (wasCurrentView) {
+              this.currentViewId = view.id;
+            }
+            this._renderViewsNav();
+            this._renderView();
+            this._updateBreadcrumb();
+            this._saveData();
+            this._showToast(`Restored "${view.name}"`, 'success');
+          }
+        }
+      }
+    });
   }
 
   /**
@@ -2012,6 +2226,9 @@ class EODataWorkbench {
         break;
       case 'graph':
         this._renderGraphView();
+        break;
+      case 'filesystem':
+        this._renderFilesystemView();
         break;
       default:
         this._renderTableView();
@@ -3526,6 +3743,386 @@ class EODataWorkbench {
     document.getElementById('graph-center')?.addEventListener('click', () => {
       scale = 1;
       svg.style.transform = `scale(1)`;
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Filesystem View - Full Content Hierarchy
+  // --------------------------------------------------------------------------
+
+  _renderFilesystemView() {
+    const currentSet = this.getCurrentSet();
+
+    // Build hierarchy: Sources → Sets → Views → Records
+    const hierarchy = this._buildContentHierarchy();
+
+    this.elements.contentArea.innerHTML = `
+      <div class="filesystem-container">
+        <div class="filesystem-toolbar">
+          <div class="filesystem-info">
+            <i class="ph ph-folder-open"></i>
+            <span>Content Hierarchy</span>
+          </div>
+          <div class="filesystem-breadcrumb" id="fs-breadcrumb">
+            <span class="fs-breadcrumb-item root" data-level="root">
+              <i class="ph ph-house"></i> Root
+            </span>
+          </div>
+          <div class="filesystem-controls">
+            <button class="filesystem-control-btn ${this.fsViewMode === 'tree' ? 'active' : ''}"
+                    data-mode="tree" title="Tree View">
+              <i class="ph ph-tree-structure"></i>
+            </button>
+            <button class="filesystem-control-btn ${this.fsViewMode === 'columns' ? 'active' : ''}"
+                    data-mode="columns" title="Column View">
+              <i class="ph ph-columns"></i>
+            </button>
+          </div>
+        </div>
+        <div class="filesystem-content" id="fs-content">
+          ${this._renderFilesystemTree(hierarchy, currentSet)}
+        </div>
+      </div>
+    `;
+
+    this._attachFilesystemEventHandlers();
+  }
+
+  /**
+   * Build the complete content hierarchy
+   * Structure: Sources (GIVEN) → Sets (Interpretation) → Views (Lens) → Records
+   */
+  _buildContentHierarchy() {
+    const hierarchy = {
+      sources: new Map(),
+      manualSets: []
+    };
+
+    // Group sets by their source
+    for (const set of this.sets) {
+      const prov = set.datasetProvenance;
+      if (prov && (prov.originalFilename || prov.provenance?.source)) {
+        const sourceName = prov.originalFilename || prov.provenance?.source || 'Unknown';
+        const sourceKey = sourceName.toLowerCase();
+
+        if (!hierarchy.sources.has(sourceKey)) {
+          hierarchy.sources.set(sourceKey, {
+            name: sourceName,
+            type: 'source',
+            level: 'given',
+            importedAt: prov.importedAt,
+            provenance: prov.provenance,
+            children: []
+          });
+        }
+        hierarchy.sources.get(sourceKey).children.push({
+          ...set,
+          type: 'set',
+          level: 'meant'
+        });
+      } else {
+        hierarchy.manualSets.push({
+          ...set,
+          type: 'set',
+          level: 'meant'
+        });
+      }
+    }
+
+    return hierarchy;
+  }
+
+  /**
+   * Render the filesystem tree view
+   */
+  _renderFilesystemTree(hierarchy, currentSet) {
+    let html = '<div class="fs-tree">';
+
+    // Layer indicator
+    html += `
+      <div class="fs-layer-legend">
+        <div class="fs-layer-item given">
+          <i class="ph ph-download"></i>
+          <span>GIVEN</span>
+          <span class="fs-layer-desc">Raw data sources</span>
+        </div>
+        <div class="fs-layer-item meant">
+          <i class="ph ph-database"></i>
+          <span>MEANT</span>
+          <span class="fs-layer-desc">Interpreted data</span>
+        </div>
+        <div class="fs-layer-item lens">
+          <i class="ph ph-eye"></i>
+          <span>LENS</span>
+          <span class="fs-layer-desc">Views & perspectives</span>
+        </div>
+        <div class="fs-layer-item entity">
+          <i class="ph ph-rows"></i>
+          <span>ENTITY</span>
+          <span class="fs-layer-desc">Individual records</span>
+        </div>
+      </div>
+    `;
+
+    // Render imported sources
+    const sources = Array.from(hierarchy.sources.values());
+    if (sources.length > 0) {
+      html += `<div class="fs-section">`;
+      for (const source of sources) {
+        const isExpanded = this.expandedFsNodes?.has(`source:${source.name}`) ?? true;
+        html += this._renderSourceNode(source, isExpanded, currentSet);
+      }
+      html += `</div>`;
+    }
+
+    // Render manual sets
+    if (hierarchy.manualSets.length > 0) {
+      const isExpanded = this.expandedFsNodes?.has('manual') ?? true;
+      html += `
+        <div class="fs-section">
+          <div class="fs-node source-node manual ${isExpanded ? 'expanded' : ''}" data-node-id="manual">
+            <div class="fs-node-header" data-level="given">
+              <i class="ph ph-caret-right fs-toggle"></i>
+              <i class="ph ph-pencil-simple-line fs-icon"></i>
+              <span class="fs-node-title">Manual Entry</span>
+              <span class="fs-node-count">${hierarchy.manualSets.length} sets</span>
+            </div>
+            <div class="fs-node-children">
+              ${hierarchy.manualSets.map(set => this._renderSetNode(set, currentSet)).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // If no data yet
+    if (sources.length === 0 && hierarchy.manualSets.length === 0) {
+      html += `
+        <div class="fs-empty">
+          <i class="ph ph-folder-open"></i>
+          <h3>No Content Yet</h3>
+          <p>Import data or create a set to see the content hierarchy</p>
+          <div class="fs-empty-actions">
+            <button class="btn btn-primary" id="fs-import-btn">
+              <i class="ph ph-file-arrow-down"></i> Import Data
+            </button>
+            <button class="btn btn-secondary" id="fs-create-set-btn">
+              <i class="ph ph-plus"></i> Create Set
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Render a source node
+   */
+  _renderSourceNode(source, isExpanded, currentSet) {
+    const sourceIcon = this._getSourceIcon(source.name);
+    const provTooltip = this._formatSourceProvenance(source);
+    const importDate = source.importedAt
+      ? new Date(source.importedAt).toLocaleDateString()
+      : '';
+
+    return `
+      <div class="fs-node source-node ${isExpanded ? 'expanded' : ''}"
+           data-node-id="source:${this._escapeHtml(source.name)}">
+        <div class="fs-node-header" data-level="given" title="${this._escapeHtml(provTooltip)}">
+          <i class="ph ph-caret-right fs-toggle"></i>
+          <i class="ph ${sourceIcon} fs-icon"></i>
+          <span class="fs-node-title">${this._escapeHtml(source.name)}</span>
+          <span class="fs-node-meta">${importDate}</span>
+          <span class="fs-node-count">${source.children.length} sets</span>
+        </div>
+        <div class="fs-node-children">
+          ${source.children.map(set => this._renderSetNode(set, currentSet)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render a set node with its views
+   */
+  _renderSetNode(set, currentSet) {
+    const isActive = set.id === currentSet?.id;
+    const isExpanded = this.expandedFsNodes?.has(`set:${set.id}`) ?? isActive;
+    const views = set.views || [];
+
+    return `
+      <div class="fs-node set-node ${isExpanded ? 'expanded' : ''} ${isActive ? 'active' : ''}"
+           data-node-id="set:${set.id}">
+        <div class="fs-node-header" data-level="meant" data-set-id="${set.id}">
+          <i class="ph ph-caret-right fs-toggle"></i>
+          <i class="${set.icon || 'ph ph-database'} fs-icon"></i>
+          <span class="fs-node-title">${this._escapeHtml(set.name)}</span>
+          <span class="fs-node-count">${set.records?.length || 0} records</span>
+        </div>
+        <div class="fs-node-children">
+          ${views.map(view => this._renderViewNode(view, set, currentSet)).join('')}
+          ${this._renderRecordsSummary(set)}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render a view node
+   */
+  _renderViewNode(view, set, currentSet) {
+    const isActive = view.id === this.currentViewId && set.id === currentSet?.id;
+    const viewIcons = {
+      table: 'ph-table',
+      cards: 'ph-cards',
+      kanban: 'ph-kanban',
+      calendar: 'ph-calendar-blank',
+      graph: 'ph-graph',
+      filesystem: 'ph-folder-open'
+    };
+
+    return `
+      <div class="fs-node view-node ${isActive ? 'active' : ''}"
+           data-node-id="view:${view.id}"
+           data-view-id="${view.id}"
+           data-set-id="${set.id}">
+        <div class="fs-node-header" data-level="lens">
+          <i class="ph ph-minus fs-spacer"></i>
+          <i class="ph ${viewIcons[view.type] || 'ph-table'} fs-icon"></i>
+          <span class="fs-node-title">${this._escapeHtml(view.name)}</span>
+          <span class="fs-node-type">${view.type}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render records summary under a set
+   */
+  _renderRecordsSummary(set) {
+    const recordCount = set.records?.length || 0;
+    if (recordCount === 0) return '';
+
+    const isExpanded = this.expandedFsNodes?.has(`records:${set.id}`) ?? false;
+    const displayRecords = isExpanded ? set.records.slice(0, 50) : [];
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+
+    return `
+      <div class="fs-node records-node ${isExpanded ? 'expanded' : ''}"
+           data-node-id="records:${set.id}">
+        <div class="fs-node-header" data-level="entity">
+          <i class="ph ph-caret-right fs-toggle"></i>
+          <i class="ph ph-rows fs-icon"></i>
+          <span class="fs-node-title">Records</span>
+          <span class="fs-node-count">${recordCount} items</span>
+        </div>
+        <div class="fs-node-children">
+          ${displayRecords.map(record => {
+            const title = record.values?.[primaryField?.id] || 'Untitled';
+            return `
+              <div class="fs-node record-node" data-record-id="${record.id}" data-set-id="${set.id}">
+                <div class="fs-node-header" data-level="entity">
+                  <i class="ph ph-minus fs-spacer"></i>
+                  <i class="ph ph-file-text fs-icon"></i>
+                  <span class="fs-node-title">${this._escapeHtml(String(title).substring(0, 40))}</span>
+                </div>
+              </div>
+            `;
+          }).join('')}
+          ${recordCount > 50 ? `
+            <div class="fs-more-indicator">
+              <i class="ph ph-dots-three"></i>
+              <span>+${recordCount - 50} more records</span>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Attach event handlers to filesystem view
+   */
+  _attachFilesystemEventHandlers() {
+    const container = document.getElementById('fs-content');
+    if (!container) return;
+
+    // Initialize state
+    if (!this.expandedFsNodes) this.expandedFsNodes = new Set();
+    if (!this.fsViewMode) this.fsViewMode = 'tree';
+
+    // Toggle nodes
+    container.querySelectorAll('.fs-toggle').forEach(toggle => {
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const node = toggle.closest('.fs-node');
+        const nodeId = node.dataset.nodeId;
+        node.classList.toggle('expanded');
+        if (node.classList.contains('expanded')) {
+          this.expandedFsNodes.add(nodeId);
+        } else {
+          this.expandedFsNodes.delete(nodeId);
+        }
+      });
+    });
+
+    // Click on set to select it
+    container.querySelectorAll('.set-node > .fs-node-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.fs-toggle')) return;
+        const setId = header.dataset.setId;
+        if (setId) {
+          this._selectSet(setId);
+        }
+      });
+    });
+
+    // Click on view to select it
+    container.querySelectorAll('.view-node').forEach(node => {
+      node.addEventListener('click', () => {
+        const setId = node.dataset.setId;
+        const viewId = node.dataset.viewId;
+        if (setId && viewId) {
+          if (this.currentSetId !== setId) {
+            this._selectSet(setId);
+          }
+          this._selectView(viewId);
+        }
+      });
+    });
+
+    // Click on record to show detail
+    container.querySelectorAll('.record-node').forEach(node => {
+      node.addEventListener('click', () => {
+        const recordId = node.dataset.recordId;
+        const setId = node.dataset.setId;
+        if (recordId && setId) {
+          if (this.currentSetId !== setId) {
+            this._selectSet(setId);
+          }
+          this._showRecordDetail(recordId);
+        }
+      });
+    });
+
+    // View mode toggle
+    document.querySelectorAll('.filesystem-control-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.fsViewMode = btn.dataset.mode;
+        this._renderFilesystemView();
+      });
+    });
+
+    // Empty state buttons
+    document.getElementById('fs-import-btn')?.addEventListener('click', () => {
+      this._showImportModal();
+    });
+
+    document.getElementById('fs-create-set-btn')?.addEventListener('click', () => {
+      this._showNewSetModal();
     });
   }
 
@@ -5636,7 +6233,7 @@ class EODataWorkbench {
   // Toast Notifications
   // --------------------------------------------------------------------------
 
-  _showToast(message, type = 'info') {
+  _showToast(message, type = 'info', options = {}) {
     let container = document.querySelector('.toast-container');
     if (!container) {
       container = document.createElement('div');
@@ -5652,26 +6249,57 @@ class EODataWorkbench {
     };
 
     const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
+    toast.className = `toast ${type}${options.action ? ' has-action' : ''}`;
+
+    let actionHtml = '';
+    if (options.action) {
+      actionHtml = `<button class="toast-action">${this._escapeHtml(options.action.label)}</button>`;
+    }
+
+    let progressHtml = '';
+    if (options.countdown) {
+      progressHtml = `<div class="toast-progress"><div class="toast-progress-bar"></div></div>`;
+    }
+
     toast.innerHTML = `
       <i class="ph ${icons[type] || 'ph-info'} toast-icon"></i>
       <span class="toast-message">${this._escapeHtml(message)}</span>
+      ${actionHtml}
       <button class="toast-close"><i class="ph ph-x"></i></button>
+      ${progressHtml}
     `;
 
     container.appendChild(toast);
+
+    // Action button handler
+    if (options.action) {
+      toast.querySelector('.toast-action').addEventListener('click', () => {
+        options.action.callback();
+        toast.classList.add('toast-out');
+        setTimeout(() => toast.remove(), 300);
+      });
+    }
+
+    // Start countdown animation if specified
+    if (options.countdown) {
+      const progressBar = toast.querySelector('.toast-progress-bar');
+      progressBar.style.animation = `toast-countdown ${options.countdown}ms linear`;
+    }
 
     toast.querySelector('.toast-close').addEventListener('click', () => {
       toast.classList.add('toast-out');
       setTimeout(() => toast.remove(), 300);
     });
 
+    const duration = options.duration || (options.countdown ? options.countdown : 4000);
     setTimeout(() => {
       if (toast.parentElement) {
         toast.classList.add('toast-out');
         setTimeout(() => toast.remove(), 300);
       }
-    }, 4000);
+    }, duration);
+
+    return toast;
   }
 
   // --------------------------------------------------------------------------

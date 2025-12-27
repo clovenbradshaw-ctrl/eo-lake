@@ -36,6 +36,22 @@
 
       <!-- View Hierarchy Navigation (Nine Rules-Compliant) -->
       <nav class="sidebar-nav">
+        <!-- Level 0: Sources (Import Origins - GIVEN) -->
+        <div class="nav-section sources-section">
+          <div class="nav-section-header">
+            <span class="nav-section-title">
+              <i class="ph ph-file-arrow-down" title="Rule 7: GIVEN - Data Sources"></i>
+              Sources
+            </span>
+            <button class="nav-section-action" id="btn-import-data" title="Import Data">
+              <i class="ph ph-plus"></i>
+            </button>
+          </div>
+          <div class="nav-items sources-tree" id="sources-nav">
+            <!-- Sources tree rendered dynamically -->
+          </div>
+        </div>
+
         <!-- Level 1: Workspaces (Horizon Boundaries) -->
         <div class="nav-section">
           <div class="nav-section-header">
@@ -153,6 +169,9 @@
             </button>
             <button class="view-switch-btn" data-view="graph" title="Graph View">
               <i class="ph ph-graph"></i>
+            </button>
+            <button class="view-switch-btn" data-view="filesystem" title="Filesystem View">
+              <i class="ph ph-folder-open"></i>
             </button>
           </div>
         </div>
