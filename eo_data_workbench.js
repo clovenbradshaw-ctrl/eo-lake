@@ -5131,12 +5131,20 @@ class EODataWorkbench {
       container.style.cursor = 'default';
     });
 
+    this.workbenchCy.on('tap', 'edge', (evt) => {
+      const edge = evt.target;
+      const edgeData = edge.data();
+      this._showEdgeDetail(edgeData);
+    });
+
     this.workbenchCy.on('mouseover', 'edge', (evt) => {
       evt.target.addClass('highlighted');
+      container.style.cursor = 'pointer';
     });
 
     this.workbenchCy.on('mouseout', 'edge', (evt) => {
       evt.target.removeClass('highlighted');
+      container.style.cursor = 'default';
     });
   }
 
@@ -7280,6 +7288,82 @@ class EODataWorkbench {
     body.querySelectorAll('.provenance-value.editable').forEach(el => {
       el.addEventListener('click', () => {
         this._startProvenanceEdit(el, recordId, set);
+      });
+    });
+
+    panel.classList.add('open');
+  }
+
+  /**
+   * Show edge details in the detail panel
+   */
+  _showEdgeDetail(edgeData) {
+    const panel = this.elements.detailPanel;
+    const body = document.getElementById('detail-panel-body');
+    if (!panel || !body) return;
+
+    const set = this.getCurrentSet();
+    const sourceRecord = set?.records.find(r => r.id === edgeData.source);
+    const targetRecord = set?.records.find(r => r.id === edgeData.target);
+
+    const primaryField = set?.fields?.find(f => f.isPrimary) || set?.fields?.[0];
+    const sourceName = sourceRecord?.values?.[primaryField?.id] || edgeData.source;
+    const targetName = targetRecord?.values?.[primaryField?.id] || edgeData.target;
+
+    this.currentDetailRecordId = null;
+
+    body.innerHTML = `
+      <div class="detail-record">
+        <h2 style="font-size: 18px; margin-bottom: 16px;">
+          <i class="ph ph-arrow-right" style="color: var(--primary-500);"></i>
+          Edge Details
+        </h2>
+
+        <div class="detail-field-group">
+          <div class="detail-field-label">
+            <i class="ph ph-link"></i>
+            Relationship Type
+          </div>
+          <div class="detail-field-value">
+            ${this._escapeHtml(edgeData.fieldName || 'Link')}
+          </div>
+        </div>
+
+        <div class="detail-field-group">
+          <div class="detail-field-label">
+            <i class="ph ph-export"></i>
+            Source
+          </div>
+          <div class="detail-field-value edge-node-link" data-record-id="${edgeData.source}" style="cursor: pointer; color: var(--primary-500);">
+            ${this._escapeHtml(sourceName)}
+          </div>
+        </div>
+
+        <div class="detail-field-group">
+          <div class="detail-field-label">
+            <i class="ph ph-sign-in"></i>
+            Target
+          </div>
+          <div class="detail-field-value edge-node-link" data-record-id="${edgeData.target}" style="cursor: pointer; color: var(--primary-500);">
+            ${this._escapeHtml(targetName)}
+          </div>
+        </div>
+
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
+          <div style="font-size: 11px; color: var(--text-muted);">
+            <i class="ph ph-hash"></i> Edge ID: ${this._escapeHtml(edgeData.id)}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Add click handlers for navigating to source/target records
+    body.querySelectorAll('.edge-node-link').forEach(el => {
+      el.addEventListener('click', () => {
+        const recordId = el.dataset.recordId;
+        if (recordId) {
+          this._showRecordDetail(recordId);
+        }
       });
     });
 
