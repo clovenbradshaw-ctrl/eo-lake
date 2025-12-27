@@ -8735,25 +8735,43 @@ class EODataWorkbench {
     const set = this.getCurrentSet();
     if (!set) return;
 
-    const selectedData = set.records.filter(r => this.selectedRecords.has(r.id));
-    const exportData = {
-      setName: set.name,
-      fields: set.fields,
-      records: selectedData,
-      exportedAt: new Date().toISOString()
-    };
+    const selectedRecords = set.records.filter(r => this.selectedRecords.has(r.id));
 
-    const json = JSON.stringify(exportData, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
+    // Show export format selection dialog
+    if (typeof showExportDialog === 'function') {
+      showExportDialog({
+        name: set.name,
+        fields: set.fields,
+        records: selectedRecords,
+        allSets: this.sets, // For multi-tab Excel export option
+        onExport: (result) => {
+          this._showToast(
+            `Exported ${result.recordCount} record${result.recordCount !== 1 ? 's' : ''} to ${result.format.toUpperCase()}`,
+            'success'
+          );
+        }
+      });
+    } else {
+      // Fallback to JSON export if dialog not available
+      const exportData = {
+        setName: set.name,
+        fields: set.fields,
+        records: selectedRecords,
+        exportedAt: new Date().toISOString()
+      };
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${set.name}_export_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
+      const json = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
 
-    URL.revokeObjectURL(url);
-    this._showToast(`Exported ${this.selectedRecords.size} record${this.selectedRecords.size !== 1 ? 's' : ''}`, 'success');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${set.name}_export_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+
+      URL.revokeObjectURL(url);
+      this._showToast(`Exported ${this.selectedRecords.size} record${this.selectedRecords.size !== 1 ? 's' : ''}`, 'success');
+    }
   }
 
   _bulkDelete() {
