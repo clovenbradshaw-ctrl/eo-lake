@@ -209,6 +209,7 @@ class EODataWorkbench {
     this.sets = [];
     this.currentSetId = null;
     this.currentViewId = null;
+    this.lastViewPerSet = {}; // Remember last active view for each set
     this.selectedRecords = new Set();
     this.editingCell = null;
     this.clipboard = null;
@@ -648,6 +649,7 @@ class EODataWorkbench {
         this.sets = parsed.sets || [];
         this.currentSetId = parsed.currentSetId;
         this.currentViewId = parsed.currentViewId;
+        this.lastViewPerSet = parsed.lastViewPerSet || {};
       }
     } catch (e) {
       console.error('Failed to load data:', e);
@@ -659,7 +661,8 @@ class EODataWorkbench {
       localStorage.setItem('eo_lake_data', JSON.stringify({
         sets: this.sets,
         currentSetId: this.currentSetId,
-        currentViewId: this.currentViewId
+        currentViewId: this.currentViewId,
+        lastViewPerSet: this.lastViewPerSet
       }));
 
       // Also create EO events if connected
@@ -1669,6 +1672,11 @@ class EODataWorkbench {
     set.views.push(view);
     this.currentViewId = view.id;
 
+    // Remember this view for the current set
+    if (this.currentSetId) {
+      this.lastViewPerSet[this.currentSetId] = view.id;
+    }
+
     this._renderViewsNav();
     this._renderView();
     this._updateBreadcrumb();
@@ -1712,6 +1720,10 @@ class EODataWorkbench {
     if (wasCurrentView) {
       const newIndex = Math.min(viewIndex, set.views.length - 1);
       this.currentViewId = set.views[newIndex]?.id;
+      // Remember this view for the current set
+      if (this.currentSetId && this.currentViewId) {
+        this.lastViewPerSet[this.currentSetId] = this.currentViewId;
+      }
     }
 
     this._renderViewsNav();
@@ -1735,6 +1747,10 @@ class EODataWorkbench {
             set.views.splice(viewIndex, 0, view);
             if (wasCurrentView) {
               this.currentViewId = view.id;
+              // Remember this view for the current set
+              if (this.currentSetId) {
+                this.lastViewPerSet[this.currentSetId] = view.id;
+              }
             }
             this._renderViewsNav();
             this._renderView();
@@ -1773,6 +1789,9 @@ class EODataWorkbench {
         this.currentSetId = tossedItem.setId;
         this._renderSidebar();
       }
+
+      // Remember this view for the set (use tossedItem.setId as that's the current set now)
+      this.lastViewPerSet[tossedItem.setId] = tossedItem.view.id;
 
       this._renderViewsNav();
       this._renderView();
@@ -2152,6 +2171,8 @@ class EODataWorkbench {
             if (tossedItem.type === 'view') {
               set.views.push(tossedItem.view);
               this.currentViewId = tossedItem.view.id;
+              // Remember this view for the set
+              this.lastViewPerSet[tossedItem.setId] = tossedItem.view.id;
               this._renderViewsNav();
               this._renderView();
               this._saveData();
@@ -2273,6 +2294,10 @@ class EODataWorkbench {
         const dupView = createView(`${view.name} (Copy)`, view.type, { ...view.config });
         set.views.splice(viewIndex + 1, 0, dupView);
         this.currentViewId = dupView.id;
+        // Remember this view for the current set
+        if (this.currentSetId) {
+          this.lastViewPerSet[this.currentSetId] = dupView.id;
+        }
         this._renderViewsNav();
         this._renderView();
         this._saveData();
@@ -2314,6 +2339,10 @@ class EODataWorkbench {
         });
         set.views = [view];
         this.currentViewId = viewId;
+        // Remember this view for the current set
+        if (this.currentSetId) {
+          this.lastViewPerSet[this.currentSetId] = viewId;
+        }
         this._renderViewsNav();
         this._renderView();
         this._saveData();
@@ -2333,6 +2362,10 @@ class EODataWorkbench {
         set.views = set.views.slice(0, viewIndex + 1);
         if (!set.views.find(v => v.id === this.currentViewId)) {
           this.currentViewId = viewId;
+          // Remember this view for the current set
+          if (this.currentSetId) {
+            this.lastViewPerSet[this.currentSetId] = viewId;
+          }
         }
         this._renderViewsNav();
         this._renderView();
@@ -2408,7 +2441,11 @@ class EODataWorkbench {
   _selectSet(setId) {
     this.currentSetId = setId;
     const set = this.getCurrentSet();
-    this.currentViewId = set?.views[0]?.id;
+
+    // Use remembered view for this set, or fall back to first view
+    const rememberedViewId = this.lastViewPerSet[setId];
+    const rememberedView = rememberedViewId && set?.views.find(v => v.id === rememberedViewId);
+    this.currentViewId = rememberedView ? rememberedViewId : set?.views[0]?.id;
 
     this._renderSidebar();
     this._renderView();
@@ -2418,6 +2455,11 @@ class EODataWorkbench {
 
   _selectView(viewId) {
     this.currentViewId = viewId;
+
+    // Remember this view for the current set
+    if (this.currentSetId) {
+      this.lastViewPerSet[this.currentSetId] = viewId;
+    }
 
     // Update view switcher
     const view = this.getCurrentView();
@@ -2444,6 +2486,11 @@ class EODataWorkbench {
     }
 
     this.currentViewId = view.id;
+
+    // Remember this view for the current set
+    if (this.currentSetId) {
+      this.lastViewPerSet[this.currentSetId] = view.id;
+    }
 
     // Update view switcher buttons
     document.querySelectorAll('.view-switch-btn').forEach(btn => {
