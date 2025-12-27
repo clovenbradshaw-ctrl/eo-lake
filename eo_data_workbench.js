@@ -3598,12 +3598,25 @@ class EODataWorkbench {
     // Check for link fields to show relationships
     const linkFields = set?.fields.filter(f => f.type === FieldTypes.LINK) || [];
 
+    // Check for a corresponding relationship set
+    const relationshipSet = set ? this.sets.find(s =>
+      s.name === `${set.name} - Relationships` ||
+      s.name === `${set.name} - Edges`
+    ) : null;
+    const hasRelationshipSet = relationshipSet && relationshipSet.records?.length > 0;
+
+    // Determine if we have any relationship data
+    const hasRelationships = linkFields.length > 0 || hasRelationshipSet;
+    const relationshipInfo = hasRelationshipSet
+      ? `${relationshipSet.records.length} relationships`
+      : (linkFields.length > 0 ? `${linkFields.length} relationship type${linkFields.length !== 1 ? 's' : ''}` : '');
+
     this.elements.contentArea.innerHTML = `
       <div class="graph-container">
         <div class="graph-toolbar">
           <div class="graph-info">
             <i class="ph ph-graph"></i>
-            <span>${records.length} nodes${linkFields.length > 0 ? `, ${linkFields.length} relationship type${linkFields.length !== 1 ? 's' : ''}` : ''}</span>
+            <span>${records.length} nodes${hasRelationships ? `, ${relationshipInfo}` : ''}</span>
           </div>
           <div class="graph-controls-inline">
             <button class="graph-control-btn" id="graph-zoom-in" title="Zoom In">
@@ -3620,7 +3633,7 @@ class EODataWorkbench {
         <div class="graph-canvas-wrapper">
           <svg class="graph-svg" id="graph-svg"></svg>
         </div>
-        ${linkFields.length === 0 && records.length > 0 ? `
+        ${!hasRelationships && records.length > 0 ? `
           <div class="graph-hint">
             <i class="ph ph-info"></i>
             <span>Add Link fields to visualize relationships between records</span>
@@ -3658,6 +3671,14 @@ class EODataWorkbench {
 
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
 
+    // Also create a map from primary field value to node (for relationship matching)
+    const nodeByTitle = new Map();
+    nodes.forEach(n => {
+      if (n.title) {
+        nodeByTitle.set(n.title, n);
+      }
+    });
+
     // Build edges from link fields
     const edges = [];
     records.forEach(record => {
@@ -3676,6 +3697,53 @@ class EODataWorkbench {
         }
       });
     });
+
+    // Also look for edges in relationship sets
+    const currentSet = this.getCurrentSet();
+    if (currentSet) {
+      const relationshipSet = this.sets.find(s =>
+        s.name === `${currentSet.name} - Relationships` ||
+        s.name === `${currentSet.name} - Edges` ||
+        s.name?.includes('Relationships') && s.name?.includes(currentSet.name)
+      );
+
+      if (relationshipSet) {
+        // Find from/to fields in the relationship set
+        const fromField = relationshipSet.fields?.find(f =>
+          f.name?.toLowerCase() === 'from' ||
+          f.name?.toLowerCase() === 'source'
+        );
+        const toField = relationshipSet.fields?.find(f =>
+          f.name?.toLowerCase() === 'to' ||
+          f.name?.toLowerCase() === 'target'
+        );
+
+        if (fromField && toField) {
+          relationshipSet.records?.forEach(relRecord => {
+            const fromValue = relRecord.values?.[fromField.id];
+            const toValue = relRecord.values?.[toField.id];
+
+            if (!fromValue || !toValue) return;
+
+            // Try to find matching nodes - by record ID or by title/primary field value
+            let sourceNode = nodeMap.get(fromValue) || nodeByTitle.get(fromValue);
+            let targetNode = nodeMap.get(toValue) || nodeByTitle.get(toValue);
+
+            if (sourceNode && targetNode) {
+              // Get edge type if available
+              const typeField = relationshipSet.fields?.find(f => f.name?.toLowerCase() === 'type');
+              const edgeType = typeField ? relRecord.values?.[typeField.id] : null;
+
+              edges.push({
+                source: sourceNode.id,
+                target: targetNode.id,
+                fieldName: edgeType || 'relationship'
+              });
+            }
+          });
+        }
+      }
+    }
 
     // Render SVG
     let svgContent = '';
