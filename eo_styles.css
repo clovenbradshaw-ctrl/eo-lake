@@ -4764,7 +4764,7 @@ html, body {
 /* Tab Context Menu */
 .tab-context-menu {
   position: fixed;
-  min-width: 180px;
+  min-width: 200px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
@@ -4794,6 +4794,7 @@ html, body {
   color: var(--text-secondary);
   cursor: pointer;
   transition: var(--transition-fast);
+  white-space: nowrap;
 }
 
 .tab-context-item:hover {
