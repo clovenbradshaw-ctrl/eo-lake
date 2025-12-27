@@ -89,6 +89,7 @@ function createSet(name, icon = 'ph-table') {
     views: [
       createView('All Records', 'table')
     ],
+    closedTabs: [],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -648,6 +649,13 @@ class EODataWorkbench {
         this.sets = parsed.sets || [];
         this.currentSetId = parsed.currentSetId;
         this.currentViewId = parsed.currentViewId;
+
+        // Ensure closedTabs exists on all sets (migration for existing data)
+        this.sets.forEach(set => {
+          if (!set.closedTabs) {
+            set.closedTabs = [];
+          }
+        });
       }
     } catch (e) {
       console.error('Failed to load data:', e);
@@ -1510,11 +1518,11 @@ class EODataWorkbench {
         }
       });
 
-      // Middle-click to toss tab
+      // Middle-click to close tab
       tab.addEventListener('auxclick', (e) => {
         if (e.button === 1) {
           e.preventDefault();
-          this._tossTab(viewId);
+          this._closeTab(viewId);
         }
       });
 
@@ -1527,7 +1535,7 @@ class EODataWorkbench {
       // Close button
       tab.querySelector('.tab-close')?.addEventListener('click', (e) => {
         e.stopPropagation();
-        this._tossTab(viewId);
+        this._closeTab(viewId);
       });
 
       // Drag and drop for reordering
@@ -1745,6 +1753,93 @@ class EODataWorkbench {
         }
       }
     });
+  }
+
+  /**
+   * Close a tab - moves to closedTabs for easy reopening (like browser tabs)
+   * Unlike toss, closed tabs are persistent and easily accessible
+   */
+  _closeTab(viewId) {
+    const set = this.getCurrentSet();
+    if (!set || set.views.length <= 1) {
+      this._showToast('Cannot close the last tab', 'warning');
+      return;
+    }
+
+    const viewIndex = set.views.findIndex(v => v.id === viewId);
+    if (viewIndex === -1) return;
+
+    const view = set.views[viewIndex];
+    const wasCurrentView = this.currentViewId === viewId;
+
+    // Add to closedTabs
+    set.closedTabs.unshift({
+      view: { ...view },
+      closedAt: new Date().toISOString(),
+      originalIndex: viewIndex
+    });
+
+    // Remove from active views
+    set.views.splice(viewIndex, 1);
+
+    // Switch to adjacent tab if needed
+    if (wasCurrentView) {
+      const newIndex = Math.min(viewIndex, set.views.length - 1);
+      this.currentViewId = set.views[newIndex]?.id;
+    }
+
+    this._renderViewsNav();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
+
+    // Show toast with reopen action
+    this._showToast(`Closed "${view.name}"`, 'info', {
+      action: {
+        label: 'Reopen',
+        callback: () => this._reopenTab(view.id)
+      }
+    });
+  }
+
+  /**
+   * Reopen a closed tab by its view ID
+   */
+  _reopenTab(viewId) {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    const closedIndex = set.closedTabs.findIndex(ct => ct.view.id === viewId);
+    if (closedIndex === -1) return;
+
+    const closedTab = set.closedTabs[closedIndex];
+    set.closedTabs.splice(closedIndex, 1);
+
+    // Re-insert the view
+    const insertIndex = Math.min(closedTab.originalIndex, set.views.length);
+    set.views.splice(insertIndex, 0, closedTab.view);
+    this.currentViewId = closedTab.view.id;
+
+    this._renderViewsNav();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
+
+    this._showToast(`Reopened "${closedTab.view.name}"`, 'success');
+  }
+
+  /**
+   * Reopen the most recently closed tab (Ctrl+Shift+T)
+   */
+  _reopenLastClosedTab() {
+    const set = this.getCurrentSet();
+    if (!set || !set.closedTabs || set.closedTabs.length === 0) {
+      this._showToast('No closed tabs to reopen', 'info');
+      return;
+    }
+
+    const closedTab = set.closedTabs[0];
+    this._reopenTab(closedTab.view.id);
   }
 
   /**
@@ -2216,10 +2311,20 @@ class EODataWorkbench {
         <span>Move Right</span>
       </div>
       <div class="tab-context-separator"></div>
-      <div class="tab-context-item ${canClose ? '' : 'disabled'}" data-action="toss">
-        <i class="ph ph-arrow-bend-up-right"></i>
-        <span>Toss Tab</span>
+      <div class="tab-context-item ${canClose ? '' : 'disabled'}" data-action="close">
+        <i class="ph ph-x"></i>
+        <span>Close Tab</span>
         <span class="shortcut">Ctrl+W</span>
+      </div>
+      <div class="tab-context-item ${set.closedTabs && set.closedTabs.length > 0 ? '' : 'disabled'}" data-action="reopen-closed">
+        <i class="ph ph-arrow-counter-clockwise"></i>
+        <span>Reopen Closed Tab</span>
+        <span class="shortcut">Ctrl+Shift+T</span>
+      </div>
+      <div class="tab-context-separator"></div>
+      <div class="tab-context-item ${canClose ? '' : 'disabled'}" data-action="toss">
+        <i class="ph ph-trash"></i>
+        <span>Toss Tab</span>
       </div>
       <div class="tab-context-item ${canClose && set.views.length > 1 ? '' : 'disabled'}" data-action="toss-others">
         <i class="ph ph-arrows-out-line-horizontal"></i>
@@ -2296,6 +2401,14 @@ class EODataWorkbench {
           this._renderViewsNav();
           this._saveData();
         }
+        break;
+
+      case 'close':
+        this._closeTab(viewId);
+        break;
+
+      case 'reopen-closed':
+        this._reopenLastClosedTab();
         break;
 
       case 'toss':
@@ -2402,6 +2515,15 @@ class EODataWorkbench {
   _tossCurrentTab() {
     if (this.currentViewId) {
       this._tossTab(this.currentViewId);
+    }
+  }
+
+  /**
+   * Close current tab (Ctrl+W)
+   */
+  _closeCurrentTab() {
+    if (this.currentViewId) {
+      this._closeTab(this.currentViewId);
     }
   }
 
@@ -7908,16 +8030,16 @@ class EODataWorkbench {
       this._createNewTab();
     }
 
-    // Ctrl + W to toss current tab
+    // Ctrl + W to close current tab
     if ((e.metaKey || e.ctrlKey) && e.key === 'w' && !e.target.closest('input, textarea')) {
       e.preventDefault();
-      this._tossCurrentTab();
+      this._closeCurrentTab();
     }
 
-    // Ctrl + Shift + T to pick up last tossed tab
+    // Ctrl + Shift + T to reopen last closed tab
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'T' && !e.target.closest('input, textarea')) {
       e.preventDefault();
-      this._pickUpLastTossed();
+      this._reopenLastClosedTab();
     }
 
     // Escape also clears picked up item
