@@ -1873,6 +1873,177 @@ html, body {
   padding: 6px 8px;
 }
 
+/* ===== JSON Field Type Styles ===== */
+.json-kv-wrapper {
+  position: relative;
+}
+
+.json-kv-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.json-kv-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.json-key {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  flex-shrink: 0;
+  min-width: 60px;
+}
+
+.json-key::after {
+  content: ':';
+}
+
+.json-val {
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.json-kv-more {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-style: italic;
+  padding-top: 2px;
+}
+
+/* JSON primitive type styling */
+.json-bool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.json-bool i {
+  font-size: 12px;
+}
+
+.json-bool i.ph-check-circle {
+  color: var(--color-green);
+}
+
+.json-bool i.ph-x-circle {
+  color: var(--color-red);
+}
+
+.json-number {
+  font-family: var(--font-mono);
+  color: var(--color-blue);
+}
+
+.json-string {
+  color: var(--text-primary);
+}
+
+.json-null,
+.json-undefined {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.json-array,
+.json-object {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  font-size: 10px;
+  background: var(--bg-tertiary);
+  padding: 1px 4px;
+  border-radius: var(--radius-sm);
+}
+
+.json-array-preview {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.json-empty {
+  color: var(--text-muted);
+}
+
+/* Raw JSON display */
+.cell-json-raw {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* JSON Editor */
+.json-editor-wrapper {
+  position: relative;
+  width: 100%;
+  min-height: 80px;
+}
+
+.cell-json-editor {
+  width: 100%;
+  min-height: 80px;
+  max-height: 200px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 8px;
+  padding-right: 30px;
+  resize: vertical;
+  background: var(--bg-primary);
+  border: 2px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+
+.cell-json-editor:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
+}
+
+.json-validation-indicator {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 14px;
+  transition: color 0.15s;
+}
+
+.json-validation-indicator.valid {
+  color: var(--color-green);
+}
+
+.json-validation-indicator.invalid {
+  color: var(--color-red);
+}
+
+/* JSON field cells with content */
+.data-table td:has(.json-kv-container),
+.data-table td:has(.json-kv-wrapper) {
+  min-width: 180px;
+  vertical-align: top;
+  padding: 6px 8px;
+}
+
+/* Show expand button on JSON cell hover */
+.json-kv-wrapper:hover .nested-expand-btn {
+  opacity: 1;
+}
+
 /* Add Row */
 .add-row-cell {
   border-bottom: none;

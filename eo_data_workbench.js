@@ -37,7 +37,8 @@ const FieldTypes = Object.freeze({
   FORMULA: 'formula',
   ROLLUP: 'rollup',
   COUNT: 'count',
-  AUTONUMBER: 'autonumber'
+  AUTONUMBER: 'autonumber',
+  JSON: 'json'
 });
 
 const FieldTypeIcons = {
@@ -56,7 +57,8 @@ const FieldTypeIcons = {
   [FieldTypes.FORMULA]: 'ph-function',
   [FieldTypes.ROLLUP]: 'ph-sigma',
   [FieldTypes.COUNT]: 'ph-number-circle-one',
-  [FieldTypes.AUTONUMBER]: 'ph-number-square-one'
+  [FieldTypes.AUTONUMBER]: 'ph-number-square-one',
+  [FieldTypes.JSON]: 'ph-brackets-curly'
 };
 
 const SelectColors = ['blue', 'green', 'yellow', 'red', 'purple', 'pink', 'orange', 'gray'];
@@ -145,6 +147,11 @@ function createField(name, type, options = {}) {
     case FieldTypes.AUTONUMBER:
       field.options.prefix = options.prefix || '';
       field.options.startValue = options.startValue ?? 1;
+      break;
+    case FieldTypes.JSON:
+      // displayMode: 'keyValue' (default) shows elegant key-value pairs
+      // displayMode: 'raw' shows the raw JSON string
+      field.options.displayMode = options.displayMode || 'keyValue';
       break;
   }
 
@@ -3336,6 +3343,22 @@ class EODataWorkbench {
         content = `<span class="cell-number">${index + 1}</span>`;
         break;
 
+      case FieldTypes.JSON:
+        if (value !== null && value !== undefined) {
+          const displayMode = field.options?.displayMode || 'keyValue';
+          if (displayMode === 'raw') {
+            // Raw mode: show JSON string
+            const jsonStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+            content = `<span class="cell-json-raw">${this._escapeHtml(jsonStr)}</span>`;
+          } else {
+            // Key-value mode (default): use nested object rendering
+            content = this._renderJsonKeyValue(value, field);
+          }
+        } else {
+          content = '<span class="cell-empty">-</span>';
+        }
+        break;
+
       default:
         // Handle nested objects and arrays properly
         if (value !== null && value !== undefined) {
@@ -3544,6 +3567,9 @@ class EODataWorkbench {
       case FieldTypes.CHECKBOX:
         // Checkbox is toggled directly, not edited
         break;
+      case FieldTypes.JSON:
+        this._renderJsonEditor(cell, field, currentValue);
+        break;
       default:
         this._renderTextEditor(cell, field, currentValue);
     }
@@ -3629,6 +3655,118 @@ class EODataWorkbench {
     input.addEventListener('change', () => this._endCellEdit());
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this._cancelCellEdit();
+    });
+  }
+
+  _renderJsonEditor(cell, field, value) {
+    const textarea = document.createElement('textarea');
+    textarea.className = 'cell-input cell-json-editor';
+
+    // Convert value to JSON string for editing
+    let jsonString = '';
+    if (value !== null && value !== undefined) {
+      if (typeof value === 'object') {
+        try {
+          jsonString = JSON.stringify(value, null, 2);
+        } catch (e) {
+          jsonString = String(value);
+        }
+      } else {
+        jsonString = String(value);
+      }
+    }
+    textarea.value = jsonString;
+
+    // Add validation indicator
+    const wrapper = document.createElement('div');
+    wrapper.className = 'json-editor-wrapper';
+
+    const validationIndicator = document.createElement('span');
+    validationIndicator.className = 'json-validation-indicator valid';
+    validationIndicator.innerHTML = '<i class="ph ph-check-circle"></i>';
+
+    wrapper.appendChild(textarea);
+    wrapper.appendChild(validationIndicator);
+
+    cell.innerHTML = '';
+    cell.appendChild(wrapper);
+
+    textarea.focus();
+    textarea.select();
+
+    // Validate JSON on input
+    const validateJson = () => {
+      const val = textarea.value.trim();
+      if (!val) {
+        validationIndicator.className = 'json-validation-indicator valid';
+        validationIndicator.innerHTML = '<i class="ph ph-check-circle"></i>';
+        return true;
+      }
+      try {
+        JSON.parse(val);
+        validationIndicator.className = 'json-validation-indicator valid';
+        validationIndicator.innerHTML = '<i class="ph ph-check-circle"></i>';
+        return true;
+      } catch (e) {
+        validationIndicator.className = 'json-validation-indicator invalid';
+        validationIndicator.innerHTML = '<i class="ph ph-x-circle"></i>';
+        return false;
+      }
+    };
+
+    textarea.addEventListener('input', validateJson);
+
+    textarea.addEventListener('blur', () => {
+      // Only save if valid JSON
+      if (validateJson()) {
+        this._endJsonEdit();
+      }
+    });
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this._cancelCellEdit();
+      }
+      // Cmd/Ctrl+Enter to save
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (validateJson()) {
+          this._endJsonEdit();
+        }
+      }
+    });
+  }
+
+  _endJsonEdit() {
+    if (!this.editingCell) return;
+
+    const { cell, recordId, fieldId, field } = this.editingCell;
+    const textarea = cell.querySelector('.cell-json-editor');
+
+    if (textarea) {
+      const rawValue = textarea.value.trim();
+      let parsedValue = null;
+
+      if (rawValue) {
+        try {
+          parsedValue = JSON.parse(rawValue);
+        } catch (e) {
+          // If not valid JSON, store as string
+          parsedValue = rawValue;
+        }
+      }
+
+      this._updateRecordValue(recordId, fieldId, parsedValue);
+    }
+
+    // Clear editing state first
+    const editingRef = this.editingCell;
+    this.editingCell = null;
+
+    // Update display
+    requestAnimationFrame(() => {
+      this._updateCellDisplay(editingRef.cell, editingRef.recordId, editingRef.field);
+      editingRef.cell.classList.add('cell-edit-saved');
+      setTimeout(() => editingRef.cell.classList.remove('cell-edit-saved'), 300);
     });
   }
 
@@ -3748,6 +3886,18 @@ class EODataWorkbench {
 
       case FieldTypes.EMAIL:
         return value ? `<span class="cell-url"><a href="mailto:${this._escapeHtml(value)}">${this._escapeHtml(value)}</a></span>` : '<span class="cell-empty">-</span>';
+
+      case FieldTypes.JSON:
+        if (value !== null && value !== undefined) {
+          const displayMode = field.options?.displayMode || 'keyValue';
+          if (displayMode === 'raw') {
+            const jsonStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+            return `<span class="cell-json-raw">${this._escapeHtml(jsonStr)}</span>`;
+          } else {
+            return this._renderJsonKeyValue(value, field);
+          }
+        }
+        return '<span class="cell-empty">-</span>';
 
       default:
         return value ? this._escapeHtml(String(value)) : '<span class="cell-empty">-</span>';
@@ -5846,6 +5996,9 @@ class EODataWorkbench {
         field.options.prefix = '';
         field.options.startValue = 1;
         break;
+      case FieldTypes.JSON:
+        field.options.displayMode = 'keyValue';
+        break;
     }
 
     this._saveData();
@@ -6028,7 +6181,8 @@ class EODataWorkbench {
       'formula': 'Formula',
       'rollup': 'Rollup',
       'count': 'Count',
-      'autonumber': 'Autonumber'
+      'autonumber': 'Autonumber',
+      'json': 'JSON'
     };
 
     menu.innerHTML = `
@@ -8560,6 +8714,107 @@ class EODataWorkbench {
     html += '</div>';
 
     return html;
+  }
+
+  /**
+   * Render JSON field value as elegant key-value pairs
+   * This is the default display for JSON field type
+   */
+  _renderJsonKeyValue(value, field) {
+    // Handle string values - try to parse as JSON
+    let data = value;
+    if (typeof value === 'string') {
+      try {
+        data = JSON.parse(value);
+      } catch (e) {
+        // Not valid JSON, show as raw string
+        return `<span class="cell-json-raw">${this._escapeHtml(value)}</span>`;
+      }
+    }
+
+    // Null/undefined
+    if (data === null || data === undefined) {
+      return '<span class="cell-empty">-</span>';
+    }
+
+    // Primitives (number, boolean, string that wasn't JSON)
+    if (typeof data !== 'object') {
+      return this._renderJsonPrimitive(data);
+    }
+
+    // Arrays
+    if (Array.isArray(data)) {
+      if (data.length === 0) {
+        return '<span class="cell-empty json-empty">[]</span>';
+      }
+      // For arrays, show count with preview
+      const preview = data.slice(0, 3).map(item =>
+        typeof item === 'object' ? '{...}' : String(item)
+      ).join(', ');
+      const hasMore = data.length > 3 ? ` +${data.length - 3}` : '';
+      return `<span class="json-array-preview" title="${this._escapeHtml(JSON.stringify(data))}">[${this._escapeHtml(preview)}${hasMore}]</span>`;
+    }
+
+    // Objects - render as key-value pairs
+    const keys = Object.keys(data);
+    if (keys.length === 0) {
+      return '<span class="cell-empty json-empty">{}</span>';
+    }
+
+    let html = '<div class="json-kv-container">';
+
+    // Show up to 4 key-value pairs
+    const displayKeys = keys.slice(0, 4);
+    displayKeys.forEach(key => {
+      const val = data[key];
+      html += '<div class="json-kv-row">';
+      html += `<span class="json-key">${this._escapeHtml(key)}</span>`;
+      html += `<span class="json-val">${this._renderJsonPrimitive(val)}</span>`;
+      html += '</div>';
+    });
+
+    if (keys.length > 4) {
+      html += `<div class="json-kv-more">+${keys.length - 4} more</div>`;
+    }
+
+    html += '</div>';
+
+    // Add expand button for larger objects
+    if (keys.length > 2) {
+      html = `<div class="json-kv-wrapper">${html}<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(JSON.stringify(data)))})"><i class="ph ph-arrows-out-simple"></i></button></div>`;
+    }
+
+    return html;
+  }
+
+  /**
+   * Render a JSON primitive value with appropriate formatting
+   */
+  _renderJsonPrimitive(val) {
+    if (val === null) {
+      return '<span class="json-null">null</span>';
+    }
+    if (val === undefined) {
+      return '<span class="json-undefined">undefined</span>';
+    }
+    if (typeof val === 'boolean') {
+      return `<span class="json-bool"><i class="ph ${val ? 'ph-check-circle' : 'ph-x-circle'}"></i> ${val}</span>`;
+    }
+    if (typeof val === 'number') {
+      return `<span class="json-number">${val}</span>`;
+    }
+    if (typeof val === 'string') {
+      // Truncate long strings
+      const display = val.length > 30 ? val.substring(0, 30) + '...' : val;
+      return `<span class="json-string" title="${this._escapeHtml(val)}">${this._escapeHtml(display)}</span>`;
+    }
+    if (Array.isArray(val)) {
+      return `<span class="json-array">[${val.length}]</span>`;
+    }
+    if (typeof val === 'object') {
+      return `<span class="json-object">{${Object.keys(val).length}}</span>`;
+    }
+    return this._escapeHtml(String(val));
   }
 
   /**
