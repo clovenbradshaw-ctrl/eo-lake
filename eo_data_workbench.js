@@ -2814,8 +2814,11 @@ class EODataWorkbench {
                   <div class="th-resize-handle"></div>
                 </th>
               `).join('')}
-              <th class="col-add" id="add-column-btn">
-                <i class="ph ph-plus"></i>
+              <th class="col-add" id="add-column-btn" title="Add a new field/column">
+                <div class="add-column-content">
+                  <i class="ph ph-columns-plus-right"></i>
+                  <span class="add-column-label">Add field</span>
+                </div>
               </th>
             </tr>
           </thead>
@@ -2825,9 +2828,9 @@ class EODataWorkbench {
     if (records.length === 0) {
       html += `
         <tr>
-          <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="add-row-cell" id="add-first-record">
+          <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="add-row-cell" id="add-first-record" title="Add a new record/row (Ctrl+N)">
             <div class="add-row-content">
-              <i class="ph ph-plus"></i>
+              <i class="ph ph-rows-plus-bottom"></i>
               <span>Add your first record</span>
             </div>
           </td>
@@ -2860,11 +2863,12 @@ class EODataWorkbench {
       // Add row button at the end
       html += `
         <tr>
-          <td class="col-row-number add-row-cell" id="add-row-btn">
-            <i class="ph ph-plus"></i>
+          <td class="col-row-number add-row-cell" id="add-row-btn" title="Add a new record/row (Ctrl+N)">
+            <i class="ph ph-rows-plus-bottom"></i>
           </td>
-          <td colspan="${fields.length + (showProvenance ? 2 : 1)}" class="add-row-cell" id="add-row-cell">
+          <td colspan="${fields.length + (showProvenance ? 2 : 1)}" class="add-row-cell" id="add-row-cell" title="Add a new record/row (Ctrl+N)">
             <div class="add-row-content">
+              <i class="ph ph-rows-plus-bottom"></i>
               <span>Add record</span>
             </div>
           </td>
@@ -3138,8 +3142,17 @@ class EODataWorkbench {
       }
     });
 
-    // Delegated context menu for rows
+    // Delegated context menu for rows and column headers
     table.addEventListener('contextmenu', (e) => {
+      // Check for column header first
+      const th = e.target.closest('th[data-field-id]');
+      if (th) {
+        e.preventDefault();
+        this._showFieldContextMenu(e, th.dataset.fieldId);
+        return;
+      }
+
+      // Then check for row
       const row = e.target.closest('tr[data-record-id]');
       if (row) {
         e.preventDefault();
@@ -3296,9 +3309,12 @@ class EODataWorkbench {
     const editingRef = this.editingCell;
     this.editingCell = null;
 
-    // Use requestAnimationFrame for smoother update
+    // Use requestAnimationFrame for smoother update with visual feedback
     requestAnimationFrame(() => {
       this._updateCellDisplay(editingRef.cell, editingRef.recordId, editingRef.field);
+      // Add saved animation feedback
+      editingRef.cell.classList.add('cell-edit-saved');
+      setTimeout(() => editingRef.cell.classList.remove('cell-edit-saved'), 300);
     });
   }
 
@@ -3308,10 +3324,13 @@ class EODataWorkbench {
     const { cell, originalContent } = this.editingCell;
     this.editingCell = null;
 
-    // Restore original content directly - no re-render needed
+    // Restore original content directly with visual feedback
     requestAnimationFrame(() => {
       cell.innerHTML = originalContent;
       cell.classList.remove('cell-editing');
+      // Add cancelled animation feedback
+      cell.classList.add('cell-edit-cancelled');
+      setTimeout(() => cell.classList.remove('cell-edit-cancelled'), 200);
     });
   }
 
@@ -4190,9 +4209,18 @@ class EODataWorkbench {
         </div>
         <div class="graph-canvas-wrapper" id="cy-workbench-container"></div>
         ${!hasRelationships && records.length > 0 ? `
-          <div class="graph-hint">
-            <i class="ph ph-info"></i>
-            <span>Add Link fields to visualize relationships between records</span>
+          <div class="graph-hint graph-hint-actionable">
+            <div class="graph-hint-content">
+              <i class="ph ph-link-simple"></i>
+              <div class="graph-hint-text">
+                <strong>No relationships found</strong>
+                <p>Add a "Link to record" field to connect records and visualize relationships as edges in the graph.</p>
+              </div>
+            </div>
+            <button class="graph-hint-action" id="graph-add-link-field">
+              <i class="ph ph-plus"></i>
+              Add Link Field
+            </button>
           </div>
         ` : ''}
       </div>
@@ -4235,6 +4263,29 @@ class EODataWorkbench {
     document.getElementById('graph-center')?.addEventListener('click', () => {
       if (this.workbenchCy) {
         this.workbenchCy.fit(undefined, 50);
+      }
+    });
+
+    // Add Link Field button in graph hint
+    document.getElementById('graph-add-link-field')?.addEventListener('click', () => {
+      this._addLinkFieldFromGraph();
+    });
+  }
+
+  /**
+   * Helper to add a link field from the graph view hint
+   */
+  _addLinkFieldFromGraph() {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    // Show linked set selection modal, then add the field
+    this._showLinkedSetSelectionModal((options) => {
+      if (options) {
+        this._addField(FieldTypes.LINK, 'Related Records', options);
+        this._showToast('Link field added! Connect records to see relationships in the graph.', 'success');
+        // Switch to table view to show the new field
+        this._switchViewType('table');
       }
     });
   }

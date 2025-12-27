@@ -893,19 +893,40 @@ html, body {
 
 /* Add Column Button */
 .col-add {
-  width: 40px;
-  min-width: 40px;
+  width: auto;
+  min-width: 100px;
   text-align: center !important;
   cursor: pointer;
+  border-left: 1px dashed var(--border-primary);
 }
 
 .col-add:hover {
-  background: var(--bg-hover);
+  background: var(--primary-50);
+  border-left-color: var(--primary-400);
 }
 
-.col-add i {
-  font-size: 16px;
+.col-add:hover .add-column-content {
+  color: var(--primary-500);
+}
+
+.add-column-content {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
   color: var(--text-muted);
+  transition: color 0.15s ease;
+}
+
+.add-column-content i {
+  font-size: 16px;
+}
+
+.add-column-label {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 /* Table Body */
@@ -945,6 +966,36 @@ html, body {
   padding: 0;
   background: var(--bg-primary);
   box-shadow: inset 0 0 0 2px var(--primary-500);
+  position: relative;
+}
+
+/* Editing hint tooltip */
+.data-table td.cell-editing::after {
+  content: "Enter to save • Esc to cancel";
+  position: absolute;
+  bottom: -24px;
+  left: 0;
+  padding: 3px 8px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  white-space: nowrap;
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0;
+  animation: editHintFadeIn 0.3s ease-out 0.5s forwards;
+}
+
+@keyframes editHintFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .cell-input {
@@ -966,6 +1017,34 @@ html, body {
   }
   to {
     opacity: 1;
+  }
+}
+
+/* Edit cancel animation */
+.cell-edit-cancelled {
+  animation: cellEditCancelled 0.2s ease-out;
+}
+
+@keyframes cellEditCancelled {
+  0% {
+    background: var(--warning-50);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* Edit saved animation */
+.cell-edit-saved {
+  animation: cellEditSaved 0.3s ease-out;
+}
+
+@keyframes cellEditSaved {
+  0% {
+    background: var(--success-50);
+  }
+  100% {
+    background: transparent;
   }
 }
 
@@ -2021,6 +2100,75 @@ html, body {
 
 .graph-hint i {
   color: var(--primary-500);
+}
+
+/* Actionable graph hint with button */
+.graph-hint-actionable {
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  max-width: 360px;
+  text-align: center;
+  pointer-events: auto;
+}
+
+.graph-hint-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  text-align: left;
+}
+
+.graph-hint-content > i {
+  font-size: 24px;
+  color: var(--field-link);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.graph-hint-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.graph-hint-text strong {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.graph-hint-text p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.graph-hint-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 16px;
+  background: var(--primary-500);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.graph-hint-action:hover {
+  background: var(--primary-600);
+}
+
+.graph-hint-action i {
+  color: white;
+  font-size: 14px;
 }
 
 .graph-canvas {
