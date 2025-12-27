@@ -1,17 +1,327 @@
 /**
- * EO Import System - CSV, JSON, and Excel Import with Schema Inference
+ * EO Import System - CSV, JSON, Excel, and ICS Import with Schema Inference
  *
  * Features:
  * - CSV parsing with auto-delimiter detection
  * - JSON parsing with structure normalization
  * - Graph data detection (nodes/edges pattern)
  * - Excel (.xlsx) support with multiple sheets
+ * - ICS (iCalendar) parsing for calendar events
  * - Schema inference with field type detection
  * - EO 9-element provenance collection
  * - View creation from field values (split by type)
  * - Original source preservation
  * - Progress events for real-time UI updates
  */
+
+// ============================================================================
+// ICS Parser (iCalendar Format)
+// ============================================================================
+
+/**
+ * Parse ICS (iCalendar) files - commonly exported from Google Calendar, Outlook, etc.
+ *
+ * ICS Format Reference: RFC 5545
+ * https://tools.ietf.org/html/rfc5545
+ */
+class ICSParser {
+  constructor() {
+    // Standard iCalendar date formats
+    this.datePatterns = {
+      // Full datetime with timezone: 20231215T100000Z
+      utc: /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/,
+      // Local datetime: 20231215T100000
+      local: /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/,
+      // Date only: 20231215
+      dateOnly: /^(\d{4})(\d{2})(\d{2})$/
+    };
+  }
+
+  /**
+   * Parse ICS text into calendar events
+   * @param {string} text - Raw ICS file content
+   * @returns {{ headers: string[], rows: object[], calendarInfo: object }}
+   */
+  parse(text) {
+    // Normalize line endings and unfold long lines (RFC 5545 line folding)
+    text = this._unfoldLines(text);
+
+    const events = [];
+    const calendarInfo = this._parseCalendarInfo(text);
+
+    // Extract all VEVENT blocks
+    const eventBlocks = this._extractBlocks(text, 'VEVENT');
+
+    for (const block of eventBlocks) {
+      const event = this._parseEvent(block);
+      if (event) {
+        events.push(event);
+      }
+    }
+
+    // Define standard headers for calendar events
+    const headers = [
+      'Summary',
+      'Start',
+      'End',
+      'Location',
+      'Description',
+      'Status',
+      'Organizer',
+      'Attendees',
+      'Categories',
+      'UID',
+      'Created',
+      'LastModified',
+      'AllDay',
+      'Recurring'
+    ];
+
+    // Convert events to row format
+    const rows = events.map(event => ({
+      'Summary': event.summary || '',
+      'Start': event.start || '',
+      'End': event.end || '',
+      'Location': event.location || '',
+      'Description': event.description || '',
+      'Status': event.status || '',
+      'Organizer': event.organizer || '',
+      'Attendees': event.attendees?.join(', ') || '',
+      'Categories': event.categories?.join(', ') || '',
+      'UID': event.uid || '',
+      'Created': event.created || '',
+      'LastModified': event.lastModified || '',
+      'AllDay': event.allDay ? 'Yes' : 'No',
+      'Recurring': event.recurring ? 'Yes' : 'No'
+    }));
+
+    return {
+      headers,
+      rows,
+      hasHeaders: true,
+      totalRows: rows.length,
+      calendarInfo,
+      fileType: 'ics'
+    };
+  }
+
+  /**
+   * Unfold ICS lines (lines can be folded by inserting CRLF + space/tab)
+   */
+  _unfoldLines(text) {
+    // Normalize all line endings to \n
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // Unfold: remove newline followed by space or tab
+    text = text.replace(/\n[ \t]/g, '');
+    return text;
+  }
+
+  /**
+   * Extract calendar-level information
+   */
+  _parseCalendarInfo(text) {
+    const info = {
+      version: this._extractProperty(text, 'VERSION'),
+      prodId: this._extractProperty(text, 'PRODID'),
+      calendarName: this._extractProperty(text, 'X-WR-CALNAME'),
+      timezone: this._extractProperty(text, 'X-WR-TIMEZONE')
+    };
+    return info;
+  }
+
+  /**
+   * Extract all blocks of a given type (e.g., VEVENT, VTODO)
+   */
+  _extractBlocks(text, blockType) {
+    const blocks = [];
+    const startMarker = `BEGIN:${blockType}`;
+    const endMarker = `END:${blockType}`;
+
+    let searchStart = 0;
+    while (true) {
+      const blockStart = text.indexOf(startMarker, searchStart);
+      if (blockStart === -1) break;
+
+      const blockEnd = text.indexOf(endMarker, blockStart);
+      if (blockEnd === -1) break;
+
+      const blockContent = text.substring(blockStart + startMarker.length, blockEnd);
+      blocks.push(blockContent);
+
+      searchStart = blockEnd + endMarker.length;
+    }
+
+    return blocks;
+  }
+
+  /**
+   * Parse a single VEVENT block
+   */
+  _parseEvent(block) {
+    const event = {};
+
+    // Basic properties
+    event.summary = this._extractProperty(block, 'SUMMARY');
+    event.description = this._unescapeText(this._extractProperty(block, 'DESCRIPTION'));
+    event.location = this._extractProperty(block, 'LOCATION');
+    event.uid = this._extractProperty(block, 'UID');
+    event.status = this._extractProperty(block, 'STATUS');
+
+    // Dates
+    const dtstart = this._extractPropertyWithParams(block, 'DTSTART');
+    const dtend = this._extractPropertyWithParams(block, 'DTEND');
+
+    event.start = this._parseDate(dtstart.value, dtstart.params);
+    event.end = this._parseDate(dtend.value, dtend.params);
+    event.allDay = dtstart.params?.VALUE === 'DATE' || (!dtstart.value?.includes('T'));
+
+    // Timestamps
+    event.created = this._parseDate(this._extractProperty(block, 'CREATED'));
+    event.lastModified = this._parseDate(this._extractProperty(block, 'DTSTAMP') ||
+                                          this._extractProperty(block, 'LAST-MODIFIED'));
+
+    // Organizer (extract email from MAILTO:)
+    const organizer = this._extractProperty(block, 'ORGANIZER');
+    if (organizer) {
+      event.organizer = this._extractEmail(organizer);
+    }
+
+    // Attendees (can have multiple)
+    event.attendees = this._extractAllProperties(block, 'ATTENDEE')
+      .map(a => this._extractEmail(a))
+      .filter(a => a);
+
+    // Categories
+    const categories = this._extractProperty(block, 'CATEGORIES');
+    if (categories) {
+      event.categories = categories.split(',').map(c => c.trim());
+    }
+
+    // Recurrence
+    const rrule = this._extractProperty(block, 'RRULE');
+    event.recurring = !!rrule;
+    if (rrule) {
+      event.recurrenceRule = rrule;
+    }
+
+    return event;
+  }
+
+  /**
+   * Extract a single property value
+   */
+  _extractProperty(text, propertyName) {
+    const regex = new RegExp(`^${propertyName}(?:;[^:]*)?:(.*)$`, 'mi');
+    const match = text.match(regex);
+    return match ? match[1].trim() : null;
+  }
+
+  /**
+   * Extract property with its parameters
+   */
+  _extractPropertyWithParams(text, propertyName) {
+    const regex = new RegExp(`^${propertyName}(;[^:]*)?:(.*)$`, 'mi');
+    const match = text.match(regex);
+
+    if (!match) {
+      return { value: null, params: {} };
+    }
+
+    const params = {};
+    if (match[1]) {
+      // Parse parameters like ;VALUE=DATE;TZID=America/New_York
+      const paramParts = match[1].substring(1).split(';');
+      for (const part of paramParts) {
+        const [key, value] = part.split('=');
+        if (key && value) {
+          params[key.toUpperCase()] = value;
+        }
+      }
+    }
+
+    return {
+      value: match[2]?.trim() || null,
+      params
+    };
+  }
+
+  /**
+   * Extract all instances of a property (for properties that can appear multiple times)
+   */
+  _extractAllProperties(text, propertyName) {
+    const regex = new RegExp(`^${propertyName}(?:;[^:]*)?:(.*)$`, 'gmi');
+    const values = [];
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      values.push(match[1].trim());
+    }
+    return values;
+  }
+
+  /**
+   * Parse ICS date/datetime to ISO format
+   */
+  _parseDate(value, params = {}) {
+    if (!value) return null;
+
+    let match;
+
+    // UTC datetime: 20231215T100000Z
+    if ((match = value.match(this.datePatterns.utc))) {
+      const [, year, month, day, hour, minute, second] = match;
+      return `${year}-${month}-${day}T${hour}:${minute}:${second}Z`;
+    }
+
+    // Local datetime: 20231215T100000
+    if ((match = value.match(this.datePatterns.local))) {
+      const [, year, month, day, hour, minute, second] = match;
+      const timezone = params.TZID || '';
+      return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+    }
+
+    // Date only: 20231215
+    if ((match = value.match(this.datePatterns.dateOnly))) {
+      const [, year, month, day] = match;
+      return `${year}-${month}-${day}`;
+    }
+
+    return value; // Return as-is if can't parse
+  }
+
+  /**
+   * Extract email from MAILTO: URI or CN parameter
+   */
+  _extractEmail(value) {
+    if (!value) return null;
+
+    // Try MAILTO: format
+    const mailtoMatch = value.match(/mailto:([^\s;]+)/i);
+    if (mailtoMatch) {
+      return mailtoMatch[1].toLowerCase();
+    }
+
+    // Try to find email pattern
+    const emailMatch = value.match(/[\w.+-]+@[\w.-]+\.\w+/i);
+    if (emailMatch) {
+      return emailMatch[0].toLowerCase();
+    }
+
+    return value;
+  }
+
+  /**
+   * Unescape ICS text (handle escaped characters)
+   */
+  _unescapeText(text) {
+    if (!text) return text;
+    return text
+      .replace(/\\n/g, '\n')
+      .replace(/\\,/g, ',')
+      .replace(/\\;/g, ';')
+      .replace(/\\\\/g, '\\');
+  }
+}
+
 
 // ============================================================================
 // CSV Parser
@@ -351,11 +661,12 @@ class ImportOrchestrator {
     this.workbench = workbench;
     this.eventBus = eventBus || (typeof getEventBus === 'function' ? getEventBus() : null);
     this.csvParser = new CSVParser();
+    this.icsParser = new ICSParser();
     this.schemaInferrer = new SchemaInferrer();
   }
 
   /**
-   * Import a file (CSV or JSON)
+   * Import a file (CSV, JSON, or ICS)
    * @param {File} file - File to import
    * @param {Object} options - Import options
    * @returns {Promise<{ success: boolean, setId: string, recordCount: number }>}
@@ -379,12 +690,16 @@ class ImportOrchestrator {
       });
 
       // Determine file type and parse
-      const isCSV = file.name.toLowerCase().endsWith('.csv') ||
+      const fileName = file.name.toLowerCase();
+      const isICS = fileName.endsWith('.ics') || file.type === 'text/calendar';
+      const isCSV = fileName.endsWith('.csv') ||
                     file.type === 'text/csv' ||
-                    !this._isJSON(text);
+                    (!isICS && !this._isJSON(text));
 
       let parseResult;
-      if (isCSV) {
+      if (isICS) {
+        parseResult = this.icsParser.parse(text);
+      } else if (isCSV) {
         parseResult = this.csvParser.parse(text, options);
       } else {
         parseResult = this._parseJSON(text);
@@ -436,12 +751,16 @@ class ImportOrchestrator {
   async preview(file, options = {}) {
     const text = await this._readFile(file);
 
-    const isCSV = file.name.toLowerCase().endsWith('.csv') ||
+    const fileName = file.name.toLowerCase();
+    const isICS = fileName.endsWith('.ics') || file.type === 'text/calendar';
+    const isCSV = fileName.endsWith('.csv') ||
                   file.type === 'text/csv' ||
-                  !this._isJSON(text);
+                  (!isICS && !this._isJSON(text));
 
     let parseResult;
-    if (isCSV) {
+    if (isICS) {
+      parseResult = this.icsParser.parse(text);
+    } else if (isCSV) {
       parseResult = this.csvParser.parse(text, options);
     } else {
       parseResult = this._parseJSON(text);
@@ -453,12 +772,14 @@ class ImportOrchestrator {
       fileName: file.name,
       fileSize: file.size,
       isCSV,
+      isICS,
       delimiter: parseResult.delimiter,
       hasHeaders: parseResult.hasHeaders,
       headers: parseResult.headers,
       schema: schema,
       rowCount: parseResult.rows.length,
-      sampleRows: parseResult.rows.slice(0, 5)
+      sampleRows: parseResult.rows.slice(0, 5),
+      calendarInfo: parseResult.calendarInfo || null
     };
   }
 
@@ -1273,12 +1594,12 @@ function showImportModal() {
   modalTitle.textContent = 'Import Data';
 
   const acceptTypes = ExcelParser.isAvailable()
-    ? '.csv,.json,.xlsx,.xls'
-    : '.csv,.json';
+    ? '.csv,.json,.xlsx,.xls,.ics'
+    : '.csv,.json,.ics';
 
   const dropzoneText = ExcelParser.isAvailable()
-    ? 'Drop CSV, JSON, or Excel file here'
-    : 'Drop CSV or JSON file here';
+    ? 'Drop CSV, JSON, Excel, or ICS file here'
+    : 'Drop CSV, JSON, or ICS file here';
 
   modalBody.innerHTML = `
     <div class="import-container">
@@ -1511,7 +1832,7 @@ function initImportHandlers() {
     dropzone.classList.remove('dragover');
 
     const file = e.dataTransfer.files[0];
-    const validExtensions = ['.csv', '.json', '.xlsx', '.xls'];
+    const validExtensions = ['.csv', '.json', '.xlsx', '.xls', '.ics'];
     if (file && validExtensions.some(ext => file.name.toLowerCase().endsWith(ext))) {
       await handleFileSelect(file);
     }
@@ -1676,9 +1997,12 @@ function initImportHandlers() {
 
       // Update file icon
       const fileIcon = document.getElementById('preview-file-icon');
+      const fileNameLower = file.name.toLowerCase();
       if (isExcel) {
         fileIcon.className = 'ph ph-file-xls';
-      } else if (file.name.endsWith('.json')) {
+      } else if (fileNameLower.endsWith('.ics')) {
+        fileIcon.className = 'ph ph-calendar-blank';
+      } else if (fileNameLower.endsWith('.json')) {
         fileIcon.className = 'ph ph-file-js';
       } else {
         fileIcon.className = 'ph ph-file-csv';
@@ -2452,6 +2776,7 @@ document.head.appendChild(importStyles);
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    ICSParser,
     CSVParser,
     SchemaInferrer,
     ImportOrchestrator,
@@ -2462,6 +2787,7 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 if (typeof window !== 'undefined') {
+  window.ICSParser = ICSParser;
   window.CSVParser = CSVParser;
   window.SchemaInferrer = SchemaInferrer;
   window.ImportOrchestrator = ImportOrchestrator;
