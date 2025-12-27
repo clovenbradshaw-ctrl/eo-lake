@@ -4522,7 +4522,9 @@ class EODataWorkbench {
           </div>
         </div>
         <div class="filesystem-content" id="fs-content">
-          ${this._renderFilesystemTree(hierarchy, currentSet)}
+          ${this.fsViewMode === 'columns'
+            ? this._renderFilesystemTable(hierarchy, currentSet)
+            : this._renderFilesystemTree(hierarchy, currentSet)}
         </div>
       </div>
     `;
@@ -4661,6 +4663,193 @@ class EODataWorkbench {
   }
 
   /**
+   * Render the filesystem as a table view (like Windows Explorer / Finder)
+   */
+  _renderFilesystemTable(hierarchy, currentSet) {
+    const rows = [];
+
+    // Flatten hierarchy into table rows
+    const sources = Array.from(hierarchy.sources.values());
+    for (const source of sources) {
+      const sourceExpanded = this.expandedFsNodes?.has(`source:${source.name}`) ?? true;
+      const importDate = source.importedAt
+        ? new Date(source.importedAt).toLocaleDateString()
+        : '';
+
+      rows.push({
+        id: `source:${source.name}`,
+        name: source.name,
+        type: 'Source',
+        icon: this._getSourceIcon(source.name).replace('ph-', ''),
+        count: `${source.children.length} sets`,
+        modified: importDate,
+        depth: 0,
+        hasChildren: source.children.length > 0,
+        expanded: sourceExpanded,
+        nodeType: 'source'
+      });
+
+      if (sourceExpanded) {
+        for (const set of source.children) {
+          this._addSetToTableRows(rows, set, 1, currentSet);
+        }
+      }
+    }
+
+    // Manual sets
+    if (hierarchy.manualSets.length > 0) {
+      const manualExpanded = this.expandedFsNodes?.has('manual') ?? true;
+
+      rows.push({
+        id: 'manual',
+        name: 'Manual Entry',
+        type: 'Source',
+        icon: 'pencil-simple-line',
+        count: `${hierarchy.manualSets.length} sets`,
+        modified: '',
+        depth: 0,
+        hasChildren: hierarchy.manualSets.length > 0,
+        expanded: manualExpanded,
+        nodeType: 'source'
+      });
+
+      if (manualExpanded) {
+        for (const set of hierarchy.manualSets) {
+          this._addSetToTableRows(rows, set, 1, currentSet);
+        }
+      }
+    }
+
+    if (rows.length === 0) {
+      return `
+        <div class="fs-table-empty">
+          <i class="ph ph-folder-open"></i>
+          <h3>No Content Yet</h3>
+          <p>Import data or create a set to get started</p>
+          <div class="fs-empty-actions">
+            <button class="btn btn-primary" id="fs-import-btn">
+              <i class="ph ph-file-arrow-down"></i> Import Data
+            </button>
+            <button class="btn btn-secondary" id="fs-create-set-btn">
+              <i class="ph ph-plus"></i> Create Set
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="fs-table-container">
+        <table class="fs-table">
+          <thead>
+            <tr>
+              <th class="fs-table-name">Name</th>
+              <th class="fs-table-type">Type</th>
+              <th class="fs-table-count">Records</th>
+              <th class="fs-table-modified">Modified</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => this._renderTableRow(row, currentSet)).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  /**
+   * Add a set and its children to table rows
+   */
+  _addSetToTableRows(rows, set, depth, currentSet) {
+    const isActive = set.id === currentSet?.id;
+    const setExpanded = this.expandedFsNodes?.has(`set:${set.id}`) ?? isActive;
+    const views = set.views || [];
+    const recordCount = set.records?.length || 0;
+
+    // Extract just the icon name (e.g., 'database' from 'ph ph-database' or 'ph-database')
+    const rawIcon = set.icon || 'ph ph-database';
+    const iconName = rawIcon.split(' ').pop().replace('ph-', '');
+
+    rows.push({
+      id: `set:${set.id}`,
+      setId: set.id,
+      name: set.name,
+      type: 'Dataset',
+      icon: iconName,
+      count: `${recordCount} records`,
+      modified: '',
+      depth: depth,
+      hasChildren: views.length > 0,
+      expanded: setExpanded,
+      nodeType: 'set',
+      isActive: isActive
+    });
+
+    if (setExpanded) {
+      // Add views
+      for (const view of views) {
+        const viewIcons = {
+          table: 'table',
+          cards: 'cards',
+          kanban: 'kanban',
+          calendar: 'calendar-blank',
+          graph: 'graph',
+          filesystem: 'folder-open'
+        };
+        const isViewActive = view.id === this.currentViewId && set.id === currentSet?.id;
+
+        rows.push({
+          id: `view:${view.id}`,
+          viewId: view.id,
+          setId: set.id,
+          name: view.name,
+          type: view.type.charAt(0).toUpperCase() + view.type.slice(1),
+          icon: viewIcons[view.type] || 'table',
+          count: '',
+          modified: '',
+          depth: depth + 1,
+          hasChildren: false,
+          expanded: false,
+          nodeType: 'view',
+          isActive: isViewActive
+        });
+      }
+    }
+  }
+
+  /**
+   * Render a single table row
+   */
+  _renderTableRow(row, currentSet) {
+    const indent = row.depth * 20;
+    const toggleIcon = row.hasChildren
+      ? (row.expanded ? 'ph-caret-down' : 'ph-caret-right')
+      : 'ph-minus';
+    const toggleClass = row.hasChildren ? 'fs-table-toggle' : 'fs-table-spacer';
+
+    return `
+      <tr class="fs-table-row ${row.isActive ? 'active' : ''} ${row.nodeType}-row"
+          data-row-id="${this._escapeHtml(row.id)}"
+          data-node-type="${row.nodeType}"
+          ${row.setId ? `data-set-id="${row.setId}"` : ''}
+          ${row.viewId ? `data-view-id="${row.viewId}"` : ''}>
+        <td class="fs-table-name">
+          <div class="fs-table-name-content" style="padding-left: ${indent}px">
+            <i class="ph ${toggleIcon} ${toggleClass}"></i>
+            <i class="ph ph-${row.icon} fs-table-icon"></i>
+            <span class="fs-table-name-text">${this._escapeHtml(row.name)}</span>
+          </div>
+        </td>
+        <td class="fs-table-type">
+          <span class="fs-type-badge fs-type-${row.nodeType}">${row.type}</span>
+        </td>
+        <td class="fs-table-count">${row.count}</td>
+        <td class="fs-table-modified">${row.modified}</td>
+      </tr>
+    `;
+  }
+
+  /**
    * Render a source node
    */
   _renderSourceNode(source, isExpanded, currentSet) {
@@ -4794,7 +4983,7 @@ class EODataWorkbench {
 
     // Initialize state
     if (!this.expandedFsNodes) this.expandedFsNodes = new Set();
-    if (!this.fsViewMode) this.fsViewMode = 'tree';
+    if (!this.fsViewMode) this.fsViewMode = 'columns';
 
     const tree = container.querySelector('.fs-tree');
 
@@ -5000,6 +5189,116 @@ class EODataWorkbench {
 
     document.getElementById('fs-create-set-btn')?.addEventListener('click', () => {
       this._showNewSetModal();
+    });
+
+    // Table view event handlers
+    this._attachTableEventHandlers(container);
+  }
+
+  /**
+   * Attach event handlers for table view
+   */
+  _attachTableEventHandlers(container) {
+    const table = container.querySelector('.fs-table');
+    if (!table) return;
+
+    // Single click to select
+    table.querySelectorAll('.fs-table-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        // If clicking on toggle, handle expand/collapse
+        if (e.target.closest('.fs-table-toggle')) {
+          const rowId = row.dataset.rowId;
+          if (this.expandedFsNodes.has(rowId)) {
+            this.expandedFsNodes.delete(rowId);
+          } else {
+            this.expandedFsNodes.add(rowId);
+          }
+          this._renderFilesystemView();
+          return;
+        }
+
+        // Select the row
+        table.querySelectorAll('.fs-table-row.selected').forEach(r => r.classList.remove('selected'));
+        row.classList.add('selected');
+        this.selectedFsNodeId = row.dataset.rowId;
+      });
+
+      // Double click to open
+      row.addEventListener('dblclick', () => {
+        const nodeType = row.dataset.nodeType;
+        const setId = row.dataset.setId;
+        const viewId = row.dataset.viewId;
+
+        if (nodeType === 'set' && setId) {
+          this._selectSet(setId);
+        } else if (nodeType === 'view' && setId && viewId) {
+          if (this.currentSetId !== setId) this._selectSet(setId);
+          this._selectView(viewId);
+        } else if (nodeType === 'source') {
+          // Toggle expand
+          const rowId = row.dataset.rowId;
+          if (this.expandedFsNodes.has(rowId)) {
+            this.expandedFsNodes.delete(rowId);
+          } else {
+            this.expandedFsNodes.add(rowId);
+          }
+          this._renderFilesystemView();
+        }
+      });
+    });
+
+    // Keyboard navigation for table
+    table.setAttribute('tabindex', '0');
+    table.addEventListener('keydown', (e) => {
+      const rows = Array.from(table.querySelectorAll('.fs-table-row'));
+      const selectedRow = table.querySelector('.fs-table-row.selected');
+      const currentIndex = selectedRow ? rows.indexOf(selectedRow) : -1;
+
+      const selectRow = (index) => {
+        if (index >= 0 && index < rows.length) {
+          rows.forEach(r => r.classList.remove('selected'));
+          rows[index].classList.add('selected');
+          rows[index].scrollIntoView({ block: 'nearest' });
+          this.selectedFsNodeId = rows[index].dataset.rowId;
+        }
+      };
+
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          selectRow(currentIndex + 1);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          selectRow(currentIndex > 0 ? currentIndex - 1 : 0);
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          if (selectedRow) {
+            const rowId = selectedRow.dataset.rowId;
+            if (!this.expandedFsNodes.has(rowId)) {
+              this.expandedFsNodes.add(rowId);
+              this._renderFilesystemView();
+            }
+          }
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          if (selectedRow) {
+            const rowId = selectedRow.dataset.rowId;
+            if (this.expandedFsNodes.has(rowId)) {
+              this.expandedFsNodes.delete(rowId);
+              this._renderFilesystemView();
+            }
+          }
+          break;
+        case 'Enter':
+          e.preventDefault();
+          if (selectedRow) {
+            selectedRow.dispatchEvent(new MouseEvent('dblclick'));
+          }
+          break;
+      }
     });
   }
 
