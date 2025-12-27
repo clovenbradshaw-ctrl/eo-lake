@@ -37,19 +37,27 @@
 
   /* Semantic Colors */
   --success-50: #ecfdf5;
+  --success-100: #d1fae5;
   --success-500: #10b981;
   --success-600: #059669;
+  --success-700: #047857;
 
   --warning-50: #fffbeb;
+  --warning-100: #fef3c7;
   --warning-500: #f59e0b;
   --warning-600: #d97706;
+  --warning-700: #b45309;
 
   --danger-50: #fef2f2;
+  --danger-100: #fee2e2;
   --danger-500: #ef4444;
   --danger-600: #dc2626;
+  --danger-700: #b91c1c;
 
   --info-50: #eff6ff;
+  --info-100: #dbeafe;
   --info-500: #3b82f6;
+  --info-700: #1d4ed8;
 
   /* EO Colors */
   --given-color: #10b981;
@@ -76,9 +84,9 @@
   --bg-active: rgba(255, 255, 255, 0.1);
 
   --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-disabled: #475569;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-disabled: #6b7b8f;
 
   --border-primary: #334155;
   --border-secondary: #475569;
@@ -130,9 +138,9 @@
     --bg-active: rgba(0, 0, 0, 0.06);
 
     --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #94a3b8;
-    --text-disabled: #cbd5e1;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+    --text-disabled: #94a3b8;
 
     --border-primary: #e2e8f0;
     --border-secondary: #cbd5e1;
@@ -1548,7 +1556,7 @@ html, body {
 .select-tag.color-purple { background: #f3e8ff; color: #6b21a8; }
 .select-tag.color-pink { background: #fce7f3; color: #9d174d; }
 .select-tag.color-orange { background: #ffedd5; color: #9a3412; }
-.select-tag.color-gray { background: #f3f4f6; color: #374151; }
+.select-tag.color-gray { background: #e5e7eb; color: #1f2937; }
 
 /* Date Field */
 .cell-date {
@@ -3008,6 +3016,30 @@ html, body {
   color: var(--text-primary);
 }
 
+/* Button disabled states - accessible contrast */
+.btn:disabled,
+.btn[disabled],
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.btn-primary:disabled,
+.btn-primary[disabled] {
+  background: var(--gray-500);
+  border-color: var(--gray-500);
+  color: var(--gray-300);
+}
+
+.btn-secondary:disabled,
+.btn-secondary[disabled],
+.btn-ghost:disabled,
+.btn-ghost[disabled] {
+  color: var(--text-disabled);
+  border-color: var(--border-primary);
+}
+
 /* ===== Form Elements ===== */
 .form-group {
   margin-bottom: 16px;
@@ -3358,7 +3390,23 @@ html, body {
 
 /* ===== Focus Visible ===== */
 :focus-visible {
-  outline: 2px solid var(--primary-500);
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+}
+
+/* Enhanced focus for buttons */
+.btn:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--primary-400);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+}
+
+/* Focus ring for links and interactive elements */
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--primary-400);
   outline-offset: 2px;
 }
 
@@ -7080,8 +7128,10 @@ body.has-picked-up .browser-tab:hover {
 }
 
 .btn-generate:disabled {
-  opacity: 0.5;
+  opacity: 0.6;
   cursor: not-allowed;
+  background: var(--gray-600);
+  color: var(--gray-400);
 }
 
 .btn-generate i {
