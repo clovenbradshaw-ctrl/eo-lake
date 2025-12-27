@@ -3611,6 +3611,16 @@ class EODataWorkbench {
       ? `${relationshipSet.records.length} relationships`
       : (linkFields.length > 0 ? `${linkFields.length} relationship type${linkFields.length !== 1 ? 's' : ''}` : '');
 
+    // Initialize graph display settings if not set
+    if (!this.graphSettings) {
+      this.graphSettings = {
+        layout: 'force', // 'force', 'circular', 'grid'
+        showLabels: true,
+        labelPosition: 'outside', // 'inside', 'outside', 'hover'
+        nodeSize: 'medium', // 'small', 'medium', 'large'
+      };
+    }
+
     this.elements.contentArea.innerHTML = `
       <div class="graph-container">
         <div class="graph-toolbar">
@@ -3619,13 +3629,38 @@ class EODataWorkbench {
             <span>${records.length} nodes${hasRelationships ? `, ${relationshipInfo}` : ''}</span>
           </div>
           <div class="graph-controls-inline">
+            <div class="graph-control-group">
+              <label class="graph-control-label">Layout:</label>
+              <select id="graph-layout-select" class="graph-select">
+                <option value="force" ${this.graphSettings.layout === 'force' ? 'selected' : ''}>Force</option>
+                <option value="circular" ${this.graphSettings.layout === 'circular' ? 'selected' : ''}>Circular</option>
+                <option value="grid" ${this.graphSettings.layout === 'grid' ? 'selected' : ''}>Grid</option>
+              </select>
+            </div>
+            <div class="graph-control-group">
+              <label class="graph-control-label">Labels:</label>
+              <select id="graph-label-select" class="graph-select">
+                <option value="outside" ${this.graphSettings.labelPosition === 'outside' ? 'selected' : ''}>Outside</option>
+                <option value="inside" ${this.graphSettings.labelPosition === 'inside' ? 'selected' : ''}>Inside</option>
+                <option value="hover" ${this.graphSettings.labelPosition === 'hover' ? 'selected' : ''}>On Hover</option>
+              </select>
+            </div>
+            <div class="graph-control-group">
+              <label class="graph-control-label">Size:</label>
+              <select id="graph-size-select" class="graph-select">
+                <option value="small" ${this.graphSettings.nodeSize === 'small' ? 'selected' : ''}>Small</option>
+                <option value="medium" ${this.graphSettings.nodeSize === 'medium' ? 'selected' : ''}>Medium</option>
+                <option value="large" ${this.graphSettings.nodeSize === 'large' ? 'selected' : ''}>Large</option>
+              </select>
+            </div>
+            <div class="graph-control-divider"></div>
             <button class="graph-control-btn" id="graph-zoom-in" title="Zoom In">
               <i class="ph ph-magnifying-glass-plus"></i>
             </button>
             <button class="graph-control-btn" id="graph-zoom-out" title="Zoom Out">
               <i class="ph ph-magnifying-glass-minus"></i>
             </button>
-            <button class="graph-control-btn" id="graph-center" title="Center">
+            <button class="graph-control-btn" id="graph-center" title="Center & Fit">
               <i class="ph ph-crosshair"></i>
             </button>
           </div>
@@ -3642,6 +3677,22 @@ class EODataWorkbench {
       </div>
     `;
 
+    // Add control event listeners
+    document.getElementById('graph-layout-select')?.addEventListener('change', (e) => {
+      this.graphSettings.layout = e.target.value;
+      this._renderRecordGraph(records, primaryField, linkFields);
+    });
+
+    document.getElementById('graph-label-select')?.addEventListener('change', (e) => {
+      this.graphSettings.labelPosition = e.target.value;
+      this._renderRecordGraph(records, primaryField, linkFields);
+    });
+
+    document.getElementById('graph-size-select')?.addEventListener('change', (e) => {
+      this.graphSettings.nodeSize = e.target.value;
+      this._renderRecordGraph(records, primaryField, linkFields);
+    });
+
     // Render the graph using SVG
     this._renderRecordGraph(records, primaryField, linkFields);
   }
@@ -3654,16 +3705,26 @@ class EODataWorkbench {
     const height = svg.clientHeight || 600;
     const centerX = width / 2;
     const centerY = height / 2;
+    const padding = 80;
 
-    // Position nodes in a circle or force-directed layout
-    const nodeRadius = 30;
+    // Get display settings
+    const settings = this.graphSettings || { layout: 'force', labelPosition: 'outside', nodeSize: 'medium' };
+
+    // Node size based on setting
+    const nodeSizes = { small: 16, medium: 24, large: 36 };
+    const nodeRadius = nodeSizes[settings.nodeSize] || 24;
+
+    // Initialize nodes with positions
     const nodes = records.map((record, i) => {
+      // Start with spread-out positions for force layout
       const angle = (2 * Math.PI * i) / records.length;
-      const radius = Math.min(width, height) * 0.35;
+      const spreadRadius = Math.min(width, height) * 0.35;
       return {
         id: record.id,
-        x: centerX + radius * Math.cos(angle),
-        y: centerY + radius * Math.sin(angle),
+        x: centerX + spreadRadius * Math.cos(angle) + (Math.random() - 0.5) * 50,
+        y: centerY + spreadRadius * Math.sin(angle) + (Math.random() - 0.5) * 50,
+        vx: 0,
+        vy: 0,
         title: record.values[primaryField?.id] || 'Untitled',
         record
       };
@@ -3745,20 +3806,173 @@ class EODataWorkbench {
       }
     }
 
-    // Render SVG
-    let svgContent = '';
+    // Count connections per node for sizing
+    const connectionCount = new Map();
+    edges.forEach(edge => {
+      connectionCount.set(edge.source, (connectionCount.get(edge.source) || 0) + 1);
+      connectionCount.set(edge.target, (connectionCount.get(edge.target) || 0) + 1);
+    });
 
-    // Draw edges
+    // Apply layout algorithm
+    if (settings.layout === 'force') {
+      this._applyForceLayout(nodes, edges, nodeMap, width, height, padding, nodeRadius);
+    } else if (settings.layout === 'grid') {
+      this._applyGridLayout(nodes, width, height, padding, nodeRadius);
+    } else {
+      // Circular layout (original)
+      this._applyCircularLayout(nodes, centerX, centerY, width, height, padding);
+    }
+
+    // Render SVG
+    this._renderGraphSVG(svg, nodes, edges, nodeMap, nodeRadius, settings, connectionCount);
+  }
+
+  _applyForceLayout(nodes, edges, nodeMap, width, height, padding, nodeRadius) {
+    // Simple force-directed layout simulation
+    const iterations = 100;
+    const repulsion = 5000;
+    const attraction = 0.01;
+    const damping = 0.85;
+    const minDistance = nodeRadius * 3;
+
+    for (let iter = 0; iter < iterations; iter++) {
+      // Reset forces
+      nodes.forEach(node => {
+        node.fx = 0;
+        node.fy = 0;
+      });
+
+      // Repulsion between all nodes
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const n1 = nodes[i];
+          const n2 = nodes[j];
+          const dx = n2.x - n1.x;
+          const dy = n2.y - n1.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = repulsion / (dist * dist);
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          n1.fx -= fx;
+          n1.fy -= fy;
+          n2.fx += fx;
+          n2.fy += fy;
+        }
+      }
+
+      // Attraction along edges
+      edges.forEach(edge => {
+        const source = nodeMap.get(edge.source);
+        const target = nodeMap.get(edge.target);
+        if (source && target) {
+          const dx = target.x - source.x;
+          const dy = target.y - source.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const force = dist * attraction;
+          source.fx += dx * force;
+          source.fy += dy * force;
+          target.fx -= dx * force;
+          target.fy -= dy * force;
+        }
+      });
+
+      // Center gravity
+      const centerX = width / 2;
+      const centerY = height / 2;
+      nodes.forEach(node => {
+        node.fx += (centerX - node.x) * 0.01;
+        node.fy += (centerY - node.y) * 0.01;
+      });
+
+      // Apply forces with damping
+      nodes.forEach(node => {
+        node.vx = (node.vx + node.fx) * damping;
+        node.vy = (node.vy + node.fy) * damping;
+        node.x += node.vx;
+        node.y += node.vy;
+        // Keep within bounds
+        node.x = Math.max(padding, Math.min(width - padding, node.x));
+        node.y = Math.max(padding, Math.min(height - padding, node.y));
+      });
+    }
+
+    // Final collision resolution pass
+    for (let iter = 0; iter < 10; iter++) {
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const n1 = nodes[i];
+          const n2 = nodes[j];
+          const dx = n2.x - n1.x;
+          const dy = n2.y - n1.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          if (dist < minDistance) {
+            const overlap = (minDistance - dist) / 2;
+            const ox = (dx / dist) * overlap;
+            const oy = (dy / dist) * overlap;
+            n1.x -= ox;
+            n1.y -= oy;
+            n2.x += ox;
+            n2.y += oy;
+          }
+        }
+      }
+    }
+  }
+
+  _applyGridLayout(nodes, width, height, padding, nodeRadius) {
+    const cols = Math.ceil(Math.sqrt(nodes.length));
+    const rows = Math.ceil(nodes.length / cols);
+    const cellWidth = (width - 2 * padding) / cols;
+    const cellHeight = (height - 2 * padding) / rows;
+
+    nodes.forEach((node, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      node.x = padding + cellWidth / 2 + col * cellWidth;
+      node.y = padding + cellHeight / 2 + row * cellHeight;
+    });
+  }
+
+  _applyCircularLayout(nodes, centerX, centerY, width, height, padding) {
+    const radius = Math.min(width, height) / 2 - padding;
+    nodes.forEach((node, i) => {
+      const angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2;
+      node.x = centerX + radius * Math.cos(angle);
+      node.y = centerY + radius * Math.sin(angle);
+    });
+  }
+
+  _renderGraphSVG(svg, nodes, edges, nodeMap, nodeRadius, settings, connectionCount) {
+    let svgContent = '';
+    const labelPosition = settings.labelPosition || 'outside';
+
+    // Calculate label truncation based on node size
+    const maxLabelChars = settings.nodeSize === 'large' ? 20 : (settings.nodeSize === 'medium' ? 15 : 10);
+
+    // Draw edges first (behind nodes)
     edges.forEach(edge => {
       const source = nodeMap.get(edge.source);
       const target = nodeMap.get(edge.target);
       if (source && target) {
+        // Calculate edge endpoints at node borders
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const nx = dx / dist;
+        const ny = dy / dist;
+
+        const x1 = source.x + nx * nodeRadius;
+        const y1 = source.y + ny * nodeRadius;
+        const x2 = target.x - nx * (nodeRadius + 8); // Leave room for arrowhead
+        const y2 = target.y - ny * (nodeRadius + 8);
+
         svgContent += `
           <line class="graph-edge"
-                x1="${source.x}" y1="${source.y}"
-                x2="${target.x}" y2="${target.y}"
+                x1="${x1}" y1="${y1}"
+                x2="${x2}" y2="${y2}"
                 stroke="var(--primary-400)"
-                stroke-width="2"
+                stroke-width="1.5"
+                stroke-opacity="0.6"
                 marker-end="url(#arrowhead)"/>
         `;
       }
@@ -3766,51 +3980,131 @@ class EODataWorkbench {
 
     // Draw nodes
     nodes.forEach(node => {
-      const truncatedTitle = node.title.length > 15 ? node.title.substring(0, 12) + '...' : node.title;
+      const connections = connectionCount.get(node.id) || 0;
+      const sizeBoost = Math.min(connections * 2, 10);
+      const adjustedRadius = nodeRadius + sizeBoost;
+
+      const truncatedTitle = node.title.length > maxLabelChars
+        ? node.title.substring(0, maxLabelChars - 2) + '...'
+        : node.title;
+
+      // Node circle
       svgContent += `
         <g class="graph-node" data-record-id="${node.id}" transform="translate(${node.x}, ${node.y})">
-          <circle r="${nodeRadius}" fill="var(--primary-500)" stroke="var(--primary-600)" stroke-width="2"/>
-          <text dy="4" text-anchor="middle" fill="white" font-size="11" font-weight="500">
+          <circle r="${adjustedRadius}"
+                  fill="var(--primary-500)"
+                  stroke="var(--primary-600)"
+                  stroke-width="2"
+                  class="node-circle"/>
+      `;
+
+      // Label based on position setting
+      if (labelPosition === 'inside') {
+        // Inside the node - smaller text that fits
+        const fontSize = Math.max(8, Math.min(11, adjustedRadius * 0.5));
+        const shortTitle = node.title.length > 8 ? node.title.substring(0, 6) + '..' : node.title;
+        svgContent += `
+          <text dy="4" text-anchor="middle" fill="white" font-size="${fontSize}" font-weight="500" class="node-label-inside">
+            ${this._escapeHtml(shortTitle)}
+          </text>
+        `;
+      } else if (labelPosition === 'outside') {
+        // Outside the node - below with background for readability
+        svgContent += `
+          <rect x="${-truncatedTitle.length * 3.5}" y="${adjustedRadius + 4}"
+                width="${truncatedTitle.length * 7}" height="16" rx="3"
+                fill="var(--bg-secondary)" fill-opacity="0.9"/>
+          <text y="${adjustedRadius + 16}" text-anchor="middle"
+                fill="var(--text-primary)" font-size="11" font-weight="500" class="node-label-outside">
             ${this._escapeHtml(truncatedTitle)}
           </text>
-        </g>
-      `;
+        `;
+      }
+      // For 'hover' position, labels are shown via CSS on hover
+
+      // Hidden label for hover mode
+      if (labelPosition === 'hover') {
+        svgContent += `
+          <rect class="hover-label-bg" x="${-truncatedTitle.length * 3.5}" y="${adjustedRadius + 4}"
+                width="${truncatedTitle.length * 7}" height="16" rx="3"
+                fill="var(--bg-secondary)" fill-opacity="0.95" style="opacity: 0; transition: opacity 0.15s;"/>
+          <text class="hover-label" y="${adjustedRadius + 16}" text-anchor="middle"
+                fill="var(--text-primary)" font-size="11" font-weight="600"
+                style="opacity: 0; transition: opacity 0.15s;">
+            ${this._escapeHtml(truncatedTitle)}
+          </text>
+        `;
+      }
+
+      svgContent += `</g>`;
     });
 
     svg.innerHTML = `
       <defs>
-        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="35" refY="3.5" orient="auto">
-          <polygon points="0 0, 10 3.5, 0 7" fill="var(--primary-400)"/>
+        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="var(--primary-400)" fill-opacity="0.7"/>
         </marker>
       </defs>
       ${svgContent}
     `;
 
-    // Add click handlers
-    svg.querySelectorAll('.graph-node').forEach(node => {
-      node.style.cursor = 'pointer';
-      node.addEventListener('click', () => {
-        this._showRecordDetail(node.dataset.recordId);
+    // Add click and hover handlers
+    svg.querySelectorAll('.graph-node').forEach(nodeEl => {
+      nodeEl.style.cursor = 'pointer';
+      nodeEl.addEventListener('click', () => {
+        this._showRecordDetail(nodeEl.dataset.recordId);
       });
+
+      // Hover effects for 'hover' label mode
+      if (settings.labelPosition === 'hover') {
+        nodeEl.addEventListener('mouseenter', () => {
+          const hoverLabel = nodeEl.querySelector('.hover-label');
+          const hoverBg = nodeEl.querySelector('.hover-label-bg');
+          if (hoverLabel) hoverLabel.style.opacity = '1';
+          if (hoverBg) hoverBg.style.opacity = '1';
+        });
+        nodeEl.addEventListener('mouseleave', () => {
+          const hoverLabel = nodeEl.querySelector('.hover-label');
+          const hoverBg = nodeEl.querySelector('.hover-label-bg');
+          if (hoverLabel) hoverLabel.style.opacity = '0';
+          if (hoverBg) hoverBg.style.opacity = '0';
+        });
+      }
     });
 
-    // Zoom controls
+    // Zoom and pan controls
     let scale = 1;
-    const wrapper = document.querySelector('.graph-canvas-wrapper');
+    let panX = 0;
+    let panY = 0;
+
+    const updateTransform = () => {
+      svg.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+    };
 
     document.getElementById('graph-zoom-in')?.addEventListener('click', () => {
-      scale = Math.min(2, scale + 0.1);
-      svg.style.transform = `scale(${scale})`;
+      scale = Math.min(3, scale + 0.2);
+      updateTransform();
     });
 
     document.getElementById('graph-zoom-out')?.addEventListener('click', () => {
-      scale = Math.max(0.5, scale - 0.1);
-      svg.style.transform = `scale(${scale})`;
+      scale = Math.max(0.3, scale - 0.2);
+      updateTransform();
     });
 
     document.getElementById('graph-center')?.addEventListener('click', () => {
       scale = 1;
-      svg.style.transform = `scale(1)`;
+      panX = 0;
+      panY = 0;
+      updateTransform();
+    });
+
+    // Mouse wheel zoom
+    const wrapper = document.querySelector('.graph-canvas-wrapper');
+    wrapper?.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+      scale = Math.max(0.3, Math.min(3, scale + delta));
+      updateTransform();
     });
   }
 

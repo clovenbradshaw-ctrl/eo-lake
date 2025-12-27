@@ -2037,6 +2037,66 @@ html, body {
   color: var(--text-primary);
 }
 
+/* Graph Control Groups */
+.graph-control-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+
+.graph-control-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.graph-select {
+  padding: 4px 8px;
+  font-size: 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 80px;
+}
+
+.graph-select:hover {
+  border-color: var(--primary-500);
+}
+
+.graph-select:focus {
+  outline: none;
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.graph-control-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border-primary);
+  margin: 0 8px;
+}
+
+/* Node label styles */
+.node-label-outside {
+  pointer-events: none;
+  user-select: none;
+}
+
+.node-label-inside {
+  pointer-events: none;
+  user-select: none;
+}
+
+.graph-node:hover .node-circle {
+  filter: drop-shadow(0 2px 12px rgba(59, 130, 246, 0.5));
+  stroke-width: 3px;
+}
+
 /* ===== Modal ===== */
 .modal-overlay {
   position: fixed;
