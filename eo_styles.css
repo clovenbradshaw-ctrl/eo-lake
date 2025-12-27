@@ -1958,8 +1958,18 @@ html, body {
   position: relative;
   overflow: hidden;
   background: var(--bg-primary);
+  /* Cytoscape.js container needs explicit dimensions */
+  min-height: 400px;
 }
 
+/* Cytoscape container styling */
+#cy-workbench-container {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+}
+
+/* Legacy SVG support (if needed) */
 .graph-svg {
   width: 100%;
   height: 100%;
@@ -1978,6 +1988,19 @@ html, body {
 
 .graph-edge {
   stroke-opacity: 0.6;
+}
+
+/* Cytoscape Legend Overlay */
+.cy-legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  background: rgba(15, 20, 25, 0.9);
+  border-radius: 6px;
+  padding: 10px 14px;
+  font-size: 11px;
+  z-index: 10;
+  pointer-events: none;
 }
 
 .graph-hint {

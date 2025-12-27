@@ -4,6 +4,8 @@
  * Visualizes the relationships between Given and Meant events as a graph.
  * Shows provenance chains, supersession relationships, and horizon boundaries.
  *
+ * Now powered by Cytoscape.js for improved performance and features.
+ *
  * COMPLIANCE NOTES:
  * - This is a DERIVED visualization - it renders from the event log
  * - Read-only: No graph interactions modify the authoritative log
@@ -44,7 +46,7 @@ const LayoutType = Object.freeze({
 });
 
 /**
- * Graph Node
+ * Graph Node - Data structure for nodes
  */
 class GraphNode {
   constructor(id, type, data) {
@@ -80,13 +82,7 @@ class GraphNode {
   }
 
   get color() {
-    switch (this.type) {
-      case GraphNodeType.GIVEN: return '#00ba7c';
-      case GraphNodeType.MEANT: return '#7856ff';
-      case GraphNodeType.ENTITY: return '#1d9bf0';
-      case GraphNodeType.HORIZON: return '#ffad1f';
-      default: return '#8b98a5';
-    }
+    return getNodeColor ? getNodeColor(this.type) : '#8b98a5';
   }
 
   get radius() {
@@ -99,7 +95,7 @@ class GraphNode {
 }
 
 /**
- * Graph Edge
+ * Graph Edge - Data structure for edges
  */
 class GraphEdge {
   constructor(source, target, type) {
@@ -112,14 +108,7 @@ class GraphEdge {
   }
 
   get color() {
-    switch (this.type) {
-      case GraphEdgeType.PROVENANCE: return '#00ba7c';
-      case GraphEdgeType.SUPERSEDES: return '#f4212e';
-      case GraphEdgeType.PARENT: return '#6e7a88';
-      case GraphEdgeType.ENTITY_SOURCE: return '#1d9bf0';
-      case GraphEdgeType.GRAPH_DATA: return '#1d9bf0'; // Blue for graph data edges
-      default: return '#38444d';
-    }
+    return getEdgeColor ? getEdgeColor(this.type) : '#38444d';
   }
 
   get dashArray() {
@@ -132,255 +121,7 @@ class GraphEdge {
 }
 
 /**
- * Force-Directed Layout Engine
- */
-class ForceLayout {
-  constructor(options = {}) {
-    this.strength = options.strength || -100;
-    this.linkDistance = options.linkDistance || 80;
-    this.iterations = options.iterations || 300;
-    this.friction = options.friction || 0.9;
-    this.centerStrength = options.centerStrength || 0.1;
-  }
-
-  apply(nodes, edges, width, height) {
-    // Initialize positions if not set
-    for (const node of nodes) {
-      if (node.x === 0 && node.y === 0) {
-        node.x = width / 2 + (Math.random() - 0.5) * width * 0.5;
-        node.y = height / 2 + (Math.random() - 0.5) * height * 0.5;
-      }
-    }
-
-    // Create node lookup
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-
-    // Run simulation
-    for (let i = 0; i < this.iterations; i++) {
-      const alpha = 1 - i / this.iterations;
-
-      // Apply repulsion between all nodes
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const n1 = nodes[i];
-          const n2 = nodes[j];
-
-          let dx = n2.x - n1.x;
-          let dy = n2.y - n1.y;
-          let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-          const force = this.strength * alpha / (dist * dist);
-          const fx = dx / dist * force;
-          const fy = dy / dist * force;
-
-          n1.vx -= fx;
-          n1.vy -= fy;
-          n2.vx += fx;
-          n2.vy += fy;
-        }
-      }
-
-      // Apply link forces
-      for (const edge of edges) {
-        const source = nodeMap.get(edge.source);
-        const target = nodeMap.get(edge.target);
-        if (!source || !target) continue;
-
-        let dx = target.x - source.x;
-        let dy = target.y - source.y;
-        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-        const force = (dist - this.linkDistance) * 0.1 * alpha;
-        const fx = dx / dist * force;
-        const fy = dy / dist * force;
-
-        source.vx += fx;
-        source.vy += fy;
-        target.vx -= fx;
-        target.vy -= fy;
-      }
-
-      // Apply centering force
-      const cx = width / 2;
-      const cy = height / 2;
-      for (const node of nodes) {
-        node.vx += (cx - node.x) * this.centerStrength * alpha;
-        node.vy += (cy - node.y) * this.centerStrength * alpha;
-      }
-
-      // Update positions
-      for (const node of nodes) {
-        if (node.fx !== null) {
-          node.x = node.fx;
-          node.vx = 0;
-        } else {
-          node.vx *= this.friction;
-          node.x += node.vx;
-        }
-
-        if (node.fy !== null) {
-          node.y = node.fy;
-          node.vy = 0;
-        } else {
-          node.vy *= this.friction;
-          node.y += node.vy;
-        }
-
-        // Keep in bounds
-        node.x = Math.max(node.radius, Math.min(width - node.radius, node.x));
-        node.y = Math.max(node.radius, Math.min(height - node.radius, node.y));
-      }
-    }
-  }
-}
-
-/**
- * Hierarchical Layout Engine
- */
-class HierarchicalLayout {
-  constructor(options = {}) {
-    this.levelHeight = options.levelHeight || 100;
-    this.nodeSpacing = options.nodeSpacing || 60;
-    this.direction = options.direction || 'TB'; // TB, BT, LR, RL
-  }
-
-  apply(nodes, edges, width, height) {
-    // Build adjacency for topological sort
-    const children = new Map();
-    const parents = new Map();
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-
-    for (const node of nodes) {
-      children.set(node.id, []);
-      parents.set(node.id, []);
-    }
-
-    for (const edge of edges) {
-      if (edge.type === GraphEdgeType.PROVENANCE || edge.type === GraphEdgeType.PARENT) {
-        const sourceChildren = children.get(edge.source);
-        if (sourceChildren) sourceChildren.push(edge.target);
-
-        const targetParents = parents.get(edge.target);
-        if (targetParents) targetParents.push(edge.source);
-      }
-    }
-
-    // Find roots (nodes with no parents in the visible set)
-    const roots = nodes.filter(n => parents.get(n.id).length === 0);
-
-    // Assign levels via BFS
-    const levels = new Map();
-    const queue = [...roots];
-    for (const root of roots) {
-      levels.set(root.id, 0);
-    }
-
-    while (queue.length > 0) {
-      const nodeId = queue.shift();
-      const level = levels.get(nodeId);
-
-      for (const childId of children.get(nodeId) || []) {
-        if (!levels.has(childId) || levels.get(childId) < level + 1) {
-          levels.set(childId, level + 1);
-          queue.push(childId);
-        }
-      }
-    }
-
-    // Group nodes by level
-    const levelGroups = new Map();
-    for (const node of nodes) {
-      const level = levels.get(node.id) || 0;
-      if (!levelGroups.has(level)) {
-        levelGroups.set(level, []);
-      }
-      levelGroups.get(level).push(node);
-    }
-
-    // Position nodes
-    const maxLevel = Math.max(...levelGroups.keys(), 0);
-
-    for (const [level, nodesAtLevel] of levelGroups) {
-      const count = nodesAtLevel.length;
-      const totalWidth = count * this.nodeSpacing;
-      const startX = (width - totalWidth) / 2 + this.nodeSpacing / 2;
-
-      nodesAtLevel.forEach((node, i) => {
-        if (this.direction === 'TB' || this.direction === 'BT') {
-          node.x = startX + i * this.nodeSpacing;
-          node.y = this.direction === 'TB'
-            ? 50 + level * this.levelHeight
-            : height - 50 - level * this.levelHeight;
-        } else {
-          node.y = startX + i * this.nodeSpacing;
-          node.x = this.direction === 'LR'
-            ? 50 + level * this.levelHeight
-            : width - 50 - level * this.levelHeight;
-        }
-      });
-    }
-  }
-}
-
-/**
- * Timeline Layout Engine
- */
-class TimelineLayout {
-  constructor(options = {}) {
-    this.padding = options.padding || 50;
-    this.rowHeight = options.rowHeight || 40;
-  }
-
-  apply(nodes, edges, width, height) {
-    // Sort nodes by timestamp
-    const sortedNodes = [...nodes].sort((a, b) => {
-      const timeA = new Date(a.data.timestamp || 0).getTime();
-      const timeB = new Date(b.data.timestamp || 0).getTime();
-      return timeA - timeB;
-    });
-
-    if (sortedNodes.length === 0) return;
-
-    // Find time range
-    const times = sortedNodes.map(n => new Date(n.data.timestamp || 0).getTime());
-    const minTime = Math.min(...times);
-    const maxTime = Math.max(...times);
-    const timeRange = maxTime - minTime || 1;
-
-    // Group by type for vertical separation
-    const byType = {
-      [GraphNodeType.GIVEN]: [],
-      [GraphNodeType.MEANT]: [],
-      [GraphNodeType.ENTITY]: []
-    };
-
-    for (const node of sortedNodes) {
-      if (byType[node.type]) {
-        byType[node.type].push(node);
-      }
-    }
-
-    // Position nodes
-    const usableWidth = width - this.padding * 2;
-    let yOffset = this.padding;
-
-    for (const type of [GraphNodeType.GIVEN, GraphNodeType.MEANT, GraphNodeType.ENTITY]) {
-      const nodesOfType = byType[type] || [];
-      for (const node of nodesOfType) {
-        const time = new Date(node.data.timestamp || 0).getTime();
-        const progress = (time - minTime) / timeRange;
-        node.x = this.padding + progress * usableWidth;
-        node.y = yOffset + (Math.random() - 0.5) * this.rowHeight * 0.5;
-      }
-      if (nodesOfType.length > 0) {
-        yOffset += this.rowHeight * 2;
-      }
-    }
-  }
-}
-
-/**
- * Experience Graph - Main visualization component
+ * Experience Graph - Main visualization component (Cytoscape.js powered)
  */
 class EOGraph {
   constructor(container, app) {
@@ -389,30 +130,26 @@ class EOGraph {
       : container;
     this.app = app;
 
+    // Data storage
     this.nodes = new Map();
     this.edges = [];
 
-    this.width = 0;
-    this.height = 0;
+    // Cytoscape instance
+    this.cy = null;
 
+    // State
     this.selectedNode = null;
     this.hoveredNode = null;
-    this.draggedNode = null;
-    this.panOffset = { x: 0, y: 0 };
-    this.scale = 1;
 
+    // Layout
     this.layout = LayoutType.FORCE;
+
+    // Visibility filters
     this.showGiven = true;
     this.showMeant = true;
     this.showProvenance = true;
     this.showSupersession = true;
     this.showParents = false;
-
-    this.layouts = {
-      [LayoutType.FORCE]: new ForceLayout(),
-      [LayoutType.HIERARCHICAL]: new HierarchicalLayout(),
-      [LayoutType.TIMELINE]: new TimelineLayout()
-    };
 
     // Event callbacks
     this.onNodeSelect = null;
@@ -428,27 +165,127 @@ class EOGraph {
       return;
     }
 
-    // Create canvas
-    this.canvas = document.createElement('canvas');
-    this.canvas.style.width = '100%';
-    this.canvas.style.height = '100%';
-    this.container.appendChild(this.canvas);
+    // Ensure container has proper styling
+    this.container.style.position = 'relative';
+    this.container.style.width = '100%';
+    this.container.style.height = '100%';
+    this.container.style.backgroundColor = '#0f1419';
 
-    this.ctx = this.canvas.getContext('2d');
+    // Initialize Cytoscape
+    this.cy = createCytoscapeInstance(this.container, {
+      useWorkbenchStyle: false
+    });
 
-    // Set up event listeners
-    this._setupEventListeners();
-
-    // Initial size
-    this._resize();
+    // Set up event handlers
+    this._setupCytoscapeEvents();
 
     // Build graph from app data
     this.buildFromApp();
 
-    // Start render loop
-    this._render();
+    // Draw legend
+    this._drawLegend();
 
     return this;
+  }
+
+  /**
+   * Set up Cytoscape event handlers
+   */
+  _setupCytoscapeEvents() {
+    // Node tap (selection)
+    this.cy.on('tap', 'node', (evt) => {
+      const cyNode = evt.target;
+      const nodeId = cyNode.id();
+      const graphNode = this.nodes.get(nodeId);
+
+      // Update selection
+      if (this.selectedNode) {
+        this.selectedNode.selected = false;
+      }
+
+      if (graphNode) {
+        graphNode.selected = true;
+        this.selectedNode = graphNode;
+      }
+
+      // Trigger callback
+      if (this.onNodeSelect && graphNode) {
+        this.onNodeSelect(graphNode);
+      }
+    });
+
+    // Node double-tap
+    this.cy.on('dbltap', 'node', (evt) => {
+      const cyNode = evt.target;
+      const nodeId = cyNode.id();
+      const graphNode = this.nodes.get(nodeId);
+
+      if (this.onNodeDoubleClick && graphNode) {
+        this.onNodeDoubleClick(graphNode);
+      }
+    });
+
+    // Node hover - mouseover
+    this.cy.on('mouseover', 'node', (evt) => {
+      const cyNode = evt.target;
+      cyNode.addClass('highlighted');
+
+      const nodeId = cyNode.id();
+      const graphNode = this.nodes.get(nodeId);
+      if (graphNode) {
+        graphNode.highlighted = true;
+        this.hoveredNode = graphNode;
+      }
+
+      this.container.style.cursor = 'pointer';
+    });
+
+    // Node hover - mouseout
+    this.cy.on('mouseout', 'node', (evt) => {
+      const cyNode = evt.target;
+      cyNode.removeClass('highlighted');
+
+      const nodeId = cyNode.id();
+      const graphNode = this.nodes.get(nodeId);
+      if (graphNode) {
+        graphNode.highlighted = false;
+      }
+
+      this.hoveredNode = null;
+      this.container.style.cursor = 'default';
+    });
+
+    // Background tap - deselect
+    this.cy.on('tap', (evt) => {
+      if (evt.target === this.cy) {
+        if (this.selectedNode) {
+          this.selectedNode.selected = false;
+          this.selectedNode = null;
+        }
+        this.cy.elements().removeClass('selected');
+      }
+    });
+
+    // Edge hover
+    this.cy.on('mouseover', 'edge', (evt) => {
+      evt.target.addClass('highlighted');
+    });
+
+    this.cy.on('mouseout', 'edge', (evt) => {
+      evt.target.removeClass('highlighted');
+    });
+
+    // Track node positions after drag
+    this.cy.on('dragfree', 'node', (evt) => {
+      const cyNode = evt.target;
+      const nodeId = cyNode.id();
+      const graphNode = this.nodes.get(nodeId);
+      if (graphNode) {
+        const pos = cyNode.position();
+        graphNode.x = pos.x;
+        graphNode.y = pos.y;
+      }
+    });
   }
 
   /**
@@ -483,23 +320,21 @@ class EOGraph {
 
     if (hasGraphData) {
       // Graph data mode: Create nodes from node_create events
-      // Map from graph node ID to event for lookups
-      const nodeIdToEvent = new Map();
-
       for (const event of nodeEvents) {
         const nodeData = event.payload?.node;
         if (!nodeData?.id) continue;
 
         const nodeId = nodeData.id;
-        nodeIdToEvent.set(nodeId, event);
-
-        const type = GraphNodeType.GIVEN; // Graph nodes are Given data
+        const type = GraphNodeType.GIVEN;
         const node = new GraphNode(nodeId, type, event);
 
-        // Use node type/properties for label
-        node.label = nodeData.properties?.name || nodeData.properties?.label || nodeId;
+        // Override label from node properties
+        Object.defineProperty(node, 'label', {
+          get: function() {
+            return nodeData.properties?.name || nodeData.properties?.label || nodeId;
+          }
+        });
 
-        // Check visibility filters
         if (!this.showGiven) {
           node.visible = false;
         }
@@ -515,21 +350,18 @@ class EOGraph {
         const fromId = edgeData.from;
         const toId = edgeData.to;
 
-        // Only create edge if both nodes exist
         if (this.nodes.has(fromId) && this.nodes.has(toId)) {
           const edge = new GraphEdge(fromId, toId, GraphEdgeType.GRAPH_DATA);
-          // Store edge type for potential filtering/styling
           edge.graphEdgeType = edgeData.type;
           this.edges.push(edge);
         }
       }
     } else {
-      // EO event mode: Create nodes for all events (original behavior)
+      // EO event mode: Create nodes for all events
       for (const event of events) {
         const type = event.type === 'given' ? GraphNodeType.GIVEN : GraphNodeType.MEANT;
         const node = new GraphNode(event.id, type, event);
 
-        // Check visibility filters
         if (type === GraphNodeType.GIVEN && !this.showGiven) {
           node.visible = false;
         }
@@ -541,8 +373,7 @@ class EOGraph {
       }
     }
 
-    // Create edges for EO relationships (provenance, supersession, parents)
-    // These apply to both modes
+    // Create edges for EO relationships
     for (const event of events) {
       // Provenance edges (Meant -> Given)
       if (event.provenance && this.showProvenance) {
@@ -570,20 +401,17 @@ class EOGraph {
       }
     }
 
-    // Also look for nodes and edges in data workbench sets
-    // These are created by the import module when graph data is imported
+    // Load from workbench
     this._loadFromWorkbench();
 
-    // Apply layout
-    this.applyLayout();
+    // Update Cytoscape graph
+    this._updateCytoscapeGraph();
   }
 
   /**
    * Load nodes and edges from data workbench sets
-   * The import module stores graph data as records in sets
    */
   _loadFromWorkbench() {
-    // Get the data workbench if available
     const workbench = typeof getDataWorkbench === 'function' ? getDataWorkbench() : null;
     if (!workbench) return;
 
@@ -591,40 +419,33 @@ class EOGraph {
 
     // First pass: Create nodes from non-relationship sets
     for (const set of sets) {
-      // Skip relationship sets
       const isRelationshipSet = set.name?.includes('Relationships') ||
         set.name?.includes('Edges') ||
         set.name?.includes('relationships');
 
-      // Check if set has from/to fields (indicates edge data)
       const hasFromField = set.fields?.some(f =>
-        f.name?.toLowerCase() === 'from' ||
-        f.name?.toLowerCase() === 'source'
+        f.name?.toLowerCase() === 'from' || f.name?.toLowerCase() === 'source'
       );
       const hasToField = set.fields?.some(f =>
-        f.name?.toLowerCase() === 'to' ||
-        f.name?.toLowerCase() === 'target'
+        f.name?.toLowerCase() === 'to' || f.name?.toLowerCase() === 'target'
       );
 
       if (isRelationshipSet || (hasFromField && hasToField)) continue;
 
-      // This is a node dataset - find the ID field
       const idField = set.fields?.find(f =>
         f.name?.toLowerCase() === 'id' ||
         f.name?.toLowerCase() === 'node_id' ||
         f.name?.toLowerCase() === 'name'
-      ) || set.fields?.[0]; // Fall back to first field
+      ) || set.fields?.[0];
 
       if (!idField) continue;
 
-      // Find name/label field for display
       const nameField = set.fields?.find(f =>
         f.name?.toLowerCase() === 'name' ||
         f.name?.toLowerCase() === 'label' ||
         f.name?.toLowerCase() === 'title'
       );
 
-      // Create nodes from records
       for (const record of set.records || []) {
         const nodeId = record.values?.[idField.id];
         if (!nodeId || this.nodes.has(nodeId)) continue;
@@ -632,10 +453,9 @@ class EOGraph {
         const type = GraphNodeType.GIVEN;
         const node = new GraphNode(nodeId, type, record);
 
-        // Set label from name field or ID
-        node.label = (nameField ? record.values?.[nameField.id] : null) || nodeId;
+        const labelValue = (nameField ? record.values?.[nameField.id] : null) || nodeId;
+        Object.defineProperty(node, 'label', { get: () => labelValue });
 
-        // Check visibility filters
         if (!this.showGiven) {
           node.visible = false;
         }
@@ -646,35 +466,28 @@ class EOGraph {
 
     // Second pass: Create edges from relationship sets
     for (const set of sets) {
-      // Check if this is a relationship set (by name or by having from/to fields)
       const isRelationshipSet = set.name?.includes('Relationships') ||
         set.name?.includes('Edges') ||
         set.name?.includes('relationships');
 
-      // Also check if set has from/to fields (indicates edge data)
       const fromField = set.fields?.find(f =>
-        f.name?.toLowerCase() === 'from' ||
-        f.name?.toLowerCase() === 'source'
+        f.name?.toLowerCase() === 'from' || f.name?.toLowerCase() === 'source'
       );
       const toField = set.fields?.find(f =>
-        f.name?.toLowerCase() === 'to' ||
-        f.name?.toLowerCase() === 'target'
+        f.name?.toLowerCase() === 'to' || f.name?.toLowerCase() === 'target'
       );
 
       if (!isRelationshipSet && (!fromField || !toField)) continue;
       if (!fromField || !toField) continue;
 
-      // This looks like an edge dataset - extract edges
       for (const record of set.records || []) {
         const fromId = record.values?.[fromField.id];
         const toId = record.values?.[toField.id];
 
         if (!fromId || !toId) continue;
 
-        // Only create edge if both nodes exist
         if (this.nodes.has(fromId) && this.nodes.has(toId)) {
           const edge = new GraphEdge(fromId, toId, GraphEdgeType.GRAPH_DATA);
-          // Get edge type if available
           const typeField = set.fields?.find(f => f.name?.toLowerCase() === 'type');
           if (typeField) {
             edge.graphEdgeType = record.values?.[typeField.id];
@@ -686,19 +499,85 @@ class EOGraph {
   }
 
   /**
+   * Update the Cytoscape graph with current data
+   */
+  _updateCytoscapeGraph() {
+    if (!this.cy) return;
+
+    // Batch update for performance
+    this.cy.startBatch();
+
+    // Clear existing elements
+    this.cy.elements().remove();
+
+    // Add nodes
+    const cyNodes = [];
+    for (const node of this.nodes.values()) {
+      if (!node.visible) continue;
+      cyNodes.push(nodeToCytoscape(node));
+    }
+
+    // Add edges
+    const cyEdges = [];
+    const visibleNodeIds = new Set([...this.nodes.values()].filter(n => n.visible).map(n => n.id));
+    for (const edge of this.edges) {
+      if (!edge.visible) continue;
+      if (!visibleNodeIds.has(edge.source) || !visibleNodeIds.has(edge.target)) continue;
+      cyEdges.push(edgeToCytoscape(edge));
+    }
+
+    this.cy.add([...cyNodes, ...cyEdges]);
+
+    this.cy.endBatch();
+
+    // Apply layout
+    this.applyLayout();
+  }
+
+  /**
    * Apply the current layout algorithm
    */
   applyLayout() {
-    const visibleNodes = Array.from(this.nodes.values()).filter(n => n.visible);
-    const visibleNodeIds = new Set(visibleNodes.map(n => n.id));
-    const visibleEdges = this.edges.filter(e =>
-      visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target)
-    );
+    if (!this.cy || this.cy.nodes().length === 0) return;
 
-    const layoutEngine = this.layouts[this.layout];
-    if (layoutEngine) {
-      layoutEngine.apply(visibleNodes, visibleEdges, this.width, this.height);
+    let layoutConfig;
+
+    switch (this.layout) {
+      case LayoutType.FORCE:
+        layoutConfig = getLayoutConfig('force');
+        break;
+
+      case LayoutType.HIERARCHICAL:
+        layoutConfig = getLayoutConfig('hierarchical');
+        break;
+
+      case LayoutType.RADIAL:
+        layoutConfig = getLayoutConfig('concentric');
+        break;
+
+      case LayoutType.TIMELINE:
+        // Calculate timeline positions manually
+        const container = this.container.getBoundingClientRect();
+        const positions = calculateTimelinePositions(
+          this.cy.nodes().jsons(),
+          container.width,
+          container.height
+        );
+        layoutConfig = {
+          name: 'preset',
+          positions: (node) => positions[node.id()] || { x: 0, y: 0 },
+          animate: true,
+          animationDuration: 500,
+          fit: true,
+          padding: 50
+        };
+        break;
+
+      default:
+        layoutConfig = getLayoutConfig('force');
     }
+
+    this.cy.layout(layoutConfig).run();
   }
 
   /**
@@ -710,315 +589,10 @@ class EOGraph {
   }
 
   /**
-   * Set up event listeners
+   * Get node by ID
    */
-  _setupEventListeners() {
-    // Resize
-    window.addEventListener('resize', () => this._resize());
-
-    // Mouse events
-    this.canvas.addEventListener('mousedown', (e) => this._onMouseDown(e));
-    this.canvas.addEventListener('mousemove', (e) => this._onMouseMove(e));
-    this.canvas.addEventListener('mouseup', (e) => this._onMouseUp(e));
-    this.canvas.addEventListener('wheel', (e) => this._onWheel(e));
-    this.canvas.addEventListener('dblclick', (e) => this._onDoubleClick(e));
-  }
-
-  /**
-   * Handle resize
-   */
-  _resize() {
-    const rect = this.container.getBoundingClientRect();
-    this.width = rect.width;
-    this.height = rect.height;
-
-    const dpr = window.devicePixelRatio || 1;
-    this.canvas.width = this.width * dpr;
-    this.canvas.height = this.height * dpr;
-    this.ctx.scale(dpr, dpr);
-  }
-
-  /**
-   * Get node at position
-   */
-  _getNodeAt(x, y) {
-    // Transform to graph coordinates
-    const gx = (x - this.panOffset.x) / this.scale;
-    const gy = (y - this.panOffset.y) / this.scale;
-
-    for (const node of this.nodes.values()) {
-      if (!node.visible) continue;
-
-      const dx = node.x - gx;
-      const dy = node.y - gy;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist < node.radius) {
-        return node;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Mouse down handler
-   */
-  _onMouseDown(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const node = this._getNodeAt(x, y);
-
-    if (node) {
-      this.draggedNode = node;
-      node.fx = node.x;
-      node.fy = node.y;
-
-      // Select node
-      if (this.selectedNode) {
-        this.selectedNode.selected = false;
-      }
-      node.selected = true;
-      this.selectedNode = node;
-
-      if (this.onNodeSelect) {
-        this.onNodeSelect(node);
-      }
-    } else {
-      // Start panning
-      this._panStart = { x: e.clientX, y: e.clientY };
-    }
-  }
-
-  /**
-   * Mouse move handler
-   */
-  _onMouseMove(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    if (this.draggedNode) {
-      // Drag node
-      const gx = (x - this.panOffset.x) / this.scale;
-      const gy = (y - this.panOffset.y) / this.scale;
-      this.draggedNode.x = gx;
-      this.draggedNode.y = gy;
-      this.draggedNode.fx = gx;
-      this.draggedNode.fy = gy;
-    } else if (this._panStart) {
-      // Pan
-      this.panOffset.x += e.clientX - this._panStart.x;
-      this.panOffset.y += e.clientY - this._panStart.y;
-      this._panStart = { x: e.clientX, y: e.clientY };
-    } else {
-      // Hover
-      const node = this._getNodeAt(x, y);
-      if (this.hoveredNode !== node) {
-        if (this.hoveredNode) this.hoveredNode.highlighted = false;
-        this.hoveredNode = node;
-        if (node) node.highlighted = true;
-        this.canvas.style.cursor = node ? 'pointer' : 'default';
-      }
-    }
-  }
-
-  /**
-   * Mouse up handler
-   */
-  _onMouseUp(e) {
-    if (this.draggedNode) {
-      this.draggedNode.fx = null;
-      this.draggedNode.fy = null;
-      this.draggedNode = null;
-    }
-    this._panStart = null;
-  }
-
-  /**
-   * Wheel handler (zoom)
-   */
-  _onWheel(e) {
-    e.preventDefault();
-
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.1, Math.min(5, this.scale * delta));
-
-    // Zoom toward mouse position
-    this.panOffset.x = x - (x - this.panOffset.x) * (newScale / this.scale);
-    this.panOffset.y = y - (y - this.panOffset.y) * (newScale / this.scale);
-    this.scale = newScale;
-  }
-
-  /**
-   * Double click handler
-   */
-  _onDoubleClick(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const node = this._getNodeAt(x, y);
-    if (node && this.onNodeDoubleClick) {
-      this.onNodeDoubleClick(node);
-    }
-  }
-
-  /**
-   * Render loop
-   */
-  _render() {
-    this._draw();
-    requestAnimationFrame(() => this._render());
-  }
-
-  /**
-   * Draw the graph
-   */
-  _draw() {
-    const ctx = this.ctx;
-
-    // Clear
-    ctx.fillStyle = '#0f1419';
-    ctx.fillRect(0, 0, this.width, this.height);
-
-    // Apply transform
-    ctx.save();
-    ctx.translate(this.panOffset.x, this.panOffset.y);
-    ctx.scale(this.scale, this.scale);
-
-    // Draw edges
-    for (const edge of this.edges) {
-      const source = this.nodes.get(edge.source);
-      const target = this.nodes.get(edge.target);
-
-      if (!source?.visible || !target?.visible) continue;
-
-      ctx.beginPath();
-      ctx.moveTo(source.x, source.y);
-      ctx.lineTo(target.x, target.y);
-
-      ctx.strokeStyle = edge.highlighted ? '#ffffff' : edge.color;
-      ctx.lineWidth = edge.highlighted ? 2 : 1;
-
-      if (edge.dashArray) {
-        ctx.setLineDash(edge.dashArray.split(',').map(Number));
-      } else {
-        ctx.setLineDash([]);
-      }
-
-      ctx.stroke();
-
-      // Draw arrow
-      const angle = Math.atan2(target.y - source.y, target.x - source.x);
-      const arrowDist = target.radius + 5;
-      const arrowX = target.x - Math.cos(angle) * arrowDist;
-      const arrowY = target.y - Math.sin(angle) * arrowDist;
-
-      ctx.beginPath();
-      ctx.moveTo(arrowX, arrowY);
-      ctx.lineTo(
-        arrowX - 8 * Math.cos(angle - Math.PI / 6),
-        arrowY - 8 * Math.sin(angle - Math.PI / 6)
-      );
-      ctx.lineTo(
-        arrowX - 8 * Math.cos(angle + Math.PI / 6),
-        arrowY - 8 * Math.sin(angle + Math.PI / 6)
-      );
-      ctx.closePath();
-      ctx.fillStyle = edge.color;
-      ctx.fill();
-    }
-
-    ctx.setLineDash([]);
-
-    // Draw nodes
-    for (const node of this.nodes.values()) {
-      if (!node.visible) continue;
-
-      // Node circle
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-
-      // Fill
-      if (node.selected) {
-        ctx.fillStyle = '#ffffff';
-      } else if (node.highlighted) {
-        ctx.fillStyle = node.color;
-      } else {
-        ctx.fillStyle = node.color + '80'; // Semi-transparent
-      }
-      ctx.fill();
-
-      // Border
-      ctx.strokeStyle = node.color;
-      ctx.lineWidth = node.selected ? 3 : 1;
-      ctx.stroke();
-
-      // Label
-      ctx.font = '10px -apple-system, sans-serif';
-      ctx.fillStyle = '#e7e9ea';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillText(
-        node.label.substring(0, 15),
-        node.x,
-        node.y + node.radius + 4
-      );
-    }
-
-    ctx.restore();
-
-    // Draw legend
-    this._drawLegend();
-  }
-
-  /**
-   * Draw legend
-   */
-  _drawLegend() {
-    const ctx = this.ctx;
-    const x = 10;
-    let y = this.height - 80;
-
-    ctx.font = '11px -apple-system, sans-serif';
-
-    const items = [
-      { color: '#00ba7c', label: 'Given (Raw Experience)' },
-      { color: '#7856ff', label: 'Meant (Interpretation)' },
-      { color: '#f4212e', label: 'Supersedes', dash: true }
-    ];
-
-    for (const item of items) {
-      // Circle or line
-      ctx.beginPath();
-      if (item.dash) {
-        ctx.setLineDash([4, 4]);
-        ctx.moveTo(x, y + 6);
-        ctx.lineTo(x + 20, y + 6);
-        ctx.strokeStyle = item.color;
-        ctx.stroke();
-        ctx.setLineDash([]);
-      } else {
-        ctx.arc(x + 6, y + 6, 6, 0, Math.PI * 2);
-        ctx.fillStyle = item.color;
-        ctx.fill();
-      }
-
-      // Label
-      ctx.fillStyle = '#8b98a5';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(item.label, x + 28, y + 6);
-
-      y += 20;
-    }
+  _getNodeById(id) {
+    return this.nodes.get(id);
   }
 
   /**
@@ -1029,40 +603,153 @@ class EOGraph {
   }
 
   /**
-   * Center the view
+   * Center and fit the view
    */
   centerView() {
-    if (this.nodes.size === 0) return;
-
-    let minX = Infinity, minY = Infinity;
-    let maxX = -Infinity, maxY = -Infinity;
-
-    for (const node of this.nodes.values()) {
-      if (!node.visible) continue;
-      minX = Math.min(minX, node.x);
-      minY = Math.min(minY, node.y);
-      maxX = Math.max(maxX, node.x);
-      maxY = Math.max(maxY, node.y);
+    if (this.cy) {
+      this.cy.fit(undefined, 50);
     }
-
-    const graphWidth = maxX - minX;
-    const graphHeight = maxY - minY;
-
-    this.scale = Math.min(
-      (this.width - 100) / graphWidth,
-      (this.height - 100) / graphHeight,
-      2
-    );
-
-    this.panOffset.x = (this.width - graphWidth * this.scale) / 2 - minX * this.scale;
-    this.panOffset.y = (this.height - graphHeight * this.scale) / 2 - minY * this.scale;
   }
 
   /**
-   * Export graph as image
+   * Zoom in
+   */
+  zoomIn() {
+    if (this.cy) {
+      this.cy.zoom(this.cy.zoom() * 1.2);
+      this.cy.center();
+    }
+  }
+
+  /**
+   * Zoom out
+   */
+  zoomOut() {
+    if (this.cy) {
+      this.cy.zoom(this.cy.zoom() / 1.2);
+      this.cy.center();
+    }
+  }
+
+  /**
+   * Get current zoom level
+   */
+  getZoom() {
+    return this.cy ? this.cy.zoom() : 1;
+  }
+
+  /**
+   * Set zoom level
+   */
+  setZoom(level) {
+    if (this.cy) {
+      this.cy.zoom(level);
+    }
+  }
+
+  /**
+   * Export graph as PNG data URL
    */
   toDataURL() {
-    return this.canvas.toDataURL('image/png');
+    if (this.cy) {
+      return this.cy.png({
+        full: true,
+        scale: 2,
+        bg: '#0f1419'
+      });
+    }
+    return null;
+  }
+
+  /**
+   * Export graph as JSON
+   */
+  toJSON() {
+    if (this.cy) {
+      return this.cy.json();
+    }
+    return null;
+  }
+
+  /**
+   * Draw legend
+   */
+  _drawLegend() {
+    if (typeof drawGraphLegend === 'function' && typeof eoGraphLegendItems !== 'undefined') {
+      drawGraphLegend(this.container, eoGraphLegendItems);
+    }
+  }
+
+  /**
+   * Set visibility filter for Given nodes
+   */
+  setShowGiven(show) {
+    this.showGiven = show;
+    this.buildFromApp();
+  }
+
+  /**
+   * Set visibility filter for Meant nodes
+   */
+  setShowMeant(show) {
+    this.showMeant = show;
+    this.buildFromApp();
+  }
+
+  /**
+   * Set visibility filter for provenance edges
+   */
+  setShowProvenance(show) {
+    this.showProvenance = show;
+    this.buildFromApp();
+  }
+
+  /**
+   * Set visibility filter for supersession edges
+   */
+  setShowSupersession(show) {
+    this.showSupersession = show;
+    this.buildFromApp();
+  }
+
+  /**
+   * Set visibility filter for parent edges
+   */
+  setShowParents(show) {
+    this.showParents = show;
+    this.buildFromApp();
+  }
+
+  /**
+   * Destroy the graph instance
+   */
+  destroy() {
+    if (this.cy) {
+      this.cy.destroy();
+      this.cy = null;
+    }
+
+    // Remove legend
+    const legend = this.container.querySelector('.cy-legend');
+    if (legend) legend.remove();
+  }
+
+  /**
+   * Get Cytoscape instance for advanced usage
+   */
+  getCytoscape() {
+    return this.cy;
+  }
+
+  /**
+   * Get dimensions
+   */
+  get width() {
+    return this.container ? this.container.clientWidth : 0;
+  }
+
+  get height() {
+    return this.container ? this.container.clientHeight : 0;
   }
 }
 
@@ -1087,9 +774,6 @@ if (typeof module !== 'undefined' && module.exports) {
     LayoutType,
     GraphNode,
     GraphEdge,
-    ForceLayout,
-    HierarchicalLayout,
-    TimelineLayout,
     EOGraph,
     getGraph,
     initGraph
@@ -1102,9 +786,6 @@ if (typeof window !== 'undefined') {
   window.LayoutType = LayoutType;
   window.GraphNode = GraphNode;
   window.GraphEdge = GraphEdge;
-  window.ForceLayout = ForceLayout;
-  window.HierarchicalLayout = HierarchicalLayout;
-  window.TimelineLayout = TimelineLayout;
   window.EOGraph = EOGraph;
   window.getGraph = getGraph;
   window.initGraph = initGraph;

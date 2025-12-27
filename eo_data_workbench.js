@@ -4109,7 +4109,7 @@ class EODataWorkbench {
   }
 
   // --------------------------------------------------------------------------
-  // Graph View
+  // Graph View (Cytoscape.js powered)
   // --------------------------------------------------------------------------
 
   _renderGraphView() {
@@ -4136,7 +4136,7 @@ class EODataWorkbench {
     // Initialize graph display settings if not set
     if (!this.graphSettings) {
       this.graphSettings = {
-        layout: 'force', // 'force', 'circular', 'grid'
+        layout: 'force', // 'force', 'circular', 'grid', 'concentric'
         showLabels: true,
         labelPosition: 'outside', // 'inside', 'outside', 'hover'
         nodeSize: 'medium', // 'small', 'medium', 'large'
@@ -4157,6 +4157,7 @@ class EODataWorkbench {
                 <option value="force" ${this.graphSettings.layout === 'force' ? 'selected' : ''}>Force</option>
                 <option value="circular" ${this.graphSettings.layout === 'circular' ? 'selected' : ''}>Circular</option>
                 <option value="grid" ${this.graphSettings.layout === 'grid' ? 'selected' : ''}>Grid</option>
+                <option value="concentric" ${this.graphSettings.layout === 'concentric' ? 'selected' : ''}>Concentric</option>
               </select>
             </div>
             <div class="graph-control-group">
@@ -4187,9 +4188,7 @@ class EODataWorkbench {
             </button>
           </div>
         </div>
-        <div class="graph-canvas-wrapper">
-          <svg class="graph-svg" id="graph-svg"></svg>
-        </div>
+        <div class="graph-canvas-wrapper" id="cy-workbench-container"></div>
         ${!hasRelationships && records.length > 0 ? `
           <div class="graph-hint">
             <i class="ph ph-info"></i>
@@ -4199,81 +4198,100 @@ class EODataWorkbench {
       </div>
     `;
 
+    // Initialize Cytoscape graph
+    this._initWorkbenchCytoscape(records, primaryField, linkFields);
+
     // Add control event listeners
     document.getElementById('graph-layout-select')?.addEventListener('change', (e) => {
       this.graphSettings.layout = e.target.value;
-      this._renderRecordGraph(records, primaryField, linkFields);
+      this._applyWorkbenchLayout();
     });
 
     document.getElementById('graph-label-select')?.addEventListener('change', (e) => {
       this.graphSettings.labelPosition = e.target.value;
-      this._renderRecordGraph(records, primaryField, linkFields);
+      this._updateWorkbenchLabelStyle();
     });
 
     document.getElementById('graph-size-select')?.addEventListener('change', (e) => {
       this.graphSettings.nodeSize = e.target.value;
-      this._renderRecordGraph(records, primaryField, linkFields);
+      this._updateWorkbenchNodeSize();
     });
 
-    // Render the graph using SVG
-    this._renderRecordGraph(records, primaryField, linkFields);
-  }
-
-  _renderRecordGraph(records, primaryField, linkFields) {
-    const svg = document.getElementById('graph-svg');
-    if (!svg || records.length === 0) return;
-
-    const width = svg.clientWidth || 800;
-    const height = svg.clientHeight || 600;
-    const centerX = width / 2;
-    const centerY = height / 2;
-    const padding = 80;
-
-    // Get display settings
-    const settings = this.graphSettings || { layout: 'force', labelPosition: 'outside', nodeSize: 'medium' };
-
-    // Node size based on setting
-    const nodeSizes = { small: 16, medium: 24, large: 36 };
-    const nodeRadius = nodeSizes[settings.nodeSize] || 24;
-
-    // Initialize nodes with positions
-    const nodes = records.map((record, i) => {
-      // Start with spread-out positions for force layout
-      const angle = (2 * Math.PI * i) / records.length;
-      const spreadRadius = Math.min(width, height) * 0.35;
-      return {
-        id: record.id,
-        x: centerX + spreadRadius * Math.cos(angle) + (Math.random() - 0.5) * 50,
-        y: centerY + spreadRadius * Math.sin(angle) + (Math.random() - 0.5) * 50,
-        vx: 0,
-        vy: 0,
-        title: record.values[primaryField?.id] || 'Untitled',
-        record
-      };
-    });
-
-    const nodeMap = new Map(nodes.map(n => [n.id, n]));
-
-    // Also create a map from primary field value to node (for relationship matching)
-    const nodeByTitle = new Map();
-    nodes.forEach(n => {
-      if (n.title) {
-        nodeByTitle.set(n.title, n);
+    // Zoom controls
+    document.getElementById('graph-zoom-in')?.addEventListener('click', () => {
+      if (this.workbenchCy) {
+        this.workbenchCy.zoom(this.workbenchCy.zoom() * 1.2);
+        this.workbenchCy.center();
       }
     });
 
-    // Build edges from link fields
+    document.getElementById('graph-zoom-out')?.addEventListener('click', () => {
+      if (this.workbenchCy) {
+        this.workbenchCy.zoom(this.workbenchCy.zoom() / 1.2);
+        this.workbenchCy.center();
+      }
+    });
+
+    document.getElementById('graph-center')?.addEventListener('click', () => {
+      if (this.workbenchCy) {
+        this.workbenchCy.fit(undefined, 50);
+      }
+    });
+  }
+
+  /**
+   * Initialize Cytoscape graph for workbench
+   */
+  _initWorkbenchCytoscape(records, primaryField, linkFields) {
+    const container = document.getElementById('cy-workbench-container');
+    if (!container || records.length === 0) return;
+
+    // Destroy existing instance
+    if (this.workbenchCy) {
+      this.workbenchCy.destroy();
+      this.workbenchCy = null;
+    }
+
+    // Get size class
+    const sizeClass = `size-${this.graphSettings.nodeSize || 'medium'}`;
+    const labelClass = `label-${this.graphSettings.labelPosition || 'outside'}`;
+
+    // Create nodes
+    const nodes = records.map(record => {
+      const label = record.values?.[primaryField?.id] || 'Untitled';
+      return {
+        data: {
+          id: record.id,
+          label: label,
+          record: record
+        },
+        classes: `${sizeClass} ${labelClass}`
+      };
+    });
+
+    // Build node maps for edge lookup
+    const nodeMap = new Map(records.map(r => [r.id, r]));
+    const nodeByTitle = new Map();
+    records.forEach(record => {
+      const title = record.values?.[primaryField?.id];
+      if (title) nodeByTitle.set(title, record);
+    });
+
+    // Create edges from link fields
     const edges = [];
     records.forEach(record => {
       linkFields.forEach(field => {
-        const linkedIds = record.values[field.id] || [];
+        const linkedIds = record.values?.[field.id] || [];
         if (Array.isArray(linkedIds)) {
           linkedIds.forEach(linkedId => {
             if (nodeMap.has(linkedId)) {
               edges.push({
-                source: record.id,
-                target: linkedId,
-                fieldName: field.name
+                data: {
+                  id: `${record.id}-${linkedId}-${field.name}`,
+                  source: record.id,
+                  target: linkedId,
+                  fieldName: field.name
+                }
               });
             }
           });
@@ -4287,18 +4305,15 @@ class EODataWorkbench {
       const relationshipSet = this.sets.find(s =>
         s.name === `${currentSet.name} - Relationships` ||
         s.name === `${currentSet.name} - Edges` ||
-        s.name?.includes('Relationships') && s.name?.includes(currentSet.name)
+        (s.name?.includes('Relationships') && s.name?.includes(currentSet.name))
       );
 
       if (relationshipSet) {
-        // Find from/to fields in the relationship set
         const fromField = relationshipSet.fields?.find(f =>
-          f.name?.toLowerCase() === 'from' ||
-          f.name?.toLowerCase() === 'source'
+          f.name?.toLowerCase() === 'from' || f.name?.toLowerCase() === 'source'
         );
         const toField = relationshipSet.fields?.find(f =>
-          f.name?.toLowerCase() === 'to' ||
-          f.name?.toLowerCase() === 'target'
+          f.name?.toLowerCase() === 'to' || f.name?.toLowerCase() === 'target'
         );
 
         if (fromField && toField) {
@@ -4308,19 +4323,21 @@ class EODataWorkbench {
 
             if (!fromValue || !toValue) return;
 
-            // Try to find matching nodes - by record ID or by title/primary field value
-            let sourceNode = nodeMap.get(fromValue) || nodeByTitle.get(fromValue);
-            let targetNode = nodeMap.get(toValue) || nodeByTitle.get(toValue);
+            // Find matching nodes by ID or title
+            let sourceRecord = nodeMap.get(fromValue) || nodeByTitle.get(fromValue);
+            let targetRecord = nodeMap.get(toValue) || nodeByTitle.get(toValue);
 
-            if (sourceNode && targetNode) {
-              // Get edge type if available
+            if (sourceRecord && targetRecord) {
               const typeField = relationshipSet.fields?.find(f => f.name?.toLowerCase() === 'type');
-              const edgeType = typeField ? relRecord.values?.[typeField.id] : null;
+              const edgeType = typeField ? relRecord.values?.[typeField.id] : 'relationship';
 
               edges.push({
-                source: sourceNode.id,
-                target: targetNode.id,
-                fieldName: edgeType || 'relationship'
+                data: {
+                  id: `${sourceRecord.id}-${targetRecord.id}-${edgeType}`,
+                  source: sourceRecord.id,
+                  target: targetRecord.id,
+                  fieldName: edgeType
+                }
               });
             }
           });
@@ -4328,305 +4345,95 @@ class EODataWorkbench {
       }
     }
 
-    // Count connections per node for sizing
+    // Count connections for node sizing
     const connectionCount = new Map();
     edges.forEach(edge => {
-      connectionCount.set(edge.source, (connectionCount.get(edge.source) || 0) + 1);
-      connectionCount.set(edge.target, (connectionCount.get(edge.target) || 0) + 1);
+      connectionCount.set(edge.data.source, (connectionCount.get(edge.data.source) || 0) + 1);
+      connectionCount.set(edge.data.target, (connectionCount.get(edge.data.target) || 0) + 1);
     });
 
-    // Apply layout algorithm
-    if (settings.layout === 'force') {
-      this._applyForceLayout(nodes, edges, nodeMap, width, height, padding, nodeRadius);
-    } else if (settings.layout === 'grid') {
-      this._applyGridLayout(nodes, width, height, padding, nodeRadius);
-    } else {
-      // Circular layout (original)
-      this._applyCircularLayout(nodes, centerX, centerY, width, height, padding);
-    }
-
-    // Render SVG
-    this._renderGraphSVG(svg, nodes, edges, nodeMap, nodeRadius, settings, connectionCount);
-  }
-
-  _applyForceLayout(nodes, edges, nodeMap, width, height, padding, nodeRadius) {
-    // Simple force-directed layout simulation
-    const iterations = 100;
-    const repulsion = 5000;
-    const attraction = 0.01;
-    const damping = 0.85;
-    const minDistance = nodeRadius * 3;
-
-    for (let iter = 0; iter < iterations; iter++) {
-      // Reset forces
-      nodes.forEach(node => {
-        node.fx = 0;
-        node.fy = 0;
-      });
-
-      // Repulsion between all nodes
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const n1 = nodes[i];
-          const n2 = nodes[j];
-          const dx = n2.x - n1.x;
-          const dy = n2.y - n1.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = repulsion / (dist * dist);
-          const fx = (dx / dist) * force;
-          const fy = (dy / dist) * force;
-          n1.fx -= fx;
-          n1.fy -= fy;
-          n2.fx += fx;
-          n2.fy += fy;
-        }
-      }
-
-      // Attraction along edges
-      edges.forEach(edge => {
-        const source = nodeMap.get(edge.source);
-        const target = nodeMap.get(edge.target);
-        if (source && target) {
-          const dx = target.x - source.x;
-          const dy = target.y - source.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          const force = dist * attraction;
-          source.fx += dx * force;
-          source.fy += dy * force;
-          target.fx -= dx * force;
-          target.fy -= dy * force;
-        }
-      });
-
-      // Center gravity
-      const centerX = width / 2;
-      const centerY = height / 2;
-      nodes.forEach(node => {
-        node.fx += (centerX - node.x) * 0.01;
-        node.fy += (centerY - node.y) * 0.01;
-      });
-
-      // Apply forces with damping
-      nodes.forEach(node => {
-        node.vx = (node.vx + node.fx) * damping;
-        node.vy = (node.vy + node.fy) * damping;
-        node.x += node.vx;
-        node.y += node.vy;
-        // Keep within bounds
-        node.x = Math.max(padding, Math.min(width - padding, node.x));
-        node.y = Math.max(padding, Math.min(height - padding, node.y));
-      });
-    }
-
-    // Final collision resolution pass
-    for (let iter = 0; iter < 10; iter++) {
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const n1 = nodes[i];
-          const n2 = nodes[j];
-          const dx = n2.x - n1.x;
-          const dy = n2.y - n1.y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          if (dist < minDistance) {
-            const overlap = (minDistance - dist) / 2;
-            const ox = (dx / dist) * overlap;
-            const oy = (dy / dist) * overlap;
-            n1.x -= ox;
-            n1.y -= oy;
-            n2.x += ox;
-            n2.y += oy;
-          }
-        }
-      }
-    }
-  }
-
-  _applyGridLayout(nodes, width, height, padding, nodeRadius) {
-    const cols = Math.ceil(Math.sqrt(nodes.length));
-    const rows = Math.ceil(nodes.length / cols);
-    const cellWidth = (width - 2 * padding) / cols;
-    const cellHeight = (height - 2 * padding) / rows;
-
-    nodes.forEach((node, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      node.x = padding + cellWidth / 2 + col * cellWidth;
-      node.y = padding + cellHeight / 2 + row * cellHeight;
-    });
-  }
-
-  _applyCircularLayout(nodes, centerX, centerY, width, height, padding) {
-    const radius = Math.min(width, height) / 2 - padding;
-    nodes.forEach((node, i) => {
-      const angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2;
-      node.x = centerX + radius * Math.cos(angle);
-      node.y = centerY + radius * Math.sin(angle);
-    });
-  }
-
-  _renderGraphSVG(svg, nodes, edges, nodeMap, nodeRadius, settings, connectionCount) {
-    let svgContent = '';
-    const labelPosition = settings.labelPosition || 'outside';
-
-    // Calculate label truncation based on node size
-    const maxLabelChars = settings.nodeSize === 'large' ? 20 : (settings.nodeSize === 'medium' ? 15 : 10);
-
-    // Draw edges first (behind nodes)
-    edges.forEach(edge => {
-      const source = nodeMap.get(edge.source);
-      const target = nodeMap.get(edge.target);
-      if (source && target) {
-        // Calculate edge endpoints at node borders
-        const dx = target.x - source.x;
-        const dy = target.y - source.y;
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-        const nx = dx / dist;
-        const ny = dy / dist;
-
-        const x1 = source.x + nx * nodeRadius;
-        const y1 = source.y + ny * nodeRadius;
-        const x2 = target.x - nx * (nodeRadius + 8); // Leave room for arrowhead
-        const y2 = target.y - ny * (nodeRadius + 8);
-
-        svgContent += `
-          <line class="graph-edge"
-                x1="${x1}" y1="${y1}"
-                x2="${x2}" y2="${y2}"
-                stroke="var(--primary-400)"
-                stroke-width="1.5"
-                stroke-opacity="0.6"
-                marker-end="url(#arrowhead)"/>
-        `;
-      }
-    });
-
-    // Draw nodes
+    // Add connection count to node data
     nodes.forEach(node => {
-      const connections = connectionCount.get(node.id) || 0;
-      const sizeBoost = Math.min(connections * 2, 10);
-      const adjustedRadius = nodeRadius + sizeBoost;
-
-      const truncatedTitle = node.title.length > maxLabelChars
-        ? node.title.substring(0, maxLabelChars - 2) + '...'
-        : node.title;
-
-      // Node circle
-      svgContent += `
-        <g class="graph-node" data-record-id="${node.id}" transform="translate(${node.x}, ${node.y})">
-          <circle r="${adjustedRadius}"
-                  fill="var(--primary-500)"
-                  stroke="var(--primary-600)"
-                  stroke-width="2"
-                  class="node-circle"/>
-      `;
-
-      // Label based on position setting
-      if (labelPosition === 'inside') {
-        // Inside the node - smaller text that fits
-        const fontSize = Math.max(8, Math.min(11, adjustedRadius * 0.5));
-        const shortTitle = node.title.length > 8 ? node.title.substring(0, 6) + '..' : node.title;
-        svgContent += `
-          <text dy="4" text-anchor="middle" fill="white" font-size="${fontSize}" font-weight="500" class="node-label-inside">
-            ${this._escapeHtml(shortTitle)}
-          </text>
-        `;
-      } else if (labelPosition === 'outside') {
-        // Outside the node - below with background for readability
-        svgContent += `
-          <rect x="${-truncatedTitle.length * 3.5}" y="${adjustedRadius + 4}"
-                width="${truncatedTitle.length * 7}" height="16" rx="3"
-                fill="var(--bg-secondary)" fill-opacity="0.9"/>
-          <text y="${adjustedRadius + 16}" text-anchor="middle"
-                fill="var(--text-primary)" font-size="11" font-weight="500" class="node-label-outside">
-            ${this._escapeHtml(truncatedTitle)}
-          </text>
-        `;
-      }
-      // For 'hover' position, labels are shown via CSS on hover
-
-      // Hidden label for hover mode
-      if (labelPosition === 'hover') {
-        svgContent += `
-          <rect class="hover-label-bg" x="${-truncatedTitle.length * 3.5}" y="${adjustedRadius + 4}"
-                width="${truncatedTitle.length * 7}" height="16" rx="3"
-                fill="var(--bg-secondary)" fill-opacity="0.95" style="opacity: 0; transition: opacity 0.15s;"/>
-          <text class="hover-label" y="${adjustedRadius + 16}" text-anchor="middle"
-                fill="var(--text-primary)" font-size="11" font-weight="600"
-                style="opacity: 0; transition: opacity 0.15s;">
-            ${this._escapeHtml(truncatedTitle)}
-          </text>
-        `;
-      }
-
-      svgContent += `</g>`;
-    });
-
-    svg.innerHTML = `
-      <defs>
-        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="6" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="var(--primary-400)" fill-opacity="0.7"/>
-        </marker>
-      </defs>
-      ${svgContent}
-    `;
-
-    // Add click and hover handlers
-    svg.querySelectorAll('.graph-node').forEach(nodeEl => {
-      nodeEl.style.cursor = 'pointer';
-      nodeEl.addEventListener('click', () => {
-        this._showRecordDetail(nodeEl.dataset.recordId);
-      });
-
-      // Hover effects for 'hover' label mode
-      if (settings.labelPosition === 'hover') {
-        nodeEl.addEventListener('mouseenter', () => {
-          const hoverLabel = nodeEl.querySelector('.hover-label');
-          const hoverBg = nodeEl.querySelector('.hover-label-bg');
-          if (hoverLabel) hoverLabel.style.opacity = '1';
-          if (hoverBg) hoverBg.style.opacity = '1';
-        });
-        nodeEl.addEventListener('mouseleave', () => {
-          const hoverLabel = nodeEl.querySelector('.hover-label');
-          const hoverBg = nodeEl.querySelector('.hover-label-bg');
-          if (hoverLabel) hoverLabel.style.opacity = '0';
-          if (hoverBg) hoverBg.style.opacity = '0';
-        });
+      node.data.connections = connectionCount.get(node.data.id) || 0;
+      if (node.data.connections >= 3) {
+        node.classes += ' high-connectivity';
       }
     });
 
-    // Zoom and pan controls
-    let scale = 1;
-    let panX = 0;
-    let panY = 0;
-
-    const updateTransform = () => {
-      svg.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
-    };
-
-    document.getElementById('graph-zoom-in')?.addEventListener('click', () => {
-      scale = Math.min(3, scale + 0.2);
-      updateTransform();
+    // Initialize Cytoscape with workbench stylesheet
+    this.workbenchCy = createCytoscapeInstance(container, {
+      useWorkbenchStyle: true,
+      elements: [...nodes, ...edges]
     });
 
-    document.getElementById('graph-zoom-out')?.addEventListener('click', () => {
-      scale = Math.max(0.3, scale - 0.2);
-      updateTransform();
+    // Apply initial layout
+    this._applyWorkbenchLayout();
+
+    // Set up event handlers
+    this.workbenchCy.on('tap', 'node', (evt) => {
+      const nodeId = evt.target.id();
+      this._showRecordDetail(nodeId);
     });
 
-    document.getElementById('graph-center')?.addEventListener('click', () => {
-      scale = 1;
-      panX = 0;
-      panY = 0;
-      updateTransform();
+    // Hover effects
+    this.workbenchCy.on('mouseover', 'node', (evt) => {
+      evt.target.addClass('highlighted');
+      container.style.cursor = 'pointer';
     });
 
-    // Mouse wheel zoom
-    const wrapper = document.querySelector('.graph-canvas-wrapper');
-    wrapper?.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      scale = Math.max(0.3, Math.min(3, scale + delta));
-      updateTransform();
+    this.workbenchCy.on('mouseout', 'node', (evt) => {
+      evt.target.removeClass('highlighted');
+      container.style.cursor = 'default';
+    });
+
+    this.workbenchCy.on('mouseover', 'edge', (evt) => {
+      evt.target.addClass('highlighted');
+    });
+
+    this.workbenchCy.on('mouseout', 'edge', (evt) => {
+      evt.target.removeClass('highlighted');
+    });
+  }
+
+  /**
+   * Apply layout to workbench graph
+   */
+  _applyWorkbenchLayout() {
+    if (!this.workbenchCy) return;
+
+    const layoutType = this.graphSettings?.layout || 'force';
+    const layoutConfig = getLayoutConfig(layoutType);
+
+    this.workbenchCy.layout(layoutConfig).run();
+  }
+
+  /**
+   * Update label style on workbench graph
+   */
+  _updateWorkbenchLabelStyle() {
+    if (!this.workbenchCy) return;
+
+    const labelPosition = this.graphSettings?.labelPosition || 'outside';
+
+    // Remove existing label classes and add new one
+    this.workbenchCy.nodes().forEach(node => {
+      node.removeClass('label-outside label-inside label-hover');
+      node.addClass(`label-${labelPosition}`);
+    });
+  }
+
+  /**
+   * Update node size on workbench graph
+   */
+  _updateWorkbenchNodeSize() {
+    if (!this.workbenchCy) return;
+
+    const nodeSize = this.graphSettings?.nodeSize || 'medium';
+
+    // Remove existing size classes and add new one
+    this.workbenchCy.nodes().forEach(node => {
+      node.removeClass('size-small size-medium size-large');
+      node.addClass(`size-${nodeSize}`);
     });
   }
 
