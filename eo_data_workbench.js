@@ -538,7 +538,7 @@ class EODataWorkbench {
       if (!e.target.closest('.context-menu')) {
         this.elements.contextMenu?.classList.remove('active');
       }
-      if (!e.target.closest('.field-type-picker') && !e.target.closest('.col-add')) {
+      if (!e.target.closest('.field-type-picker') && !e.target.closest('.col-add') && !e.target.closest('.context-menu')) {
         this.elements.fieldTypePicker?.classList.remove('active');
       }
     });
