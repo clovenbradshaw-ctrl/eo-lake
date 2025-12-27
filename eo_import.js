@@ -801,8 +801,8 @@ class ImportOrchestrator {
         const view = createView(viewName, 'table', {
           filters: [{
             fieldId: typeField.id,
-            operator: 'equals',
-            value: typeValue,
+            operator: 'is',
+            filterValue: typeValue,
             enabled: true
           }]
         });
@@ -900,8 +900,8 @@ class ImportOrchestrator {
       const view = createView(this._formatViewName(edgeType), 'table', {
         filters: [{
           fieldId: edgeSet.fields[3].id,
-          operator: 'equals',
-          value: edgeType,
+          operator: 'is',
+          filterValue: edgeType,
           enabled: true
         }]
       });
