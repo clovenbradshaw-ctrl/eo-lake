@@ -6149,7 +6149,7 @@ html, body {
   color: var(--text-primary);
 }
 
-.browser-tab:hover .tab-toss {
+.browser-tab:hover .tab-close {
   opacity: 1;
 }
 
@@ -6219,8 +6219,8 @@ html, body {
   font-weight: 500;
 }
 
-/* Tab Toss Button */
-.tab-toss {
+/* Tab Close Button */
+.tab-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6234,23 +6234,23 @@ html, body {
   cursor: pointer;
 }
 
-.tab-toss:hover {
+.tab-close:hover {
   background: var(--bg-hover);
-  color: var(--warning-500);
+  color: var(--text-primary);
 }
 
-.tab-toss:active {
-  background: var(--warning-500);
+.tab-close:active {
+  background: var(--danger-500);
   color: white;
 }
 
-.browser-tab.active .tab-toss {
+.browser-tab.active .tab-close {
   opacity: 0.7;
 }
 
-.browser-tab.active .tab-toss:hover {
+.browser-tab.active .tab-close:hover {
   opacity: 1;
-  color: var(--warning-500);
+  color: var(--text-primary);
 }
 
 /* Tab Modified Indicator */
@@ -6267,7 +6267,7 @@ html, body {
   display: block;
 }
 
-.browser-tab.modified .tab-toss {
+.browser-tab.modified .tab-close {
   display: none;
 }
 
@@ -6275,7 +6275,7 @@ html, body {
   display: none;
 }
 
-.browser-tab.modified:hover .tab-toss {
+.browser-tab.modified:hover .tab-close {
   display: flex;
 }
 
@@ -6613,7 +6613,7 @@ html, body {
 }
 
 .browser-tab.pinned .tab-title,
-.browser-tab.pinned .tab-toss {
+.browser-tab.pinned .tab-close {
   display: none;
 }
 
@@ -6659,7 +6659,7 @@ html, body {
     font-size: 12px;
   }
 
-  .tab-toss {
+  .tab-close {
     width: 16px;
     height: 16px;
   }

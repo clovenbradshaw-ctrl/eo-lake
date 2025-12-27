@@ -1481,8 +1481,8 @@ class EODataWorkbench {
         </div>
         <span class="tab-title">${this._escapeHtml(view.name)}</span>
         <div class="tab-modified"></div>
-        <div class="tab-toss" title="Toss tab (Ctrl+W)">
-          <i class="ph ph-arrow-bend-up-right"></i>
+        <div class="tab-close" title="Close tab (Ctrl+W)">
+          <i class="ph ph-x"></i>
         </div>
         ${view.id === this.currentViewId ? '<div class="tab-curve-right"></div>' : ''}
       </div>
@@ -1505,7 +1505,7 @@ class EODataWorkbench {
 
       // Click to select tab
       tab.addEventListener('click', (e) => {
-        if (!e.target.closest('.tab-toss')) {
+        if (!e.target.closest('.tab-close')) {
           this._selectView(viewId);
         }
       });
@@ -1524,8 +1524,8 @@ class EODataWorkbench {
         this._showTabContextMenu(e, viewId);
       });
 
-      // Toss button
-      tab.querySelector('.tab-toss')?.addEventListener('click', (e) => {
+      // Close button
+      tab.querySelector('.tab-close')?.addEventListener('click', (e) => {
         e.stopPropagation();
         this._tossTab(viewId);
       });
