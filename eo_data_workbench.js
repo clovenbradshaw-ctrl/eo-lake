@@ -243,6 +243,9 @@ class EODataWorkbench {
     // Lazy loading - defer loading records for non-current sets
     this._useLazyLoading = true;
     this._fullSetData = null;
+
+    // Cache for filtered records (avoids re-filtering on every access)
+    this._filteredRecordsCache = null;
   }
 
   // --------------------------------------------------------------------------
@@ -274,21 +277,24 @@ class EODataWorkbench {
       this.currentViewId = this.sets[0].views[0]?.id;
     }
 
-    // Sync legacy sets with view registry
-    this._syncSetsToRegistry();
-
     // Bind elements
     this._bindElements();
 
     // Attach event listeners
     this._attachEventListeners();
 
-    // Render initial UI
+    // Render initial UI immediately (critical path)
     this._renderSidebar();
     this._renderView();
 
-    // Update status
-    this._updateStatus();
+    // Defer non-critical processing to after first paint
+    requestAnimationFrame(() => {
+      // Sync legacy sets with view registry (deferred - not needed for display)
+      this._syncSetsToRegistry();
+
+      // Update status (deferred)
+      this._updateStatus();
+    });
 
     console.log('EO Data Workbench initialized with compliant view hierarchy');
     return this;
@@ -749,10 +755,27 @@ class EODataWorkbench {
     return set?.views.find(v => v.id === this.currentViewId);
   }
 
+  /**
+   * Get record count without full filtering (performance optimization)
+   * Used to quickly check if we need loading indicators
+   */
+  _getRecordCountFast() {
+    const set = this.getCurrentSet();
+    if (!set) return 0;
+    // Return raw count - filters typically don't reduce by more than 50%
+    return set.records?.length || 0;
+  }
+
   getFilteredRecords() {
     const set = this.getCurrentSet();
     const view = this.getCurrentView();
     if (!set) return [];
+
+    // Use cache if available and valid
+    const cacheKey = `${set.id}:${view?.id}:${set.records?.length}`;
+    if (this._filteredRecordsCache?.key === cacheKey) {
+      return this._filteredRecordsCache.records;
+    }
 
     let records = [...set.records];
 
@@ -778,6 +801,9 @@ class EODataWorkbench {
         return 0;
       });
     }
+
+    // Cache result
+    this._filteredRecordsCache = { key: cacheKey, records };
 
     return records;
   }
@@ -2886,18 +2912,18 @@ class EODataWorkbench {
     // Use smaller initial batch for faster first paint
     this.displayedRecordCount = this.initialBatchSize;
 
-    // Check if we need to show loading for large datasets
-    const records = this.getFilteredRecords();
-    const needsLoading = records.length > this.loadingThreshold;
+    // Use fast count to check if we need loading (avoids full filter/sort)
+    const recordCount = this._getRecordCountFast();
+    const needsLoading = recordCount > this.loadingThreshold;
 
     if (needsLoading) {
       this._showLoadingOverlay('Loading view...', {
-        showProgress: records.length > 200,
+        showProgress: recordCount > 200,
         progress: 0,
-        progressText: `Preparing ${records.length.toLocaleString()} records...`
+        progressText: `Preparing ${recordCount.toLocaleString()} records...`
       });
 
-      // Use requestAnimationFrame to allow the loading UI to render
+      // Use requestAnimationFrame to allow the loading UI to render first
       requestAnimationFrame(() => {
         this._doRenderView(view);
         this._hideLoadingOverlay();
