@@ -28,6 +28,214 @@ Level 4: FOCUSES (Filtered Views) - Restricted scopes
 
 ---
 
+## EO-Grounded Navigation Architecture
+
+The Experience Ontology provides a rigorous philosophical foundation for navigation design. Rather than treating navigation as a UI problem, EO reveals it as an **ontological traversal** through perspectives.
+
+### Core Insight: Navigation IS Horizon Traversal
+
+In EO, you never "see data" - you access experience through a **HorizonGate**. Navigation is not moving through files; it's **shifting your horizon**. Each click narrows or broadens what you can perceive.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  NAVIGATION AS HORIZON MOVEMENT                                 │
+│                                                                 │
+│  Workspace ──────▶ Set ──────▶ Lens ──────▶ Focus              │
+│     ║                ║            ║            ║                │
+│  [Horizon A]    [Horizon B]  [Horizon C]  [Horizon D]          │
+│  "All Q4 data"  "Only orders" "As kanban"  "My items"          │
+│                                                                 │
+│  Each step RESTRICTS (Rule 5) - you cannot expand outward      │
+│  without explicitly ascending the hierarchy                     │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Structural Principle 1: GIVEN ↔ MEANT Distinction
+
+**The Most Important Navigation Split**
+
+The fundamental EO partition must be visible in navigation:
+
+| GIVEN (Raw Experience) | MEANT (Interpretation) |
+|------------------------|------------------------|
+| Import sources | Workspaces, Sets, Lenses, Focuses |
+| External file origins | User-created views |
+| Cannot derive from MEANT | Must trace back to GIVEN |
+| Immutable, append-only | Can be superseded |
+
+**UI Implication**: Sources (GIVEN) and Views (MEANT) should be visually distinct navigation regions:
+
+```
+┌─────────────────────────────────┐
+│ ◉ GIVEN (Sources)              │  ← Immutable origin
+│   └── quarterly_data.csv       │
+│   └── calendar.ics             │
+├─────────────────────────────────┤
+│ ◐ MEANT (Interpretations)      │  ← Your perspectives
+│   └── Work Projects (Workspace)│
+│       └── Orders (Set)         │
+│           └── Board (Lens)     │
+└─────────────────────────────────┘
+```
+
+The icons (◉ full, ◐ partial, ○ none) from `eo_provenance.js` can indicate provenance completeness at each level.
+
+### Structural Principle 2: Hierarchy = Horizon Restriction (Rule 5)
+
+**Foreclosure Principle**: Each level DOWN can only restrict, never expand.
+
+This has profound navigation implications:
+
+1. **Downward = Narrowing**: Clicking into a Focus from a Lens reduces what you see
+2. **Upward = Broadening**: Clicking breadcrumb to parent reveals more
+3. **Sibling = Orthogonal**: Switching Lenses doesn't add/remove records, changes interpretation
+
+**Visual Encoding**:
+```
+Workspace (1,247 records visible through this horizon)
+    │
+    └── Set (1,247 records - same, scoped to schema)
+         │
+         └── Lens (1,247 records - same, viewed differently)
+              │
+              └── Focus (89 records - RESTRICTED by filter)
+                        ↑
+                        Shows exactly how restriction applied
+```
+
+**Navigation should show the "narrowing ratio"** at each Focus:
+```
+🔽 My Items (89 of 1,247) ← Immediately shows restriction magnitude
+```
+
+### Structural Principle 3: Provenance as Navigation Path (Rule 7)
+
+**Groundedness Principle**: Every MEANT event must trace back to GIVEN events.
+
+This means provenance IS a navigation path. The chain:
+
+```
+GIVEN Event ──▶ Set (MEANT) ──▶ Lens (MEANT) ──▶ Focus (MEANT)
+    │               │               │               │
+    │               │               │               └── derivedFromLens
+    │               │               └── derivedFromSet
+    │               └── provenance: [given_event_id]
+    └── Original CSV Import
+```
+
+**UI Implication**: Every view should show "trace to origin" as navigable links:
+
+```
+┌─────────────────────────────────────────────┐
+│ 📋 My Kanban Board                          │
+│ Provenance: quarterly_data.csv → Orders →   │
+│             Kanban View → [This Focus]      │
+│             ↑ clickable breadcrumb          │
+└─────────────────────────────────────────────┘
+```
+
+### Structural Principle 4: Epistemic Status as Navigation Affordance (Rule 8)
+
+Views carry epistemic status: `PRELIMINARY`, `REVIEWED`, `CONTESTED`, `SUPERSEDED`
+
+**Navigation should expose this**:
+
+```
+Sets
+├── 📊 Orders [REVIEWED ✓]      ← Validated, confident
+├── 📊 Projections [PRELIMINARY] ← Initial interpretation
+├── 📊 Old Categories [SUPERSEDED] ← Replaced, still accessible
+└── 📊 Revenue Split [CONTESTED ⚠] ← Under dispute
+```
+
+**Superseded views (Rule 9)** should remain navigable but visually differentiated:
+- Strikethrough or dimmed
+- Link to superseding view
+- Full history accessible
+
+### Structural Principle 5: The 9-Element Provenance as Navigation Metadata
+
+The three triads of provenance map to navigation questions:
+
+| Triad | Question | Navigation Relevance |
+|-------|----------|---------------------|
+| **EPISTEMIC** | "How was this produced?" | Filter by import method, agent, source type |
+| **SEMANTIC** | "What does this mean?" | Search by term, definition, jurisdiction |
+| **SITUATIONAL** | "When/where does this hold?" | Filter by timeframe, scale, context |
+
+**Search syntax derived from EO provenance**:
+```
+agent:calendar-app           ← EPISTEMIC: who imported
+method:ics-parse             ← EPISTEMIC: how processed
+source:google-calendar       ← EPISTEMIC: where from
+
+term:meeting                 ← SEMANTIC: concept type
+jurisdiction:engineering    ← SEMANTIC: team scope
+
+timeframe:2024-Q4           ← SITUATIONAL: when valid
+scale:team                   ← SITUATIONAL: at what level
+```
+
+### Structural Principle 6: Navigation as Activity (Operator × Target × Context)
+
+From `eo_activity.js`, all actions follow: **Operator(Target) ⟨in Context⟩**
+
+Navigation actions map to EO operators:
+
+| Navigation Action | EO Operator | Meaning |
+|-------------------|-------------|---------|
+| Select Set | SEG (｜) | Segment: Draw boundary around data |
+| Apply Focus | SEG (｜) | Segment: Further restrict scope |
+| Switch Lens | ALT (∿) | Alternate: Change interpretation mode |
+| Expand Source | DES (⊡) | Designate: Reveal children |
+| Search | NUL (∅) | Recognition: Find what matches |
+
+**Implication**: Navigation history is itself an activity log:
+```
+Activity Log (Navigation):
+10:30 SEG(Orders) ⟨in Work Projects⟩    - Selected set
+10:31 ALT(Kanban) ⟨in Orders⟩           - Switched lens
+10:32 SEG(MyItems) ⟨in Kanban⟩          - Applied focus
+10:35 ALT(Calendar) ⟨in Orders⟩         - Switched lens
+```
+
+This log IS the "recent navigation" feature, but EO-grounded.
+
+### Structural Principle 7: HorizonGate Transparency
+
+Rule 4 (Perspectivality) says: "There is no view from nowhere."
+
+**Every navigation state should declare its horizon**:
+
+```
+┌─────────────────────────────────────────────┐
+│ Current Horizon                             │
+│ ├── Workspace: Work Projects                │
+│ ├── Time Range: Oct 1 - Dec 31, 2024       │
+│ ├── Actors: [Engineering Team]              │
+│ └── Frame: Project Tracking                 │
+│                                             │
+│ You are seeing 89 of 1,247 records         │
+│ [Expand Horizon] [Narrow Further]           │
+└─────────────────────────────────────────────┘
+```
+
+This transparency panel (from `eo_principles_transparency.js`) should be part of navigation, not hidden.
+
+### Summary: EO-Native Navigation Principles
+
+| Principle | EO Rule | Navigation Implication |
+|-----------|---------|------------------------|
+| **Partition** | Rule 1 | Visually separate GIVEN (sources) from MEANT (views) |
+| **Immutability** | Rule 3 | Sources never change; show import timestamp |
+| **Perspectivality** | Rule 4 | Show current horizon explicitly |
+| **Restrictivity** | Rule 5 | Hierarchy only narrows; show restriction ratios |
+| **Groundedness** | Rule 7 | Provenance chain as navigable breadcrumb |
+| **Determinacy** | Rule 8 | Show epistemic status on all views |
+| **Defeasibility** | Rule 9 | Superseded views navigable, linked to successors |
+
+---
+
 ## Improvement Plan
 
 ### Phase 1: Visual Provenance Indicators
