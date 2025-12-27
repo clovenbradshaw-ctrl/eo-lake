@@ -2034,7 +2034,7 @@ function showImportModal() {
       <!-- Drop Zone -->
       <div class="import-dropzone" id="import-dropzone">
         <div class="dropzone-content">
-          <i class="ph ph-upload-simple dropzone-icon"></i>
+          <i class="ph ph-download-simple dropzone-icon"></i>
           <p class="dropzone-text">${dropzoneText}</p>
           <p class="dropzone-subtext">or click to browse</p>
         </div>
@@ -2199,7 +2199,7 @@ function showImportModal() {
   modalFooter.innerHTML = `
     <button class="btn btn-secondary" id="import-cancel">Cancel</button>
     <button class="btn btn-primary" id="import-confirm" disabled>
-      <i class="ph ph-upload"></i> Import
+      <i class="ph ph-download"></i> Import
     </button>
   `;
 
@@ -2538,7 +2538,7 @@ function initImportHandlers() {
         : 'Drop CSV or JSON file here';
       dropzone.innerHTML = `
         <div class="dropzone-content">
-          <i class="ph ph-upload-simple dropzone-icon"></i>
+          <i class="ph ph-download-simple dropzone-icon"></i>
           <p class="dropzone-text">${dropzoneText}</p>
           <p class="dropzone-subtext">or click to browse</p>
         </div>

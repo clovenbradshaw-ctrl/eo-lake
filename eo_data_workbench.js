@@ -2972,7 +2972,7 @@ class EODataWorkbench {
         <!-- General Import Section -->
         <div class="import-section import-section-secondary">
           <button class="btn btn-secondary" id="empty-import-data">
-            <i class="ph ph-upload"></i>
+            <i class="ph ph-download"></i>
             Import CSV, JSON, or Excel
           </button>
           <button class="btn btn-secondary" id="empty-create-set">
