@@ -818,7 +818,8 @@ class EODataWorkbench {
 
   /**
    * Render Sets as a flat list (Panel 2: Schema)
-   * Sets are entity types, not containers - shown as flat list
+   * FIX #2: Sets show derivation strategy and operator badges
+   * Sets are MEANT events - interpretive schema definitions
    */
   _renderSetsNavFlat() {
     const container = document.getElementById('sets-nav');
@@ -826,13 +827,21 @@ class EODataWorkbench {
 
     if (this.sets.length === 0) {
       container.innerHTML = `
-        <div class="nav-item empty-hint" id="create-first-set">
-          <i class="ph ph-plus-circle"></i>
-          <span>Create first set</span>
+        <div class="nav-empty-state">
+          <i class="ph ph-funnel"></i>
+          <span>No sets yet</span>
+          <div class="empty-actions">
+            <button class="btn-link" id="btn-create-from-import">Import & Create Set</button>
+            <span class="empty-divider">or</span>
+            <button class="btn-link btn-secondary" id="btn-create-empty-set">Create Empty</button>
+          </div>
         </div>
       `;
-      container.querySelector('#create-first-set')?.addEventListener('click', () => {
-        this._showNewSetModal?.() || this._addSet?.();
+      container.querySelector('#btn-create-from-import')?.addEventListener('click', () => {
+        this._showImportModal();
+      });
+      container.querySelector('#btn-create-empty-set')?.addEventListener('click', () => {
+        this._showOperatorFirstCreationModal();
       });
       return;
     }
@@ -840,15 +849,27 @@ class EODataWorkbench {
     container.innerHTML = this.sets.map(set => {
       const recordCount = set.records?.length || 0;
       const fieldCount = set.fields?.length || 0;
-      const provenanceIcon = this._getProvenanceStatusIcon(set);
+
+      // Determine derivation strategy for operator badge
+      const derivation = this._getSetDerivationInfo(set);
+      const operatorBadge = this._getOperatorBadgeHTML(derivation.operator);
+
+      // Check stability level
+      const stability = set.stabilityLevel || 'holon';
+      const stabilityClass = `stability-${stability}`;
+
+      // Check for ontology warnings
+      const warnings = this._validateSetOntology(set);
+      const hasWarning = warnings.length > 0;
 
       return `
-        <div class="nav-item ${set.id === this.currentSetId ? 'active' : ''}"
+        <div class="nav-item set-item ${set.id === this.currentSetId ? 'active' : ''} ${stabilityClass} ${hasWarning ? 'has-warning' : ''}"
              data-set-id="${set.id}"
-             title="${fieldCount} fields · ${recordCount} records">
-          <span class="set-provenance-icon">${provenanceIcon}</span>
+             title="${derivation.description}\n${fieldCount} fields · ${recordCount} records${hasWarning ? '\n⚠️ ' + warnings[0] : ''}">
+          ${operatorBadge}
           <i class="${set.icon || 'ph ph-table'}"></i>
-          <span>${this._escapeHtml(set.name)}</span>
+          <span class="set-name">${this._escapeHtml(set.name)}</span>
+          ${hasWarning ? '<i class="ph ph-warning-circle set-warning-icon" title="' + this._escapeHtml(warnings[0]) + '"></i>' : ''}
           <span class="nav-item-count">${recordCount}</span>
         </div>
       `;
@@ -865,6 +886,335 @@ class EODataWorkbench {
         this._showSetContextMenu(e, item.dataset.setId);
       });
     });
+  }
+
+  /**
+   * Get derivation info for a set
+   */
+  _getSetDerivationInfo(set) {
+    // Check for explicit derivation config
+    if (set.derivation) {
+      const strategy = set.derivation.strategy;
+      const descriptions = {
+        'seg': 'Filtered from parent (SEG operator)',
+        'con': 'Joined from multiple sets (CON operator)',
+        'alt': 'Transformed via rule (ALT operator)',
+        'direct': 'Direct import from source'
+      };
+      return {
+        operator: strategy.toUpperCase(),
+        strategy: strategy,
+        description: descriptions[strategy] || 'Derived set'
+      };
+    }
+
+    // Infer from provenance
+    const prov = set.datasetProvenance;
+    if (prov && (prov.originalFilename || prov.provenance?.source)) {
+      return {
+        operator: 'INS',
+        strategy: 'direct',
+        description: `Imported from ${prov.originalFilename || prov.provenance?.source}`
+      };
+    }
+
+    // Manual/empty set
+    return {
+      operator: 'INS',
+      strategy: 'manual',
+      description: 'Manually created set'
+    };
+  }
+
+  /**
+   * Get HTML for operator badge
+   */
+  _getOperatorBadgeHTML(operator) {
+    const operators = {
+      'SEG': { symbol: '｜', color: 'purple', title: 'Segmented (filtered)' },
+      'CON': { symbol: '⋈', color: 'blue', title: 'Connected (joined)' },
+      'ALT': { symbol: '∿', color: 'green', title: 'Alternated (transformed)' },
+      'SYN': { symbol: '∨', color: 'orange', title: 'Synthesized (merged)' },
+      'INS': { symbol: '△', color: 'gray', title: 'Instantiated (created)' }
+    };
+
+    const op = operators[operator] || operators['INS'];
+    return `<span class="op-badge-mini op-${op.color}" title="${op.title}">${op.symbol}</span>`;
+  }
+
+  /**
+   * Validate set against ontology rules
+   * Returns array of warning messages
+   */
+  _validateSetOntology(set) {
+    const warnings = [];
+
+    // Use ontology validator if available
+    if (typeof window.EOOntology !== 'undefined') {
+      const validator = new window.EOOntology.OntologyValidator();
+      const result = validator.validateSet(set, { requireFrame: false });
+      if (!result.valid) {
+        result.errors.forEach(err => warnings.push(err.getUserMessage()));
+      }
+    }
+
+    // Basic checks if validator not available
+    if (!set.derivation && !set.datasetProvenance) {
+      // Only warn for sets with no records (truly empty)
+      if (!set.records || set.records.length === 0) {
+        warnings.push('Empty set with no derivation strategy');
+      }
+    }
+
+    return warnings;
+  }
+
+  /**
+   * Show operator-first creation modal
+   * FIX #8: Ask HOW to transform, not WHAT to create
+   */
+  _showOperatorFirstCreationModal() {
+    const intents = [
+      { id: 'FILTER', icon: 'ph-funnel', label: 'Filter existing data', operator: 'SEG', description: 'Create a subset by filtering records' },
+      { id: 'RELATE', icon: 'ph-link', label: 'Relate things', operator: 'CON', description: 'Join records from multiple sets' },
+      { id: 'SLICE', icon: 'ph-clock', label: 'Slice by time', operator: 'ALT', description: 'Create time-based partitions' },
+      { id: 'COMBINE', icon: 'ph-stack', label: 'Combine perspectives', operator: 'SUP', description: 'Overlay multiple views' },
+      { id: 'IMPORT', icon: 'ph-upload', label: 'Import new data', operator: 'INS', description: 'Import external data as source' },
+      { id: 'EMPTY', icon: 'ph-plus-circle', label: 'Start empty', operator: 'INS', description: 'Create an empty set (manual entry)', warning: 'Not recommended - prefer deriving from data' }
+    ];
+
+    const html = `
+      <div class="operator-creation-modal">
+        <p class="creation-prompt">How do you want to create this set?</p>
+        <div class="creation-intents">
+          ${intents.map(intent => `
+            <button class="creation-intent-btn ${intent.warning ? 'has-warning' : ''}" data-intent="${intent.id}">
+              <i class="ph ${intent.icon}"></i>
+              <div class="intent-content">
+                <span class="intent-label">${intent.label}</span>
+                <span class="intent-description">${intent.description}</span>
+                ${intent.warning ? `<span class="intent-warning"><i class="ph ph-warning"></i> ${intent.warning}</span>` : ''}
+              </div>
+              <span class="intent-operator" title="EO Operator">${intent.operator}</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    this._showModal('Create New Set', html, null, { hideFooter: true });
+
+    // Attach handlers
+    document.querySelectorAll('.creation-intent-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const intent = btn.dataset.intent;
+        this._closeModal();
+        this._handleCreationIntent(intent);
+      });
+    });
+  }
+
+  /**
+   * Handle creation intent selection
+   */
+  _handleCreationIntent(intent) {
+    switch (intent) {
+      case 'FILTER':
+        this._showFilterSetCreationFlow();
+        break;
+      case 'RELATE':
+        this._showJoinSetCreationFlow();
+        break;
+      case 'SLICE':
+        this._showTimeSliceCreationFlow();
+        break;
+      case 'COMBINE':
+        this._showCombineViewFlow();
+        break;
+      case 'IMPORT':
+        this._showImportModal();
+        break;
+      case 'EMPTY':
+        this._createEmptySetWithWarning();
+        break;
+    }
+  }
+
+  /**
+   * Create empty set with ontology warning
+   */
+  _createEmptySetWithWarning() {
+    this._showModal('Create Empty Set', `
+      <div class="ontology-warning">
+        <i class="ph ph-warning-circle"></i>
+        <div>
+          <strong>Ontology Notice</strong>
+          <p>Empty sets violate EO's derivation principle. Sets should be born from constraint, not emptiness.</p>
+          <p>Consider importing data or filtering from an existing set instead.</p>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top: 16px;">
+        <label>Set Name</label>
+        <input type="text" id="empty-set-name" class="form-input" placeholder="My Set" value="">
+      </div>
+    `, () => {
+      const name = document.getElementById('empty-set-name')?.value?.trim() || 'New Set';
+      const set = createSet(name);
+      // Mark as manually created with warning
+      set.derivation = {
+        strategy: 'manual',
+        constraint: { filters: [] },
+        warning: 'Created empty - no derivation constraint'
+      };
+      this.sets.push(set);
+      this._saveData();
+      this._renderSidebar();
+      this._selectSet(set.id);
+      this._showToast('Set created (empty)', 'warning');
+    });
+  }
+
+  /**
+   * Show filter-based set creation flow
+   */
+  _showFilterSetCreationFlow() {
+    if (this.sets.length === 0) {
+      this._showToast('No sets to filter from. Import data first.', 'warning');
+      return;
+    }
+
+    const html = `
+      <div class="filter-creation-flow">
+        <div class="form-group">
+          <label>Filter from Set</label>
+          <select id="filter-parent-set" class="form-select">
+            ${this.sets.map(set => `
+              <option value="${set.id}">${this._escapeHtml(set.name)} (${set.records?.length || 0} records)</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>New Set Name</label>
+          <input type="text" id="filter-set-name" class="form-input" placeholder="SEG: Filtered Records">
+        </div>
+        <p class="form-hint">You can define filter criteria after creating the set.</p>
+      </div>
+    `;
+
+    this._showModal('Create Filtered Set (SEG)', html, () => {
+      const parentId = document.getElementById('filter-parent-set')?.value;
+      const name = document.getElementById('filter-set-name')?.value?.trim() || 'SEG: Filtered Set';
+      const parentSet = this.sets.find(s => s.id === parentId);
+
+      if (!parentSet) return;
+
+      // Create derived set with SEG operator
+      const set = createSet(name);
+      set.fields = JSON.parse(JSON.stringify(parentSet.fields)); // Copy schema
+      set.records = [...parentSet.records]; // Copy records (filter applied later)
+      set.derivation = {
+        strategy: 'seg',
+        parentSetId: parentId,
+        constraint: { filters: [] },
+        derivedAt: new Date().toISOString()
+      };
+
+      this.sets.push(set);
+      this._saveData();
+      this._renderSidebar();
+      this._selectSet(set.id);
+      this._showToast('Filtered set created', 'success');
+    });
+  }
+
+  /**
+   * Show join-based set creation flow
+   */
+  _showJoinSetCreationFlow() {
+    if (this.sets.length < 2) {
+      this._showToast('Need at least 2 sets to join.', 'warning');
+      return;
+    }
+
+    const html = `
+      <div class="join-creation-flow">
+        <div class="form-group">
+          <label>Select Sets to Join</label>
+          <div class="checkbox-list">
+            ${this.sets.map(set => `
+              <label class="checkbox-item">
+                <input type="checkbox" name="join-sets" value="${set.id}">
+                <span>${this._escapeHtml(set.name)} (${set.records?.length || 0} records)</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>New Set Name</label>
+          <input type="text" id="join-set-name" class="form-input" placeholder="CON: Combined Records">
+        </div>
+      </div>
+    `;
+
+    this._showModal('Create Joined Set (CON)', html, () => {
+      const checkboxes = document.querySelectorAll('input[name="join-sets"]:checked');
+      const setIds = Array.from(checkboxes).map(cb => cb.value);
+      const name = document.getElementById('join-set-name')?.value?.trim() || 'CON: Joined Set';
+
+      if (setIds.length < 2) {
+        this._showToast('Select at least 2 sets to join', 'warning');
+        return;
+      }
+
+      // Create derived set with CON operator
+      const set = createSet(name);
+      set.derivation = {
+        strategy: 'con',
+        joinSetIds: setIds,
+        constraint: { joinCondition: null },
+        derivedAt: new Date().toISOString()
+      };
+
+      // Merge schemas and records
+      const sourceSets = setIds.map(id => this.sets.find(s => s.id === id)).filter(Boolean);
+      set.fields = this._mergeSchemas(sourceSets);
+      set.records = sourceSets.flatMap(s => s.records || []);
+
+      this.sets.push(set);
+      this._saveData();
+      this._renderSidebar();
+      this._selectSet(set.id);
+      this._showToast('Joined set created', 'success');
+    });
+  }
+
+  /**
+   * Merge schemas from multiple sets
+   */
+  _mergeSchemas(sets) {
+    const fieldMap = new Map();
+    for (const set of sets) {
+      for (const field of set.fields || []) {
+        if (!fieldMap.has(field.name)) {
+          fieldMap.set(field.name, { ...field, id: generateId() });
+        }
+      }
+    }
+    return Array.from(fieldMap.values());
+  }
+
+  /**
+   * Show time slice creation flow (placeholder)
+   */
+  _showTimeSliceCreationFlow() {
+    this._showToast('Time slice creation coming soon', 'info');
+  }
+
+  /**
+   * Show combine view flow (placeholder)
+   */
+  _showCombineViewFlow() {
+    this._showToast('Perspective combination coming soon', 'info');
   }
 
   /**
@@ -1101,150 +1451,246 @@ class EODataWorkbench {
 
   /**
    * Render sources navigation (import hierarchy)
-   * Shows data sources grouped by import origin
+   * FIX #1: Sources panel shows ONLY true imports (GIVEN events)
+   * Sets are NOT shown here - they belong in the Sets panel
+   *
+   * EO Principle: Sources are GIVEN (immutable external data)
+   * Sets are MEANT (interpretive schema definitions)
    */
   _renderSourcesNav() {
     const container = document.getElementById('sources-nav');
     if (!container) return;
 
-    // Group sets by their source
-    const sourceGroups = new Map();
-    const noSource = [];
+    // Initialize sources registry if needed
+    if (!this.sources) {
+      this.sources = [];
+    }
+
+    // Extract true sources from sets with provenance (for backwards compatibility)
+    // but DO NOT show sets in sources panel
+    const sourceRegistry = new Map();
 
     for (const set of this.sets) {
       const prov = set.datasetProvenance;
       if (prov && (prov.originalFilename || prov.provenance?.source)) {
         const sourceName = prov.originalFilename || prov.provenance?.source || 'Unknown';
         const sourceKey = sourceName.toLowerCase();
-        if (!sourceGroups.has(sourceKey)) {
-          sourceGroups.set(sourceKey, {
+
+        if (!sourceRegistry.has(sourceKey)) {
+          // Create a true Source entry (GIVEN)
+          sourceRegistry.set(sourceKey, {
+            id: `src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`,
+            type: 'given', // ALWAYS given
+            entityType: 'source',
             name: sourceName,
             importedAt: prov.importedAt,
             provenance: prov.provenance,
-            sets: []
+            recordCount: set.records?.length || 0,
+            isReadOnly: true // Sources are immutable
           });
+        } else {
+          // Aggregate record count from multiple sets derived from same source
+          sourceRegistry.get(sourceKey).recordCount += (set.records?.length || 0);
         }
-        sourceGroups.get(sourceKey).sets.push(set);
-      } else {
-        noSource.push(set);
+      }
+    }
+
+    // Also include any explicit sources
+    for (const source of this.sources) {
+      if (!sourceRegistry.has(source.id)) {
+        sourceRegistry.set(source.id, source);
       }
     }
 
     // Sort sources by import date (newest first)
-    const sortedSources = Array.from(sourceGroups.values()).sort((a, b) => {
+    const sortedSources = Array.from(sourceRegistry.values()).sort((a, b) => {
       if (!a.importedAt) return 1;
       if (!b.importedAt) return -1;
       return new Date(b.importedAt) - new Date(a.importedAt);
     });
 
-    if (sortedSources.length === 0 && noSource.length === 0) {
+    // Empty state - no sources imported yet
+    if (sortedSources.length === 0) {
       container.innerHTML = `
-        <div class="nav-item empty-hint" id="import-first-data">
+        <div class="nav-empty-state">
           <i class="ph ph-file-arrow-down"></i>
-          <span>Import data</span>
+          <span>No data imported yet</span>
+          <button class="btn-link" id="btn-first-import">Import CSV, JSON, or ICS</button>
         </div>
       `;
-      container.querySelector('#import-first-data')?.addEventListener('click', () => {
+      container.querySelector('#btn-first-import')?.addEventListener('click', () => {
         this._showImportModal();
       });
       return;
     }
 
+    // Render sources as a flat list (not a tree with sets!)
     let html = '';
-
-    // Render sources with their sets as a tree
     for (const source of sortedSources) {
-      const isExpanded = this.expandedSources?.has(source.name) ?? true;
       const sourceIcon = this._getSourceIcon(source.name);
       const provenanceInfo = this._formatSourceProvenance(source);
       const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : '';
 
       html += `
-        <div class="source-group ${isExpanded ? 'expanded' : ''}" data-source="${this._escapeHtml(source.name)}">
-          <div class="source-header" title="${provenanceInfo}">
-            <i class="ph ph-caret-right source-toggle"></i>
-            <i class="ph ${sourceIcon} source-icon"></i>
+        <div class="nav-item source-item" data-source-id="${source.id}" title="${provenanceInfo}">
+          <i class="ph ${sourceIcon} source-icon"></i>
+          <div class="source-info">
             <span class="source-name">${this._escapeHtml(this._truncateSourceName(source.name))}</span>
-            <span class="source-provenance-badge" title="GIVEN: Immutable import">◉</span>
-            <span class="source-count">${source.sets.length}</span>
+            <span class="source-meta-inline">${importDate}</span>
           </div>
-          <div class="source-meta">
-            <span class="source-import-date" title="Import date">${importDate}</span>
-            ${source.provenance?.method ? `<span class="source-method">${source.provenance.method}</span>` : ''}
-          </div>
-          <div class="source-children">
-            ${source.sets.map(set => {
-              const totalRecords = set.records?.length || 0;
-              const provenanceIcon = this._getProvenanceStatusIcon(set);
-              return `
-              <div class="nav-item source-set-item ${set.id === this.currentSetId ? 'active' : ''}"
-                   data-set-id="${set.id}"
-                   title="Provenance: ${this._getProvenanceTooltip(set)}">
-                <i class="ph ph-arrow-elbow-down-right tree-line"></i>
-                <span class="set-provenance-icon">${provenanceIcon}</span>
-                <i class="${set.icon || 'ph ph-table'}"></i>
-                <span>${this._escapeHtml(set.name)}</span>
-                <span class="nav-item-count">${totalRecords}</span>
-              </div>
-            `;}).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    // Render sets without provenance
-    if (noSource.length > 0) {
-      html += `
-        <div class="source-group expanded" data-source="__manual__">
-          <div class="source-header" title="Manually created sets">
-            <i class="ph ph-caret-right source-toggle"></i>
-            <i class="ph ph-pencil-simple source-icon"></i>
-            <span class="source-name">Manual</span>
-            <span class="source-count">${noSource.length}</span>
-          </div>
-          <div class="source-children">
-            ${noSource.map(set => `
-              <div class="nav-item source-set-item ${set.id === this.currentSetId ? 'active' : ''}"
-                   data-set-id="${set.id}">
-                <i class="ph ph-arrow-elbow-down-right tree-line"></i>
-                <i class="${set.icon || 'ph ph-table'}"></i>
-                <span>${this._escapeHtml(set.name)}</span>
-                <span class="nav-item-count">${set.records.length}</span>
-              </div>
-            `).join('')}
-          </div>
+          <span class="source-provenance-badge" title="GIVEN: Immutable import">◉</span>
+          <span class="nav-item-count" title="${source.recordCount} records imported">${source.recordCount}</span>
         </div>
       `;
     }
 
     container.innerHTML = html;
 
-    // Attach event handlers
-    container.querySelectorAll('.source-header').forEach(header => {
-      header.addEventListener('click', (e) => {
-        const group = header.closest('.source-group');
-        group.classList.toggle('expanded');
-        const sourceName = group.dataset.source;
-        if (!this.expandedSources) this.expandedSources = new Set();
-        if (group.classList.contains('expanded')) {
-          this.expandedSources.add(sourceName);
-        } else {
-          this.expandedSources.delete(sourceName);
-        }
-      });
-    });
-
-    container.querySelectorAll('.source-set-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._selectSet(item.dataset.setId);
+    // Attach event handlers for source items
+    container.querySelectorAll('.source-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const sourceId = item.dataset.sourceId;
+        this._showSourceDetail(sourceId);
       });
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        this._showSetContextMenu(e, item.dataset.setId);
+        this._showSourceContextMenu(e, item.dataset.sourceId);
       });
     });
+  }
+
+  /**
+   * Show source detail panel
+   * Displays provenance information and derived sets
+   */
+  _showSourceDetail(sourceId) {
+    // Find the source
+    const source = this.sources?.find(s => s.id === sourceId) ||
+      Array.from(this._getSourceRegistry().values()).find(s => s.id === sourceId);
+
+    if (!source) {
+      console.warn('Source not found:', sourceId);
+      return;
+    }
+
+    // Find sets derived from this source
+    const derivedSets = this.sets.filter(set => {
+      const prov = set.datasetProvenance;
+      if (!prov) return false;
+      const sourceName = prov.originalFilename || prov.provenance?.source;
+      return sourceName?.toLowerCase() === source.name.toLowerCase();
+    });
+
+    // Show in detail panel
+    const detailBody = document.getElementById('detail-panel-body');
+    if (!detailBody) return;
+
+    detailBody.innerHTML = `
+      <div class="source-detail">
+        <div class="source-detail-header">
+          <i class="ph ${this._getSourceIcon(source.name)} source-detail-icon"></i>
+          <h3>${this._escapeHtml(source.name)}</h3>
+          <span class="given-badge">GIVEN</span>
+        </div>
+
+        <div class="detail-section provenance-section">
+          <h4><i class="ph ph-git-branch"></i> Provenance</h4>
+          <div class="provenance-info">
+            <div class="provenance-item">
+              <span class="provenance-label">Imported:</span>
+              <span class="provenance-value">${source.importedAt ? new Date(source.importedAt).toLocaleString() : 'Unknown'}</span>
+            </div>
+            ${source.provenance?.agent ? `
+              <div class="provenance-item">
+                <span class="provenance-label">Agent:</span>
+                <span class="provenance-value">${source.provenance.agent}</span>
+              </div>
+            ` : ''}
+            ${source.provenance?.method ? `
+              <div class="provenance-item">
+                <span class="provenance-label">Method:</span>
+                <span class="provenance-value">${source.provenance.method}</span>
+              </div>
+            ` : ''}
+            <div class="provenance-item">
+              <span class="provenance-label">Records:</span>
+              <span class="provenance-value">${source.recordCount}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-section derived-sets-section">
+          <h4><i class="ph ph-table"></i> Derived Sets (${derivedSets.length})</h4>
+          <div class="derived-sets-list">
+            ${derivedSets.map(set => `
+              <div class="derived-set-item" data-set-id="${set.id}">
+                <i class="${set.icon || 'ph ph-table'}"></i>
+                <span>${this._escapeHtml(set.name)}</span>
+                <span class="nav-item-count">${set.records?.length || 0}</span>
+              </div>
+            `).join('')}
+            ${derivedSets.length === 0 ? `
+              <div class="empty-hint">No sets derived from this source</div>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="detail-section immutability-notice">
+          <i class="ph ph-lock"></i>
+          <span>This source is immutable (read-only). To modify data, create a derived Set.</span>
+        </div>
+      </div>
+    `;
+
+    // Attach handlers for derived set items
+    detailBody.querySelectorAll('.derived-set-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._selectSet(item.dataset.setId);
+      });
+    });
+
+    // Show detail panel
+    document.getElementById('detail-panel')?.classList.add('open');
+  }
+
+  /**
+   * Get source registry from sets
+   */
+  _getSourceRegistry() {
+    const registry = new Map();
+    for (const set of this.sets) {
+      const prov = set.datasetProvenance;
+      if (prov && (prov.originalFilename || prov.provenance?.source)) {
+        const sourceName = prov.originalFilename || prov.provenance?.source;
+        const sourceKey = sourceName.toLowerCase();
+        if (!registry.has(sourceKey)) {
+          registry.set(sourceKey, {
+            id: `src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`,
+            name: sourceName,
+            importedAt: prov.importedAt,
+            provenance: prov.provenance,
+            recordCount: 0
+          });
+        }
+        registry.get(sourceKey).recordCount += (set.records?.length || 0);
+      }
+    }
+    return registry;
+  }
+
+  /**
+   * Show context menu for source
+   */
+  _showSourceContextMenu(e, sourceId) {
+    const menu = [
+      { icon: 'ph-info', label: 'View Details', action: () => this._showSourceDetail(sourceId) },
+      { icon: 'ph-table', label: 'Create Derived Set...', action: () => this._showCreateDerivedSetModal(sourceId) },
+      { divider: true },
+      { icon: 'ph-export', label: 'Export Source Data', action: () => this._exportSource(sourceId) }
+    ];
+
+    this._showContextMenu(e.pageX, e.pageY, menu);
   }
 
   /**
