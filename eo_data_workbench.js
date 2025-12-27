@@ -232,6 +232,11 @@ class EODataWorkbench {
 
     // Event handlers
     this._handlers = {};
+
+    // Chunked loading state
+    this.displayedRecordCount = 0;
+    this.recordBatchSize = 100; // Number of records to load per batch
+    this.loadingThreshold = 50; // Show loading indicator when records exceed this
   }
 
   // --------------------------------------------------------------------------
@@ -2768,6 +2773,36 @@ class EODataWorkbench {
       return;
     }
 
+    // Reset displayed record count when switching views
+    this.displayedRecordCount = this.recordBatchSize;
+
+    // Check if we need to show loading for large datasets
+    const records = this.getFilteredRecords();
+    const needsLoading = records.length > this.loadingThreshold;
+
+    if (needsLoading) {
+      this._showLoadingOverlay('Loading view...', {
+        showProgress: records.length > 200,
+        progress: 0,
+        progressText: `Preparing ${records.length.toLocaleString()} records...`
+      });
+
+      // Use requestAnimationFrame to allow the loading UI to render
+      requestAnimationFrame(() => {
+        this._doRenderView(view);
+        this._hideLoadingOverlay();
+        this._updateStatus();
+      });
+    } else {
+      this._doRenderView(view);
+      this._updateStatus();
+    }
+  }
+
+  /**
+   * Actually perform the view rendering (called after loading indicator is shown)
+   */
+  _doRenderView(view) {
     switch (view.type) {
       case 'table':
         this._renderTableView();
@@ -2790,8 +2825,6 @@ class EODataWorkbench {
       default:
         this._renderTableView();
     }
-
-    this._updateStatus();
   }
 
   _renderEmptyState() {
@@ -3038,12 +3071,19 @@ class EODataWorkbench {
 
   _renderTableView() {
     const set = this.getCurrentSet();
-    const records = this.getFilteredRecords();
+    const allRecords = this.getFilteredRecords();
     const fields = this._getVisibleFields();
     const view = this.getCurrentView();
     // Always show provenance column for data with sources
-    const hasProvenance = set?.datasetProvenance?.originalFilename || records.some(r => r.provenance);
+    const hasProvenance = set?.datasetProvenance?.originalFilename || allRecords.some(r => r.provenance);
     const showProvenance = view?.config.showProvenance !== false && hasProvenance;
+
+    // Implement chunked loading for large datasets
+    const totalRecords = allRecords.length;
+    const displayCount = Math.min(this.displayedRecordCount, totalRecords);
+    const records = allRecords.slice(0, displayCount);
+    const hasMoreRecords = displayCount < totalRecords;
+    const remainingRecords = totalRecords - displayCount;
 
     let html = `
       <div class="data-table-container">
@@ -3085,7 +3125,7 @@ class EODataWorkbench {
           <tbody>
     `;
 
-    if (records.length === 0) {
+    if (allRecords.length === 0) {
       html += `
         <tr>
           <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="add-row-cell" id="add-first-record" title="Add a new record/row (Ctrl+N)">
@@ -3123,6 +3163,26 @@ class EODataWorkbench {
         `;
       });
 
+      // Load More button if there are more records
+      if (hasMoreRecords) {
+        const loadMoreCount = Math.min(this.recordBatchSize, remainingRecords);
+        html += `
+          <tr class="load-more-row">
+            <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="load-more-cell">
+              <button class="load-more-btn" id="load-more-records">
+                <i class="ph ph-caret-down"></i>
+                <span>Load ${loadMoreCount.toLocaleString()} more</span>
+                <span class="load-more-remaining">(${remainingRecords.toLocaleString()} remaining)</span>
+              </button>
+              <button class="load-all-btn" id="load-all-records">
+                <i class="ph ph-list"></i>
+                <span>Load all ${totalRecords.toLocaleString()}</span>
+              </button>
+            </td>
+          </tr>
+        `;
+      }
+
       // Add row button at the end
       html += `
         <tr>
@@ -3144,6 +3204,59 @@ class EODataWorkbench {
     this.elements.contentArea.innerHTML = html;
     this._attachTableEventListeners();
     this._attachProvenanceClickHandlers();
+    this._attachLoadMoreHandlers();
+  }
+
+  /**
+   * Attach event handlers for load more buttons
+   */
+  _attachLoadMoreHandlers() {
+    const loadMoreBtn = document.getElementById('load-more-records');
+    const loadAllBtn = document.getElementById('load-all-records');
+
+    loadMoreBtn?.addEventListener('click', () => {
+      this._loadMoreRecords(false);
+    });
+
+    loadAllBtn?.addEventListener('click', () => {
+      this._loadMoreRecords(true);
+    });
+  }
+
+  /**
+   * Load more records into the table view
+   * @param {boolean} loadAll - If true, loads all remaining records
+   */
+  _loadMoreRecords(loadAll = false) {
+    const allRecords = this.getFilteredRecords();
+    const totalRecords = allRecords.length;
+
+    if (loadAll) {
+      // Show loading indicator for large datasets
+      if (totalRecords - this.displayedRecordCount > 500) {
+        this._showLoadingOverlay('Loading all records...', {
+          showProgress: true,
+          progress: 0,
+          progressText: `Loading ${totalRecords.toLocaleString()} records...`
+        });
+
+        requestAnimationFrame(() => {
+          this.displayedRecordCount = totalRecords;
+          this._renderTableView();
+          this._hideLoadingOverlay();
+        });
+      } else {
+        this.displayedRecordCount = totalRecords;
+        this._renderTableView();
+      }
+    } else {
+      // Load next batch
+      this.displayedRecordCount = Math.min(
+        this.displayedRecordCount + this.recordBatchSize,
+        totalRecords
+      );
+      this._renderTableView();
+    }
   }
 
   /**
@@ -4116,12 +4229,19 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderCardsView() {
-    const records = this.getFilteredRecords();
+    const allRecords = this.getFilteredRecords();
     const fields = this._getVisibleFields();
+
+    // Implement chunked loading for large datasets
+    const totalRecords = allRecords.length;
+    const displayCount = Math.min(this.displayedRecordCount, totalRecords);
+    const records = allRecords.slice(0, displayCount);
+    const hasMoreRecords = displayCount < totalRecords;
+    const remainingRecords = totalRecords - displayCount;
 
     let html = '<div class="card-grid">';
 
-    if (records.length === 0) {
+    if (allRecords.length === 0) {
       html = `
         <div class="empty-state">
           <i class="ph ph-cards"></i>
@@ -4160,6 +4280,24 @@ class EODataWorkbench {
           </div>
         `;
       });
+
+      // Load More button if there are more records
+      if (hasMoreRecords) {
+        const loadMoreCount = Math.min(this.recordBatchSize, remainingRecords);
+        html += `
+          <div class="cards-load-more">
+            <button class="load-more-btn" id="cards-load-more">
+              <i class="ph ph-caret-down"></i>
+              <span>Load ${loadMoreCount.toLocaleString()} more</span>
+              <span class="load-more-remaining">(${remainingRecords.toLocaleString()} remaining)</span>
+            </button>
+            <button class="load-all-btn" id="cards-load-all">
+              <i class="ph ph-cards"></i>
+              <span>Load all ${totalRecords.toLocaleString()}</span>
+            </button>
+          </div>
+        `;
+      }
     }
 
     html += '</div>';
@@ -4178,6 +4316,52 @@ class EODataWorkbench {
     });
 
     document.getElementById('cards-add-record')?.addEventListener('click', () => this.addRecord());
+
+    // Load more handlers for cards view
+    document.getElementById('cards-load-more')?.addEventListener('click', () => {
+      this._loadMoreRecordsForView('cards', false);
+    });
+    document.getElementById('cards-load-all')?.addEventListener('click', () => {
+      this._loadMoreRecordsForView('cards', true);
+    });
+  }
+
+  /**
+   * Load more records for a specific view type
+   * @param {string} viewType - The type of view (cards, kanban)
+   * @param {boolean} loadAll - If true, loads all remaining records
+   */
+  _loadMoreRecordsForView(viewType, loadAll = false) {
+    const allRecords = this.getFilteredRecords();
+    const totalRecords = allRecords.length;
+
+    if (loadAll) {
+      if (totalRecords - this.displayedRecordCount > 500) {
+        this._showLoadingOverlay('Loading all records...', {
+          showProgress: true,
+          progress: 0,
+          progressText: `Loading ${totalRecords.toLocaleString()} records...`
+        });
+
+        requestAnimationFrame(() => {
+          this.displayedRecordCount = totalRecords;
+          if (viewType === 'cards') this._renderCardsView();
+          else if (viewType === 'kanban') this._renderKanbanView();
+          this._hideLoadingOverlay();
+        });
+      } else {
+        this.displayedRecordCount = totalRecords;
+        if (viewType === 'cards') this._renderCardsView();
+        else if (viewType === 'kanban') this._renderKanbanView();
+      }
+    } else {
+      this.displayedRecordCount = Math.min(
+        this.displayedRecordCount + this.recordBatchSize,
+        totalRecords
+      );
+      if (viewType === 'cards') this._renderCardsView();
+      else if (viewType === 'kanban') this._renderKanbanView();
+    }
   }
 
   _formatCellValueSimple(value, field) {
@@ -4695,7 +4879,14 @@ class EODataWorkbench {
             </button>
           </div>
         </div>
-        <div class="graph-canvas-wrapper" id="cy-workbench-container"></div>
+        <div class="graph-canvas-wrapper" id="cy-workbench-container">
+          <div class="graph-loading" id="graph-loading">
+            <div class="graph-loading-content">
+              <i class="ph ph-spinner ph-spin"></i>
+              <span>Calculating layout...</span>
+            </div>
+          </div>
+        </div>
         ${!hasRelationships && records.length > 0 ? `
           <div class="graph-hint graph-hint-actionable">
             <div class="graph-hint-content">
@@ -4714,13 +4905,28 @@ class EODataWorkbench {
       </div>
     `;
 
-    // Initialize Cytoscape graph
-    this._initWorkbenchCytoscape(records, primaryField, linkFields);
+    // Show loading indicator for large graphs
+    const showGraphLoading = records.length > 50;
+    if (showGraphLoading) {
+      this._showGraphLoading('Building graph...');
+    }
+
+    // Initialize Cytoscape graph (use setTimeout to allow loading UI to render)
+    if (showGraphLoading) {
+      setTimeout(() => {
+        this._initWorkbenchCytoscape(records, primaryField, linkFields);
+      }, 50);
+    } else {
+      this._initWorkbenchCytoscape(records, primaryField, linkFields);
+    }
 
     // Add control event listeners
     document.getElementById('graph-layout-select')?.addEventListener('change', (e) => {
       this.graphSettings.layout = e.target.value;
-      this._applyWorkbenchLayout();
+      this._showGraphLoading('Recalculating layout...');
+      setTimeout(() => {
+        this._applyWorkbenchLayout();
+      }, 50);
     });
 
     document.getElementById('graph-label-select')?.addEventListener('change', (e) => {
@@ -4935,6 +5141,28 @@ class EODataWorkbench {
   }
 
   /**
+   * Show loading indicator in graph view
+   */
+  _showGraphLoading(message = 'Calculating layout...') {
+    const loadingEl = document.getElementById('graph-loading');
+    if (loadingEl) {
+      const textEl = loadingEl.querySelector('span');
+      if (textEl) textEl.textContent = message;
+      loadingEl.style.display = 'flex';
+    }
+  }
+
+  /**
+   * Hide loading indicator in graph view
+   */
+  _hideGraphLoading() {
+    const loadingEl = document.getElementById('graph-loading');
+    if (loadingEl) {
+      loadingEl.style.display = 'none';
+    }
+  }
+
+  /**
    * Apply layout to workbench graph
    */
   _applyWorkbenchLayout() {
@@ -4943,7 +5171,14 @@ class EODataWorkbench {
     const layoutType = this.graphSettings?.layout || 'force';
     const layoutConfig = getLayoutConfig(layoutType);
 
-    this.workbenchCy.layout(layoutConfig).run();
+    // Add callback to hide loading when layout completes
+    const layout = this.workbenchCy.layout({
+      ...layoutConfig,
+      stop: () => {
+        this._hideGraphLoading();
+      }
+    });
+    layout.run();
   }
 
   /**
@@ -7968,6 +8203,76 @@ class EODataWorkbench {
     }, duration);
 
     return toast;
+  }
+
+  // --------------------------------------------------------------------------
+  // Loading Overlay
+  // --------------------------------------------------------------------------
+
+  /**
+   * Show a loading overlay in the content area
+   * @param {string} message - Loading message to display
+   * @param {object} options - Options for the loading overlay
+   * @param {boolean} options.showProgress - Whether to show a progress bar
+   * @param {number} options.progress - Current progress percentage (0-100)
+   */
+  _showLoadingOverlay(message = 'Loading...', options = {}) {
+    // Remove existing loading overlay if any
+    this._hideLoadingOverlay();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'loading-overlay';
+    overlay.id = 'loading-overlay';
+
+    let progressHtml = '';
+    if (options.showProgress) {
+      progressHtml = `
+        <div class="loading-progress-container">
+          <div class="loading-progress-bar" id="loading-progress-bar" style="width: ${options.progress || 0}%"></div>
+        </div>
+        <p class="loading-progress-text" id="loading-progress-text">${options.progressText || ''}</p>
+      `;
+    }
+
+    overlay.innerHTML = `
+      <div class="loading-content">
+        <div class="loading-spinner">
+          <i class="ph ph-spinner ph-spin"></i>
+        </div>
+        <p class="loading-text">${this._escapeHtml(message)}</p>
+        ${progressHtml}
+      </div>
+    `;
+
+    this.elements.contentArea?.appendChild(overlay);
+    return overlay;
+  }
+
+  /**
+   * Update the loading overlay progress
+   * @param {number} progress - Progress percentage (0-100)
+   * @param {string} text - Optional text to display
+   */
+  _updateLoadingProgress(progress, text = null) {
+    const progressBar = document.getElementById('loading-progress-bar');
+    const progressText = document.getElementById('loading-progress-text');
+
+    if (progressBar) {
+      progressBar.style.width = `${progress}%`;
+    }
+    if (progressText && text !== null) {
+      progressText.textContent = text;
+    }
+  }
+
+  /**
+   * Hide the loading overlay
+   */
+  _hideLoadingOverlay() {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+      overlay.remove();
+    }
   }
 
   // --------------------------------------------------------------------------
