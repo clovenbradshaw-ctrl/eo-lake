@@ -18,6 +18,19 @@
   <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <link rel="stylesheet" href="eo_styles.css">
+
+  <!-- Theme initialization - runs before body to prevent flash -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('eo-lake-theme');
+      if (savedTheme === 'light') {
+        document.documentElement.classList.add('light-theme');
+      } else if (savedTheme === 'dark') {
+        document.documentElement.classList.add('dark-theme');
+      }
+      // If no saved theme, CSS will use system preference as fallback
+    })();
+  </script>
 </head>
 <body>
   <div class="app-container">
@@ -111,6 +124,10 @@
         <div class="nav-item" id="nav-keyboard-shortcuts" title="Keyboard Shortcuts (?)">
           <i class="ph ph-keyboard"></i>
           <span>Shortcuts</span>
+        </div>
+        <div class="nav-item" id="nav-theme-toggle" title="Toggle dark/light mode">
+          <i class="ph ph-moon" id="theme-icon"></i>
+          <span id="theme-label">Dark Mode</span>
         </div>
         <div class="nav-item" id="nav-settings">
           <i class="ph ph-gear"></i>
@@ -599,7 +616,53 @@
 
   <!-- Initialize Application -->
   <script>
+    // Theme management functions
+    function getCurrentTheme() {
+      if (document.documentElement.classList.contains('light-theme')) return 'light';
+      if (document.documentElement.classList.contains('dark-theme')) return 'dark';
+      // Check system preference
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    }
+
+    function setTheme(theme) {
+      document.documentElement.classList.remove('light-theme', 'dark-theme');
+      if (theme === 'light') {
+        document.documentElement.classList.add('light-theme');
+      } else {
+        document.documentElement.classList.add('dark-theme');
+      }
+      localStorage.setItem('eo-lake-theme', theme);
+      updateThemeToggleUI(theme);
+    }
+
+    function updateThemeToggleUI(theme) {
+      const icon = document.getElementById('theme-icon');
+      const label = document.getElementById('theme-label');
+      if (icon && label) {
+        if (theme === 'light') {
+          icon.className = 'ph ph-sun';
+          label.textContent = 'Light Mode';
+        } else {
+          icon.className = 'ph ph-moon';
+          label.textContent = 'Dark Mode';
+        }
+      }
+    }
+
+    function toggleTheme() {
+      const current = getCurrentTheme();
+      setTheme(current === 'light' ? 'dark' : 'light');
+    }
+
     document.addEventListener('DOMContentLoaded', async () => {
+      // Initialize theme toggle button
+      const themeToggle = document.getElementById('nav-theme-toggle');
+      if (themeToggle) {
+        themeToggle.addEventListener('click', toggleTheme);
+        // Update UI to reflect current theme
+        updateThemeToggleUI(getCurrentTheme());
+      }
+
       // Initialize the transparency panel first (so it's ready for connection)
       if (window.initTransparencyPanel) {
         const transparency = window.initTransparencyPanel({

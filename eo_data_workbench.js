@@ -7263,6 +7263,15 @@ class EODataWorkbench {
     this.elements.modal?.classList.remove('active');
   }
 
+  _showImportModal() {
+    // Call the global showImportModal function from eo_import.js
+    if (typeof showImportModal === 'function') {
+      showImportModal();
+    } else {
+      console.error('showImportModal function not available');
+    }
+  }
+
   _showNewSetModal() {
     this._showModal('Create New Set', `
       <div class="form-group">
