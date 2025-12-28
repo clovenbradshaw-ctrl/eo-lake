@@ -2673,10 +2673,9 @@ class EODataWorkbench {
   _formatSourceCellValue(value) {
     if (value === null || value === undefined) return '<span class="null-value">null</span>';
     if (typeof value === 'boolean') return value ? 'true' : 'false';
-    // Handle objects and arrays by JSON stringifying them
+    // Handle objects and arrays with proper JSON rendering
     if (typeof value === 'object') {
-      const jsonStr = JSON.stringify(value);
-      return jsonStr.length > 50 ? this._escapeHtml(jsonStr.substring(0, 50)) + '...' : this._escapeHtml(jsonStr);
+      return this._renderJsonKeyValue(value);
     }
     const str = String(value);
     return str.length > 50 ? this._escapeHtml(str.substring(0, 50)) + '...' : this._escapeHtml(str);
@@ -12092,6 +12091,11 @@ class EODataWorkbench {
       const refRecord = this._findRecordById(refId);
       const refName = refRecord ? this._getRecordPrimaryValue(refRecord) : refId.substring(0, 8);
       return `<span class="prov-ref"><i class="ph ph-arrow-right"></i> ${this._escapeHtml(refName)}</span>`;
+    }
+
+    // Handle objects and arrays with proper JSON rendering
+    if (typeof actualValue === 'object') {
+      return this._renderJsonKeyValue(actualValue);
     }
 
     return this._escapeHtml(String(actualValue));
