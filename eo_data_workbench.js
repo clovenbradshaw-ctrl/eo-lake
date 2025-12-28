@@ -12706,6 +12706,10 @@ let _workbench = null;
 function initDataWorkbench(container = 'content-area', eoApp = null) {
   _workbench = new EODataWorkbench(container);
   _workbench.init(eoApp);
+  // Expose workbench instance globally for onclick handlers
+  if (typeof window !== 'undefined') {
+    window.eoWorkbench = _workbench;
+  }
   return _workbench;
 }
 
