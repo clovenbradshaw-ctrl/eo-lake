@@ -1646,12 +1646,21 @@ class ImportOrchestrator {
     this.workbench._renderView();
     this.workbench._updateStatus();
 
+    // Refresh graph view if it exists (to show new nodes/edges)
+    if (typeof getGraph === 'function') {
+      const graph = getGraph();
+      if (graph) {
+        graph.refresh();
+      }
+    }
+
     return {
       success: true,
       setId: set.id,
       recordCount: set.records.length,
       fieldCount: set.fields.length,
-      viewsCreated
+      viewsCreated,
+      edgesImported: options.includeEdges ? (options.graphInfo?.edges?.length || 0) : 0
     };
   }
 
@@ -2378,13 +2387,30 @@ function initImportHandlers() {
       // Show success
       progressSection.style.display = 'none';
       successSection.style.display = 'flex';
-      document.getElementById('success-message').textContent =
-        `Successfully imported ${result.recordCount} records with ${result.fieldCount} fields`;
+
+      // Build success message including edges if imported
+      let successMsg = `Successfully imported ${result.recordCount} records with ${result.fieldCount} fields`;
+      if (result.edgesImported > 0) {
+        successMsg += ` and ${result.edgesImported} relationships`;
+      }
+      document.getElementById('success-message').textContent = successMsg;
 
       // Show created views info
       if (result.viewsCreated && result.viewsCreated.length > 0) {
         document.getElementById('success-views-created').innerHTML =
           `<i class="ph ph-eye"></i> Created ${result.viewsCreated.length} views: ${result.viewsCreated.join(', ')}`;
+      }
+
+      // Show edges info if imported
+      if (result.edgesImported > 0) {
+        const edgesInfo = document.getElementById('success-edges-created') || document.createElement('div');
+        edgesInfo.id = 'success-edges-created';
+        edgesInfo.style.cssText = 'margin-top: 8px; font-size: 13px; color: var(--text-secondary);';
+        edgesInfo.innerHTML = `<i class="ph ph-arrows-left-right"></i> ${result.edgesImported} edges available in Graph view`;
+        const successViewsEl = document.getElementById('success-views-created');
+        if (successViewsEl && !document.getElementById('success-edges-created')) {
+          successViewsEl.parentNode.insertBefore(edgesInfo, successViewsEl.nextSibling);
+        }
       }
 
       // Close after delay
