@@ -1581,6 +1581,142 @@ html, body {
 .select-tag.color-orange { background: #ffedd5; color: #9a3412; }
 .select-tag.color-gray { background: #e5e7eb; color: #1f2937; }
 
+/* Select Field Modal */
+.select-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: selectModalFadeIn 0.15s ease-out;
+}
+
+@keyframes selectModalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.select-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  width: 320px;
+  max-width: 90vw;
+  max-height: 400px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  animation: selectModalSlideIn 0.15s ease-out;
+}
+
+@keyframes selectModalSlideIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.select-modal-header {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.select-modal-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.select-modal-search i {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.select-modal-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+}
+
+.select-modal-input::placeholder {
+  color: var(--text-muted);
+}
+
+.select-modal-options {
+  overflow-y: auto;
+  max-height: 320px;
+  padding: 6px;
+}
+
+.select-modal-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.select-modal-option:hover {
+  background: var(--bg-tertiary);
+}
+
+.select-modal-option.selected {
+  background: var(--primary-50);
+}
+
+.select-modal-option.select-modal-clear {
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+  border-radius: 0;
+  margin-bottom: 4px;
+}
+
+.select-modal-option.select-modal-clear:hover {
+  background: var(--bg-tertiary);
+}
+
+.select-modal-option.select-modal-clear .select-modal-check {
+  color: var(--text-muted);
+}
+
+.select-modal-check {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-500);
+  font-size: 14px;
+}
+
+.select-modal-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.select-modal-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
 /* Date Field */
 .cell-date {
   color: var(--text-secondary);
