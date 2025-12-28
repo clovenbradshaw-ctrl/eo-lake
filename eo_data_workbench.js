@@ -4239,6 +4239,9 @@ class EODataWorkbench {
       case FieldTypes.JSON:
         this._renderJsonEditor(cell, field, currentValue);
         break;
+      case FieldTypes.LINK:
+        this._renderLinkEditor(cell, field, currentValue);
+        break;
       default:
         this._renderTextEditor(cell, field, currentValue);
     }
@@ -4305,6 +4308,113 @@ class EODataWorkbench {
 
   _closeSelectEditor = (e) => {
     if (!e.target.closest('.select-dropdown')) {
+      this._endCellEdit();
+    }
+  }
+
+  _renderLinkEditor(cell, field, currentValue) {
+    const linkedSetId = field.options?.linkedSetId;
+    const allowMultiple = field.options?.allowMultiple !== false;
+    const linkedSet = linkedSetId ? this.sets.find(s => s.id === linkedSetId) : this.getCurrentSet();
+
+    if (!linkedSet) {
+      cell.innerHTML = '<div class="link-editor-error">No linked set configured</div>';
+      return;
+    }
+
+    const primaryField = linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0];
+    const currentLinks = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+
+    // Build dropdown with available records
+    let html = '<div class="link-dropdown">';
+    html += '<div class="link-dropdown-header">';
+    html += `<span class="link-dropdown-title">Link to ${this._escapeHtml(linkedSet.name)}</span>`;
+    html += '</div>';
+    html += '<div class="link-dropdown-search"><input type="text" placeholder="Search records..." class="link-search-input"></div>';
+    html += '<div class="link-dropdown-options">';
+
+    linkedSet.records.forEach(record => {
+      const recordName = record.values?.[primaryField?.id] || 'Untitled';
+      const isLinked = currentLinks.includes(record.id);
+      html += `
+        <div class="link-option ${isLinked ? 'selected' : ''}" data-record-id="${record.id}">
+          <span class="link-option-check">${isLinked ? '<i class="ph ph-check"></i>' : ''}</span>
+          <span class="link-option-name">${this._escapeHtml(recordName)}</span>
+        </div>
+      `;
+    });
+
+    if (linkedSet.records.length === 0) {
+      html += '<div class="link-option-empty">No records in this set</div>';
+    }
+
+    html += '</div></div>';
+    cell.innerHTML = html;
+
+    const dropdown = cell.querySelector('.link-dropdown');
+    const searchInput = cell.querySelector('.link-search-input');
+    let selectedIds = [...currentLinks];
+
+    // Search filtering
+    searchInput?.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      dropdown.querySelectorAll('.link-option').forEach(opt => {
+        const name = opt.querySelector('.link-option-name')?.textContent.toLowerCase() || '';
+        opt.style.display = name.includes(searchTerm) ? '' : 'none';
+      });
+    });
+    searchInput?.focus();
+
+    // Toggle selection
+    dropdown.querySelectorAll('.link-option').forEach(option => {
+      option.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const recordId = option.dataset.recordId;
+
+        if (allowMultiple) {
+          // Toggle in array
+          const idx = selectedIds.indexOf(recordId);
+          if (idx > -1) {
+            selectedIds.splice(idx, 1);
+            option.classList.remove('selected');
+            option.querySelector('.link-option-check').innerHTML = '';
+          } else {
+            selectedIds.push(recordId);
+            option.classList.add('selected');
+            option.querySelector('.link-option-check').innerHTML = '<i class="ph ph-check"></i>';
+          }
+        } else {
+          // Single selection - replace
+          dropdown.querySelectorAll('.link-option').forEach(o => {
+            o.classList.remove('selected');
+            o.querySelector('.link-option-check').innerHTML = '';
+          });
+          selectedIds = [recordId];
+          option.classList.add('selected');
+          option.querySelector('.link-option-check').innerHTML = '<i class="ph ph-check"></i>';
+          // Auto-close for single select
+          this._updateCellValue(selectedIds);
+          this._endCellEdit();
+          return;
+        }
+      });
+    });
+
+    // Close on click outside and save
+    setTimeout(() => {
+      const closeHandler = (e) => {
+        if (!e.target.closest('.link-dropdown')) {
+          this._updateCellValue(selectedIds.length > 0 ? selectedIds : null);
+          this._endCellEdit();
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      document.addEventListener('click', closeHandler);
+    }, 10);
+  }
+
+  _closeLinkEditor = (e) => {
+    if (!e.target.closest('.link-dropdown')) {
       this._endCellEdit();
     }
   }
@@ -5582,21 +5692,40 @@ class EODataWorkbench {
     const edges = [];
     records.forEach(record => {
       linkFields.forEach(field => {
-        const linkedIds = record.values?.[field.id] || [];
-        if (Array.isArray(linkedIds)) {
-          linkedIds.forEach(linkedId => {
-            if (nodeMap.has(linkedId)) {
+        let linkedIds = record.values?.[field.id];
+
+        // Normalize to array - handle string values from legacy data
+        if (!linkedIds) return;
+        if (!Array.isArray(linkedIds)) {
+          linkedIds = [linkedIds];
+        }
+
+        linkedIds.forEach(linkedId => {
+          // Check if target is in current set
+          if (nodeMap.has(linkedId)) {
+            edges.push({
+              data: {
+                id: `${record.id}-${linkedId}-${field.name}`,
+                source: record.id,
+                target: linkedId,
+                fieldName: field.name
+              }
+            });
+          } else {
+            // Try to find by title/name match for cross-set or legacy links
+            const targetRecord = nodeByTitle.get(linkedId);
+            if (targetRecord) {
               edges.push({
                 data: {
-                  id: `${record.id}-${linkedId}-${field.name}`,
+                  id: `${record.id}-${targetRecord.id}-${field.name}`,
                   source: record.id,
-                  target: linkedId,
+                  target: targetRecord.id,
                   fieldName: field.name
                 }
               });
             }
-          });
-        }
+          }
+        });
       });
     });
 
@@ -6670,20 +6799,20 @@ class EODataWorkbench {
   // Field Operations
   // --------------------------------------------------------------------------
 
-  _addField(type, name = 'New Field') {
+  _addField(type, name = 'New Field', options = {}) {
     const set = this.getCurrentSet();
     if (!set) return;
 
-    const field = createField(name, type);
-
-    // For select fields, add default choices
-    if (type === FieldTypes.SELECT || type === FieldTypes.MULTI_SELECT) {
-      field.options.choices = [
+    // For select fields, ensure default choices if not provided
+    if ((type === FieldTypes.SELECT || type === FieldTypes.MULTI_SELECT) && !options.choices) {
+      options.choices = [
         { id: generateId(), name: 'Option 1', color: 'blue' },
         { id: generateId(), name: 'Option 2', color: 'green' },
         { id: generateId(), name: 'Option 3', color: 'yellow' }
       ];
     }
+
+    const field = createField(name, type, options);
 
     set.fields.push(field);
     this._saveData();
@@ -7204,14 +7333,8 @@ class EODataWorkbench {
               // When changing type, pass the options through callback
               callback(type, { linkedSetId, allowMultiple });
             } else {
-              // When adding new field, create with options
-              const field = this._addField(type, 'Link');
-              if (field) {
-                field.options.linkedSetId = linkedSetId;
-                field.options.allowMultiple = allowMultiple;
-                this._saveData();
-                this._renderView();
-              }
+              // When adding new field, pass options directly
+              this._addField(type, 'Link', { linkedSetId, allowMultiple });
             }
           });
         } else {
