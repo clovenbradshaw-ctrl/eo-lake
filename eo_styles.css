@@ -1442,6 +1442,103 @@ body:has(.header-simplified) .view-disclosure {
   flex: 1;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== View Tabs Header (Airtable-style) ===== */
+.view-tabs-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+}
+
+.view-tabs-scroll {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  flex: 1;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.view-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.view-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: var(--transition-fast);
+}
+
+.view-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.view-tab.active {
+  background: var(--primary-500);
+  color: white;
+}
+
+.view-tab.active i {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.view-tab i {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.view-tab:hover i {
+  color: var(--text-secondary);
+}
+
+.view-tab-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.view-tabs-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px dashed var(--border-secondary);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.view-tabs-add:hover {
+  border-color: var(--primary-400);
+  background: var(--primary-50);
+  color: var(--primary-600);
+}
+
+.view-tabs-add i {
+  font-size: 14px;
 }
 
 /* ===== Status Bar ===== */
@@ -1551,7 +1648,7 @@ body:has(.header-simplified) .view-disclosure {
 
 /* ===== Data Table ===== */
 .data-table-container {
-  height: 100%;
+  flex: 1;
   overflow: auto;
   position: relative;
 }
@@ -3114,6 +3211,9 @@ body:has(.header-simplified) .view-disclosure {
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
   padding: 16px;
+  flex: 1;
+  overflow: auto;
+  align-content: start;
 }
 
 .record-card {
@@ -3201,7 +3301,7 @@ body:has(.header-simplified) .view-disclosure {
   gap: 16px;
   padding: 16px;
   overflow-x: auto;
-  height: 100%;
+  flex: 1;
 }
 
 .kanban-column {
@@ -3533,8 +3633,9 @@ body:has(.header-simplified) .view-disclosure {
 
 /* ===== Calendar View ===== */
 .calendar-container {
-  height: 100%;
+  flex: 1;
   padding: 16px;
+  overflow: auto;
 }
 
 .calendar-header {
@@ -3640,10 +3741,11 @@ body:has(.header-simplified) .view-disclosure {
 
 /* ===== Graph View ===== */
 .graph-container {
-  height: 100%;
+  flex: 1;
   display: flex;
   flex-direction: column;
   position: relative;
+  overflow: hidden;
 }
 
 .graph-toolbar {
@@ -6275,8 +6377,9 @@ a:focus-visible,
 .filesystem-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   background: var(--bg-primary);
+  overflow: auto;
 }
 
 .filesystem-toolbar {
@@ -8182,8 +8285,10 @@ a:focus-visible,
 }
 
 /* ===== View Disclosure Panel ===== */
+/* DEPRECATED: Views now shown in sidebar only (Airtable-style) */
 
 .view-disclosure {
+  display: none !important; /* Hidden - views are in sidebar */
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-primary);
   transition: var(--transition-fast);
