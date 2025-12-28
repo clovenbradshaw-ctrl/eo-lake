@@ -10061,28 +10061,6 @@ class EODataWorkbench {
       exportedAt: new Date().toISOString()
     };
   }
-
-  importData(data, importName = null) {
-    if (data.sets) {
-      this.sets = data.sets;
-      this.currentSetId = this.sets[0]?.id;
-
-      // Create a new view labeled with the import name
-      const set = this.getCurrentSet();
-      if (set && importName) {
-        const newView = createView(importName, 'table');
-        set.views.push(newView);
-        this.currentViewId = newView.id;
-      } else {
-        this.currentViewId = this.sets[0]?.views[0]?.id;
-      }
-
-      this._saveData();
-      this._renderSidebar();
-      this._renderViewsNav();
-      this._renderView();
-    }
-  }
 }
 
 // ============================================================================

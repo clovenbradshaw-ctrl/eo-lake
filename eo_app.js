@@ -991,7 +991,6 @@ function showSettingsModal() {
       <label class="form-label">Data Management</label>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <button class="btn btn-secondary" onclick="exportAllData()"><i class="ph ph-export"></i> Export JSON</button>
-        <button class="btn btn-secondary" onclick="importLegacyData()"><i class="ph ph-download"></i> Import JSON (Legacy)</button>
         <button class="btn btn-danger" onclick="clearAllData()"><i class="ph ph-trash"></i> Clear All</button>
       </div>
     </div>
@@ -1027,31 +1026,6 @@ function exportAllData() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   closeModal();
-}
-
-function importLegacyData() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json';
-  input.onchange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target.result);
-        // Extract name from file (remove .json extension)
-        const importName = file.name.replace(/\.json$/i, '');
-        getDataWorkbench()?.importData(data, importName);
-        closeModal();
-        alert('Data imported successfully!');
-      } catch (err) {
-        alert('Failed to import: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
-  };
-  input.click();
 }
 
 // Keep old name for backwards compatibility
@@ -1148,7 +1122,6 @@ if (typeof window !== 'undefined') {
   window.initApp = initApp;
   window.exportAllData = exportAllData;
   window.importData = importData;
-  window.importLegacyData = importLegacyData;
   window.clearAllData = clearAllData;
   window.closeModal = closeModal;
 }
