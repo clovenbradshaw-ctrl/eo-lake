@@ -5,6 +5,168 @@
  * for append-only event synchronization.
  *
  * Designed for backup with future-proofing for intelligent delta sync.
+ *
+ * =============================================================================
+ * SERVER-SIDE DATABASE SCHEMA
+ * =============================================================================
+ *
+ * The server implementing this API should use the following schema.
+ * Examples are provided for PostgreSQL, but the design works with any
+ * relational database.
+ *
+ * -----------------------------------------------------------------------------
+ * EVENTS TABLE
+ * -----------------------------------------------------------------------------
+ *
+ * CREATE TABLE events (
+ *   -- Primary identification
+ *   id                VARCHAR(64) PRIMARY KEY,        -- Client-generated event ID (e.g., "evt_abc123")
+ *   workspace_id      VARCHAR(64) NOT NULL,           -- Workspace/tenant isolation
+ *
+ *   -- Server-assigned ordering (critical for sync)
+ *   logical_clock     BIGINT NOT NULL,                -- Server-assigned monotonic clock
+ *
+ *   -- Epistemic metadata
+ *   epistemic_type    VARCHAR(32) NOT NULL,           -- 'given', 'derived', 'asserted', 'retracted'
+ *   category          VARCHAR(32) NOT NULL,           -- 'schema', 'data', 'view', 'import', 'edge', 'system'
+ *   action            VARCHAR(64) NOT NULL,           -- Action name (e.g., 'record_create', 'field_add')
+ *
+ *   -- Actor and timing
+ *   actor             VARCHAR(128) NOT NULL,          -- Who/what created the event
+ *   timestamp         TIMESTAMPTZ NOT NULL,           -- Client-provided timestamp (ISO 8601)
+ *   client_clock      BIGINT,                         -- Client's logical clock (if provided)
+ *
+ *   -- Event graph (DAG structure)
+ *   parents           JSONB DEFAULT '[]',             -- Array of parent event IDs
+ *
+ *   -- Entity reference (for efficient filtering)
+ *   entity_id         VARCHAR(64),                    -- ID of affected entity (set, record, field)
+ *   entity_type       VARCHAR(32),                    -- 'set', 'record', 'field', 'view', 'workspace'
+ *
+ *   -- Structured metadata
+ *   context           JSONB DEFAULT '{}',             -- Workspace context, schema version
+ *   grounding         JSONB,                          -- Source/provenance information
+ *   frame             JSONB,                          -- Validity window / temporal context
+ *   supersession      JSONB,                          -- What this event supersedes
+ *
+ *   -- Event payload
+ *   payload           JSONB NOT NULL,                 -- Full event payload
+ *
+ *   -- Server metadata
+ *   received_at       TIMESTAMPTZ DEFAULT NOW(),      -- When server received the event
+ *
+ *   -- Constraints
+ *   UNIQUE(workspace_id, id)                          -- Events unique within workspace
+ * );
+ *
+ * -----------------------------------------------------------------------------
+ * REQUIRED INDEXES
+ * -----------------------------------------------------------------------------
+ *
+ * These indexes are essential for the API's query patterns:
+ *
+ * 1. PRIMARY SYNC INDEX - Used for delta sync (GET with since_clock)
+ *    This is the most critical index for sync performance.
+ *
+ *    CREATE INDEX idx_events_sync
+ *      ON events (workspace_id, logical_clock);
+ *
+ * 2. DUPLICATE DETECTION - Used during POST to detect existing events
+ *    The UNIQUE constraint serves this purpose, but an explicit index helps.
+ *
+ *    CREATE UNIQUE INDEX idx_events_workspace_id
+ *      ON events (workspace_id, id);
+ *
+ * 3. CATEGORY FILTERING - Used when pulling events by category
+ *    Supports filtering for 'schema', 'data', 'view', etc.
+ *
+ *    CREATE INDEX idx_events_category
+ *      ON events (workspace_id, category, logical_clock);
+ *
+ * 4. ENTITY LOOKUP - Used for entity-specific event history
+ *    Enables "get all events for record X" queries.
+ *
+ *    CREATE INDEX idx_events_entity
+ *      ON events (workspace_id, entity_type, entity_id, logical_clock);
+ *
+ * 5. TIMESTAMP RANGE - Used for time-based queries and cleanup
+ *    Supports queries like "events in the last 24 hours".
+ *
+ *    CREATE INDEX idx_events_timestamp
+ *      ON events (workspace_id, timestamp);
+ *
+ * 6. PARENT LOOKUP - Used for DAG traversal (finding children)
+ *    GIN index for efficient JSONB array containment queries.
+ *
+ *    CREATE INDEX idx_events_parents
+ *      ON events USING GIN (parents);
+ *
+ * -----------------------------------------------------------------------------
+ * OPTIONAL INDEXES (for advanced use cases)
+ * -----------------------------------------------------------------------------
+ *
+ * 7. ACTOR INDEX - If you need to query events by actor
+ *
+ *    CREATE INDEX idx_events_actor
+ *      ON events (workspace_id, actor, logical_clock);
+ *
+ * 8. EPISTEMIC TYPE - If filtering by epistemic type is common
+ *
+ *    CREATE INDEX idx_events_epistemic
+ *      ON events (workspace_id, epistemic_type, logical_clock);
+ *
+ * 9. PAYLOAD FIELDS - For specific payload queries (use sparingly)
+ *    Example: index on payload->>'setId' for set-specific queries
+ *
+ *    CREATE INDEX idx_events_payload_set
+ *      ON events ((payload->>'setId'))
+ *      WHERE payload->>'setId' IS NOT NULL;
+ *
+ * -----------------------------------------------------------------------------
+ * LOGICAL CLOCK SEQUENCE
+ * -----------------------------------------------------------------------------
+ *
+ * The server must assign monotonically increasing logical_clock values.
+ * Use a sequence or similar mechanism:
+ *
+ *    CREATE SEQUENCE events_logical_clock_seq;
+ *
+ * Or per-workspace if you need workspace-isolated clocks:
+ *
+ *    CREATE TABLE workspace_clocks (
+ *      workspace_id  VARCHAR(64) PRIMARY KEY,
+ *      clock         BIGINT NOT NULL DEFAULT 0
+ *    );
+ *
+ * -----------------------------------------------------------------------------
+ * EXAMPLE QUERIES THE INDEXES SUPPORT
+ * -----------------------------------------------------------------------------
+ *
+ * 1. Delta sync (most common - uses idx_events_sync):
+ *    SELECT * FROM events
+ *    WHERE workspace_id = $1 AND logical_clock > $2
+ *    ORDER BY logical_clock ASC
+ *    LIMIT 1000;
+ *
+ * 2. Duplicate check (uses idx_events_workspace_id):
+ *    SELECT id FROM events
+ *    WHERE workspace_id = $1 AND id = ANY($2);
+ *
+ * 3. Category filter (uses idx_events_category):
+ *    SELECT * FROM events
+ *    WHERE workspace_id = $1 AND category = 'schema' AND logical_clock > $2
+ *    ORDER BY logical_clock ASC;
+ *
+ * 4. Entity history (uses idx_events_entity):
+ *    SELECT * FROM events
+ *    WHERE workspace_id = $1 AND entity_type = 'record' AND entity_id = $2
+ *    ORDER BY logical_clock ASC;
+ *
+ * 5. Find children of an event (uses idx_events_parents):
+ *    SELECT * FROM events
+ *    WHERE parents @> '["evt_abc123"]'::jsonb;
+ *
+ * =============================================================================
  */
 
 /**
