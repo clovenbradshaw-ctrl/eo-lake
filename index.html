@@ -105,6 +105,10 @@
 
       <!-- Sidebar Footer -->
       <div class="sidebar-footer">
+        <div class="nav-item nav-item-eoql" id="nav-eoql" title="EOQL Query Console (Ctrl+Q)">
+          <i class="ph ph-database"></i>
+          <span>EOQL Query</span>
+        </div>
         <div class="nav-item" id="nav-keyboard-shortcuts" title="Keyboard Shortcuts (?)">
           <i class="ph ph-keyboard"></i>
           <span>Shortcuts</span>
@@ -196,6 +200,12 @@
                   <i class="ph ph-camera"></i>
                   <span>Snapshot</span>
                   <span class="shortcut-hint">Ctrl+S</span>
+                </button>
+                <div class="tools-dropdown-divider"></div>
+                <button class="tools-dropdown-item" id="btn-eoql-dropdown" title="Open EOQL Query Console">
+                  <i class="ph ph-database"></i>
+                  <span>EOQL Query</span>
+                  <span class="shortcut-hint">Ctrl+Q</span>
                 </button>
               </div>
             </div>
@@ -612,6 +622,17 @@
             <span class="shortcut-desc">Rename tab</span>
           </div>
         </div>
+        <div class="shortcuts-section">
+          <h4>EOQL Query</h4>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Q</kbd></span>
+            <span class="shortcut-desc">Open EOQL Query Console</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Enter</kbd></span>
+            <span class="shortcut-desc">Execute query (in console)</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -641,6 +662,8 @@
   <script src="eo_provenance.js"></script>
   <script src="eo_import.js"></script>
   <script src="eo_export.js"></script>
+  <script src="eo_eoql.js"></script>             <!-- EOQL: Query language for EO systems -->
+  <script src="eo_eoql_editor.js"></script>      <!-- EOQL Editor: Visual query interface -->
   <script src="eo_data_workbench.js"></script>
 
   <!-- Scripts - UI Controllers -->
@@ -694,6 +717,30 @@
         // Update UI to reflect current theme
         updateThemeToggleUI(getCurrentTheme());
       }
+
+      // Initialize EOQL button
+      const eoqlBtn = document.getElementById('nav-eoql');
+      if (eoqlBtn) {
+        eoqlBtn.addEventListener('click', () => {
+          if (window.openEOQLEditor) {
+            window.openEOQLEditor({
+              dataWorkbench: window.dataWorkbench
+            });
+          }
+        });
+      }
+
+      // Global keyboard shortcut for EOQL (Ctrl+Q)
+      document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'q') {
+          e.preventDefault();
+          if (window.openEOQLEditor) {
+            window.openEOQLEditor({
+              dataWorkbench: window.dataWorkbench
+            });
+          }
+        }
+      });
 
       // Initialize the main application
       if (window.initApp) {

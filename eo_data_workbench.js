@@ -630,6 +630,12 @@ class EODataWorkbench {
       this._hideToolsDropdown();
       this._showNewSnapshotModal();
     });
+    document.getElementById('btn-eoql-dropdown')?.addEventListener('click', () => {
+      this._hideToolsDropdown();
+      if (window.openEOQLEditor) {
+        window.openEOQLEditor({ dataWorkbench: this });
+      }
+    });
 
     // Close dropdown when clicking outside
     document.addEventListener('click', (e) => {
