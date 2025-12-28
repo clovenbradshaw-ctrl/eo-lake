@@ -7820,3 +7820,331 @@ body.has-picked-up .browser-tab:hover {
   padding: 8px 12px;
   text-align: center;
 }
+
+/* ===== Subfields Feature Styles ===== */
+
+/* Subfields Configuration Modal */
+.subfields-config-modal {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.subfields-mode-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.subfields-mode-toggle .radio-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.subfields-mode-toggle .radio-label:has(input:checked) {
+  border-color: var(--accent-primary);
+  background: var(--bg-tertiary);
+}
+
+.subfields-mode-toggle .radio-label input {
+  margin-right: 8px;
+}
+
+.subfields-mode-toggle .radio-label span {
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+}
+
+.subfields-mode-toggle .radio-label small {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-left: 22px;
+}
+
+/* Schema Definition */
+.subfields-schema-section {
+  margin-top: 16px;
+}
+
+.subfields-schema-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.subfields-schema-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+  padding: 16px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.subfields-schema-row {
+  display: grid;
+  grid-template-columns: 1fr 120px auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.subfields-schema-row .subfield-key {
+  min-width: 100px;
+}
+
+.subfields-schema-row .subfield-type {
+  min-width: 100px;
+}
+
+.subfield-required-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.subfield-remove {
+  padding: 4px 8px;
+  color: var(--text-muted);
+}
+
+.subfield-remove:hover {
+  color: var(--color-red);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+/* JSON Detection Section */
+.subfields-json-detect {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+#detect-schema-btn {
+  margin-top: 8px;
+}
+
+/* Cell Subfields Display */
+.cell-with-subfields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cell-with-subfields.compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.subfields-main-value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.subfields-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: var(--accent-primary);
+  color: white;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.subfields-indicator i {
+  font-size: 10px;
+}
+
+.subfields-count {
+  font-size: 10px;
+}
+
+/* Inline Display */
+.cell-with-subfields.inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.subfields-inline-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.subfield-inline-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+}
+
+.subfield-inline-key {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.subfield-inline-key::after {
+  content: ':';
+}
+
+.subfield-inline-val {
+  color: var(--text-primary);
+}
+
+.subfields-more {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+}
+
+/* Expanded Display */
+.cell-with-subfields.expanded .subfields-main-value {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.subfields-expanded-params {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  border-top: 1px solid var(--border-light);
+  margin-top: 4px;
+}
+
+.subfield-expanded-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.subfield-expanded-key {
+  color: var(--accent-primary);
+  font-weight: 500;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+.subfield-expanded-key::after {
+  content: ':';
+}
+
+.subfield-expanded-val {
+  color: var(--text-secondary);
+}
+
+.subfield-expanded-val i.ph-check-circle {
+  color: var(--color-green);
+}
+
+.subfield-expanded-val i.ph-x-circle {
+  color: var(--color-red);
+}
+
+/* Subfields Edit Modal */
+.subfields-edit-modal {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.subfields-params-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.subfield-edit-row {
+  display: grid;
+  grid-template-columns: 100px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.subfield-edit-row.custom-param-row {
+  grid-template-columns: 1fr 1fr auto;
+}
+
+.subfield-edit-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.subfield-edit-label .required {
+  color: var(--color-red);
+}
+
+.param-key,
+.param-value {
+  font-size: 13px;
+}
+
+.param-remove {
+  padding: 4px 8px;
+  color: var(--text-muted);
+}
+
+.param-remove:hover {
+  color: var(--color-red);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+#add-custom-param-btn {
+  margin-top: 8px;
+}
+
+/* JSON Paste Section in Edit Modal */
+.subfields-json-paste-section {
+  border-top: 1px solid var(--border-light);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+#subfield-json-paste {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+  min-height: 60px;
+}
+
+#parse-json-params-btn {
+  margin-top: 8px;
+}
+
+/* Cells with subfields have larger min-width */
+.data-table td:has(.cell-with-subfields) {
+  min-width: 180px;
+  vertical-align: top;
+}
+
+.data-table td:has(.cell-with-subfields.expanded) {
+  min-width: 220px;
+}

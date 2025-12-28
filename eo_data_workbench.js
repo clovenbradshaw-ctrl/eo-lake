@@ -155,6 +155,20 @@ function createField(name, type, options = {}) {
       break;
   }
 
+  // Subfields configuration (available for any field type)
+  // Allows adding structured key-value parameters to cell values
+  if (options.subfields) {
+    field.options.subfields = {
+      // 'standard' = same subfields for all rows (schema-defined)
+      // 'custom' = each cell can have its own subfields
+      mode: options.subfields.mode || 'custom',
+      // Schema definition for standard mode
+      schema: options.subfields.schema || [],
+      // Display mode: 'compact' (indicator), 'inline' (sub-columns), 'expanded' (full)
+      display: options.subfields.display || 'compact'
+    };
+  }
+
   return field;
 }
 
@@ -4215,12 +4229,18 @@ class EODataWorkbench {
       return;
     }
 
+    const currentValue = record.values[fieldId];
+
+    // If field has subfields configured, use the subfields modal
+    if (field.options?.subfields) {
+      this._showSubfieldsEditModal(recordId, fieldId, currentValue);
+      return;
+    }
+
     // Store original content for cancel restoration (avoids full re-render)
     const originalContent = cell.innerHTML;
     this.editingCell = { cell, recordId, fieldId, originalContent, field };
     cell.classList.add('cell-editing');
-
-    const currentValue = record.values[fieldId];
 
     // Render appropriate editor
     switch (field.type) {
@@ -4510,6 +4530,12 @@ class EODataWorkbench {
    * Used for targeted cell updates.
    */
   _renderCellContent(field, value) {
+    // Check if field has subfields configured
+    const hasSubfields = field.options?.subfields;
+    if (hasSubfields) {
+      return this._renderCellWithSubfields(field, value);
+    }
+
     switch (field.type) {
       case FieldTypes.TEXT:
       case FieldTypes.LONG_TEXT:
@@ -6984,6 +7010,11 @@ class EODataWorkbench {
       'json': 'JSON'
     };
 
+    const hasSubfields = field.options?.subfields;
+    const subfieldLabel = hasSubfields
+      ? `Subfields (${field.options.subfields.mode})`
+      : 'Add Subfields';
+
     menu.innerHTML = `
       <div class="context-menu-item" data-action="rename">
         <i class="ph ph-pencil"></i>
@@ -6992,6 +7023,10 @@ class EODataWorkbench {
       <div class="context-menu-item" data-action="change-type">
         <i class="ph ${FieldTypeIcons[field.type]}"></i>
         <span>Change type (${typeNames[field.type] || field.type})</span>
+      </div>
+      <div class="context-menu-item" data-action="configure-subfields">
+        <i class="ph ph-brackets-curly"></i>
+        <span>${subfieldLabel}</span>
       </div>
       <div class="context-menu-item" data-action="hide">
         <i class="ph ph-eye-slash"></i>
@@ -7049,6 +7084,9 @@ class EODataWorkbench {
             this._showFieldTypePicker(clickEvent, (newType, options = {}) => {
               this._changeFieldType(fieldId, newType, options);
             });
+            break;
+          case 'configure-subfields':
+            this._showSubfieldsConfigModal(fieldId);
             break;
           case 'hide':
             this._hideField(fieldId);
@@ -7687,6 +7725,505 @@ class EODataWorkbench {
       const input = document.getElementById('rename-field-input');
       input?.focus();
       input?.select();
+    }, 100);
+  }
+
+  /**
+   * Show modal to configure subfields for a field (column-level configuration)
+   */
+  _showSubfieldsConfigModal(fieldId) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    const existingConfig = field.options?.subfields || { mode: 'custom', schema: [], display: 'compact' };
+    const schemaRows = existingConfig.schema || [];
+
+    // Build schema rows HTML
+    const buildSchemaRowsHtml = (rows) => {
+      if (rows.length === 0) {
+        return '<div class="subfields-schema-empty">No subfields defined. Add one below or paste JSON to detect.</div>';
+      }
+      return rows.map((sf, idx) => `
+        <div class="subfields-schema-row" data-index="${idx}">
+          <input type="text" class="form-input subfield-key" placeholder="Key" value="${this._escapeHtml(sf.key || '')}">
+          <select class="form-select subfield-type">
+            <option value="text" ${sf.type === 'text' ? 'selected' : ''}>Text</option>
+            <option value="number" ${sf.type === 'number' ? 'selected' : ''}>Number</option>
+            <option value="boolean" ${sf.type === 'boolean' ? 'selected' : ''}>Boolean</option>
+            <option value="date" ${sf.type === 'date' ? 'selected' : ''}>Date</option>
+            <option value="email" ${sf.type === 'email' ? 'selected' : ''}>Email</option>
+            <option value="url" ${sf.type === 'url' ? 'selected' : ''}>URL</option>
+          </select>
+          <label class="subfield-required-label">
+            <input type="checkbox" class="subfield-required" ${sf.required ? 'checked' : ''}>
+            Req
+          </label>
+          <button type="button" class="btn btn-icon subfield-remove" title="Remove">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+      `).join('');
+    };
+
+    const html = `
+      <div class="subfields-config-modal">
+        <div class="form-group">
+          <label class="form-label">Subfield Mode</label>
+          <div class="subfields-mode-toggle">
+            <label class="radio-label">
+              <input type="radio" name="subfields-mode" value="custom" ${existingConfig.mode === 'custom' ? 'checked' : ''}>
+              <span>Custom</span>
+              <small>Each cell can have its own unique subfields</small>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="subfields-mode" value="standard" ${existingConfig.mode === 'standard' ? 'checked' : ''}>
+              <span>Standard</span>
+              <small>Same subfields for all rows (schema-defined)</small>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group subfields-schema-section" style="${existingConfig.mode === 'custom' ? 'display:none' : ''}">
+          <label class="form-label">Schema Definition</label>
+          <div class="subfields-schema-list" id="subfields-schema-list">
+            ${buildSchemaRowsHtml(schemaRows)}
+          </div>
+          <button type="button" class="btn btn-secondary" id="add-subfield-btn">
+            <i class="ph ph-plus"></i> Add Subfield
+          </button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Display Mode</label>
+          <select class="form-select" id="subfields-display">
+            <option value="compact" ${existingConfig.display === 'compact' ? 'selected' : ''}>Compact (indicator only)</option>
+            <option value="inline" ${existingConfig.display === 'inline' ? 'selected' : ''}>Inline (show key subfields)</option>
+            <option value="expanded" ${existingConfig.display === 'expanded' ? 'selected' : ''}>Expanded (show all in cell)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Detect from JSON (paste sample)</label>
+          <textarea class="form-input subfields-json-detect" id="subfields-json-detect" rows="3" placeholder='{"key1": "value", "key2": 123}'></textarea>
+          <button type="button" class="btn btn-secondary" id="detect-schema-btn">
+            <i class="ph ph-magnifying-glass"></i> Detect Schema
+          </button>
+        </div>
+
+        ${existingConfig.mode !== 'custom' || schemaRows.length > 0 ? `
+          <div class="form-group">
+            <button type="button" class="btn btn-danger" id="remove-subfields-btn">
+              <i class="ph ph-trash"></i> Remove All Subfields
+            </button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    this._showModal(`Configure Subfields: ${field.name}`, html, () => {
+      // Collect configuration
+      const mode = document.querySelector('input[name="subfields-mode"]:checked')?.value || 'custom';
+      const display = document.getElementById('subfields-display')?.value || 'compact';
+
+      // Collect schema from rows
+      const schema = [];
+      document.querySelectorAll('.subfields-schema-row').forEach(row => {
+        const key = row.querySelector('.subfield-key')?.value?.trim();
+        const type = row.querySelector('.subfield-type')?.value || 'text';
+        const required = row.querySelector('.subfield-required')?.checked || false;
+        if (key) {
+          schema.push({ key, type, required });
+        }
+      });
+
+      // Update field options
+      if (!field.options) field.options = {};
+      field.options.subfields = { mode, schema, display };
+
+      this._saveData();
+      this._renderView();
+      this._showToast('Subfields configured', 'success');
+    });
+
+    // Attach event handlers after modal is shown
+    setTimeout(() => {
+      // Mode toggle - show/hide schema section
+      document.querySelectorAll('input[name="subfields-mode"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+          const schemaSection = document.querySelector('.subfields-schema-section');
+          if (schemaSection) {
+            schemaSection.style.display = e.target.value === 'standard' ? '' : 'none';
+          }
+        });
+      });
+
+      // Add subfield button
+      document.getElementById('add-subfield-btn')?.addEventListener('click', () => {
+        const list = document.getElementById('subfields-schema-list');
+        const emptyMsg = list.querySelector('.subfields-schema-empty');
+        if (emptyMsg) emptyMsg.remove();
+
+        const idx = list.querySelectorAll('.subfields-schema-row').length;
+        const newRow = document.createElement('div');
+        newRow.className = 'subfields-schema-row';
+        newRow.dataset.index = idx;
+        newRow.innerHTML = `
+          <input type="text" class="form-input subfield-key" placeholder="Key" value="">
+          <select class="form-select subfield-type">
+            <option value="text" selected>Text</option>
+            <option value="number">Number</option>
+            <option value="boolean">Boolean</option>
+            <option value="date">Date</option>
+            <option value="email">Email</option>
+            <option value="url">URL</option>
+          </select>
+          <label class="subfield-required-label">
+            <input type="checkbox" class="subfield-required">
+            Req
+          </label>
+          <button type="button" class="btn btn-icon subfield-remove" title="Remove">
+            <i class="ph ph-x"></i>
+          </button>
+        `;
+        list.appendChild(newRow);
+        newRow.querySelector('.subfield-key')?.focus();
+
+        // Attach remove handler
+        newRow.querySelector('.subfield-remove')?.addEventListener('click', () => {
+          newRow.remove();
+        });
+      });
+
+      // Attach remove handlers to existing rows
+      document.querySelectorAll('.subfield-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+          btn.closest('.subfields-schema-row')?.remove();
+        });
+      });
+
+      // Detect schema from JSON
+      document.getElementById('detect-schema-btn')?.addEventListener('click', () => {
+        const jsonInput = document.getElementById('subfields-json-detect')?.value?.trim();
+        if (!jsonInput) {
+          this._showToast('Please paste JSON to detect schema', 'warning');
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(jsonInput);
+          const obj = Array.isArray(parsed) ? parsed[0] : parsed;
+          if (typeof obj !== 'object' || obj === null) {
+            this._showToast('JSON must be an object or array of objects', 'warning');
+            return;
+          }
+
+          // Infer schema from object keys
+          const detectedSchema = Object.entries(obj).map(([key, value]) => {
+            let type = 'text';
+            if (typeof value === 'number') type = 'number';
+            else if (typeof value === 'boolean') type = 'boolean';
+            else if (typeof value === 'string') {
+              if (/^\d{4}-\d{2}-\d{2}/.test(value)) type = 'date';
+              else if (/^https?:\/\//.test(value)) type = 'url';
+              else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) type = 'email';
+            }
+            return { key, type, required: false };
+          });
+
+          // Update the schema list
+          const list = document.getElementById('subfields-schema-list');
+          list.innerHTML = detectedSchema.map((sf, idx) => `
+            <div class="subfields-schema-row" data-index="${idx}">
+              <input type="text" class="form-input subfield-key" placeholder="Key" value="${this._escapeHtml(sf.key)}">
+              <select class="form-select subfield-type">
+                <option value="text" ${sf.type === 'text' ? 'selected' : ''}>Text</option>
+                <option value="number" ${sf.type === 'number' ? 'selected' : ''}>Number</option>
+                <option value="boolean" ${sf.type === 'boolean' ? 'selected' : ''}>Boolean</option>
+                <option value="date" ${sf.type === 'date' ? 'selected' : ''}>Date</option>
+                <option value="email" ${sf.type === 'email' ? 'selected' : ''}>Email</option>
+                <option value="url" ${sf.type === 'url' ? 'selected' : ''}>URL</option>
+              </select>
+              <label class="subfield-required-label">
+                <input type="checkbox" class="subfield-required">
+                Req
+              </label>
+              <button type="button" class="btn btn-icon subfield-remove" title="Remove">
+                <i class="ph ph-x"></i>
+              </button>
+            </div>
+          `).join('');
+
+          // Reattach remove handlers
+          document.querySelectorAll('.subfield-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+              btn.closest('.subfields-schema-row')?.remove();
+            });
+          });
+
+          // Switch to standard mode
+          document.querySelector('input[name="subfields-mode"][value="standard"]').checked = true;
+          document.querySelector('.subfields-schema-section').style.display = '';
+
+          this._showToast(`Detected ${detectedSchema.length} subfields`, 'success');
+        } catch (e) {
+          this._showToast('Invalid JSON: ' + e.message, 'error');
+        }
+      });
+
+      // Remove all subfields button
+      document.getElementById('remove-subfields-btn')?.addEventListener('click', () => {
+        if (confirm('Remove all subfield configuration from this field?')) {
+          delete field.options.subfields;
+          this._saveData();
+          this._closeModal();
+          this._renderView();
+          this._showToast('Subfields removed', 'success');
+        }
+      });
+    }, 100);
+  }
+
+  /**
+   * Show modal to edit subfields for a specific cell value
+   */
+  _showSubfieldsEditModal(recordId, fieldId, currentValue) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    const record = set?.records.find(r => r.id === recordId);
+    if (!field || !record) return;
+
+    const subfieldsConfig = field.options?.subfields;
+    if (!subfieldsConfig) return;
+
+    // Parse current value - can be { value, params } or just a primitive
+    let mainValue = currentValue;
+    let params = {};
+    if (currentValue && typeof currentValue === 'object' && 'value' in currentValue) {
+      mainValue = currentValue.value;
+      params = currentValue.params || {};
+    }
+
+    const isStandard = subfieldsConfig.mode === 'standard';
+    const schema = subfieldsConfig.schema || [];
+
+    // Build params editor HTML
+    let paramsHtml = '';
+    if (isStandard && schema.length > 0) {
+      // Standard mode: show form based on schema
+      paramsHtml = schema.map(sf => {
+        const val = params[sf.key] ?? '';
+        const reqLabel = sf.required ? ' <span class="required">*</span>' : '';
+        let inputHtml = '';
+
+        switch (sf.type) {
+          case 'boolean':
+            inputHtml = `<input type="checkbox" class="subfield-value-input" data-key="${sf.key}" ${val ? 'checked' : ''}>`;
+            break;
+          case 'number':
+            inputHtml = `<input type="number" class="form-input subfield-value-input" data-key="${sf.key}" value="${this._escapeHtml(String(val))}">`;
+            break;
+          case 'date':
+            inputHtml = `<input type="date" class="form-input subfield-value-input" data-key="${sf.key}" value="${this._escapeHtml(String(val))}">`;
+            break;
+          case 'email':
+            inputHtml = `<input type="email" class="form-input subfield-value-input" data-key="${sf.key}" value="${this._escapeHtml(String(val))}">`;
+            break;
+          case 'url':
+            inputHtml = `<input type="url" class="form-input subfield-value-input" data-key="${sf.key}" value="${this._escapeHtml(String(val))}" placeholder="https://...">`;
+            break;
+          default:
+            inputHtml = `<input type="text" class="form-input subfield-value-input" data-key="${sf.key}" value="${this._escapeHtml(String(val))}">`;
+        }
+
+        return `
+          <div class="subfield-edit-row">
+            <label class="subfield-edit-label">${this._escapeHtml(sf.key)}${reqLabel}</label>
+            ${inputHtml}
+          </div>
+        `;
+      }).join('');
+    } else {
+      // Custom mode: show existing params + ability to add new
+      const existingParams = Object.entries(params);
+      paramsHtml = `
+        <div id="custom-params-list">
+          ${existingParams.map(([key, val]) => `
+            <div class="subfield-edit-row custom-param-row">
+              <input type="text" class="form-input param-key" value="${this._escapeHtml(key)}" placeholder="Key">
+              <input type="text" class="form-input param-value" value="${this._escapeHtml(String(val))}" placeholder="Value">
+              <button type="button" class="btn btn-icon param-remove" title="Remove">
+                <i class="ph ph-x"></i>
+              </button>
+            </div>
+          `).join('')}
+        </div>
+        <button type="button" class="btn btn-secondary" id="add-custom-param-btn">
+          <i class="ph ph-plus"></i> Add Parameter
+        </button>
+      `;
+    }
+
+    const html = `
+      <div class="subfields-edit-modal">
+        <div class="form-group">
+          <label class="form-label">Main Value</label>
+          <input type="text" class="form-input" id="subfield-main-value" value="${this._escapeHtml(String(mainValue ?? ''))}">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Parameters ${isStandard ? '(Standard Schema)' : '(Custom)'}</label>
+          <div class="subfields-params-editor">
+            ${paramsHtml}
+          </div>
+        </div>
+
+        <div class="form-group subfields-json-paste-section">
+          <label class="form-label">Or paste JSON</label>
+          <textarea class="form-input" id="subfield-json-paste" rows="3" placeholder='{"param1": "value1", "param2": 123}'></textarea>
+          <button type="button" class="btn btn-secondary" id="parse-json-params-btn">
+            <i class="ph ph-code"></i> Parse JSON
+          </button>
+        </div>
+      </div>
+    `;
+
+    this._showModal(`Edit: ${field.name}`, html, () => {
+      const newMainValue = document.getElementById('subfield-main-value')?.value;
+      const newParams = {};
+
+      if (isStandard) {
+        // Collect from standard schema inputs
+        document.querySelectorAll('.subfield-value-input').forEach(input => {
+          const key = input.dataset.key;
+          let val;
+          if (input.type === 'checkbox') {
+            val = input.checked;
+          } else if (input.type === 'number') {
+            val = input.value ? parseFloat(input.value) : null;
+          } else {
+            val = input.value || null;
+          }
+          if (val !== null && val !== '') {
+            newParams[key] = val;
+          }
+        });
+      } else {
+        // Collect from custom param rows
+        document.querySelectorAll('.custom-param-row').forEach(row => {
+          const key = row.querySelector('.param-key')?.value?.trim();
+          const val = row.querySelector('.param-value')?.value;
+          if (key) {
+            // Try to parse as number or boolean
+            let parsedVal = val;
+            if (val === 'true') parsedVal = true;
+            else if (val === 'false') parsedVal = false;
+            else if (/^-?\d+\.?\d*$/.test(val)) parsedVal = parseFloat(val);
+            newParams[key] = parsedVal;
+          }
+        });
+      }
+
+      // Build the new value structure
+      const hasParams = Object.keys(newParams).length > 0;
+      const newValue = hasParams
+        ? { value: newMainValue, params: newParams }
+        : newMainValue;
+
+      this._updateRecordValue(recordId, fieldId, newValue);
+
+      // Update cell display
+      const cell = document.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
+      if (cell) {
+        cell.innerHTML = this._renderCellContent(field, newValue);
+      }
+
+      this._showToast('Value updated', 'success');
+    });
+
+    // Attach event handlers
+    setTimeout(() => {
+      // Custom mode: add parameter button
+      document.getElementById('add-custom-param-btn')?.addEventListener('click', () => {
+        const list = document.getElementById('custom-params-list');
+        const newRow = document.createElement('div');
+        newRow.className = 'subfield-edit-row custom-param-row';
+        newRow.innerHTML = `
+          <input type="text" class="form-input param-key" placeholder="Key">
+          <input type="text" class="form-input param-value" placeholder="Value">
+          <button type="button" class="btn btn-icon param-remove" title="Remove">
+            <i class="ph ph-x"></i>
+          </button>
+        `;
+        list.appendChild(newRow);
+        newRow.querySelector('.param-key')?.focus();
+
+        newRow.querySelector('.param-remove')?.addEventListener('click', () => {
+          newRow.remove();
+        });
+      });
+
+      // Remove handlers for existing rows
+      document.querySelectorAll('.param-remove').forEach(btn => {
+        btn.addEventListener('click', () => {
+          btn.closest('.custom-param-row')?.remove();
+        });
+      });
+
+      // Parse JSON button
+      document.getElementById('parse-json-params-btn')?.addEventListener('click', () => {
+        const jsonInput = document.getElementById('subfield-json-paste')?.value?.trim();
+        if (!jsonInput) {
+          this._showToast('Please paste JSON to parse', 'warning');
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(jsonInput);
+          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+            this._showToast('JSON must be an object', 'warning');
+            return;
+          }
+
+          if (isStandard) {
+            // Fill in standard schema inputs
+            Object.entries(parsed).forEach(([key, val]) => {
+              const input = document.querySelector(`.subfield-value-input[data-key="${key}"]`);
+              if (input) {
+                if (input.type === 'checkbox') {
+                  input.checked = Boolean(val);
+                } else {
+                  input.value = String(val);
+                }
+              }
+            });
+          } else {
+            // Add as custom params
+            const list = document.getElementById('custom-params-list');
+            Object.entries(parsed).forEach(([key, val]) => {
+              const newRow = document.createElement('div');
+              newRow.className = 'subfield-edit-row custom-param-row';
+              newRow.innerHTML = `
+                <input type="text" class="form-input param-key" value="${this._escapeHtml(key)}" placeholder="Key">
+                <input type="text" class="form-input param-value" value="${this._escapeHtml(String(val))}" placeholder="Value">
+                <button type="button" class="btn btn-icon param-remove" title="Remove">
+                  <i class="ph ph-x"></i>
+                </button>
+              `;
+              list.appendChild(newRow);
+
+              newRow.querySelector('.param-remove')?.addEventListener('click', () => {
+                newRow.remove();
+              });
+            });
+          }
+
+          this._showToast('JSON parsed', 'success');
+          document.getElementById('subfield-json-paste').value = '';
+        } catch (e) {
+          this._showToast('Invalid JSON: ' + e.message, 'error');
+        }
+      });
     }, 100);
   }
 
@@ -9677,6 +10214,122 @@ class EODataWorkbench {
     html += '</div>';
 
     return html;
+  }
+
+  /**
+   * Render a cell that has subfields configured
+   * Handles the { value, params } structure
+   */
+  _renderCellWithSubfields(field, value) {
+    const subfieldsConfig = field.options?.subfields;
+    if (!subfieldsConfig) {
+      // Fallback to normal rendering
+      return this._renderCellContent({ ...field, options: { ...field.options, subfields: null } }, value);
+    }
+
+    // Parse the value - can be { value, params } or just a primitive
+    let mainValue = value;
+    let params = {};
+
+    if (value && typeof value === 'object' && 'value' in value) {
+      mainValue = value.value;
+      params = value.params || {};
+    }
+
+    const hasParams = Object.keys(params).length > 0;
+    const displayMode = subfieldsConfig.display || 'compact';
+
+    // Render main value
+    let mainValueHtml = '';
+    if (mainValue != null && mainValue !== '') {
+      mainValueHtml = this._escapeHtml(String(mainValue));
+    } else {
+      mainValueHtml = '<span class="cell-empty">Empty</span>';
+    }
+
+    // Display based on mode
+    switch (displayMode) {
+      case 'compact':
+        // Show main value + indicator if params exist
+        if (hasParams) {
+          const paramCount = Object.keys(params).length;
+          return `
+            <div class="cell-with-subfields compact">
+              <span class="subfields-main-value">${mainValueHtml}</span>
+              <span class="subfields-indicator" title="${paramCount} parameter${paramCount > 1 ? 's' : ''}">
+                <i class="ph ph-brackets-curly"></i>
+                <span class="subfields-count">${paramCount}</span>
+              </span>
+            </div>
+          `;
+        }
+        return mainValueHtml;
+
+      case 'inline':
+        // Show main value + key params as inline badges
+        if (hasParams) {
+          const schema = subfieldsConfig.schema || [];
+          const inlineKeys = schema.length > 0
+            ? schema.slice(0, 3).map(s => s.key)
+            : Object.keys(params).slice(0, 3);
+
+          let inlineParamsHtml = inlineKeys.map(key => {
+            if (params[key] != null) {
+              const val = params[key];
+              const displayVal = typeof val === 'boolean'
+                ? (val ? '✓' : '✗')
+                : String(val).substring(0, 15) + (String(val).length > 15 ? '…' : '');
+              return `<span class="subfield-inline-badge" title="${this._escapeHtml(key)}: ${this._escapeHtml(String(val))}">
+                <span class="subfield-inline-key">${this._escapeHtml(key)}</span>
+                <span class="subfield-inline-val">${this._escapeHtml(displayVal)}</span>
+              </span>`;
+            }
+            return '';
+          }).filter(Boolean).join('');
+
+          const remainingCount = Object.keys(params).length - inlineKeys.length;
+          if (remainingCount > 0) {
+            inlineParamsHtml += `<span class="subfields-more">+${remainingCount}</span>`;
+          }
+
+          return `
+            <div class="cell-with-subfields inline">
+              <span class="subfields-main-value">${mainValueHtml}</span>
+              <div class="subfields-inline-params">${inlineParamsHtml}</div>
+            </div>
+          `;
+        }
+        return mainValueHtml;
+
+      case 'expanded':
+        // Show main value + all params as key-value rows
+        if (hasParams) {
+          let paramsHtml = '<div class="subfields-expanded-params">';
+          Object.entries(params).forEach(([key, val]) => {
+            const displayVal = typeof val === 'boolean'
+              ? `<i class="ph ${val ? 'ph-check-circle' : 'ph-x-circle'}"></i>`
+              : this._escapeHtml(String(val));
+            paramsHtml += `
+              <div class="subfield-expanded-row">
+                <span class="subfield-expanded-key">${this._escapeHtml(key)}</span>
+                <span class="subfield-expanded-val">${displayVal}</span>
+              </div>
+            `;
+          });
+          paramsHtml += '</div>';
+
+          return `
+            <div class="cell-with-subfields expanded">
+              <div class="subfields-main-value">${mainValueHtml}</div>
+              ${paramsHtml}
+            </div>
+          `;
+        }
+        return mainValueHtml;
+
+      default:
+        return mainValueHtml;
+    }
   }
 
   /**
