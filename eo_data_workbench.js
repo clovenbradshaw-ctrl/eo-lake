@@ -1759,7 +1759,7 @@ class EODataWorkbench {
 
         <div class="detail-section immutability-notice">
           <i class="ph ph-lock"></i>
-          <span>This source is immutable (read-only). To modify data, create a derived Set.</span>
+          <span>Sources are immutable (read-only). Sets derived from sources can be freely edited.</span>
         </div>
       </div>
     `;
