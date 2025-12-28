@@ -8238,6 +8238,9 @@ class EODataWorkbench {
     menu.style.top = top + 'px';
     menu.classList.add('active');
 
+    // Store menu position for sub-pickers (before menu is hidden)
+    const menuPosition = { left, top };
+
     menu.querySelectorAll('.context-menu-item').forEach(item => {
       item.addEventListener('click', (clickEvent) => {
         menu.classList.remove('active');
@@ -8248,9 +8251,10 @@ class EODataWorkbench {
             this._showRenameFieldModal(fieldId);
             break;
           case 'change-type':
+            // Pass the stored menu position since the context menu is now hidden
             this._showFieldTypePicker(clickEvent, (newType, options = {}) => {
               this._changeFieldType(fieldId, newType, options);
-            });
+            }, menuPosition);
             break;
           case 'configure-link':
             // Reconfigure linked set/view for LINK fields
@@ -8371,25 +8375,43 @@ class EODataWorkbench {
   // Field Type Picker
   // --------------------------------------------------------------------------
 
-  _showFieldTypePicker(e, callback = null) {
+  _showFieldTypePicker(e, callback = null, position = null) {
     const picker = this.elements.fieldTypePicker;
     if (!picker) return;
 
     const pickerWidth = 240; // matches CSS width
+    const pickerHeight = 400; // matches CSS max-height
     const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
 
-    // Try to get position from th/button, or fall back to event coordinates
-    const targetElement = e.target.closest('th, button, .context-menu-item');
     let left, top;
 
-    if (targetElement) {
-      const rect = targetElement.getBoundingClientRect();
-      left = rect.left;
-      top = rect.bottom + 4;
+    // Use provided position if available (e.g., from context menu)
+    if (position) {
+      left = position.left;
+      top = position.top;
     } else {
-      // Fallback to event coordinates
-      left = e.pageX || e.clientX || 100;
-      top = e.pageY || e.clientY || 100;
+      // Try to get position from th/button, or fall back to event coordinates
+      const targetElement = e.target.closest('th, button, .context-menu-item');
+
+      if (targetElement) {
+        const rect = targetElement.getBoundingClientRect();
+        left = rect.left;
+        top = rect.bottom + 4;
+      } else {
+        // Fallback to event coordinates
+        left = e.pageX || e.clientX || 100;
+        top = e.pageY || e.clientY || 100;
+      }
+    }
+
+    // Prevent picker from going off bottom edge
+    if (top + pickerHeight > viewportHeight - 10) {
+      top = viewportHeight - pickerHeight - 10;
+    }
+    // Prevent picker from going off top edge
+    if (top < 10) {
+      top = 10;
     }
 
     // Calculate left position, ensuring picker doesn't go off the right edge
