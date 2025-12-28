@@ -250,6 +250,9 @@ class EODataWorkbench {
 
     // View search state
     this.viewSearchTerm = '';
+
+    // Calendar navigation state
+    this.calendarDate = new Date();
   }
 
   // --------------------------------------------------------------------------
@@ -7197,9 +7200,13 @@ class EODataWorkbench {
       return;
     }
 
+    // Use calendar state for navigation, default to current date
+    if (!this.calendarDate) {
+      this.calendarDate = new Date();
+    }
     const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
+    const year = this.calendarDate.getFullYear();
+    const month = this.calendarDate.getMonth();
 
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
@@ -7276,6 +7283,22 @@ class EODataWorkbench {
           this._updateRecordValue(record.id, dateField.id, date);
         }
       });
+    });
+
+    // Calendar navigation handlers
+    document.getElementById('cal-prev')?.addEventListener('click', () => {
+      this.calendarDate.setMonth(this.calendarDate.getMonth() - 1);
+      this._renderCalendarView();
+    });
+
+    document.getElementById('cal-next')?.addEventListener('click', () => {
+      this.calendarDate.setMonth(this.calendarDate.getMonth() + 1);
+      this._renderCalendarView();
+    });
+
+    document.getElementById('cal-today')?.addEventListener('click', () => {
+      this.calendarDate = new Date();
+      this._renderCalendarView();
     });
   }
 
@@ -9887,18 +9910,21 @@ class EODataWorkbench {
       return;
     }
 
+    // Pre-select existing option, current set, or first available set
+    const defaultSetId = existingOptions.linkedSetId || currentSet?.id || availableSets[0]?.id;
+
     const setOptions = availableSets.map(s => {
-      const selected = existingOptions.linkedSetId === s.id ? 'selected' : '';
+      const selected = s.id === defaultSetId ? 'selected' : '';
       const isCurrent = s.id === currentSet?.id ? ' (current set)' : '';
       return `<option value="${s.id}" ${selected}>${this._escapeHtml(s.name)}${isCurrent}</option>`;
     }).join('');
 
     const allowMultipleChecked = existingOptions.allowMultiple ? 'checked' : '';
 
-    // Build initial view options if a set is pre-selected
+    // Build initial view options for the pre-selected set
     let initialViewOptions = '<option value="">All records (no view filter)</option>';
-    if (existingOptions.linkedSetId) {
-      const preSelectedSet = availableSets.find(s => s.id === existingOptions.linkedSetId);
+    if (defaultSetId) {
+      const preSelectedSet = availableSets.find(s => s.id === defaultSetId);
       if (preSelectedSet?.views?.length > 0) {
         initialViewOptions += preSelectedSet.views.map(v => {
           const selected = existingOptions.linkedViewId === v.id ? 'selected' : '';
@@ -9912,7 +9938,6 @@ class EODataWorkbench {
       <div class="form-group">
         <label class="form-label">Link to which set?</label>
         <select class="form-select" id="linked-set-select">
-          <option value="">Select a set...</option>
           ${setOptions}
         </select>
         <div class="form-hint" style="margin-top: 6px; font-size: 11px; color: var(--text-tertiary);">
@@ -10029,6 +10054,10 @@ class EODataWorkbench {
           `;
         }).join('')}
         <div class="detail-actions">
+          <button class="detail-action-btn" id="detail-add-field">
+            <i class="ph ph-plus-circle"></i>
+            <span>Add Field</span>
+          </button>
           <button class="detail-action-btn" id="detail-duplicate">
             <i class="ph ph-copy"></i>
             <span>Duplicate</span>
@@ -10061,6 +10090,13 @@ class EODataWorkbench {
     });
 
     // Action buttons
+    document.getElementById('detail-add-field')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.detail-action-btn');
+      const rect = btn?.getBoundingClientRect();
+      const position = rect ? { left: rect.left, top: rect.bottom + 4 } : null;
+      this._showFieldTypePicker(e, null, position);
+    });
+
     document.getElementById('detail-duplicate')?.addEventListener('click', () => {
       this.duplicateRecord(recordId);
       this._showToast('Record duplicated', 'success');
