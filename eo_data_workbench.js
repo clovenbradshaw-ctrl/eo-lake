@@ -2513,7 +2513,8 @@ class EODataWorkbench {
                       const value = record[field];
                       const cellClass = this._getSourceCellClass(value);
                       const displayValue = this._formatSourceCellValue(value);
-                      return `<td class="${cellClass}" title="${this._escapeHtml(String(value ?? ''))}">${displayValue}</td>`;
+                      const titleValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
+                      return `<td class="${cellClass}" title="${this._escapeHtml(titleValue)}">${displayValue}</td>`;
                     }).join('')}
                   </tr>
                 `).join('')}
@@ -2675,6 +2676,11 @@ class EODataWorkbench {
   _formatSourceCellValue(value) {
     if (value === null || value === undefined) return '<span class="null-value">null</span>';
     if (typeof value === 'boolean') return value ? 'true' : 'false';
+    // Handle objects and arrays by JSON stringifying them
+    if (typeof value === 'object') {
+      const jsonStr = JSON.stringify(value);
+      return jsonStr.length > 50 ? this._escapeHtml(jsonStr.substring(0, 50)) + '...' : this._escapeHtml(jsonStr);
+    }
     const str = String(value);
     return str.length > 50 ? this._escapeHtml(str.substring(0, 50)) + '...' : this._escapeHtml(str);
   }
