@@ -599,6 +599,13 @@ class EODataWorkbench {
     document.getElementById('sort-apply')?.addEventListener('click', () => this._applySorts());
     document.getElementById('sort-clear')?.addEventListener('click', () => this._clearSorts());
 
+    // Fields panel (visibility & reordering)
+    document.getElementById('btn-fields')?.addEventListener('click', () => this._toggleFieldsPanel());
+    document.getElementById('fields-panel-close')?.addEventListener('click', () => this._hideFieldsPanel());
+    document.getElementById('fields-show-all')?.addEventListener('click', () => this._showAllFields());
+    document.getElementById('fields-hide-all')?.addEventListener('click', () => this._hideAllFields());
+    document.getElementById('fields-apply')?.addEventListener('click', () => this._hideFieldsPanel());
+
     // Global search
     const searchInput = document.getElementById('global-search');
     if (searchInput) {
@@ -8259,8 +8266,9 @@ class EODataWorkbench {
 
     this.currentDetailRecordId = recordId;
 
-    const fields = set.fields;
-    const primaryField = fields.find(f => f.isPrimary) || fields[0];
+    // Use visible fields (respects view's hiddenFields and fieldOrder)
+    const fields = this._getVisibleFields();
+    const primaryField = set.fields.find(f => f.isPrimary) || set.fields[0];
     const title = record.values[primaryField?.id] || 'Untitled';
 
     body.innerHTML = `
@@ -9458,6 +9466,7 @@ class EODataWorkbench {
       this._hideKeyboardShortcuts();
       this._hideFilterPanel();
       this._hideSortPanel();
+      this._hideFieldsPanel();
       this._closeTabListDropdown();
       this._closeTabContextMenu();
       this.elements.contextMenu?.classList.remove('active');
@@ -9896,8 +9905,9 @@ class EODataWorkbench {
     const panel = document.getElementById('filter-panel');
     if (!panel) return;
 
-    // Close sort panel if open
+    // Close other panels if open
     this._hideSortPanel();
+    this._hideFieldsPanel();
 
     panel.style.display = 'block';
 
@@ -10025,8 +10035,9 @@ class EODataWorkbench {
     const panel = document.getElementById('sort-panel');
     if (!panel) return;
 
-    // Close filter panel if open
+    // Close other panels if open
     this._hideFilterPanel();
+    this._hideFieldsPanel();
 
     panel.style.display = 'block';
 
@@ -10113,6 +10124,226 @@ class EODataWorkbench {
     this._hideSortPanel();
     this._renderView();
     this._saveData();
+  }
+
+  // --------------------------------------------------------------------------
+  // Fields Panel (Visibility & Reordering)
+  // --------------------------------------------------------------------------
+
+  _toggleFieldsPanel() {
+    const panel = document.getElementById('fields-panel');
+    if (!panel) return;
+
+    if (panel.style.display === 'none') {
+      this._showFieldsPanel();
+    } else {
+      this._hideFieldsPanel();
+    }
+  }
+
+  _showFieldsPanel() {
+    const panel = document.getElementById('fields-panel');
+    if (!panel) return;
+
+    // Close other panels if open
+    this._hideFilterPanel();
+    this._hideSortPanel();
+
+    panel.style.display = 'block';
+    this._renderFieldsList();
+  }
+
+  _hideFieldsPanel() {
+    const panel = document.getElementById('fields-panel');
+    if (panel) {
+      panel.style.display = 'none';
+    }
+  }
+
+  _renderFieldsList() {
+    const container = document.getElementById('fields-list');
+    if (!container) return;
+
+    const set = this.getCurrentSet();
+    const view = this.getCurrentView();
+    if (!set) return;
+
+    // Get all fields and determine their order
+    let fields = [...set.fields];
+    const hiddenFields = view?.config.hiddenFields || [];
+    const fieldOrder = view?.config.fieldOrder || [];
+
+    // Sort fields by the stored order, with unordered fields at the end
+    if (fieldOrder.length > 0) {
+      fields.sort((a, b) => {
+        const aIndex = fieldOrder.indexOf(a.id);
+        const bIndex = fieldOrder.indexOf(b.id);
+        if (aIndex === -1 && bIndex === -1) return 0;
+        if (aIndex === -1) return 1;
+        if (bIndex === -1) return -1;
+        return aIndex - bIndex;
+      });
+    }
+
+    container.innerHTML = fields.map(field => {
+      const isHidden = hiddenFields.includes(field.id);
+      const isPrimary = field.isPrimary;
+
+      return `
+        <div class="field-item ${isHidden ? 'hidden-field' : ''}"
+             data-field-id="${field.id}"
+             draggable="true">
+          <div class="field-item-drag-handle">
+            <i class="ph ph-dots-six-vertical"></i>
+          </div>
+          <div class="field-item-icon">
+            <i class="ph ${FieldTypeIcons[field.type] || 'ph-text-aa'}"></i>
+          </div>
+          <span class="field-item-name">${this._escapeHtml(field.name)}</span>
+          ${isPrimary ? '<span class="field-item-primary-badge">Primary</span>' : ''}
+          <button class="field-item-visibility-btn ${isHidden ? 'hidden' : 'visible'}"
+                  data-field-id="${field.id}"
+                  ${isPrimary ? 'disabled title="Primary field cannot be hidden"' : ''}>
+            <i class="ph ${isHidden ? 'ph-eye-slash' : 'ph-eye'}"></i>
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    // Attach drag and drop handlers
+    this._attachFieldsDragHandlers(container);
+
+    // Attach visibility toggle handlers
+    container.querySelectorAll('.field-item-visibility-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fieldId = btn.dataset.fieldId;
+        this._toggleFieldVisibility(fieldId);
+      });
+    });
+  }
+
+  _attachFieldsDragHandlers(container) {
+    let draggedItem = null;
+
+    container.querySelectorAll('.field-item').forEach(item => {
+      item.addEventListener('dragstart', (e) => {
+        draggedItem = item;
+        item.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', item.dataset.fieldId);
+      });
+
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        container.querySelectorAll('.field-item').forEach(i => i.classList.remove('drag-over'));
+        draggedItem = null;
+
+        // Save the new order
+        this._saveFieldOrder();
+      });
+
+      item.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+
+        if (item !== draggedItem) {
+          item.classList.add('drag-over');
+        }
+      });
+
+      item.addEventListener('dragleave', () => {
+        item.classList.remove('drag-over');
+      });
+
+      item.addEventListener('drop', (e) => {
+        e.preventDefault();
+        item.classList.remove('drag-over');
+
+        if (draggedItem && item !== draggedItem) {
+          // Determine where to insert based on mouse position
+          const rect = item.getBoundingClientRect();
+          const midY = rect.top + rect.height / 2;
+
+          if (e.clientY < midY) {
+            container.insertBefore(draggedItem, item);
+          } else {
+            container.insertBefore(draggedItem, item.nextSibling);
+          }
+        }
+      });
+    });
+  }
+
+  _saveFieldOrder() {
+    const view = this.getCurrentView();
+    if (!view) return;
+
+    const container = document.getElementById('fields-list');
+    if (!container) return;
+
+    // Get the new order from the DOM
+    const fieldOrder = Array.from(container.querySelectorAll('.field-item'))
+      .map(item => item.dataset.fieldId);
+
+    view.config.fieldOrder = fieldOrder;
+    this._saveData();
+    this._renderView();
+  }
+
+  _toggleFieldVisibility(fieldId) {
+    const view = this.getCurrentView();
+    const set = this.getCurrentSet();
+    if (!view || !set) return;
+
+    // Don't allow hiding primary field
+    const field = set.fields.find(f => f.id === fieldId);
+    if (field?.isPrimary) {
+      this._showToast('Cannot hide the primary field', 'warning');
+      return;
+    }
+
+    if (!view.config.hiddenFields) {
+      view.config.hiddenFields = [];
+    }
+
+    const index = view.config.hiddenFields.indexOf(fieldId);
+    if (index === -1) {
+      view.config.hiddenFields.push(fieldId);
+    } else {
+      view.config.hiddenFields.splice(index, 1);
+    }
+
+    this._saveData();
+    this._renderFieldsList();
+    this._renderView();
+  }
+
+  _showAllFields() {
+    const view = this.getCurrentView();
+    if (!view) return;
+
+    view.config.hiddenFields = [];
+    this._saveData();
+    this._renderFieldsList();
+    this._renderView();
+    this._showToast('All fields visible', 'success');
+  }
+
+  _hideAllFields() {
+    const view = this.getCurrentView();
+    const set = this.getCurrentSet();
+    if (!view || !set) return;
+
+    // Hide all non-primary fields
+    view.config.hiddenFields = set.fields
+      .filter(f => !f.isPrimary)
+      .map(f => f.id);
+
+    this._saveData();
+    this._renderFieldsList();
+    this._renderView();
+    this._showToast('Non-primary fields hidden', 'success');
   }
 
   // --------------------------------------------------------------------------

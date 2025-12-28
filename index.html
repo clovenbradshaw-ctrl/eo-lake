@@ -188,6 +188,10 @@
               <i class="ph ph-sort-ascending"></i>
               <span class="btn-label">Sort</span>
             </button>
+            <button class="header-btn" id="btn-fields" title="Show/hide and reorder fields">
+              <i class="ph ph-columns"></i>
+              <span class="btn-label">Fields</span>
+            </button>
             <button class="header-btn" id="btn-snapshot" title="Create Snapshot (Rule 9: Immutable capture)">
               <i class="ph ph-camera"></i>
               <span class="btn-label">Snapshot</span>
@@ -392,6 +396,29 @@
     <div class="sort-panel-footer">
       <button class="btn btn-secondary" id="sort-clear">Clear All</button>
       <button class="btn btn-primary" id="sort-apply">Apply Sort</button>
+    </div>
+  </div>
+
+  <!-- Fields Panel (Show/Hide & Reorder) -->
+  <div class="fields-panel" id="fields-panel" style="display: none;">
+    <div class="fields-panel-header">
+      <h4><i class="ph ph-columns"></i> Fields</h4>
+      <button class="fields-panel-close" id="fields-panel-close">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    <div class="fields-panel-body">
+      <div class="fields-panel-description">
+        Drag to reorder fields. Toggle visibility with the eye icon.
+      </div>
+      <div class="fields-list" id="fields-list">
+        <!-- Field items rendered dynamically -->
+      </div>
+    </div>
+    <div class="fields-panel-footer">
+      <button class="btn btn-secondary" id="fields-show-all">Show All</button>
+      <button class="btn btn-secondary" id="fields-hide-all">Hide All</button>
+      <button class="btn btn-primary" id="fields-apply">Done</button>
     </div>
   </div>
 
