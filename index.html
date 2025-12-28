@@ -455,6 +455,108 @@
     </div>
   </div>
 
+  <!-- Sync Panel (Cloud API Configuration) -->
+  <div class="sync-panel" id="sync-panel" style="display: none;">
+    <div class="sync-panel-header">
+      <h4><i class="ph ph-cloud-arrow-up"></i> Cloud Sync</h4>
+      <button class="sync-panel-close" id="sync-panel-close">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    <div class="sync-panel-body">
+      <div class="sync-panel-description">
+        Configure cloud sync to backup and restore your data. Events are synced as an append-only log.
+      </div>
+
+      <!-- Status Section -->
+      <div class="sync-status-section" id="sync-status-section">
+        <div class="sync-status-indicator" id="sync-status-indicator">
+          <i class="ph ph-cloud-slash"></i>
+          <span>Not configured</span>
+        </div>
+        <div class="sync-status-details" id="sync-status-details">
+          <!-- Details rendered dynamically -->
+        </div>
+      </div>
+
+      <!-- Configuration Section -->
+      <div class="sync-config-section">
+        <div class="sync-config-field">
+          <label for="sync-endpoint">API Endpoint</label>
+          <input type="url" id="sync-endpoint" placeholder="https://api.example.com" autocomplete="off">
+          <span class="sync-config-hint">The base URL of your sync API</span>
+        </div>
+
+        <div class="sync-config-field">
+          <label for="sync-auth-token">Auth Token</label>
+          <div class="sync-token-input">
+            <input type="password" id="sync-auth-token" placeholder="Bearer token or API key" autocomplete="off">
+            <button class="sync-token-toggle" id="sync-token-toggle" type="button">
+              <i class="ph ph-eye"></i>
+            </button>
+          </div>
+          <span class="sync-config-hint">Authentication token for API requests</span>
+        </div>
+
+        <div class="sync-config-field">
+          <label for="sync-workspace-id">Workspace ID</label>
+          <input type="text" id="sync-workspace-id" placeholder="default" value="default" autocomplete="off">
+          <span class="sync-config-hint">Identifier for this workspace on the server</span>
+        </div>
+
+        <div class="sync-config-field sync-config-toggle">
+          <label class="sync-toggle-label">
+            <input type="checkbox" id="sync-enabled">
+            <span class="sync-toggle-slider"></span>
+            <span>Enable sync</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Actions Section -->
+      <div class="sync-actions-section">
+        <button class="btn btn-secondary" id="sync-test-connection">
+          <i class="ph ph-plugs"></i>
+          Test Connection
+        </button>
+        <button class="btn btn-primary" id="sync-now" disabled>
+          <i class="ph ph-arrows-clockwise"></i>
+          Sync Now
+        </button>
+      </div>
+
+      <!-- Last Sync Info -->
+      <div class="sync-last-info" id="sync-last-info" style="display: none;">
+        <div class="sync-last-row">
+          <span class="sync-last-label">Last sync:</span>
+          <span class="sync-last-value" id="sync-last-time">Never</span>
+        </div>
+        <div class="sync-last-row">
+          <span class="sync-last-label">Events pushed:</span>
+          <span class="sync-last-value" id="sync-pushed-count">0</span>
+        </div>
+        <div class="sync-last-row">
+          <span class="sync-last-label">Events pulled:</span>
+          <span class="sync-last-value" id="sync-pulled-count">0</span>
+        </div>
+        <div class="sync-last-row">
+          <span class="sync-last-label">Local events:</span>
+          <span class="sync-last-value" id="sync-local-count">0</span>
+        </div>
+      </div>
+
+      <!-- Error Display -->
+      <div class="sync-error" id="sync-error" style="display: none;">
+        <i class="ph ph-warning-circle"></i>
+        <span id="sync-error-message"></span>
+      </div>
+    </div>
+    <div class="sync-panel-footer">
+      <button class="btn btn-secondary" id="sync-panel-cancel">Cancel</button>
+      <button class="btn btn-primary" id="sync-panel-save">Save Configuration</button>
+    </div>
+  </div>
+
   <!-- Field Type Picker -->
   <div class="field-type-picker" id="field-type-picker">
     <div class="field-type-list">
@@ -662,6 +764,7 @@
   <script src="eo_state_derivation.js"></script>
   <script src="eo_persistence.js"></script>
   <script src="eo_sync.js"></script>
+  <script src="eo_sync_api.js"></script>
 
   <!-- Scripts - Feature Modules -->
   <script src="eo_event_bus.js"></script>

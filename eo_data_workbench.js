@@ -595,6 +595,16 @@ class EODataWorkbench {
     document.getElementById('tossed-panel-done')?.addEventListener('click', () => this._hideTossedPanel());
     document.getElementById('tossed-clear-all')?.addEventListener('click', () => this._clearAllTossedItems());
 
+    // Sync panel
+    document.getElementById('nav-sync')?.addEventListener('click', () => this._showSyncPanel());
+    document.getElementById('sync-panel-close')?.addEventListener('click', () => this._hideSyncPanel());
+    document.getElementById('sync-panel-cancel')?.addEventListener('click', () => this._hideSyncPanel());
+    document.getElementById('sync-panel-save')?.addEventListener('click', () => this._saveSyncConfig());
+    document.getElementById('sync-test-connection')?.addEventListener('click', () => this._testSyncConnection());
+    document.getElementById('sync-now')?.addEventListener('click', () => this._triggerSync());
+    document.getElementById('sync-token-toggle')?.addEventListener('click', () => this._toggleSyncTokenVisibility());
+    document.getElementById('sync-enabled')?.addEventListener('change', () => this._updateSyncNowButton());
+
     // Bulk actions toolbar
     document.getElementById('bulk-duplicate')?.addEventListener('click', () => this._bulkDuplicate());
     document.getElementById('bulk-export')?.addEventListener('click', () => this._bulkExport());
@@ -12185,6 +12195,317 @@ class EODataWorkbench {
       this.tossedItems = [];
       this._renderTossedPanel();
       this._showToast('Cleared all tossed items', 'info');
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Sync Panel (Cloud API Configuration)
+  // --------------------------------------------------------------------------
+
+  _initSyncAPI() {
+    // Initialize sync API if not already done
+    if (!this.syncAPI && typeof initSyncAPI === 'function') {
+      this.syncAPI = initSyncAPI(getEventStore());
+
+      // Subscribe to sync status updates
+      this.syncAPI.subscribe(({ event, status }) => {
+        this._updateSyncStatusBadge(status);
+        if (event === 'sync_completed') {
+          this._renderSyncPanel();
+        }
+      });
+    }
+    return this.syncAPI;
+  }
+
+  _showSyncPanel() {
+    this._initSyncAPI();
+
+    const panel = document.getElementById('sync-panel');
+    if (panel) {
+      panel.style.display = 'flex';
+      this._renderSyncPanel();
+    }
+
+    // Add backdrop click to close
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sync-panel-backdrop';
+    backdrop.id = 'sync-panel-backdrop';
+    backdrop.addEventListener('click', () => this._hideSyncPanel());
+    document.body.appendChild(backdrop);
+  }
+
+  _hideSyncPanel() {
+    const panel = document.getElementById('sync-panel');
+    if (panel) {
+      panel.style.display = 'none';
+    }
+
+    const backdrop = document.getElementById('sync-panel-backdrop');
+    if (backdrop) {
+      backdrop.remove();
+    }
+  }
+
+  _renderSyncPanel() {
+    const syncAPI = this._initSyncAPI();
+    if (!syncAPI) return;
+
+    const status = syncAPI.getStatus();
+
+    // Populate form fields
+    const endpointInput = document.getElementById('sync-endpoint');
+    const tokenInput = document.getElementById('sync-auth-token');
+    const workspaceInput = document.getElementById('sync-workspace-id');
+    const enabledCheckbox = document.getElementById('sync-enabled');
+
+    if (endpointInput) endpointInput.value = syncAPI.config.endpoint || '';
+    if (tokenInput) tokenInput.value = syncAPI.config.authToken || '';
+    if (workspaceInput) workspaceInput.value = syncAPI.config.workspaceId || 'default';
+    if (enabledCheckbox) enabledCheckbox.checked = syncAPI.config.enabled || false;
+
+    // Update status indicator
+    this._updateSyncStatusIndicator(status);
+
+    // Update last sync info
+    this._updateSyncLastInfo(status);
+
+    // Update sync now button
+    this._updateSyncNowButton();
+
+    // Show/hide error
+    const errorEl = document.getElementById('sync-error');
+    const errorMsgEl = document.getElementById('sync-error-message');
+    if (errorEl && errorMsgEl) {
+      if (status.lastError) {
+        errorEl.style.display = 'flex';
+        errorMsgEl.textContent = status.lastError;
+      } else {
+        errorEl.style.display = 'none';
+      }
+    }
+  }
+
+  _updateSyncStatusIndicator(status) {
+    const indicator = document.getElementById('sync-status-indicator');
+    if (!indicator) return;
+
+    let icon, text, className;
+
+    if (status.syncInProgress) {
+      icon = 'ph-arrows-clockwise';
+      text = 'Syncing...';
+      className = 'syncing';
+    } else if (status.lastError) {
+      icon = 'ph-warning-circle';
+      text = 'Sync error';
+      className = 'error';
+    } else if (status.configured) {
+      icon = 'ph-cloud-check';
+      text = 'Connected';
+      className = 'configured';
+    } else {
+      icon = 'ph-cloud-slash';
+      text = 'Not configured';
+      className = 'not-configured';
+    }
+
+    indicator.innerHTML = `<i class="ph ${icon}"></i><span>${text}</span>`;
+    indicator.className = `sync-status-indicator ${className}`;
+  }
+
+  _updateSyncLastInfo(status) {
+    const infoEl = document.getElementById('sync-last-info');
+    if (!infoEl) return;
+
+    if (status.lastSync?.timestamp) {
+      infoEl.style.display = 'block';
+
+      const timeEl = document.getElementById('sync-last-time');
+      const pushedEl = document.getElementById('sync-pushed-count');
+      const pulledEl = document.getElementById('sync-pulled-count');
+      const localEl = document.getElementById('sync-local-count');
+
+      if (timeEl) timeEl.textContent = this._formatTimeAgo(status.lastSync.timestamp);
+      if (pushedEl) pushedEl.textContent = status.lastSync.pushedCount || 0;
+      if (pulledEl) pulledEl.textContent = status.lastSync.pulledCount || 0;
+      if (localEl) localEl.textContent = status.localEventCount || 0;
+    } else {
+      infoEl.style.display = 'none';
+    }
+  }
+
+  _updateSyncNowButton() {
+    const syncNowBtn = document.getElementById('sync-now');
+    const enabledCheckbox = document.getElementById('sync-enabled');
+    const endpointInput = document.getElementById('sync-endpoint');
+    const tokenInput = document.getElementById('sync-auth-token');
+
+    if (syncNowBtn) {
+      const hasEndpoint = endpointInput?.value?.trim();
+      const hasToken = tokenInput?.value?.trim();
+      const isEnabled = enabledCheckbox?.checked;
+
+      syncNowBtn.disabled = !(hasEndpoint && hasToken && isEnabled);
+    }
+  }
+
+  _updateSyncStatusBadge(status) {
+    const badge = document.getElementById('sync-status-badge');
+    if (!badge) return;
+
+    let iconClass, badgeClass;
+
+    if (status.syncInProgress) {
+      iconClass = 'ph-arrows-clockwise';
+      badgeClass = 'syncing';
+    } else if (status.lastError) {
+      iconClass = 'ph-x-circle';
+      badgeClass = 'error';
+    } else if (status.configured) {
+      iconClass = 'ph-check-circle';
+      badgeClass = 'synced';
+    } else {
+      iconClass = 'ph-cloud-slash';
+      badgeClass = 'pending';
+    }
+
+    badge.innerHTML = `<i class="ph ${iconClass}"></i>`;
+    badge.className = `sync-badge ${badgeClass}`;
+  }
+
+  _toggleSyncTokenVisibility() {
+    const tokenInput = document.getElementById('sync-auth-token');
+    const toggleBtn = document.getElementById('sync-token-toggle');
+
+    if (tokenInput && toggleBtn) {
+      if (tokenInput.type === 'password') {
+        tokenInput.type = 'text';
+        toggleBtn.innerHTML = '<i class="ph ph-eye-slash"></i>';
+      } else {
+        tokenInput.type = 'password';
+        toggleBtn.innerHTML = '<i class="ph ph-eye"></i>';
+      }
+    }
+  }
+
+  _saveSyncConfig() {
+    const syncAPI = this._initSyncAPI();
+    if (!syncAPI) {
+      this._showToast('Sync API not available', 'error');
+      return;
+    }
+
+    const endpoint = document.getElementById('sync-endpoint')?.value?.trim();
+    const authToken = document.getElementById('sync-auth-token')?.value?.trim();
+    const workspaceId = document.getElementById('sync-workspace-id')?.value?.trim() || 'default';
+    const enabled = document.getElementById('sync-enabled')?.checked || false;
+
+    syncAPI.configure({
+      endpoint,
+      authToken,
+      workspaceId,
+      enabled
+    });
+
+    this._updateSyncStatusBadge(syncAPI.getStatus());
+    this._showToast('Sync configuration saved', 'success');
+    this._hideSyncPanel();
+  }
+
+  async _testSyncConnection() {
+    const syncAPI = this._initSyncAPI();
+    if (!syncAPI) {
+      this._showToast('Sync API not available', 'error');
+      return;
+    }
+
+    // Temporarily apply the current form values for testing
+    const endpoint = document.getElementById('sync-endpoint')?.value?.trim();
+    const authToken = document.getElementById('sync-auth-token')?.value?.trim();
+    const workspaceId = document.getElementById('sync-workspace-id')?.value?.trim() || 'default';
+
+    if (!endpoint || !authToken) {
+      this._showToast('Please enter endpoint and auth token', 'warning');
+      return;
+    }
+
+    // Save current config temporarily
+    const originalConfig = { ...syncAPI.config };
+
+    // Apply test config
+    syncAPI.config.endpoint = endpoint;
+    syncAPI.config.authToken = authToken;
+    syncAPI.config.workspaceId = workspaceId;
+
+    const testBtn = document.getElementById('sync-test-connection');
+    if (testBtn) {
+      testBtn.disabled = true;
+      testBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Testing...';
+    }
+
+    try {
+      const result = await syncAPI.testConnection();
+
+      if (result.success) {
+        this._showToast('Connection successful!', 'success');
+      } else {
+        this._showToast(`Connection failed: ${result.error}`, 'error');
+      }
+    } catch (error) {
+      this._showToast(`Connection error: ${error.message}`, 'error');
+    } finally {
+      // Restore original config (user must click Save to persist)
+      syncAPI.config = originalConfig;
+
+      if (testBtn) {
+        testBtn.disabled = false;
+        testBtn.innerHTML = '<i class="ph ph-plugs"></i> Test Connection';
+      }
+    }
+  }
+
+  async _triggerSync() {
+    const syncAPI = this._initSyncAPI();
+    if (!syncAPI) {
+      this._showToast('Sync API not available', 'error');
+      return;
+    }
+
+    if (!syncAPI.isConfigured()) {
+      this._showToast('Please configure and enable sync first', 'warning');
+      return;
+    }
+
+    const syncNowBtn = document.getElementById('sync-now');
+    if (syncNowBtn) {
+      syncNowBtn.disabled = true;
+      syncNowBtn.innerHTML = '<i class="ph ph-arrows-clockwise ph-spin"></i> Syncing...';
+    }
+
+    this._updateSyncStatusBadge({ syncInProgress: true });
+
+    try {
+      const result = await syncAPI.sync();
+
+      if (result.success) {
+        this._showToast(`Synced: ${result.pushed} pushed, ${result.applied} new events applied`, 'success');
+      } else {
+        const errorMsg = result.errors.length > 0 ? result.errors[0].error : 'Unknown error';
+        this._showToast(`Sync failed: ${errorMsg}`, 'error');
+      }
+
+      // Refresh panel
+      this._renderSyncPanel();
+    } catch (error) {
+      this._showToast(`Sync error: ${error.message}`, 'error');
+    } finally {
+      if (syncNowBtn) {
+        syncNowBtn.disabled = false;
+        syncNowBtn.innerHTML = '<i class="ph ph-arrows-clockwise"></i> Sync Now';
+      }
+
+      this._updateSyncStatusBadge(syncAPI.getStatus());
     }
   }
 

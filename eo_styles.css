@@ -6915,6 +6915,369 @@ a:focus-visible,
   background: rgba(249, 115, 22, 0.2);
 }
 
+/* ===== Sync Panel (Cloud API Configuration) ===== */
+
+.sync-panel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 440px;
+  max-height: 90vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  z-index: 300;
+  animation: modalFadeIn 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.sync-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.sync-panel-header h4 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.sync-panel-header h4 i {
+  color: var(--primary-400);
+  font-size: 20px;
+}
+
+.sync-panel-close {
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.sync-panel-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sync-panel-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.sync-panel-description {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+/* Status Section */
+.sync-status-section {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.sync-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.sync-status-indicator i {
+  font-size: 20px;
+}
+
+.sync-status-indicator.not-configured {
+  color: var(--text-muted);
+}
+
+.sync-status-indicator.configured {
+  color: var(--success-500);
+}
+
+.sync-status-indicator.syncing {
+  color: var(--primary-400);
+}
+
+.sync-status-indicator.syncing i {
+  animation: spin 1s linear infinite;
+}
+
+.sync-status-indicator.error {
+  color: var(--error-500);
+}
+
+.sync-status-details {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Configuration Fields */
+.sync-config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.sync-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sync-config-field label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.sync-config-field input[type="url"],
+.sync-config-field input[type="text"],
+.sync-config-field input[type="password"] {
+  padding: 10px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: border-color 0.15s ease;
+}
+
+.sync-config-field input:focus {
+  outline: none;
+  border-color: var(--primary-400);
+}
+
+.sync-config-field input::placeholder {
+  color: var(--text-muted);
+}
+
+.sync-config-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Token Input with Toggle */
+.sync-token-input {
+  display: flex;
+  position: relative;
+}
+
+.sync-token-input input {
+  flex: 1;
+  padding-right: 40px;
+}
+
+.sync-token-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sync-token-toggle:hover {
+  color: var(--text-primary);
+}
+
+/* Toggle Switch */
+.sync-config-toggle {
+  padding-top: 8px;
+}
+
+.sync-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sync-toggle-label input[type="checkbox"] {
+  display: none;
+}
+
+.sync-toggle-slider {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 11px;
+  transition: all 0.2s ease;
+}
+
+.sync-toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.sync-toggle-label input:checked + .sync-toggle-slider {
+  background: var(--primary-400);
+  border-color: var(--primary-400);
+}
+
+.sync-toggle-label input:checked + .sync-toggle-slider::after {
+  left: 20px;
+  background: white;
+}
+
+/* Actions Section */
+.sync-actions-section {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.sync-actions-section .btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.sync-actions-section .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Last Sync Info */
+.sync-last-info {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.sync-last-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 12px;
+}
+
+.sync-last-label {
+  color: var(--text-muted);
+}
+
+.sync-last-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* Error Display */
+.sync-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--error-500);
+  border-radius: var(--radius-md);
+  color: var(--error-500);
+  font-size: 13px;
+}
+
+.sync-error i {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* Footer */
+.sync-panel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-primary);
+}
+
+/* Sync Badge in Sidebar */
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  margin-left: auto;
+}
+
+.sync-badge.synced i {
+  color: var(--success-500);
+}
+
+.sync-badge.pending i {
+  color: var(--warning-500);
+}
+
+.sync-badge.error i {
+  color: var(--error-500);
+}
+
+.sync-badge.syncing i {
+  color: var(--primary-400);
+  animation: spin 1s linear infinite;
+}
+
+/* Backdrop for sync panel */
+.sync-panel-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 299;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* ===== Enhanced View Switcher ===== */
 
 .view-switch-btn {
