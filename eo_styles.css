@@ -1873,11 +1873,11 @@ body:has(.header-simplified) .view-disclosure {
 
 /* Table Body */
 .data-table tbody tr {
-  transition: background var(--transition-fast);
+  /* No transition - immediate feedback like spreadsheets */
 }
 
 .data-table tbody tr:hover {
-  background: var(--bg-hover);
+  /* Minimal row hover - let cell selection be the focus */
 }
 
 .data-table tbody tr.selected {
@@ -1897,11 +1897,10 @@ body:has(.header-simplified) .view-disclosure {
 
 .data-table td.cell-editable {
   cursor: text;
-  transition: background-color 0.1s ease, box-shadow 0.15s ease;
 }
 
 .data-table td.cell-editable:hover {
-  background: var(--bg-active);
+  /* Subtle hover - no background change like spreadsheets */
 }
 
 .data-table td.cell-editing {
