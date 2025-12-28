@@ -268,6 +268,11 @@ class EODataWorkbench {
     // Load persisted data
     this._loadData();
 
+    // Ensure sources array is initialized
+    if (!Array.isArray(this.sources)) {
+      this.sources = [];
+    }
+
     // If no workspaces exist, create a default one
     if (this.viewRegistry.getAllWorkspaces().length === 0) {
       this._createDefaultWorkspace();
@@ -731,6 +736,9 @@ class EODataWorkbench {
       if (data) {
         const parsed = JSON.parse(data);
 
+        // Load sources (CRITICAL for import functionality)
+        this.sources = parsed.sources || [];
+
         // Performance: Use lazy loading for set records
         // Only load metadata initially, defer record loading
         if (this._useLazyLoading && parsed.sets?.length > 1) {
@@ -794,6 +802,7 @@ class EODataWorkbench {
       }
 
       localStorage.setItem('eo_lake_data', JSON.stringify({
+        sources: this.sources || [], // CRITICAL: Save sources for import functionality
         sets: setsToSave,
         currentSetId: this.currentSetId,
         currentViewId: this.currentViewId,
@@ -2611,78 +2620,26 @@ class EODataWorkbench {
    * EO Principle: Sources are GIVEN (immutable external data)
    * Sets are MEANT (interpretive schema definitions)
    */
+  /**
+   * Render Sources Navigation - REBUILT FROM SCRATCH
+   *
+   * Simplified approach: reads directly from this.sources array
+   * which is the single source of truth for imported data.
+   */
   _renderSourcesNav() {
     const container = document.getElementById('sources-nav');
     if (!container) return;
 
-    // Initialize sources registry if needed
-    if (!this.sources) {
+    // Ensure sources array exists
+    if (!Array.isArray(this.sources)) {
       this.sources = [];
     }
 
-    // Get sources from the new SourceStore (priority) if available
-    const sourceStoreActive = this.sourceStore && typeof this.sourceStore.getByStatus === 'function';
-    const storedSources = sourceStoreActive ? this.sourceStore.getByStatus('active') : [];
-
-    // Extract true sources from sets with provenance (for backwards compatibility)
-    // but DO NOT show sets in sources panel
-    const sourceRegistry = new Map();
-
-    // First add sources from SourceStore (new system - takes priority)
-    for (const source of storedSources) {
-      sourceRegistry.set(source.id, {
-        id: source.id,
-        type: 'given',
-        entityType: 'source',
-        name: source.name,
-        importedAt: source.importedAt,
-        provenance: source.provenance,
-        recordCount: source.recordCount,
-        isReadOnly: true,
-        hasSchema: !!source.schema,
-        isSourceStore: true // Mark as from SourceStore for special handling
-      });
-    }
-
-    // Then add legacy sources from sets with provenance
-    for (const set of this.sets) {
-      const prov = set.datasetProvenance;
-      const provSourceValue = this._getProvenanceValue(prov?.provenance?.source);
-      if (prov && (prov.originalFilename || provSourceValue)) {
-        const sourceName = prov.originalFilename || provSourceValue || 'Unknown';
-        const sourceKey = sourceName.toLowerCase();
-
-        if (!sourceRegistry.has(sourceKey) && !sourceRegistry.has(`src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`)) {
-          // Create a true Source entry (GIVEN)
-          sourceRegistry.set(sourceKey, {
-            id: `src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`,
-            type: 'given', // ALWAYS given
-            entityType: 'source',
-            name: sourceName,
-            importedAt: prov.importedAt,
-            provenance: prov.provenance,
-            recordCount: set.records?.length || 0,
-            isReadOnly: true // Sources are immutable
-          });
-        } else {
-          // Aggregate record count from multiple sets derived from same source
-          const existingKey = sourceRegistry.has(sourceKey) ? sourceKey : `src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`;
-          if (sourceRegistry.has(existingKey) && !sourceRegistry.get(existingKey).isSourceStore) {
-            sourceRegistry.get(existingKey).recordCount += (set.records?.length || 0);
-          }
-        }
-      }
-    }
-
-    // Also include any explicit sources
-    for (const source of this.sources) {
-      if (!sourceRegistry.has(source.id)) {
-        sourceRegistry.set(source.id, source);
-      }
-    }
+    // Get all active sources from the sources array
+    const activeSources = this.sources.filter(s => s.status !== 'archived');
 
     // Sort sources by import date (newest first)
-    const sortedSources = Array.from(sourceRegistry.values()).sort((a, b) => {
+    const sortedSources = activeSources.sort((a, b) => {
       if (!a.importedAt) return 1;
       if (!b.importedAt) return -1;
       return new Date(b.importedAt) - new Date(a.importedAt);
@@ -2703,12 +2660,13 @@ class EODataWorkbench {
       return;
     }
 
-    // Render sources as a flat list (not a tree with sets!)
+    // Render sources as a flat list
     let html = '';
     for (const source of sortedSources) {
       const sourceIcon = this._getSourceIcon(source.name);
       const provenanceInfo = this._formatSourceProvenance(source);
       const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : '';
+      const recordCount = source.recordCount || source.records?.length || 0;
 
       html += `
         <div class="nav-item source-item" data-source-id="${source.id}" title="${provenanceInfo}">
@@ -2718,7 +2676,7 @@ class EODataWorkbench {
             <span class="source-meta-inline">${importDate}</span>
           </div>
           <span class="source-provenance-badge" title="GIVEN: Immutable import">◉</span>
-          <span class="nav-item-count" title="${source.recordCount} records imported">${source.recordCount}</span>
+          <span class="nav-item-count" title="${recordCount} records imported">${recordCount}</span>
         </div>
       `;
     }
@@ -2740,45 +2698,32 @@ class EODataWorkbench {
   }
 
   /**
-   * Show source data viewer
-   * Displays source data in main content area as read-only table
-   * This is the primary way users view GIVEN (immutable) source data
+   * Show source data viewer - REBUILT FROM SCRATCH
+   *
+   * Simplified approach: reads directly from this.sources array.
+   * Displays source data in main content area as read-only table.
    */
   _showSourceDetail(sourceId) {
-    // Find the source - check sourceStore FIRST (for new imports)
-    let source = null;
-
-    // 1. Check sourceStore first (new source-only imports)
-    if (this.sourceStore) {
-      source = this.sourceStore.get(sourceId);
-      if (!source) {
-        // Try to find by ID in active sources
-        const allSources = this.sourceStore.getByStatus('active');
-        source = allSources.find(s => s.id === sourceId);
-      }
-    }
-
-    // 2. Check local sources array
-    if (!source) {
-      source = this.sources?.find(s => s.id === sourceId);
-    }
-
-    // 3. Check legacy source registry (from sets with provenance)
-    if (!source) {
-      source = Array.from(this._getSourceRegistry().values()).find(s => s.id === sourceId);
-    }
+    // Find the source from the sources array (single source of truth)
+    const source = this.sources?.find(s => s.id === sourceId);
 
     if (!source) {
       console.warn('Source not found:', sourceId);
+      this._showNotification('Source not found', 'error');
       return;
     }
 
-    // Set current source and clear set selection (we're viewing a source, not a set)
+    // Set current source and clear set selection
     this.currentSourceId = sourceId;
 
     // Update source item selection in sidebar
     document.querySelectorAll('.source-item').forEach(item => {
       item.classList.toggle('active', item.dataset.sourceId === sourceId);
+    });
+
+    // Clear set selection
+    document.querySelectorAll('.set-item').forEach(item => {
+      item.classList.remove('active');
     });
 
     // Render source data view in main content area
@@ -2789,70 +2734,49 @@ class EODataWorkbench {
   }
 
   /**
-   * Render source data viewer in main content area
-   * Shows source data as read-only table with provenance info
+   * Render source data viewer in main content area - REBUILT FROM SCRATCH
+   *
+   * Shows source data as read-only table with provenance info.
+   * Source data is read directly from the source object passed in.
    */
   _renderSourceDataView(source) {
     const contentArea = this.elements.contentArea;
     if (!contentArea) return;
 
-    let records = [];
-    let fields = [];
+    // Get records directly from source - this is the raw imported data
+    const rawRecords = source.records || [];
 
-    // PRIORITY 1: Source object already has records (from sourceStore)
-    // This happens when _showSourceDetail passes a source directly from sourceStore
-    if (source.records && source.records.length > 0) {
-      // Use records directly from source (raw format - key:value objects)
-      records = source.records.map((record, index) => ({
-        id: `rec_${index}`,
-        values: record
-      }));
-      // Build fields from schema
-      fields = (source.schema?.fields || []).map((f, i) => ({
-        id: f.name,
-        name: f.name,
+    // Build fields from schema
+    let fields = [];
+    if (source.schema?.fields && source.schema.fields.length > 0) {
+      fields = source.schema.fields.map(f => ({
+        id: f.name || f.sourceColumn,
+        name: f.name || f.sourceColumn,
         type: f.type || 'text'
       }));
-    }
-    // PRIORITY 2: Look up in sourceStore by ID or name
-    else if (this.sourceStore) {
-      let sourceStoreSource = this.sourceStore.get(source.id);
-      if (!sourceStoreSource) {
-        const allSources = this.sourceStore.getByStatus('active');
-        sourceStoreSource = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
-      }
-
-      if (sourceStoreSource && sourceStoreSource.records && sourceStoreSource.records.length > 0) {
-        records = sourceStoreSource.records.map((record, index) => ({
-          id: `rec_${index}`,
-          values: record
-        }));
-        fields = (sourceStoreSource.schema?.fields || []).map((f, i) => ({
-          id: f.name,
-          name: f.name,
-          type: f.type || 'text'
-        }));
-      }
+    } else if (rawRecords.length > 0) {
+      // Infer fields from first record
+      const firstRecord = rawRecords[0];
+      fields = Object.keys(firstRecord).map(key => ({
+        id: key,
+        name: key,
+        type: this._inferFieldType(rawRecords, key)
+      }));
     }
 
-    // PRIORITY 3: Fallback to legacy sets with provenance
-    if (records.length === 0) {
-      const derivedSets = this.sets.filter(set => {
-        const prov = set.datasetProvenance;
-        if (!prov) return false;
-        const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
-        return sourceName?.toLowerCase() === source.name.toLowerCase();
-      });
+    // Transform raw records to display format
+    const records = rawRecords.map((record, index) => ({
+      id: `rec_${index}`,
+      values: record
+    }));
 
-      const primarySet = derivedSets[0];
-
-      if (primarySet && this._useLazyLoading) {
-        this._loadSetRecords(primarySet.id);
-      }
-
-      records = primarySet?.records || [];
-      fields = primarySet?.fields || [];
-    }
+    // Find derived sets (sets created from this source)
+    const derivedSets = this.sets.filter(set => {
+      const prov = set.datasetProvenance;
+      if (!prov) return false;
+      return prov.sourceId === source.id ||
+             prov.originalFilename?.toLowerCase() === source.name.toLowerCase();
+    });
 
     // Build the source data viewer HTML
     contentArea.innerHTML = `
@@ -2873,7 +2797,7 @@ class EODataWorkbench {
               </h2>
               <div class="source-viewer-meta">
                 Imported ${source.importedAt ? new Date(source.importedAt).toLocaleString() : 'Unknown'} ·
-                ${source.recordCount} records ·
+                ${source.recordCount || records.length} records ·
                 ${fields.length} fields
               </div>
             </div>
@@ -2897,7 +2821,7 @@ class EODataWorkbench {
             <input type="text" id="source-search-input" placeholder="Search records... (read-only view)">
           </div>
           <div class="source-record-count">
-            Showing ${records.length} of ${source.recordCount} records
+            Showing ${Math.min(records.length, 100)} of ${source.recordCount || records.length} records
           </div>
         </div>
 
@@ -3123,80 +3047,37 @@ class EODataWorkbench {
   }
 
   /**
-   * Create a new Set from a source
+   * Create a new Set from a source - simplified to use this.sources
    */
   _createSetFromSource(source) {
-    // First check if source exists in SourceStore (source-only import)
-    if (this.sourceStore) {
-      let sourceInStore = this.sourceStore.get(source.id);
-      if (!sourceInStore) {
-        // Try by name
-        const allSources = this.sourceStore.getByStatus('active');
-        sourceInStore = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
-      }
-
-      if (sourceInStore && sourceInStore.records && sourceInStore.records.length > 0) {
-        // Use the SetFromSourceUI for proper field selection
-        this._showSetFromSourceUI(sourceInStore.id);
-        return;
-      }
+    // If source has records, use SetFromSourceUI
+    if (source && source.records && source.records.length > 0) {
+      this._showSetFromSourceUI(source.id);
+      return;
     }
 
-    // Fallback: Find the primary set with this source's data (legacy approach)
-    const primarySet = this.sets.find(set => {
-      const prov = set.datasetProvenance;
-      if (!prov) return false;
-      const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
-      return sourceName?.toLowerCase() === source.name.toLowerCase();
-    });
-
-    if (primarySet) {
-      // Duplicate the set as a new derived set
-      const newSet = {
-        ...JSON.parse(JSON.stringify(primarySet)),
-        id: 'set_' + Date.now(),
-        name: source.name.replace(/\.[^/.]+$/, '') + ' (derived)',
-        datasetProvenance: {
-          ...primarySet.datasetProvenance,
-          derivedFrom: source.id,
-          derivedAt: new Date().toISOString()
-        }
-      };
-      this.sets.push(newSet);
-      this.currentSourceId = null;
-      this._selectSet(newSet.id);
-      this._renderSidebar();
-      this._saveData();
-    } else {
-      // No source store data and no primary set - show error
-      this._showToast('No source data available. Please re-import the file.', 'error');
+    // Fallback: Find source in this.sources
+    const fullSource = this.sources?.find(s => s.id === source.id);
+    if (fullSource && fullSource.records && fullSource.records.length > 0) {
+      this._showSetFromSourceUI(fullSource.id);
+      return;
     }
+
+    // No source data available
+    this._showToast('No source data available. Please re-import the file.', 'error');
   }
 
   /**
-   * Export source data
+   * Export source data - simplified to use this.sources
    */
   _exportSource(sourceId) {
-    // Find source - check sourceStore first (for new imports)
-    let source = null;
-
-    if (this.sourceStore) {
-      source = this.sourceStore.get(sourceId);
-      if (!source) {
-        const allSources = this.sourceStore.getByStatus('active');
-        source = allSources.find(s => s.id === sourceId);
-      }
-    }
+    // Find source from this.sources (single source of truth)
+    const source = this.sources?.find(s => s.id === sourceId);
 
     if (!source) {
-      source = this.sources?.find(s => s.id === sourceId);
+      this._showToast('Source not found', 'error');
+      return;
     }
-
-    if (!source) {
-      source = Array.from(this._getSourceRegistry().values()).find(s => s.id === sourceId);
-    }
-
-    if (!source) return;
 
     let exportData = null;
     let fileName = source.name.replace(/\.[^/.]+$/, '') + '_export.json';
@@ -3289,42 +3170,30 @@ class EODataWorkbench {
 
   /**
    * Show the SetFromSourceUI modal for creating a Set from a Source
-   * Uses the new SourceStore-based approach with field selection
+   * Simplified to use this.sources as the primary data source
    */
   _showSetFromSourceUI(sourceId) {
-    // Ensure we have a source store
+    // Find the source from this.sources (single source of truth)
+    const source = this.sources?.find(s => s.id === sourceId);
+
+    if (!source) {
+      this._showToast('Source not found. Please re-import the file to create a set.', 'error');
+      return;
+    }
+
+    // Ensure sourceStore has this source (for SetFromSourceUI compatibility)
     if (!this.sourceStore) {
       this._initSourceStore();
+    }
+
+    // Add source to sourceStore if not already there
+    if (!this.sourceStore.get(sourceId)) {
+      this.sourceStore.sources.set(sourceId, source);
     }
 
     // Get or create the SetCreator
     if (!this._setCreator) {
       this._setCreator = new SetCreator(this.sourceStore, this.eoApp?.eventStore);
-    }
-
-    // Resolve the sourceId to find the actual source in SourceStore
-    // This handles cases where sidebar uses generated IDs that don't match SourceStore IDs
-    let resolvedSourceId = sourceId;
-    let sourceInStore = this.sourceStore.get(sourceId);
-
-    if (!sourceInStore) {
-      // Try to find source by name - first get the source info from sidebar registry
-      const source = this.sources?.find(s => s.id === sourceId) ||
-        Array.from(this._getSourceRegistry().values()).find(s => s.id === sourceId);
-
-      if (source) {
-        // Look up by name in SourceStore
-        const allSources = this.sourceStore.getByStatus('active');
-        sourceInStore = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
-        if (sourceInStore) {
-          resolvedSourceId = sourceInStore.id;
-        }
-      }
-    }
-
-    if (!sourceInStore) {
-      this._showToast('Source not found. Please re-import the file to create a set.', 'error');
-      return;
     }
 
     // Create container for the modal if it doesn't exist
@@ -3337,7 +3206,7 @@ class EODataWorkbench {
 
     // Create and show the UI
     const ui = new SetFromSourceUI(this._setCreator, container);
-    ui.show(resolvedSourceId, {
+    ui.show(sourceId, {
       onComplete: (result) => {
         // Add the new set to our sets array
         this.sets.push(result.set);
@@ -3354,7 +3223,7 @@ class EODataWorkbench {
 
   /**
    * Show the JoinBuilderUI modal for creating joined Sets
-   * Supports no-code visual join building with field mapping
+   * Simplified to use this.sources as the primary data source
    */
   _showJoinBuilderUI(preSelectedSourceId = null) {
     // Ensure we have a source store
@@ -3362,27 +3231,16 @@ class EODataWorkbench {
       this._initSourceStore();
     }
 
+    // Sync all sources to sourceStore for JoinBuilder compatibility
+    for (const source of (this.sources || [])) {
+      if (!this.sourceStore.get(source.id)) {
+        this.sourceStore.sources.set(source.id, source);
+      }
+    }
+
     // Get or create the JoinBuilder
     if (!this._joinBuilder) {
       this._joinBuilder = new JoinBuilder(this.sourceStore, this.eoApp?.eventStore);
-    }
-
-    // Resolve preSelectedSourceId to find the actual source in SourceStore
-    let resolvedSourceId = preSelectedSourceId;
-    if (preSelectedSourceId) {
-      let sourceInStore = this.sourceStore.get(preSelectedSourceId);
-      if (!sourceInStore) {
-        // Try to find source by name
-        const source = this.sources?.find(s => s.id === preSelectedSourceId) ||
-          Array.from(this._getSourceRegistry().values()).find(s => s.id === preSelectedSourceId);
-        if (source) {
-          const allSources = this.sourceStore.getByStatus('active');
-          sourceInStore = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
-          if (sourceInStore) {
-            resolvedSourceId = sourceInStore.id;
-          }
-        }
-      }
     }
 
     // Create container for the modal if it doesn't exist
@@ -3413,9 +3271,9 @@ class EODataWorkbench {
     });
 
     // Pre-select the source if one was provided
-    if (resolvedSourceId) {
+    if (preSelectedSourceId) {
       setTimeout(() => {
-        this._joinBuilder.setLeftSource(resolvedSourceId);
+        this._joinBuilder.setLeftSource(preSelectedSourceId);
       }, 100);
     }
   }

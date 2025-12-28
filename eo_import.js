@@ -1015,8 +1015,10 @@ class ImportOrchestrator {
   /**
    * Import file as Source only (no automatic Set creation)
    *
-   * This is the recommended import mode. It creates a Source (GIVEN data)
-   * which users can then explicitly create Sets from with field selection.
+   * REBUILT FROM SCRATCH - Simplified, reliable implementation.
+   *
+   * This creates a Source (GIVEN data) that users can view and create Sets from.
+   * Sources are stored directly on workbench.sources for reliable access.
    *
    * @param {File} file - File to import
    * @param {Object} options - Import options
@@ -1024,7 +1026,7 @@ class ImportOrchestrator {
    */
   async importToSource(file, options = {}) {
     const startTime = Date.now();
-    const uploadInitiatedAt = new Date().toISOString();
+    const importedAt = new Date().toISOString();
 
     this._emitProgress('started', {
       fileName: file.name,
@@ -1034,17 +1036,15 @@ class ImportOrchestrator {
     });
 
     try {
-      // Read file content
+      // Step 1: Read file content
       const text = await this._readFile(file);
 
       this._emitProgress('progress', {
         phase: 'parsing',
-        percentage: 10
+        percentage: 20
       });
 
-      const parseStartedAt = new Date().toISOString();
-
-      // Determine file type and parse
+      // Step 2: Determine file type and parse
       const fileName = file.name.toLowerCase();
       const isICS = fileName.endsWith('.ics') || file.type === 'text/calendar';
       const isCSV = fileName.endsWith('.csv') ||
@@ -1063,15 +1063,13 @@ class ImportOrchestrator {
         parseResult = this._parseJSON(text);
       }
 
-      const parseCompletedAt = new Date().toISOString();
-
       this._emitProgress('progress', {
         phase: 'inferring',
-        percentage: 30,
+        percentage: 40,
         rowCount: parseResult.rows.length
       });
 
-      // Infer schema
+      // Step 3: Infer schema from data
       const schema = this.schemaInferrer.inferSchema(parseResult.headers, parseResult.rows);
 
       this._emitProgress('progress', {
@@ -1080,23 +1078,7 @@ class ImportOrchestrator {
         fieldCount: schema.fields.length
       });
 
-      // Get or create SourceStore
-      const sourceStore = this._getSourceStore();
-
-      // Build provenance from options
-      const provenance = {
-        agent: options.provenance?.agent || null,
-        method: options.provenance?.method || `${isICS ? 'ICS' : isCSV ? 'CSV' : 'JSON'} import`,
-        source: options.provenance?.source || file.name,
-        term: options.provenance?.term || null,
-        definition: options.provenance?.definition || null,
-        jurisdiction: options.provenance?.jurisdiction || null,
-        scale: options.provenance?.scale || null,
-        timeframe: options.provenance?.timeframe || null,
-        background: options.provenance?.background || null
-      };
-
-      // Compute content hash if possible
+      // Step 4: Compute content hash for data integrity
       let contentHash = null;
       if (typeof crypto !== 'undefined' && crypto.subtle) {
         try {
@@ -1106,35 +1088,99 @@ class ImportOrchestrator {
           const hashArray = Array.from(new Uint8Array(hashBuffer));
           contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         } catch (e) {
-          console.warn('Could not compute content hash:', e);
+          // Hash computation is optional
         }
       }
 
-      // Create the Source
-      const source = sourceStore.createSource({
+      // Step 5: Build the source object
+      const sourceId = 'src_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 8);
+
+      const source = {
+        id: sourceId,
         name: file.name,
+        type: 'source',
+
+        // Raw data - the actual imported records
         records: parseResult.rows,
-        schema: schema,
-        provenance: provenance,
-        parseResult: parseResult,
-        fileMetadata: {
+        recordCount: parseResult.rows.length,
+
+        // Schema information
+        schema: {
+          fields: schema.fields || parseResult.headers.map(h => ({
+            name: h,
+            type: 'text',
+            sourceColumn: h
+          })),
+          inferenceDecisions: schema.inferenceDecisions || null
+        },
+
+        // File metadata
+        fileIdentity: {
           originalFilename: file.name,
           contentHash: contentHash,
           rawSize: file.size,
           encoding: 'utf-8',
           mimeType: mimeType,
           lastModified: file.lastModified ? new Date(file.lastModified).toISOString() : null
-        }
-      });
+        },
+
+        // Provenance (9-element EO structure)
+        provenance: {
+          agent: options.provenance?.agent || null,
+          method: options.provenance?.method || `${isICS ? 'ICS' : isCSV ? 'CSV' : 'JSON'} import`,
+          source: options.provenance?.source || file.name,
+          term: options.provenance?.term || null,
+          definition: options.provenance?.definition || null,
+          jurisdiction: options.provenance?.jurisdiction || null,
+          scale: options.provenance?.scale || null,
+          timeframe: options.provenance?.timeframe || null,
+          background: options.provenance?.background || null
+        },
+
+        // Parsing decisions (for transparency)
+        parsingDecisions: parseResult.parsingDecisions || {
+          delimiter: parseResult.delimiter,
+          hasHeaders: parseResult.hasHeaders
+        },
+
+        // Timestamps
+        importedAt: importedAt,
+        createdAt: importedAt,
+
+        // Derived sets tracking
+        derivedSetIds: [],
+
+        // Status
+        status: 'active'
+      };
 
       this._emitProgress('progress', {
-        phase: 'finalizing',
-        percentage: 90
+        phase: 'storing',
+        percentage: 80
       });
 
-      // Store the source store reference on workbench for later use
-      if (this.workbench && !this.workbench.sourceStore) {
-        this.workbench.sourceStore = sourceStore;
+      // Step 6: Store the source on the workbench
+      // CRITICAL: This is the single source of truth for imported data
+      if (this.workbench) {
+        // Initialize sources array if needed
+        if (!Array.isArray(this.workbench.sources)) {
+          this.workbench.sources = [];
+        }
+
+        // Add source to workbench
+        this.workbench.sources.push(source);
+
+        // Also add to sourceStore if it exists (for compatibility)
+        if (this.workbench.sourceStore?.sources) {
+          this.workbench.sourceStore.sources.set(sourceId, source);
+        }
+
+        // Persist the data
+        if (typeof this.workbench._saveData === 'function') {
+          this.workbench._saveData();
+        }
+      } else {
+        console.warn('ImportOrchestrator: No workbench - source will not persist');
       }
 
       this._emitProgress('completed', {
@@ -1164,54 +1210,44 @@ class ImportOrchestrator {
   }
 
   /**
-   * Get the SourceStore instance - MUST use workbench's sourceStore
-   *
-   * CRITICAL: This must always return the workbench's sourceStore to ensure
-   * imported data is visible in the UI. Never create a new store here.
+   * Get the SourceStore instance
+   * Returns workbench.sourceStore if available, otherwise creates one
    */
   _getSourceStore() {
-    // MUST use workbench's sourceStore for consistency
     if (this.workbench?.sourceStore) {
       return this.workbench.sourceStore;
     }
 
-    // If workbench doesn't have sourceStore yet, create and attach it
+    // Create and attach to workbench
     if (this.workbench) {
-      if (typeof SourceStore !== 'undefined') {
-        const eventStore = this.workbench.eoApp?.eventStore || null;
-        this.workbench.sourceStore = new SourceStore(eventStore);
-      } else if (typeof createSimpleSourceStore === 'function') {
-        this.workbench.sourceStore = createSimpleSourceStore();
-      } else {
-        // Last resort fallback - but attach to workbench
-        this.workbench.sourceStore = this._createFallbackStore();
-      }
+      this.workbench.sourceStore = this._createSourceStore();
       return this.workbench.sourceStore;
     }
 
-    // No workbench - this shouldn't happen in normal usage
-    console.warn('ImportOrchestrator: No workbench available, import may not be visible');
-    return this._createFallbackStore();
+    return this._createSourceStore();
   }
 
   /**
-   * Create a fallback store (last resort)
+   * Create a source store instance
    */
-  _createFallbackStore() {
+  _createSourceStore() {
     const sources = new Map();
     return {
       sources: sources,
       createSource(config) {
-        const id = 'src_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+        const id = 'src_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 8);
         const source = {
           id,
           name: config.name,
-          records: Object.freeze([...config.records]),
+          type: 'source',
+          records: config.records,
           recordCount: config.records.length,
           schema: config.schema,
           provenance: config.provenance,
           fileIdentity: config.fileMetadata,
+          parsingDecisions: config.parseResult?.parsingDecisions || null,
           importedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
           derivedSetIds: [],
           status: 'active'
         };
