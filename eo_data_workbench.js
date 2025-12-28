@@ -4312,6 +4312,91 @@ class EODataWorkbench {
     }
   }
 
+  _renderMultiSelectEditor(cell, field, currentValue) {
+    const choices = field.options?.choices || [];
+    const currentSelections = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+
+    let html = '<div class="multiselect-dropdown">';
+    html += '<div class="multiselect-dropdown-search">';
+    html += '<input type="text" placeholder="Search options..." class="multiselect-search-input">';
+    html += '</div>';
+    html += '<div class="multiselect-dropdown-options">';
+
+    choices.forEach(choice => {
+      const isSelected = currentSelections.includes(choice.id);
+      html += `
+        <div class="multiselect-option ${isSelected ? 'selected' : ''}" data-value="${choice.id}">
+          <span class="multiselect-option-check">${isSelected ? '<i class="ph ph-check"></i>' : ''}</span>
+          <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+        </div>
+      `;
+    });
+
+    if (choices.length === 0) {
+      html += '<div class="multiselect-option-empty">No options available</div>';
+    }
+
+    html += '</div>';
+    html += '<div class="multiselect-dropdown-footer">';
+    html += '<button class="multiselect-done-btn">Done</button>';
+    html += '</div>';
+    html += '</div>';
+
+    cell.innerHTML = html;
+
+    const dropdown = cell.querySelector('.multiselect-dropdown');
+    const searchInput = cell.querySelector('.multiselect-search-input');
+    let selectedIds = [...currentSelections];
+
+    // Search filtering
+    searchInput?.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      dropdown.querySelectorAll('.multiselect-option').forEach(opt => {
+        const name = opt.querySelector('.select-tag')?.textContent.toLowerCase() || '';
+        opt.style.display = name.includes(searchTerm) ? '' : 'none';
+      });
+    });
+    searchInput?.focus();
+
+    // Toggle selection
+    dropdown.querySelectorAll('.multiselect-option').forEach(option => {
+      option.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const choiceId = option.dataset.value;
+
+        const idx = selectedIds.indexOf(choiceId);
+        if (idx > -1) {
+          selectedIds.splice(idx, 1);
+          option.classList.remove('selected');
+          option.querySelector('.multiselect-option-check').innerHTML = '';
+        } else {
+          selectedIds.push(choiceId);
+          option.classList.add('selected');
+          option.querySelector('.multiselect-option-check').innerHTML = '<i class="ph ph-check"></i>';
+        }
+      });
+    });
+
+    // Done button
+    dropdown.querySelector('.multiselect-done-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._updateCellValue(selectedIds.length > 0 ? selectedIds : null);
+      this._endCellEdit();
+    });
+
+    // Close on click outside and save
+    setTimeout(() => {
+      const closeHandler = (e) => {
+        if (!e.target.closest('.multiselect-dropdown')) {
+          this._updateCellValue(selectedIds.length > 0 ? selectedIds : null);
+          this._endCellEdit();
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      document.addEventListener('click', closeHandler);
+    }, 10);
+  }
+
   _renderLinkEditor(cell, field, currentValue) {
     const linkedSetId = field.options?.linkedSetId;
     const allowMultiple = field.options?.allowMultiple !== false;
@@ -8233,6 +8318,26 @@ class EODataWorkbench {
         return `<a href="${this._escapeHtml(value)}" target="_blank" style="color: var(--primary-500);">${this._escapeHtml(value)}</a>`;
       case FieldTypes.EMAIL:
         return `<a href="mailto:${this._escapeHtml(value)}" style="color: var(--primary-500);">${this._escapeHtml(value)}</a>`;
+      case FieldTypes.LINK:
+        if (Array.isArray(value) && value.length > 0) {
+          const linkedSetId = field.options?.linkedSetId;
+          const linkedSet = linkedSetId ? this.sets?.find(s => s.id === linkedSetId) : this.getCurrentSet?.();
+          const primaryField = linkedSet?.fields?.find(f => f.isPrimary) || linkedSet?.fields?.[0];
+          return value.map(recordId => {
+            const linkedRecord = linkedSet?.records?.find(r => r.id === recordId);
+            const name = linkedRecord?.values?.[primaryField?.id] || 'Unknown';
+            return `<span class="link-chip">${this._escapeHtml(name)}</span>`;
+          }).join(' ');
+        }
+        return '<span class="cell-empty">No links - click to add</span>';
+      case FieldTypes.ATTACHMENT:
+        if (Array.isArray(value) && value.length > 0) {
+          return value.map(att => {
+            const name = typeof att === 'object' ? (att.name || att.filename || 'File') : String(att);
+            return `<span class="attachment-chip"><i class="ph ph-file"></i> ${this._escapeHtml(name)}</span>`;
+          }).join(' ');
+        }
+        return '<span class="cell-empty">No files - click to add</span>';
       default:
         if (typeof value === 'object') {
           return `<code style="font-size: 11px;">${this._escapeHtml(JSON.stringify(value, null, 2).substring(0, 100))}...</code>`;
@@ -8332,6 +8437,26 @@ class EODataWorkbench {
         textareaEditor.addEventListener('keydown', (e) => {
           if (e.key === 'Escape') cancelTextarea();
         });
+        break;
+
+      case FieldTypes.MULTI_SELECT:
+        this._showMultiSelectDetailEditor(el, field, recordId, currentValue);
+        break;
+
+      case FieldTypes.LINK:
+        this._showLinkDetailEditor(el, field, recordId, currentValue);
+        break;
+
+      case FieldTypes.URL:
+        this._showUrlDetailEditor(el, field, recordId, currentValue);
+        break;
+
+      case FieldTypes.EMAIL:
+        this._showEmailDetailEditor(el, field, recordId, currentValue);
+        break;
+
+      case FieldTypes.ATTACHMENT:
+        this._showAttachmentDetailEditor(el, field, recordId, currentValue);
         break;
 
       default:
@@ -8537,6 +8662,419 @@ class EODataWorkbench {
         </div>
       </div>
     `;
+  }
+
+  // --------------------------------------------------------------------------
+  // Multi-Select Detail Editor
+  // --------------------------------------------------------------------------
+
+  _showMultiSelectDetailEditor(el, field, recordId, currentValue) {
+    const choices = field.options?.choices || [];
+    const currentSelections = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+
+    let html = '<div class="detail-multiselect-editor">';
+    html += '<div class="detail-multiselect-search">';
+    html += '<input type="text" placeholder="Search options..." class="detail-multiselect-search-input">';
+    html += '</div>';
+    html += '<div class="detail-multiselect-options">';
+
+    choices.forEach(choice => {
+      const isSelected = currentSelections.includes(choice.id);
+      html += `
+        <div class="detail-multiselect-option ${isSelected ? 'selected' : ''}" data-value="${choice.id}">
+          <span class="detail-multiselect-check">${isSelected ? '<i class="ph ph-check"></i>' : ''}</span>
+          <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+        </div>
+      `;
+    });
+
+    if (choices.length === 0) {
+      html += '<div class="detail-multiselect-empty">No options configured. Edit field to add choices.</div>';
+    }
+
+    html += '</div>';
+    html += '<div class="detail-multiselect-footer">';
+    html += '<button class="detail-multiselect-done">Done</button>';
+    html += '</div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+
+    const editor = el.querySelector('.detail-multiselect-editor');
+    const searchInput = el.querySelector('.detail-multiselect-search-input');
+    let selectedIds = [...currentSelections];
+
+    // Search filtering
+    searchInput?.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      editor.querySelectorAll('.detail-multiselect-option').forEach(opt => {
+        const name = opt.querySelector('.select-tag')?.textContent.toLowerCase() || '';
+        opt.style.display = name.includes(searchTerm) ? '' : 'none';
+      });
+    });
+    searchInput?.focus();
+
+    // Toggle selection
+    editor.querySelectorAll('.detail-multiselect-option').forEach(option => {
+      option.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const choiceId = option.dataset.value;
+
+        const idx = selectedIds.indexOf(choiceId);
+        if (idx > -1) {
+          selectedIds.splice(idx, 1);
+          option.classList.remove('selected');
+          option.querySelector('.detail-multiselect-check').innerHTML = '';
+        } else {
+          selectedIds.push(choiceId);
+          option.classList.add('selected');
+          option.querySelector('.detail-multiselect-check').innerHTML = '<i class="ph ph-check"></i>';
+        }
+      });
+    });
+
+    // Done button
+    editor.querySelector('.detail-multiselect-done')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const newValue = selectedIds.length > 0 ? selectedIds : null;
+      this._updateRecordValue(recordId, field.id, newValue);
+      el.classList.remove('editing');
+      el.innerHTML = this._renderDetailFieldValue(field, newValue);
+      this._renderView();
+    });
+
+    // Close on click outside
+    setTimeout(() => {
+      const closeHandler = (e) => {
+        if (!el.contains(e.target)) {
+          const newValue = selectedIds.length > 0 ? selectedIds : null;
+          this._updateRecordValue(recordId, field.id, newValue);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderDetailFieldValue(field, newValue);
+          this._renderView();
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      document.addEventListener('click', closeHandler);
+    }, 10);
+  }
+
+  // --------------------------------------------------------------------------
+  // Link Detail Editor
+  // --------------------------------------------------------------------------
+
+  _showLinkDetailEditor(el, field, recordId, currentValue) {
+    const linkedSetId = field.options?.linkedSetId;
+    const allowMultiple = field.options?.allowMultiple !== false;
+    const linkedSet = linkedSetId ? this.sets.find(s => s.id === linkedSetId) : this.getCurrentSet();
+
+    if (!linkedSet) {
+      el.innerHTML = '<div class="detail-link-error">No linked set configured</div>';
+      return;
+    }
+
+    const primaryField = linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0];
+    const currentLinks = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+
+    let html = '<div class="detail-link-editor">';
+    html += '<div class="detail-link-search">';
+    html += `<input type="text" placeholder="Search ${this._escapeHtml(linkedSet.name)}..." class="detail-link-search-input">`;
+    html += '</div>';
+    html += '<div class="detail-link-options">';
+
+    linkedSet.records.forEach(record => {
+      const recordName = record.values?.[primaryField?.id] || 'Untitled';
+      const isLinked = currentLinks.includes(record.id);
+      html += `
+        <div class="detail-link-option ${isLinked ? 'selected' : ''}" data-record-id="${record.id}">
+          <span class="detail-link-check">${isLinked ? '<i class="ph ph-check"></i>' : ''}</span>
+          <span class="detail-link-name">${this._escapeHtml(recordName)}</span>
+        </div>
+      `;
+    });
+
+    if (linkedSet.records.length === 0) {
+      html += '<div class="detail-link-empty">No records in linked set</div>';
+    }
+
+    html += '</div>';
+    html += '<div class="detail-link-footer">';
+    html += '<button class="detail-link-done">Done</button>';
+    html += '</div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+
+    const editor = el.querySelector('.detail-link-editor');
+    const searchInput = el.querySelector('.detail-link-search-input');
+    let selectedIds = [...currentLinks];
+
+    // Search filtering
+    searchInput?.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      editor.querySelectorAll('.detail-link-option').forEach(opt => {
+        const name = opt.querySelector('.detail-link-name')?.textContent.toLowerCase() || '';
+        opt.style.display = name.includes(searchTerm) ? '' : 'none';
+      });
+    });
+    searchInput?.focus();
+
+    // Toggle selection
+    editor.querySelectorAll('.detail-link-option').forEach(option => {
+      option.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const linkRecordId = option.dataset.recordId;
+
+        if (allowMultiple) {
+          const idx = selectedIds.indexOf(linkRecordId);
+          if (idx > -1) {
+            selectedIds.splice(idx, 1);
+            option.classList.remove('selected');
+            option.querySelector('.detail-link-check').innerHTML = '';
+          } else {
+            selectedIds.push(linkRecordId);
+            option.classList.add('selected');
+            option.querySelector('.detail-link-check').innerHTML = '<i class="ph ph-check"></i>';
+          }
+        } else {
+          // Single selection
+          editor.querySelectorAll('.detail-link-option').forEach(o => {
+            o.classList.remove('selected');
+            o.querySelector('.detail-link-check').innerHTML = '';
+          });
+          selectedIds = [linkRecordId];
+          option.classList.add('selected');
+          option.querySelector('.detail-link-check').innerHTML = '<i class="ph ph-check"></i>';
+        }
+      });
+    });
+
+    // Done button
+    editor.querySelector('.detail-link-done')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const newValue = selectedIds.length > 0 ? selectedIds : null;
+      this._updateRecordValue(recordId, field.id, newValue);
+      el.classList.remove('editing');
+      el.innerHTML = this._renderDetailFieldValue(field, newValue);
+      this._renderView();
+    });
+
+    // Close on click outside
+    setTimeout(() => {
+      const closeHandler = (e) => {
+        if (!el.contains(e.target)) {
+          const newValue = selectedIds.length > 0 ? selectedIds : null;
+          this._updateRecordValue(recordId, field.id, newValue);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderDetailFieldValue(field, newValue);
+          this._renderView();
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      document.addEventListener('click', closeHandler);
+    }, 10);
+  }
+
+  // --------------------------------------------------------------------------
+  // URL Detail Editor
+  // --------------------------------------------------------------------------
+
+  _showUrlDetailEditor(el, field, recordId, currentValue) {
+    el.innerHTML = `
+      <div class="detail-editor-wrapper">
+        <div class="detail-url-input-wrapper">
+          <i class="ph ph-globe"></i>
+          <input type="url" class="detail-editor detail-url-input"
+                 value="${this._escapeHtml(currentValue || '')}"
+                 placeholder="https://example.com">
+        </div>
+        <div class="detail-editor-actions">
+          <button class="detail-editor-cancel" title="Cancel (Escape)">
+            <i class="ph ph-x"></i>
+          </button>
+          <button class="detail-editor-save" title="Save (Enter)">
+            <i class="ph ph-check"></i>
+          </button>
+        </div>
+      </div>
+    `;
+
+    const inputEditor = el.querySelector('input');
+    inputEditor.focus();
+    inputEditor.select();
+
+    const saveInput = () => {
+      const value = inputEditor.value.trim();
+      // Auto-add protocol if missing
+      let finalValue = value;
+      if (value && !value.match(/^https?:\/\//i)) {
+        finalValue = 'https://' + value;
+      }
+      this._updateRecordValue(recordId, field.id, finalValue || null);
+      el.classList.remove('editing');
+      el.innerHTML = this._renderDetailFieldValue(field, finalValue || null);
+      this._renderView();
+    };
+
+    const cancelInput = () => {
+      el.classList.remove('editing');
+      el.innerHTML = this._renderDetailFieldValue(field, currentValue);
+    };
+
+    el.querySelector('.detail-editor-save')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      saveInput();
+    });
+    el.querySelector('.detail-editor-cancel')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cancelInput();
+    });
+    inputEditor.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveInput();
+      }
+      if (e.key === 'Escape') {
+        cancelInput();
+      }
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Email Detail Editor
+  // --------------------------------------------------------------------------
+
+  _showEmailDetailEditor(el, field, recordId, currentValue) {
+    el.innerHTML = `
+      <div class="detail-editor-wrapper">
+        <div class="detail-email-input-wrapper">
+          <i class="ph ph-envelope"></i>
+          <input type="email" class="detail-editor detail-email-input"
+                 value="${this._escapeHtml(currentValue || '')}"
+                 placeholder="name@example.com">
+        </div>
+        <div class="detail-editor-actions">
+          <button class="detail-editor-cancel" title="Cancel (Escape)">
+            <i class="ph ph-x"></i>
+          </button>
+          <button class="detail-editor-save" title="Save (Enter)">
+            <i class="ph ph-check"></i>
+          </button>
+        </div>
+      </div>
+    `;
+
+    const inputEditor = el.querySelector('input');
+    inputEditor.focus();
+    inputEditor.select();
+
+    const saveInput = () => {
+      const value = inputEditor.value.trim();
+      this._updateRecordValue(recordId, field.id, value || null);
+      el.classList.remove('editing');
+      el.innerHTML = this._renderDetailFieldValue(field, value || null);
+      this._renderView();
+    };
+
+    const cancelInput = () => {
+      el.classList.remove('editing');
+      el.innerHTML = this._renderDetailFieldValue(field, currentValue);
+    };
+
+    el.querySelector('.detail-editor-save')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      saveInput();
+    });
+    el.querySelector('.detail-editor-cancel')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      cancelInput();
+    });
+    inputEditor.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveInput();
+      }
+      if (e.key === 'Escape') {
+        cancelInput();
+      }
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Attachment Detail Editor
+  // --------------------------------------------------------------------------
+
+  _showAttachmentDetailEditor(el, field, recordId, currentValue) {
+    const attachments = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+
+    let html = '<div class="detail-attachment-editor">';
+    html += '<div class="detail-attachment-list">';
+
+    attachments.forEach((att, index) => {
+      const fileName = typeof att === 'object' ? (att.name || att.filename || 'File') : String(att);
+      html += `
+        <div class="detail-attachment-item" data-index="${index}">
+          <i class="ph ph-file"></i>
+          <span class="detail-attachment-name">${this._escapeHtml(fileName)}</span>
+          <button class="detail-attachment-remove" data-index="${index}">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+      `;
+    });
+
+    html += '</div>';
+    html += '<div class="detail-attachment-actions">';
+    html += '<label class="detail-attachment-add">';
+    html += '<i class="ph ph-plus"></i> Add file';
+    html += '<input type="file" multiple style="display: none;">';
+    html += '</label>';
+    html += '<button class="detail-attachment-done">Done</button>';
+    html += '</div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+
+    const editor = el.querySelector('.detail-attachment-editor');
+    let currentAttachments = [...attachments];
+
+    // Remove attachment
+    editor.querySelectorAll('.detail-attachment-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const index = parseInt(btn.dataset.index);
+        currentAttachments.splice(index, 1);
+        // Re-render
+        this._showAttachmentDetailEditor(el, field, recordId, currentAttachments);
+      });
+    });
+
+    // Add file
+    const fileInput = editor.querySelector('input[type="file"]');
+    fileInput?.addEventListener('change', (e) => {
+      const files = Array.from(e.target.files);
+      files.forEach(file => {
+        // Store basic file info (in a real app, you'd upload and store URLs)
+        currentAttachments.push({
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          lastModified: file.lastModified
+        });
+      });
+      // Re-render
+      this._showAttachmentDetailEditor(el, field, recordId, currentAttachments);
+    });
+
+    // Done button
+    editor.querySelector('.detail-attachment-done')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const newValue = currentAttachments.length > 0 ? currentAttachments : null;
+      this._updateRecordValue(recordId, field.id, newValue);
+      el.classList.remove('editing');
+      el.innerHTML = this._renderDetailFieldValue(field, newValue);
+      this._renderView();
+    });
   }
 
   // --------------------------------------------------------------------------
