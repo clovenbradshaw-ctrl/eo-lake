@@ -382,8 +382,474 @@ const RelationshipOperator = Object.freeze({
   CHILD: 'child'    // Hierarchical child
 });
 
+// ============================================================================
+// Edge System - Edges are Given, Projections are Meant
+// ============================================================================
+
 /**
- * EdgeConfig - First-class relationship definition
+ * EdgeRecord - First-class edge stored in set.spaces.edges
+ *
+ * Core principle: Edges are Given structure. Link columns are Meant projections.
+ *
+ * Edges are relational facts that exist in an attached record space,
+ * subordinate to but distinct from the primary record space.
+ */
+class EdgeRecord {
+  /**
+   * @param {Object} options
+   * @param {string} options.id - Unique edge ID
+   * @param {string} options.ownerSetId - Set whose edge space contains this
+   * @param {string} options.from - Record ID (any set, globally resolved)
+   * @param {string} options.to - Record ID (any set, globally resolved)
+   * @param {string} options.type - Edge type: "reports_to", "works_at", etc.
+   * @param {boolean} options.directed - true = from→to, false = bidirectional
+   * @param {Object} options.properties - Edge-specific metadata
+   * @param {Object} options.grounding - Origin and derivation info
+   */
+  constructor(options) {
+    // Identity
+    this.id = options.id || generateOntologyId('edge');
+
+    // Ownership (organizational - where this edge is stored)
+    this.ownerSetId = options.ownerSetId;
+
+    // Endpoints (semantic - what this edge connects)
+    this.from = options.from;
+    this.to = options.to;
+
+    // Typing
+    this.type = options.type || 'related_to';
+    this.directed = options.directed !== false; // Default true
+
+    // Properties (edge-specific metadata)
+    this.properties = options.properties || {};
+
+    // Grounding
+    this.grounding = {
+      origin: {
+        eventId: options.grounding?.origin?.eventId || null,
+        sourceId: options.grounding?.origin?.sourceId || null,
+        locator: options.grounding?.origin?.locator || null
+      },
+      derivation: options.grounding?.derivation || null
+    };
+  }
+
+  /**
+   * Get the "other" endpoint given one endpoint
+   */
+  getLinkedRecordId(fromRecordId) {
+    return this.from === fromRecordId ? this.to : this.from;
+  }
+
+  /**
+   * Check if this edge connects to a specific record
+   */
+  connectsTo(recordId) {
+    return this.from === recordId || this.to === recordId;
+  }
+
+  /**
+   * Check if this is a self-loop
+   */
+  isSelfLoop() {
+    return this.from === this.to;
+  }
+
+  toJSON() {
+    return {
+      id: this.id,
+      ownerSetId: this.ownerSetId,
+      from: this.from,
+      to: this.to,
+      type: this.type,
+      directed: this.directed,
+      properties: { ...this.properties },
+      grounding: {
+        origin: { ...this.grounding.origin },
+        derivation: this.grounding.derivation ? { ...this.grounding.derivation } : null
+      }
+    };
+  }
+
+  /**
+   * Create EdgeRecord from plain object
+   */
+  static fromJSON(json) {
+    return new EdgeRecord(json);
+  }
+}
+
+/**
+ * EdgeTypeDefinition - Defines semantics and display for an edge type
+ */
+class EdgeTypeDefinition {
+  /**
+   * @param {Object} options
+   * @param {string} options.type - Internal key: "reports_to"
+   * @param {string} options.name - Display name: "Reports To"
+   * @param {boolean} options.directed - Default directionality
+   * @param {boolean} options.symmetric - If true, A↔B (one edge, shows both sides)
+   * @param {string} options.inverseName - For directed: "Direct Reports"
+   * @param {Object} options.propertySchema - Expected properties
+   * @param {Object} options.style - Styling for graph view
+   */
+  constructor(options) {
+    // Identity
+    this.type = options.type;
+    this.name = options.name || this._formatTypeName(options.type);
+
+    // Semantics
+    this.directed = options.directed !== false; // Default true
+    this.symmetric = options.symmetric || false;
+    this.inverseName = options.inverseName || null;
+
+    // Schema (optional - for validation)
+    this.propertySchema = options.propertySchema || null;
+
+    // Styling (for graph view)
+    this.style = {
+      color: options.style?.color || '#94a3b8',
+      width: options.style?.width || 2,
+      dashed: options.style?.dashed || false
+    };
+  }
+
+  _formatTypeName(type) {
+    if (!type) return 'Related To';
+    return type
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  /**
+   * Get inverse name for incoming edges
+   */
+  getInverseName() {
+    if (this.symmetric) return this.name;
+    return this.inverseName || `${this.name} (incoming)`;
+  }
+
+  toJSON() {
+    return {
+      type: this.type,
+      name: this.name,
+      directed: this.directed,
+      symmetric: this.symmetric,
+      inverseName: this.inverseName,
+      propertySchema: this.propertySchema,
+      style: { ...this.style }
+    };
+  }
+
+  static fromJSON(json) {
+    return new EdgeTypeDefinition(json);
+  }
+}
+
+/**
+ * EdgeProjection - Configuration for displaying edges as a table column
+ *
+ * Projections are Meant - they're view-time interpretations of how to display edges.
+ */
+class EdgeProjection {
+  /**
+   * @param {Object} options
+   * @param {string} options.id - Unique projection ID
+   * @param {string} options.edgeType - Edge type to project
+   * @param {string} options.direction - 'outgoing' | 'incoming' | 'both'
+   * @param {string} options.columnName - Display name for column
+   * @param {number} options.position - Column order
+   * @param {Object} options.display - Display configuration
+   * @param {boolean} options.enabled - Whether projection is active
+   */
+  constructor(options) {
+    this.id = options.id || generateOntologyId('proj');
+    this.edgeType = options.edgeType;
+    this.direction = options.direction || 'outgoing';
+    this.columnName = options.columnName;
+    this.position = options.position ?? 0;
+
+    this.display = {
+      showAs: options.display?.showAs || 'link_chips', // 'link_chips' | 'count' | 'list'
+      maxVisible: options.display?.maxVisible ?? 3,
+      showProperties: options.display?.showProperties || [],
+      showSetBadge: options.display?.showSetBadge || false
+    };
+
+    this.enabled = options.enabled !== false;
+  }
+
+  toJSON() {
+    return {
+      id: this.id,
+      edgeType: this.edgeType,
+      direction: this.direction,
+      columnName: this.columnName,
+      position: this.position,
+      display: { ...this.display },
+      enabled: this.enabled
+    };
+  }
+
+  static fromJSON(json) {
+    return new EdgeProjection(json);
+  }
+}
+
+/**
+ * GlobalRecordRegistry - Central registry for record lookup across all sets
+ *
+ * Record IDs are globally unique. Edges reference records by ID only.
+ * Resolution is a lookup, not stored redundancy.
+ */
+class GlobalRecordRegistry {
+  constructor() {
+    // Map: recordId -> { record, setId }
+    this.index = new Map();
+  }
+
+  /**
+   * Register a record
+   */
+  register(recordId, record, setId) {
+    this.index.set(recordId, { record, setId });
+  }
+
+  /**
+   * Unregister a record (soft delete - keep for orphan detection)
+   */
+  unregister(recordId) {
+    const entry = this.index.get(recordId);
+    if (entry) {
+      entry.deleted = true;
+      entry.deletedAt = new Date().toISOString();
+    }
+  }
+
+  /**
+   * Get a record by ID
+   */
+  get(recordId) {
+    const entry = this.index.get(recordId);
+    if (!entry || entry.deleted) return null;
+    return entry.record;
+  }
+
+  /**
+   * Check if a record exists
+   */
+  has(recordId) {
+    const entry = this.index.get(recordId);
+    return entry && !entry.deleted;
+  }
+
+  /**
+   * Get the set ID for a record
+   */
+  getSetId(recordId) {
+    const entry = this.index.get(recordId);
+    if (!entry || entry.deleted) return null;
+    return entry.setId;
+  }
+
+  /**
+   * Get multiple records at once
+   */
+  getMany(recordIds) {
+    const result = new Map();
+    for (const id of recordIds) {
+      result.set(id, this.get(id));
+    }
+    return result;
+  }
+
+  /**
+   * Check if a record was deleted (for orphan detection)
+   */
+  wasDeleted(recordId) {
+    const entry = this.index.get(recordId);
+    return entry?.deleted === true;
+  }
+
+  /**
+   * Get deletion info for orphan display
+   */
+  getDeletionInfo(recordId) {
+    const entry = this.index.get(recordId);
+    if (!entry?.deleted) return null;
+    return {
+      deletedAt: entry.deletedAt,
+      originalRecord: entry.record
+    };
+  }
+
+  /**
+   * Rebuild registry from sets
+   */
+  rebuildFromSets(sets) {
+    this.index.clear();
+    for (const set of sets) {
+      if (set.records) {
+        for (const record of set.records) {
+          this.register(record.id, record, set.id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Get all record IDs in a set
+   */
+  getRecordIdsForSet(setId) {
+    const ids = [];
+    for (const [recordId, entry] of this.index) {
+      if (entry.setId === setId && !entry.deleted) {
+        ids.push(recordId);
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * Clear the registry
+   */
+  clear() {
+    this.index.clear();
+  }
+}
+
+/**
+ * ResolvedEdge - Edge with resolved endpoint information
+ */
+class ResolvedEdge {
+  constructor(edge, registry) {
+    this.edge = edge;
+
+    const fromRecord = registry.get(edge.from);
+    const toRecord = registry.get(edge.to);
+
+    this.from = {
+      record: fromRecord,
+      setId: fromRecord ? registry.getSetId(edge.from) : null,
+      orphaned: fromRecord === null,
+      wasDeleted: registry.wasDeleted(edge.from),
+      deletionInfo: registry.getDeletionInfo(edge.from)
+    };
+
+    this.to = {
+      record: toRecord,
+      setId: toRecord ? registry.getSetId(edge.to) : null,
+      orphaned: toRecord === null,
+      wasDeleted: registry.wasDeleted(edge.to),
+      deletionInfo: registry.getDeletionInfo(edge.to)
+    };
+  }
+
+  /**
+   * Check if either endpoint is orphaned
+   */
+  hasOrphan() {
+    return this.from.orphaned || this.to.orphaned;
+  }
+
+  /**
+   * Check if this is a cross-set edge
+   */
+  isCrossSet() {
+    return this.from.setId !== this.to.setId;
+  }
+}
+
+/**
+ * EdgeQueryHelper - Utility functions for querying edges
+ */
+class EdgeQueryHelper {
+  /**
+   * Query edges for a specific record
+   */
+  static queryEdgesForRecord(recordId, edgeType, direction, edges, edgeTypes) {
+    const typeDef = edgeTypes?.[edgeType];
+
+    return edges.filter(edge => {
+      if (edge.type !== edgeType) return false;
+
+      // Symmetric: match either endpoint regardless of direction param
+      if (!edge.directed || typeDef?.symmetric) {
+        return edge.from === recordId || edge.to === recordId;
+      }
+
+      // Directed: respect direction param
+      switch (direction) {
+        case 'outgoing': return edge.from === recordId;
+        case 'incoming': return edge.to === recordId;
+        case 'both': return edge.from === recordId || edge.to === recordId;
+        default: return edge.from === recordId;
+      }
+    });
+  }
+
+  /**
+   * Group edges by type and direction for a record
+   */
+  static groupEdgesByTypeAndDirection(edges, recordId, edgeTypes) {
+    const groups = {};
+
+    for (const edge of edges) {
+      if (!edge.connectsTo(recordId)) continue;
+
+      if (!groups[edge.type]) {
+        groups[edge.type] = { outgoing: [], incoming: [] };
+      }
+
+      const typeDef = edgeTypes?.[edge.type];
+
+      // Symmetric edges: always show as "outgoing" (no incoming section)
+      if (!edge.directed || typeDef?.symmetric) {
+        groups[edge.type].outgoing.push(edge);
+      } else if (edge.from === recordId) {
+        groups[edge.type].outgoing.push(edge);
+      } else {
+        groups[edge.type].incoming.push(edge);
+      }
+    }
+
+    return groups;
+  }
+
+  /**
+   * Detect symmetric edges during import
+   */
+  static detectSymmetricEdges(edges, edgeType) {
+    const typeEdges = edges.filter(e =>
+      (e.type || e.relationship || e.label || 'related_to') === edgeType
+    );
+
+    if (typeEdges.length === 0) return { isSymmetric: false, ratio: 0 };
+
+    let reverseCount = 0;
+    for (const edge of typeEdges) {
+      const from = edge.source || edge.from;
+      const to = edge.target || edge.to;
+      const hasReverse = typeEdges.some(e =>
+        (e.source || e.from) === to && (e.target || e.to) === from
+      );
+      if (hasReverse) reverseCount++;
+    }
+
+    const ratio = reverseCount / typeEdges.length;
+    return {
+      isSymmetric: ratio > 0.8,
+      ratio,
+      count: typeEdges.length,
+      reverseCount
+    };
+  }
+}
+
+/**
+ * EdgeConfig - Legacy class, kept for backward compatibility
+ * @deprecated Use EdgeRecord instead
  */
 class EdgeConfig {
   /**
@@ -440,6 +906,25 @@ class EdgeConfig {
     }
   }
 
+  /**
+   * Convert to new EdgeRecord format
+   */
+  toEdgeRecord(ownerSetId) {
+    return new EdgeRecord({
+      id: this.id,
+      ownerSetId: ownerSetId || this.sourceSetId,
+      from: this.sourceRecordId,
+      to: this.targetRecordId,
+      type: this.operator,
+      directed: !this.bidirectional,
+      properties: {
+        label: this.label,
+        weight: this.weight,
+        ...this.properties
+      }
+    });
+  }
+
   toJSON() {
     return {
       id: this.id,
@@ -458,6 +943,27 @@ class EdgeConfig {
     };
   }
 }
+
+// ============================================================================
+// Edge Event Categories
+// ============================================================================
+
+/**
+ * EdgeEventCategory - Event types for edge operations
+ */
+const EdgeEventCategory = Object.freeze({
+  // Given events (structural facts)
+  EDGE_IMPORTED: 'edge_imported',
+  EDGE_CREATED: 'edge_created',
+  EDGE_UPDATED: 'edge_updated',
+  EDGE_RELINKED: 'edge_relinked',
+  EDGE_DELETED: 'edge_deleted',
+
+  // Meant events (interpretive configurations)
+  EDGE_TYPE_REGISTERED: 'edge_type_registered',
+  EDGE_PROJECTION_CONFIGURED: 'edge_projection_configured',
+  EDGE_PROJECTION_REMOVED: 'edge_projection_removed'
+});
 
 // ============================================================================
 // Fix #5: Explicit Frame System
@@ -993,6 +1499,15 @@ if (typeof module !== 'undefined' && module.exports) {
     OntologyError,
     OntologyValidator,
 
+    // Edge System (Edges are Given, Projections are Meant)
+    EdgeRecord,
+    EdgeTypeDefinition,
+    EdgeProjection,
+    GlobalRecordRegistry,
+    ResolvedEdge,
+    EdgeQueryHelper,
+    EdgeEventCategory,
+
     // Functions
     isViewOperationAllowed,
     getCreationFlowForIntent,
@@ -1021,6 +1536,16 @@ if (typeof window !== 'undefined') {
     StabilityLevel,
     OntologyError,
     OntologyValidator,
+
+    // Edge System (Edges are Given, Projections are Meant)
+    EdgeRecord,
+    EdgeTypeDefinition,
+    EdgeProjection,
+    GlobalRecordRegistry,
+    ResolvedEdge,
+    EdgeQueryHelper,
+    EdgeEventCategory,
+
     isViewOperationAllowed,
     getCreationFlowForIntent,
     getStabilityCapabilities,

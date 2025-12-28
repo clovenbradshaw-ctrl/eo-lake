@@ -76,6 +76,12 @@ function generateId() {
 
 /**
  * Create a new Set (table/collection)
+ *
+ * Sets contain:
+ * - Primary record space (fields + records)
+ * - Attached spaces (edges, annotations, history - future)
+ * - Edge type registry
+ * - Edge projections for views
  */
 function createSet(name, icon = 'ph-table') {
   return {
@@ -89,6 +95,18 @@ function createSet(name, icon = 'ph-table') {
     views: [
       createView('All Records', 'table')
     ],
+
+    // Attached spaces (edges are subordinate to but distinct from primary records)
+    spaces: {
+      edges: []  // EdgeRecord[] - relational facts between records
+    },
+
+    // Edge type registry - defines semantics and display for edge types
+    edgeTypes: {},  // { [type: string]: EdgeTypeDefinition }
+
+    // Edge projections - view configurations for displaying edges as columns
+    edgeProjections: [],  // EdgeProjection[] - which edge types to show as table columns
+
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -206,6 +224,10 @@ class EODataWorkbench {
     // View Hierarchy (Nine Rules-Compliant)
     this.viewRegistry = null;
 
+    // Global Record Registry - Central lookup for all records across sets
+    // Used for edge resolution (edges reference records by globally unique ID)
+    this.recordRegistry = null;
+
     // Legacy State (for backward compatibility)
     this.sets = [];
     this.currentSetId = null;
@@ -256,6 +278,9 @@ class EODataWorkbench {
     // Initialize View Hierarchy Registry
     this._initViewHierarchy();
 
+    // Initialize Global Record Registry for edge resolution
+    this._initRecordRegistry();
+
     // Load persisted data
     this._loadData();
 
@@ -277,6 +302,9 @@ class EODataWorkbench {
 
     // Sync legacy sets with view registry
     this._syncSetsToRegistry();
+
+    // Rebuild record registry after data load
+    this._rebuildRecordRegistry();
 
     // Bind elements
     this._bindElements();
@@ -325,6 +353,111 @@ class EODataWorkbench {
     this.viewRegistry.subscribe?.((eventType, data) => {
       this._handleRegistryEvent(eventType, data);
     });
+  }
+
+  /**
+   * Initialize the Global Record Registry
+   *
+   * The registry provides O(1) lookup for records by ID across all sets.
+   * This is essential for edge resolution - edges reference records by globally unique ID.
+   */
+  _initRecordRegistry() {
+    // Use EOOntology.GlobalRecordRegistry if available, otherwise create simple version
+    if (typeof window !== 'undefined' && window.EOOntology?.GlobalRecordRegistry) {
+      this.recordRegistry = new window.EOOntology.GlobalRecordRegistry();
+    } else {
+      // Fallback: simple in-memory registry
+      this.recordRegistry = {
+        index: new Map(),
+        register(recordId, record, setId) {
+          this.index.set(recordId, { record, setId });
+        },
+        unregister(recordId) {
+          const entry = this.index.get(recordId);
+          if (entry) {
+            entry.deleted = true;
+            entry.deletedAt = new Date().toISOString();
+          }
+        },
+        get(recordId) {
+          const entry = this.index.get(recordId);
+          if (!entry || entry.deleted) return null;
+          return entry.record;
+        },
+        has(recordId) {
+          const entry = this.index.get(recordId);
+          return entry && !entry.deleted;
+        },
+        getSetId(recordId) {
+          const entry = this.index.get(recordId);
+          if (!entry || entry.deleted) return null;
+          return entry.setId;
+        },
+        getMany(recordIds) {
+          const result = new Map();
+          for (const id of recordIds) {
+            result.set(id, this.get(id));
+          }
+          return result;
+        },
+        wasDeleted(recordId) {
+          const entry = this.index.get(recordId);
+          return entry?.deleted === true;
+        },
+        getDeletionInfo(recordId) {
+          const entry = this.index.get(recordId);
+          if (!entry?.deleted) return null;
+          return {
+            deletedAt: entry.deletedAt,
+            originalRecord: entry.record
+          };
+        },
+        rebuildFromSets(sets) {
+          this.index.clear();
+          for (const set of sets) {
+            if (set.records) {
+              for (const record of set.records) {
+                this.register(record.id, record, set.id);
+              }
+            }
+          }
+        },
+        clear() {
+          this.index.clear();
+        }
+      };
+    }
+  }
+
+  /**
+   * Rebuild the record registry from current sets
+   *
+   * Should be called after:
+   * - Loading data from storage
+   * - Importing new data
+   * - Any operation that adds/removes records
+   */
+  _rebuildRecordRegistry() {
+    if (!this.recordRegistry) return;
+    this.recordRegistry.rebuildFromSets(this.sets);
+  }
+
+  /**
+   * Register a single record in the registry
+   * Call this when creating new records
+   */
+  _registerRecord(record, setId) {
+    if (!this.recordRegistry) return;
+    this.recordRegistry.register(record.id, record, setId);
+  }
+
+  /**
+   * Unregister a record (soft delete for orphan detection)
+   * Call this when deleting records
+   */
+  _unregisterRecord(recordId) {
+    if (!this.recordRegistry) return;
+    this.recordRegistry.unregister(recordId);
   }
 
   /**
@@ -654,18 +787,21 @@ class EODataWorkbench {
       if (data) {
         const parsed = JSON.parse(data);
 
+        // Migrate sets to include edge-related fields (backward compatibility)
+        const migratedSets = (parsed.sets || []).map(set => this._migrateSetForEdges(set));
+
         // Performance: Use lazy loading for set records
         // Only load metadata initially, defer record loading
-        if (this._useLazyLoading && parsed.sets?.length > 1) {
-          this.sets = parsed.sets.map(set => ({
+        if (this._useLazyLoading && migratedSets.length > 1) {
+          this.sets = migratedSets.map(set => ({
             ...set,
             records: [], // Defer loading records
             _recordsLoaded: false,
             _recordCount: set.records?.length || 0
           }));
-          this._fullSetData = parsed.sets; // Store full data for lazy loading
+          this._fullSetData = migratedSets; // Store full data for lazy loading
         } else {
-          this.sets = parsed.sets || [];
+          this.sets = migratedSets;
         }
 
         this.currentSetId = parsed.currentSetId;
@@ -680,6 +816,33 @@ class EODataWorkbench {
     } catch (e) {
       console.error('Failed to load data:', e);
     }
+  }
+
+  /**
+   * Migrate a set to include edge-related fields if missing
+   * Ensures backward compatibility for sets created before the edge system
+   */
+  _migrateSetForEdges(set) {
+    const migrated = { ...set };
+
+    // Add spaces.edges if missing
+    if (!migrated.spaces) {
+      migrated.spaces = { edges: [] };
+    } else if (!migrated.spaces.edges) {
+      migrated.spaces = { ...migrated.spaces, edges: [] };
+    }
+
+    // Add edgeTypes registry if missing
+    if (!migrated.edgeTypes) {
+      migrated.edgeTypes = {};
+    }
+
+    // Add edgeProjections if missing
+    if (!migrated.edgeProjections) {
+      migrated.edgeProjections = [];
+    }
+
+    return migrated;
   }
 
   /**

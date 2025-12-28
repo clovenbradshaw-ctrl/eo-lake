@@ -1469,11 +1469,18 @@ class ImportOrchestrator {
     let processed = 0;
     const typeValues = new Set();
 
+    // ID Mapping for edge resolution (original node ID → generated record ID)
+    // This is essential for graph data where edges reference nodes by their original IDs
+    const idMapping = new Map();
+    const idField = set.fields.find(f => f.name === 'id' || f.name === 'Id' || f.name === 'ID');
+
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
 
       for (const row of batch) {
         const values = {};
+        let originalId = null;
+
         set.fields.forEach((field) => {
           const header = field.name;
           let value = row[header];
@@ -1484,9 +1491,25 @@ class ImportOrchestrator {
           if (field.id === typeField?.id && value) {
             typeValues.add(String(value));
           }
+
+          // Capture original ID for mapping (for graph data edge resolution)
+          if (field.id === idField?.id && value) {
+            originalId = String(value);
+          }
         });
 
-        set.records.push(createRecord(set.id, values));
+        // Also check for id directly on the row (may be from flattened graph data)
+        if (!originalId && row.id) {
+          originalId = String(row.id);
+        }
+
+        const record = createRecord(set.id, values);
+        set.records.push(record);
+
+        // Store the ID mapping for edge resolution
+        if (originalId) {
+          idMapping.set(originalId, record.id);
+        }
       }
 
       processed = Math.min(i + BATCH_SIZE, rows.length);
@@ -1565,8 +1588,28 @@ class ImportOrchestrator {
     this.workbench.currentViewId = set.views[0]?.id;
 
     // Handle edges if provided (graph data)
+    // New system: Store edges in set.spaces.edges (not as a separate set)
     if (options.includeEdges && options.graphInfo?.edges) {
-      await this._importEdgesAsSet(setName, options.graphInfo);
+      this._emitProgress('progress', {
+        phase: 'importing_edges',
+        percentage: 96,
+        message: `Importing ${options.graphInfo.edges.length} edges...`
+      });
+
+      const edgeResult = await this._importEdgesToSpaces(set, options.graphInfo, idMapping, {
+        sourceId: options.sourceId,
+        eventId: null // Will be set if using event store
+      });
+
+      // Log edge import summary
+      console.log(`Edge import complete: ${edgeResult.edgeCount} edges, ` +
+        `${Object.keys(edgeResult.edgeTypes).length} types, ` +
+        `${edgeResult.projections.length} projections`);
+
+      // Update record registry to include new records
+      if (this.workbench._rebuildRecordRegistry) {
+        this.workbench._rebuildRecordRegistry();
+      }
     }
 
     // Create EO event for the import
@@ -1613,7 +1656,248 @@ class ImportOrchestrator {
   }
 
   /**
-   * Import edges as a separate dataset (for graph data)
+   * Import edges into the set's edge space (new edge system)
+   *
+   * Core principle: Edges are Given structure. Link columns are Meant projections.
+   *
+   * @param {Object} set - The set to add edges to
+   * @param {Object} graphInfo - Graph info with edges array
+   * @param {Map} idMapping - Map of original node IDs to record IDs
+   * @param {Object} sourceInfo - Source provenance info
+   */
+  async _importEdgesToSpaces(set, graphInfo, idMapping, sourceInfo = {}) {
+    if (!graphInfo.edges || graphInfo.edges.length === 0) return {
+      edgeCount: 0,
+      edgeTypes: {},
+      projections: []
+    };
+
+    const edges = graphInfo.edges;
+    const edgeTypeCounts = {};
+    const symmetryInfo = {};
+
+    // Phase 1: Analyze edge types and detect symmetry
+    for (const edge of edges) {
+      const type = edge.type || edge.relationship || edge.label || 'related_to';
+      if (!edgeTypeCounts[type]) {
+        edgeTypeCounts[type] = { count: 0, properties: new Set() };
+      }
+      edgeTypeCounts[type].count++;
+
+      // Track properties
+      const props = Object.keys(edge).filter(k =>
+        !['source', 'target', 'from', 'to', 'type', 'relationship', 'label', 'id'].includes(k)
+      );
+      props.forEach(p => edgeTypeCounts[type].properties.add(p));
+    }
+
+    // Detect symmetric edge types
+    for (const type of Object.keys(edgeTypeCounts)) {
+      symmetryInfo[type] = this._detectSymmetricEdges(edges, type);
+    }
+
+    // Phase 2: Build EdgeTypeDefinitions
+    const edgeTypes = {};
+    for (const [type, info] of Object.entries(edgeTypeCounts)) {
+      const isSymmetric = symmetryInfo[type]?.isSymmetric || false;
+
+      edgeTypes[type] = {
+        type,
+        name: this._formatTypeName(type),
+        directed: !isSymmetric,
+        symmetric: isSymmetric,
+        inverseName: isSymmetric ? null : `${this._formatTypeName(type)} (incoming)`,
+        propertySchema: info.properties.size > 0 ? {
+          fields: Array.from(info.properties).map(p => ({
+            key: p,
+            type: 'text',
+            required: false
+          }))
+        } : null,
+        style: {
+          color: this._getEdgeTypeColor(type),
+          width: 2,
+          dashed: false
+        }
+      };
+    }
+
+    // Store edge types in set
+    set.edgeTypes = edgeTypes;
+
+    // Phase 3: Create EdgeRecords with ID resolution
+    const processedPairs = new Set(); // For symmetric deduplication
+    let edgeCount = 0;
+
+    for (let i = 0; i < edges.length; i++) {
+      const edge = edges[i];
+      const type = edge.type || edge.relationship || edge.label || 'related_to';
+      const typeInfo = edgeTypes[type];
+
+      // Get original IDs
+      const originalFrom = edge.source || edge.from;
+      const originalTo = edge.target || edge.to;
+
+      // Resolve to record IDs using the mapping
+      const resolvedFrom = idMapping.get(String(originalFrom));
+      const resolvedTo = idMapping.get(String(originalTo));
+
+      if (!resolvedFrom || !resolvedTo) {
+        console.warn(`Edge skipped: could not resolve IDs - from: ${originalFrom}, to: ${originalTo}`);
+        continue;
+      }
+
+      // Symmetric deduplication: only keep one edge per pair
+      if (typeInfo.symmetric) {
+        const pairKey = [resolvedFrom, resolvedTo].sort().join('|') + '|' + type;
+        if (processedPairs.has(pairKey)) continue;
+        processedPairs.add(pairKey);
+      }
+
+      // Extract properties
+      const properties = {};
+      for (const key of Object.keys(edge)) {
+        if (!['source', 'target', 'from', 'to', 'type', 'relationship', 'label', 'id'].includes(key)) {
+          properties[key] = edge[key];
+        }
+      }
+
+      // Create EdgeRecord
+      const edgeRecord = {
+        id: this._generateEdgeId(),
+        ownerSetId: set.id,
+        from: resolvedFrom,
+        to: resolvedTo,
+        type: type,
+        directed: !typeInfo.symmetric,
+        properties: properties,
+        grounding: {
+          origin: {
+            eventId: sourceInfo.eventId || null,
+            sourceId: sourceInfo.sourceId || null,
+            locator: {
+              path: `edges[${i}]`,
+              index: i
+            }
+          },
+          derivation: {
+            idMapping: {
+              originalFrom: String(originalFrom),
+              originalTo: String(originalTo),
+              resolvedFrom: resolvedFrom,
+              resolvedTo: resolvedTo
+            }
+          }
+        }
+      };
+
+      set.spaces.edges.push(edgeRecord);
+      edgeCount++;
+    }
+
+    // Phase 4: Create default edge projections (outgoing only)
+    const projections = [];
+    for (const [type, typeDef] of Object.entries(edgeTypes)) {
+      const projection = {
+        id: this._generateProjectionId(),
+        edgeType: type,
+        direction: typeDef.symmetric ? 'both' : 'outgoing',
+        columnName: typeDef.name,
+        position: set.fields.length + projections.length,
+        display: {
+          showAs: 'link_chips',
+          maxVisible: 3,
+          showProperties: [],
+          showSetBadge: false
+        },
+        enabled: true
+      };
+      projections.push(projection);
+    }
+
+    set.edgeProjections = projections;
+
+    return {
+      edgeCount,
+      edgeTypes,
+      projections,
+      symmetryInfo
+    };
+  }
+
+  /**
+   * Detect if an edge type is symmetric (A↔B implies B↔A)
+   */
+  _detectSymmetricEdges(edges, edgeType) {
+    const typeEdges = edges.filter(e =>
+      (e.type || e.relationship || e.label || 'related_to') === edgeType
+    );
+
+    if (typeEdges.length === 0) return { isSymmetric: false, ratio: 0 };
+
+    let reverseCount = 0;
+    for (const edge of typeEdges) {
+      const from = edge.source || edge.from;
+      const to = edge.target || edge.to;
+      const hasReverse = typeEdges.some(e =>
+        (e.source || e.from) === to && (e.target || e.to) === from
+      );
+      if (hasReverse) reverseCount++;
+    }
+
+    const ratio = reverseCount / typeEdges.length;
+    return {
+      isSymmetric: ratio > 0.8,
+      ratio,
+      count: typeEdges.length,
+      reverseCount
+    };
+  }
+
+  /**
+   * Get a color for an edge type based on its name
+   */
+  _getEdgeTypeColor(type) {
+    const colors = [
+      '#6366f1', // indigo
+      '#8b5cf6', // violet
+      '#ec4899', // pink
+      '#f43f5e', // rose
+      '#f97316', // orange
+      '#eab308', // yellow
+      '#22c55e', // green
+      '#14b8a6', // teal
+      '#06b6d4', // cyan
+      '#3b82f6', // blue
+    ];
+
+    // Simple hash based on type name
+    let hash = 0;
+    for (let i = 0; i < type.length; i++) {
+      hash = ((hash << 5) - hash) + type.charCodeAt(i);
+      hash = hash & hash;
+    }
+
+    return colors[Math.abs(hash) % colors.length];
+  }
+
+  /**
+   * Generate unique edge ID
+   */
+  _generateEdgeId() {
+    return 'edge_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+  }
+
+  /**
+   * Generate unique projection ID
+   */
+  _generateProjectionId() {
+    return 'proj_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+  }
+
+  /**
+   * @deprecated Use _importEdgesToSpaces instead
+   * Import edges as a separate dataset (legacy - for backward compatibility)
    */
   async _importEdgesAsSet(baseSetName, graphInfo) {
     if (!graphInfo.edges || graphInfo.edges.length === 0) return;
