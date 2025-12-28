@@ -10623,9 +10623,10 @@ class EODataWorkbench {
         <div class="provenance-grid" style="display: grid; gap: 8px;">
           ${elements.map(el => {
             const value = recordProv[el.key] ?? datasetProv[el.key] ?? null;
-            const inherited = !recordProv[el.key] && datasetProv[el.key];
-            const isRef = value && typeof value === 'object' && '$ref' in value;
+            const inherited = !this._hasProvenanceValue(recordProv[el.key]) && this._hasProvenanceValue(datasetProv[el.key]);
+            const isRef = this._isProvenanceRef(value);
             const displayValue = this._formatProvenanceValue(value);
+            const hasValue = this._hasProvenanceValue(value);
 
             return `
               <div class="provenance-field" data-prov-key="${el.key}" data-record-id="${record.id}"
@@ -10640,7 +10641,7 @@ class EODataWorkbench {
                        data-prov-key="${el.key}"
                        data-record-id="${record.id}"
                        title="${el.hint}"
-                       style="font-size: 12px; color: ${value ? 'var(--text-primary)' : 'var(--text-muted)'}; cursor: pointer;">
+                       style="font-size: 12px; color: ${hasValue ? 'var(--text-primary)' : 'var(--text-muted)'}; cursor: pointer;">
                     ${displayValue || '<span style="opacity: 0.5;">Click to add</span>'}
                   </div>
                 </div>
@@ -10653,6 +10654,34 @@ class EODataWorkbench {
   }
 
   /**
+   * Check if a provenance value has actual content (handles nested format)
+   */
+  _hasProvenanceValue(value) {
+    if (value === null || value === undefined) {
+      return false;
+    }
+    // Extract from nested format
+    if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
+      return value.value !== null && value.value !== undefined;
+    }
+    return true;
+  }
+
+  /**
+   * Check if provenance value is a record reference (handles nested format)
+   */
+  _isProvenanceRef(value) {
+    if (!value) return false;
+    // Check nested format first
+    if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
+      const actualValue = value.value;
+      return actualValue && typeof actualValue === 'object' && '$ref' in actualValue;
+    }
+    // Direct reference check
+    return typeof value === 'object' && '$ref' in value;
+  }
+
+  /**
    * Format provenance value for display
    */
   _formatProvenanceValue(value) {
@@ -10660,16 +10689,32 @@ class EODataWorkbench {
       return '';
     }
 
+    // Extract actual value from nested format (handles both old flat and new nested format)
+    // Nested format: { value: "actual_value", uploadContext: {...}, ... }
+    let actualValue = value;
+    if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
+      actualValue = value.value;
+    }
+
+    // Use getProvenanceValue helper if available for consistent extraction
+    if (typeof getProvenanceValue === 'function') {
+      actualValue = getProvenanceValue(value);
+    }
+
+    if (actualValue === null || actualValue === undefined) {
+      return '';
+    }
+
     // Record reference
-    if (typeof value === 'object' && '$ref' in value) {
-      const refId = value.$ref;
+    if (typeof actualValue === 'object' && '$ref' in actualValue) {
+      const refId = actualValue.$ref;
       // Try to find the referenced record's name
       const refRecord = this._findRecordById(refId);
       const refName = refRecord ? this._getRecordPrimaryValue(refRecord) : refId.substring(0, 8);
       return `<span class="prov-ref"><i class="ph ph-arrow-right"></i> ${this._escapeHtml(refName)}</span>`;
     }
 
-    return this._escapeHtml(String(value));
+    return this._escapeHtml(String(actualValue));
   }
 
   /**
