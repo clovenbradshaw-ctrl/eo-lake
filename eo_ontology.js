@@ -534,6 +534,283 @@ class FrameConfig {
 }
 
 // ============================================================================
+// NEW: Schema Split - Structural vs Semantic (EO-Strict)
+// ============================================================================
+
+/**
+ * SchemaType - Classification of schema information
+ *
+ * EO DISTINCTION:
+ * - STRUCTURAL: Forced by data shape (automatic, objective)
+ * - SEMANTIC: Interpretive meaning (human-assigned, subjective)
+ *
+ * This split prevents category blur between what IS in the data
+ * versus what we INTERPRET the data to mean.
+ */
+const SchemaType = Object.freeze({
+  STRUCTURAL: 'structural',
+  SEMANTIC: 'semantic'
+});
+
+/**
+ * StructuralSchema - Schema forced by data shape
+ *
+ * This is MEANT but grounded structurally in Given data.
+ * It represents what fields exist, not what they mean.
+ *
+ * Grounding: structural (forced by data)
+ */
+class StructuralSchema {
+  /**
+   * @param {Object} options
+   * @param {string} options.sourceEventId - Given event this schema derives from
+   * @param {string[]} options.fieldsPresent - Field names that exist
+   * @param {Object} options.fieldTypes - Inferred types for each field
+   */
+  constructor(options) {
+    this.id = options.id || generateOntologyId('schema_struct');
+    this.schemaType = SchemaType.STRUCTURAL;
+    this.sourceEventId = options.sourceEventId;
+
+    // What fields exist (structural fact)
+    this.fieldsPresent = options.fieldsPresent || [];
+
+    // Inferred types (structural inference)
+    this.fieldTypes = options.fieldTypes || {};
+
+    // Sample values for type inference (not semantic)
+    this.sampleValues = options.sampleValues || {};
+
+    // Statistics (structural facts)
+    this.rowCount = options.rowCount || 0;
+    this.nullCounts = options.nullCounts || {};
+
+    // Timestamp
+    this.inferredAt = options.inferredAt || new Date().toISOString();
+
+    Object.freeze(this.fieldsPresent);
+    Object.freeze(this.fieldTypes);
+  }
+
+  /**
+   * Generate grounding for this schema
+   */
+  getGrounding() {
+    return {
+      references: [
+        { eventId: this.sourceEventId, kind: 'structural' }
+      ],
+      derivation: null
+    };
+  }
+
+  /**
+   * Create event payload for this schema
+   */
+  toEventPayload() {
+    return {
+      fieldsPresent: [...this.fieldsPresent],
+      fieldTypes: { ...this.fieldTypes },
+      rowCount: this.rowCount,
+      nullCounts: { ...this.nullCounts }
+    };
+  }
+
+  toJSON() {
+    return {
+      id: this.id,
+      schemaType: this.schemaType,
+      sourceEventId: this.sourceEventId,
+      fieldsPresent: [...this.fieldsPresent],
+      fieldTypes: { ...this.fieldTypes },
+      sampleValues: { ...this.sampleValues },
+      rowCount: this.rowCount,
+      nullCounts: { ...this.nullCounts },
+      inferredAt: this.inferredAt
+    };
+  }
+}
+
+/**
+ * SemanticSchema - Interpretive meaning of fields
+ *
+ * This is MEANT and grounded semantically in structural schema.
+ * It represents what we INTERPRET the data to mean.
+ *
+ * Grounding: structural (from StructuralSchema) + semantic (interpretation)
+ */
+class SemanticSchema {
+  /**
+   * @param {Object} options
+   * @param {string} options.structuralSchemaId - The structural schema this interprets
+   * @param {Object} options.meanings - Human-assigned meanings for fields
+   * @param {Object} options.displayNames - Human-friendly display names
+   * @param {Object} options.descriptions - Field descriptions
+   * @param {string} options.interpreter - Who assigned these meanings
+   */
+  constructor(options) {
+    this.id = options.id || generateOntologyId('schema_sem');
+    this.schemaType = SchemaType.SEMANTIC;
+    this.structuralSchemaId = options.structuralSchemaId;
+
+    // Semantic meanings (interpretation)
+    this.meanings = options.meanings || {};
+
+    // Display names (presentation choice)
+    this.displayNames = options.displayNames || {};
+
+    // Descriptions (explanatory)
+    this.descriptions = options.descriptions || {};
+
+    // Field categories (semantic grouping)
+    this.categories = options.categories || {};
+
+    // Interpreter
+    this.interpreter = options.interpreter || 'unknown';
+    this.interpretedAt = options.interpretedAt || new Date().toISOString();
+
+    // Epistemic status
+    this.epistemicStatus = options.epistemicStatus || 'preliminary';
+
+    Object.freeze(this.meanings);
+    Object.freeze(this.displayNames);
+    Object.freeze(this.descriptions);
+    Object.freeze(this.categories);
+  }
+
+  /**
+   * Generate grounding for this schema
+   */
+  getGrounding() {
+    return {
+      references: [
+        { eventId: this.structuralSchemaId, kind: 'structural' }
+      ],
+      derivation: null
+    };
+  }
+
+  /**
+   * Get meaning for a field
+   */
+  getMeaning(fieldName) {
+    return this.meanings[fieldName] || null;
+  }
+
+  /**
+   * Get display name for a field
+   */
+  getDisplayName(fieldName) {
+    return this.displayNames[fieldName] || fieldName;
+  }
+
+  /**
+   * Create event payload for this schema
+   */
+  toEventPayload() {
+    return {
+      meanings: { ...this.meanings },
+      displayNames: { ...this.displayNames },
+      descriptions: { ...this.descriptions },
+      categories: { ...this.categories }
+    };
+  }
+
+  toJSON() {
+    return {
+      id: this.id,
+      schemaType: this.schemaType,
+      structuralSchemaId: this.structuralSchemaId,
+      meanings: { ...this.meanings },
+      displayNames: { ...this.displayNames },
+      descriptions: { ...this.descriptions },
+      categories: { ...this.categories },
+      interpreter: this.interpreter,
+      interpretedAt: this.interpretedAt,
+      epistemicStatus: this.epistemicStatus
+    };
+  }
+}
+
+/**
+ * Create structural schema from raw data
+ */
+function inferStructuralSchema(sourceEventId, data, options = {}) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+
+  const firstRow = data[0];
+  const fieldsPresent = Object.keys(firstRow);
+  const fieldTypes = {};
+  const nullCounts = {};
+  const sampleValues = {};
+
+  // Infer types from data
+  for (const field of fieldsPresent) {
+    nullCounts[field] = 0;
+    const values = data.map(row => row[field]).filter(v => v != null);
+    sampleValues[field] = values.slice(0, 3);
+
+    if (values.length === 0) {
+      fieldTypes[field] = 'unknown';
+      nullCounts[field] = data.length;
+      continue;
+    }
+
+    // Type inference
+    const sample = values[0];
+    if (typeof sample === 'number') {
+      fieldTypes[field] = Number.isInteger(sample) ? 'integer' : 'number';
+    } else if (typeof sample === 'boolean') {
+      fieldTypes[field] = 'boolean';
+    } else if (sample instanceof Date) {
+      fieldTypes[field] = 'date';
+    } else if (typeof sample === 'string') {
+      // Check for date patterns
+      if (/^\d{4}-\d{2}-\d{2}/.test(sample)) {
+        fieldTypes[field] = 'date';
+      } else if (/^\d+$/.test(sample)) {
+        fieldTypes[field] = 'number_string';
+      } else {
+        fieldTypes[field] = 'text';
+      }
+    } else {
+      fieldTypes[field] = 'unknown';
+    }
+
+    // Count nulls
+    nullCounts[field] = data.filter(row => row[field] == null).length;
+  }
+
+  return new StructuralSchema({
+    sourceEventId,
+    fieldsPresent,
+    fieldTypes,
+    sampleValues,
+    rowCount: data.length,
+    nullCounts,
+    ...options
+  });
+}
+
+/**
+ * Create semantic schema from structural schema
+ */
+function createSemanticSchema(structuralSchemaId, interpretations, options = {}) {
+  return new SemanticSchema({
+    structuralSchemaId,
+    meanings: interpretations.meanings || {},
+    displayNames: interpretations.displayNames || {},
+    descriptions: interpretations.descriptions || {},
+    categories: interpretations.categories || {},
+    interpreter: options.interpreter || 'user',
+    epistemicStatus: options.epistemicStatus || 'preliminary',
+    ...options
+  });
+}
+
+// ============================================================================
 // Fix #6: View Immutability - SUP Only
 // ============================================================================
 
@@ -993,12 +1270,19 @@ if (typeof module !== 'undefined' && module.exports) {
     OntologyError,
     OntologyValidator,
 
+    // Schema Split (EO-Strict)
+    SchemaType,
+    StructuralSchema,
+    SemanticSchema,
+
     // Functions
     isViewOperationAllowed,
     getCreationFlowForIntent,
     getStabilityCapabilities,
     generateOntologyId,
-    generateSetName
+    generateSetName,
+    inferStructuralSchema,
+    createSemanticSchema
   };
 }
 
@@ -1021,10 +1305,19 @@ if (typeof window !== 'undefined') {
     StabilityLevel,
     OntologyError,
     OntologyValidator,
+
+    // Schema Split (EO-Strict)
+    SchemaType,
+    StructuralSchema,
+    SemanticSchema,
+
+    // Functions
     isViewOperationAllowed,
     getCreationFlowForIntent,
     getStabilityCapabilities,
     generateOntologyId,
-    generateSetName
+    generateSetName,
+    inferStructuralSchema,
+    createSemanticSchema
   };
 }

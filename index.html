@@ -616,13 +616,16 @@
   <!-- Principles Transparency Panel Container -->
   <div id="principles-panel" class="principles-panel"></div>
 
-  <!-- Scripts - Core EO Modules -->
-  <script src="eo_operators.js"></script>     <!-- Layer 4: 9 EO Operators -->
-  <script src="eo_ontology.js"></script>      <!-- Ontology: Source/Set separation, Derivation, Workflow -->
+  <!-- Scripts - Core EO Modules (Strict EO-Aligned) -->
+  <script src="eo_types.js"></script>         <!-- Core Types: EpistemicType, GroundingKind, Frame, Supersession -->
+  <script src="eo_operators.js"></script>     <!-- EO Operators: Entry, Restrictive, Shape, Compute, etc. -->
+  <script src="eo_grounding.js"></script>     <!-- Typed Grounding System: External, Structural, Semantic, Computational -->
+  <script src="eo_ontology.js"></script>      <!-- Ontology: Source/Set separation, Schema Split (Structural/Semantic) -->
   <script src="eo_activity.js"></script>      <!-- Activity System: Operator × Target × Context -->
-  <script src="eo_event_store.js"></script>
+  <script src="eo_event_store.js"></script>   <!-- Event Store: given/meant/derived_value with typed grounding -->
+  <script src="eo_derived_values.js"></script> <!-- Derived Values: Aggregations, Confidence as first-class artifacts -->
   <script src="eo_horizon.js"></script>
-  <script src="eo_compliance.js"></script>
+  <script src="eo_compliance.js"></script>    <!-- Compliance: Strict EO rule enforcement -->
   <script src="eo_state_derivation.js"></script>
   <script src="eo_persistence.js"></script>
   <script src="eo_sync.js"></script>

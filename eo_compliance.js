@@ -155,45 +155,66 @@ class EOComplianceChecker {
   }
 
   /**
-   * Rule 1: Distinction (The Partition Axiom)
+   * Rule 1: Distinction (The Partition Axiom) - STRICT EO
    *
-   * Raw experience and interpretation are two exhaustive, mutually exclusive modes.
-   * There is no third category and no ambiguity between them.
+   * Events must have one of three exhaustive, mutually exclusive epistemic types:
+   * - given: External reality (immutable, append-only)
+   * - meant: Interpretation (requires grounding)
+   * - derived_value: Computed value (requires computational grounding)
    */
   checkRule1_Distinction() {
     const violations = [];
     const details = [];
     const events = this.eventStore.getAll();
 
-    details.push(`Checking ${events.length} events for type classification`);
+    const validTypes = ['given', 'meant', 'derived_value'];
+
+    details.push(`Checking ${events.length} events for epistemic type classification`);
 
     for (const event of events) {
-      // Check that type exists and is valid
-      if (!event.type) {
+      // Support both old (type) and new (epistemicType) field names
+      const epistemicType = event.epistemicType || event.type;
+
+      // Check that epistemic type exists and is valid
+      if (!epistemicType) {
         violations.push({
           eventId: event.id,
-          error: 'Event has no type classification'
+          error: 'Event has no epistemic type classification'
         });
-      } else if (event.type !== 'given' && event.type !== 'meant') {
+      } else if (!validTypes.includes(epistemicType)) {
         violations.push({
           eventId: event.id,
-          error: `Invalid type "${event.type}" - must be "given" or "meant"`
+          error: `Invalid epistemic type "${epistemicType}" - must be one of: ${validTypes.join(', ')}`
         });
       }
 
       // Check for hybrid indicators (warning)
-      if (event.type === 'given' && event.frame) {
+      if (epistemicType === 'given' && event.frame) {
         details.push(`Warning: Given event ${event.id} has frame (unusual but allowed)`);
       }
 
-      if (event.type === 'meant' && event.mode) {
+      if (epistemicType === 'meant' && event.mode) {
         details.push(`Warning: Meant event ${event.id} has mode (unusual but allowed)`);
+      }
+
+      // STRICT: derived_value must have computational grounding
+      if (epistemicType === 'derived_value') {
+        const hasComputational = event.grounding?.references?.some(
+          ref => ref.kind === 'computational'
+        );
+        if (!hasComputational) {
+          violations.push({
+            eventId: event.id,
+            error: 'Derived value must have computational grounding'
+          });
+        }
       }
     }
 
-    const givenCount = events.filter(e => e.type === 'given').length;
-    const meantCount = events.filter(e => e.type === 'meant').length;
-    details.push(`Given: ${givenCount}, Meant: ${meantCount}`);
+    const givenCount = events.filter(e => (e.epistemicType || e.type) === 'given').length;
+    const meantCount = events.filter(e => (e.epistemicType || e.type) === 'meant').length;
+    const derivedCount = events.filter(e => (e.epistemicType || e.type) === 'derived_value').length;
+    details.push(`Given: ${givenCount}, Meant: ${meantCount}, Derived Values: ${derivedCount}`);
 
     return new RuleCheckResult(
       1,
@@ -205,27 +226,31 @@ class EOComplianceChecker {
   }
 
   /**
-   * Rule 2: Impenetrability (Anti-Confabulation)
+   * Rule 2: Impenetrability (Anti-Confabulation) - STRICT EO
    *
+   * External Origin: Only Given may have external grounding.
    * Raw experience may only be derived from raw experience.
    * No interpretive process may produce the given.
    */
   checkRule2_Impenetrability() {
     const violations = [];
     const details = [];
+    const events = this.eventStore.getAll();
     const givenEvents = this.eventStore.getGiven();
 
     details.push(`Checking ${givenEvents.length} Given events for confabulation`);
 
+    // Check Given events
     for (const event of givenEvents) {
       if (event.parents && event.parents.length > 0) {
         for (const parentId of event.parents) {
           const parent = this.eventStore.get(parentId);
-          if (parent && parent.type === 'meant') {
+          const parentType = parent?.epistemicType || parent?.type;
+          if (parent && (parentType === 'meant' || parentType === 'derived_value')) {
             violations.push({
               eventId: event.id,
               parentId: parentId,
-              error: 'Given event derives from Meant event (confabulation)'
+              error: `Given event derives from ${parentType} event (confabulation)`
             });
           }
         }
@@ -239,18 +264,36 @@ class EOComplianceChecker {
 
         for (const sourceId of sources) {
           const source = this.eventStore.get(sourceId);
-          if (source && source.type === 'meant') {
+          const sourceType = source?.epistemicType || source?.type;
+          if (source && sourceType !== 'given') {
             violations.push({
               eventId: event.id,
               sourceId: sourceId,
-              error: 'Given event payload indicates derivation from Meant'
+              error: `Given event payload indicates derivation from ${sourceType}`
             });
           }
         }
       }
     }
 
-    details.push(`Checked parent chains for all Given events`);
+    // STRICT: Check that only Given has external grounding
+    details.push('Checking external grounding restrictions');
+    for (const event of events) {
+      const epistemicType = event.epistemicType || event.type;
+
+      if (event.grounding?.references) {
+        for (const ref of event.grounding.references) {
+          if (ref.kind === 'external' && epistemicType !== 'given') {
+            violations.push({
+              eventId: event.id,
+              error: `Only Given events may have external grounding (found in ${epistemicType})`
+            });
+          }
+        }
+      }
+    }
+
+    details.push(`Checked parent chains and grounding for all Given events`);
 
     return new RuleCheckResult(
       2,
@@ -516,35 +559,98 @@ class EOComplianceChecker {
   }
 
   /**
-   * Rule 7: Groundedness (Anti-Delusion)
+   * Rule 7: Groundedness (Anti-Delusion) - STRICT EO
    *
-   * Every interpretation must have non-empty provenance in raw experience.
+   * Every Meant event must have TYPED grounds.
+   * Grounding chains must terminate in Given events.
    * There are no free-floating meanings.
+   *
+   * Grounding Kinds:
+   * - external: Only for Given
+   * - structural: Forced by data shape
+   * - semantic: Interpretive meaning
+   * - computational: Operator execution
+   * - epistemic: Confidence, status, claims
    */
   checkRule7_Groundedness() {
     const violations = [];
     const details = [];
 
     const meantEvents = this.eventStore.getMeant();
+    const derivedValues = this.eventStore.getDerivedValues?.() || [];
 
-    details.push(`Checking groundedness for ${meantEvents.length} Meant events`);
+    details.push(`Checking groundedness for ${meantEvents.length} Meant events and ${derivedValues.length} derived values`);
 
+    // Check Meant events
     for (const meant of meantEvents) {
-      // Check for provenance
-      if (!meant.provenance || meant.provenance.length === 0) {
+      // STRICT: Check for typed grounding (new system)
+      if (meant.grounding?.references) {
+        if (meant.grounding.references.length === 0) {
+          violations.push({
+            eventId: meant.id,
+            error: 'Meant event has empty grounding references'
+          });
+          continue;
+        }
+
+        // Verify each reference has a kind
+        for (const ref of meant.grounding.references) {
+          if (!ref.kind) {
+            violations.push({
+              eventId: meant.id,
+              error: `Grounding reference to ${ref.eventId} has no kind (untyped)`
+            });
+          }
+        }
+
+        // Verify transitive grounding terminates in Given
+        const chain = this.eventStore.getProvenanceChain?.(meant.id) || [];
+        const hasGivenRoot = chain.some(item => {
+          const event = this.eventStore.get(item.eventId);
+          return (event?.epistemicType || event?.type) === 'given';
+        });
+
+        if (!hasGivenRoot && chain.length > 0) {
+          violations.push({
+            eventId: meant.id,
+            error: 'Grounding chain does not terminate in Given event'
+          });
+        }
+      } else if (!meant.provenance || meant.provenance.length === 0) {
+        // Fallback for legacy events without typed grounding
         violations.push({
           eventId: meant.id,
-          error: 'Meant event has no provenance (groundless)'
+          error: 'Meant event has no grounding (groundless interpretation)'
+        });
+      }
+    }
+
+    // Check Derived Values
+    for (const value of derivedValues) {
+      if (!value.grounding?.references) {
+        violations.push({
+          eventId: value.id,
+          error: 'Derived value has no grounding'
         });
         continue;
       }
 
-      // Verify transitive grounding
-      const grounding = this.eventStore.verifyGrounding(meant);
-      if (!grounding.grounded) {
+      // STRICT: Derived values must have computational grounding
+      const hasComputational = value.grounding.references.some(
+        ref => ref.kind === 'computational'
+      );
+      if (!hasComputational) {
         violations.push({
-          eventId: meant.id,
-          error: `Grounding verification failed: ${grounding.error}`
+          eventId: value.id,
+          error: 'Derived value missing computational grounding'
+        });
+      }
+
+      // STRICT: Derived values must have derivation chain
+      if (!value.grounding.derivation) {
+        violations.push({
+          eventId: value.id,
+          error: 'Derived value missing derivation chain (operators not recorded)'
         });
       }
     }
@@ -552,9 +658,11 @@ class EOComplianceChecker {
     // Count grounding chains
     let totalChainLength = 0;
     let chainCount = 0;
-    for (const meant of meantEvents) {
-      if (meant.provenance) {
-        const chain = this.eventStore.getProvenanceChain(meant.id);
+    const allEvents = [...meantEvents, ...derivedValues];
+
+    for (const event of allEvents) {
+      if (event.grounding?.references || event.provenance) {
+        const chain = this.eventStore.getProvenanceChain?.(event.id) || [];
         totalChainLength += chain.length;
         chainCount++;
       }
@@ -563,6 +671,19 @@ class EOComplianceChecker {
     if (chainCount > 0) {
       details.push(`Average provenance chain length: ${(totalChainLength / chainCount).toFixed(2)}`);
     }
+
+    // Grounding kind statistics
+    const kindCounts = { external: 0, structural: 0, semantic: 0, computational: 0, epistemic: 0 };
+    for (const event of allEvents) {
+      if (event.grounding?.references) {
+        for (const ref of event.grounding.references) {
+          if (ref.kind && kindCounts[ref.kind] !== undefined) {
+            kindCounts[ref.kind]++;
+          }
+        }
+      }
+    }
+    details.push(`Grounding by kind: ${JSON.stringify(kindCounts)}`);
 
     return new RuleCheckResult(
       7,
@@ -574,16 +695,22 @@ class EOComplianceChecker {
   }
 
   /**
-   * Rule 8: Determinacy (Meaning-as-Use)
+   * Rule 8: Determinacy (Minimal Crystallization) - STRICT EO
    *
    * Semantic equivalence is maximal behavioral indistinguishability.
    * Meaning crystallizes at minimal horizons—never at some general height.
+   *
+   * STRICT RULE: No aggregation without value artifacts.
+   * - Aggregations MUST produce derived_value events
+   * - Insights MUST reference value events (never embed values)
+   * - Confidence MUST be a derived value (never embedded)
    */
   checkRule8_Determinacy() {
     const violations = [];
     const details = [];
 
     const meantEvents = this.eventStore.getMeant();
+    const derivedValues = this.eventStore.getDerivedValues?.() || [];
 
     details.push(`Checking determinacy for ${meantEvents.length} Meant events`);
 
@@ -597,16 +724,48 @@ class EOComplianceChecker {
         continue;
       }
 
-      if (!meant.frame.purpose) {
+      // STRICT: Check for embedded values (violation of minimal crystallization)
+      if (meant.payload?.value !== undefined && typeof meant.payload.value === 'number') {
+        // Check if this is an insight that should reference a derived_value instead
+        if (meant.category === 'insight' || meant.frame?.purpose === 'insight') {
+          violations.push({
+            eventId: meant.id,
+            error: 'Insight embeds numeric value instead of referencing derived_value'
+          });
+        }
+      }
+
+      // STRICT: Check for embedded confidence (should be a reference)
+      if (meant.frame?.confidence !== undefined && typeof meant.frame.confidence === 'number') {
         violations.push({
           eventId: meant.id,
-          error: 'Frame has no purpose (meaning undetermined)'
+          error: 'Frame embeds confidence score instead of referencing confidence event'
         });
       }
 
       // Check for explicit horizon specification
-      if (!meant.frame.horizon) {
-        details.push(`Note: Meant event ${meant.id} has no horizon in frame`);
+      if (!meant.frame.horizon && !meant.frame.purpose) {
+        details.push(`Note: Meant event ${meant.id} has no horizon or purpose in frame`);
+      }
+    }
+
+    // STRICT: Check aggregation execution events reference derived values
+    const aggregationExecutions = meantEvents.filter(
+      e => e.category === 'aggregation_executed' || e.payload?.action === 'aggregate'
+    );
+    details.push(`Found ${aggregationExecutions.length} aggregation executions`);
+
+    for (const execution of aggregationExecutions) {
+      // Check that there's a corresponding derived_value
+      const hasResultValue = derivedValues.some(v =>
+        v.grounding?.references?.some(ref => ref.eventId === execution.id)
+      );
+
+      if (!hasResultValue) {
+        violations.push({
+          eventId: execution.id,
+          error: 'Aggregation execution has no corresponding derived_value result'
+        });
       }
     }
 
@@ -636,10 +795,11 @@ class EOComplianceChecker {
     }
 
     details.push(`Found ${byPurpose.size} distinct frame purposes`);
+    details.push(`Derived values available: ${derivedValues.length}`);
 
     return new RuleCheckResult(
       8,
-      'Determinacy (Meaning-as-Use)',
+      'Determinacy (Minimal Crystallization)',
       violations.length === 0,
       details,
       violations
