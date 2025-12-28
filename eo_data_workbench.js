@@ -1456,11 +1456,12 @@ class EODataWorkbench {
 
     // Infer from provenance
     const prov = set.datasetProvenance;
-    if (prov && (prov.originalFilename || prov.provenance?.source)) {
+    const sourceValue = this._getProvenanceValue(prov?.provenance?.source);
+    if (prov && (prov.originalFilename || sourceValue)) {
       return {
         operator: 'INS',
         strategy: 'direct',
-        description: `Imported from ${prov.originalFilename || prov.provenance?.source}`
+        description: `Imported from ${prov.originalFilename || sourceValue}`
       };
     }
 
@@ -2293,8 +2294,9 @@ class EODataWorkbench {
 
     for (const set of this.sets) {
       const prov = set.datasetProvenance;
-      if (prov && (prov.originalFilename || prov.provenance?.source)) {
-        const sourceName = prov.originalFilename || prov.provenance?.source || 'Unknown';
+      const provSourceValue = this._getProvenanceValue(prov?.provenance?.source);
+      if (prov && (prov.originalFilename || provSourceValue)) {
+        const sourceName = prov.originalFilename || provSourceValue || 'Unknown';
         const sourceKey = sourceName.toLowerCase();
 
         if (!sourceRegistry.has(sourceKey)) {
@@ -2423,7 +2425,7 @@ class EODataWorkbench {
     const derivedSets = this.sets.filter(set => {
       const prov = set.datasetProvenance;
       if (!prov) return false;
-      const sourceName = prov.originalFilename || prov.provenance?.source;
+      const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
       return sourceName?.toLowerCase() === source.name.toLowerCase();
     });
 
@@ -2536,30 +2538,30 @@ class EODataWorkbench {
             <span>Provenance</span>
           </div>
           <div class="source-provenance-items">
-            ${source.provenance?.agent ? `
+            ${this._getProvenanceValue(source.provenance?.agent) ? `
               <div class="source-provenance-item">
                 <i class="ph ph-user"></i>
                 <div>
                   <span class="label">Agent</span>
-                  <span class="value">${this._escapeHtml(source.provenance.agent)}</span>
+                  <span class="value">${this._escapeHtml(this._getProvenanceValue(source.provenance.agent))}</span>
                 </div>
               </div>
             ` : ''}
-            ${source.provenance?.method ? `
+            ${this._getProvenanceValue(source.provenance?.method) ? `
               <div class="source-provenance-item">
                 <i class="ph ph-gear"></i>
                 <div>
                   <span class="label">Method</span>
-                  <span class="value">${this._escapeHtml(source.provenance.method)}</span>
+                  <span class="value">${this._escapeHtml(this._getProvenanceValue(source.provenance.method))}</span>
                 </div>
               </div>
             ` : ''}
-            ${source.provenance?.source ? `
+            ${this._getProvenanceValue(source.provenance?.source) ? `
               <div class="source-provenance-item">
                 <i class="ph ph-link"></i>
                 <div>
                   <span class="label">Origin</span>
-                  <span class="value">${this._escapeHtml(source.provenance.source)}</span>
+                  <span class="value">${this._escapeHtml(this._getProvenanceValue(source.provenance.source))}</span>
                 </div>
               </div>
             ` : ''}
@@ -2713,7 +2715,7 @@ class EODataWorkbench {
     const primarySet = this.sets.find(set => {
       const prov = set.datasetProvenance;
       if (!prov) return false;
-      const sourceName = prov.originalFilename || prov.provenance?.source;
+      const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
       return sourceName?.toLowerCase() === source.name.toLowerCase();
     });
 
@@ -2750,7 +2752,7 @@ class EODataWorkbench {
     const primarySet = this.sets.find(set => {
       const prov = set.datasetProvenance;
       if (!prov) return false;
-      const sourceName = prov.originalFilename || prov.provenance?.source;
+      const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
       return sourceName?.toLowerCase() === source.name.toLowerCase();
     });
 
@@ -2773,8 +2775,9 @@ class EODataWorkbench {
     const registry = new Map();
     for (const set of this.sets) {
       const prov = set.datasetProvenance;
-      if (prov && (prov.originalFilename || prov.provenance?.source)) {
-        const sourceName = prov.originalFilename || prov.provenance?.source;
+      const provSourceValue = this._getProvenanceValue(prov?.provenance?.source);
+      if (prov && (prov.originalFilename || provSourceValue)) {
+        const sourceName = prov.originalFilename || provSourceValue;
         const sourceKey = sourceName.toLowerCase();
         if (!registry.has(sourceKey)) {
           registry.set(sourceKey, {
@@ -2838,11 +2841,13 @@ class EODataWorkbench {
     if (source.importedAt) {
       parts.push(`Imported: ${new Date(source.importedAt).toLocaleDateString()}`);
     }
-    if (source.provenance?.agent) {
-      parts.push(`From: ${source.provenance.agent}`);
+    const agentValue = this._getProvenanceValue(source.provenance?.agent);
+    if (agentValue) {
+      parts.push(`From: ${agentValue}`);
     }
-    if (source.provenance?.method) {
-      parts.push(`Via: ${source.provenance.method}`);
+    const methodValue = this._getProvenanceValue(source.provenance?.method);
+    if (methodValue) {
+      parts.push(`Via: ${methodValue}`);
     }
     return parts.join('\n') || source.name;
   }
@@ -4208,9 +4213,9 @@ class EODataWorkbench {
     let filled = 0;
     if (prov.originalFilename) filled++;
     if (prov.importedAt) filled++;
-    if (prov.provenance?.agent) filled++;
-    if (prov.provenance?.method) filled++;
-    if (prov.provenance?.source) filled++;
+    if (this._getProvenanceValue(prov.provenance?.agent)) filled++;
+    if (this._getProvenanceValue(prov.provenance?.method)) filled++;
+    if (this._getProvenanceValue(prov.provenance?.source)) filled++;
 
     if (filled >= 4) return '◉'; // Full provenance
     if (filled >= 1) return '◐'; // Partial provenance
@@ -4226,8 +4231,10 @@ class EODataWorkbench {
     const parts = [];
     if (prov.originalFilename) parts.push(`Source: ${prov.originalFilename}`);
     if (prov.importedAt) parts.push(`Imported: ${new Date(prov.importedAt).toLocaleDateString()}`);
-    if (prov.provenance?.method) parts.push(`Method: ${prov.provenance.method}`);
-    if (prov.provenance?.agent) parts.push(`Agent: ${prov.provenance.agent}`);
+    const methodValue = this._getProvenanceValue(prov.provenance?.method);
+    if (methodValue) parts.push(`Method: ${methodValue}`);
+    const agentValue = this._getProvenanceValue(prov.provenance?.agent);
+    if (agentValue) parts.push(`Agent: ${agentValue}`);
     return parts.join(' | ') || 'Partial provenance';
   }
 
@@ -4831,8 +4838,9 @@ class EODataWorkbench {
       if (datasetProv.importedAt) {
         tooltip += `\nImported: ${new Date(datasetProv.importedAt).toLocaleDateString()}`;
       }
-      if (datasetProv.provenance?.method) {
-        tooltip += `\nMethod: ${datasetProv.provenance.method}`;
+      const methodValue = this._getProvenanceValue(datasetProv.provenance?.method);
+      if (methodValue) {
+        tooltip += `\nMethod: ${methodValue}`;
       }
 
       // Get file type icon
@@ -7464,8 +7472,9 @@ class EODataWorkbench {
     // Group sets by their source
     for (const set of this.sets) {
       const prov = set.datasetProvenance;
-      if (prov && (prov.originalFilename || prov.provenance?.source)) {
-        const sourceName = prov.originalFilename || prov.provenance?.source || 'Unknown';
+      const provSourceValue = this._getProvenanceValue(prov?.provenance?.source);
+      if (prov && (prov.originalFilename || provSourceValue)) {
+        const sourceName = prov.originalFilename || provSourceValue || 'Unknown';
         const sourceKey = sourceName.toLowerCase();
 
         if (!hierarchy.sources.has(sourceKey)) {
@@ -11912,6 +11921,18 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
   // Provenance Utilities
   // --------------------------------------------------------------------------
+
+  /**
+   * Extract the actual value from a provenance element.
+   * Handles both old flat format (direct value) and new nested format ({ value: ... })
+   */
+  _getProvenanceValue(element) {
+    if (element === null || element === undefined) return null;
+    // New nested format: { value: "...", uploadContext: {...}, ... }
+    if (typeof element === 'object' && 'value' in element) return element.value;
+    // Old format or direct string/reference
+    return element;
+  }
 
   /**
    * Get provenance status for a record
