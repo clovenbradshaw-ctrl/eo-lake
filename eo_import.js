@@ -1281,6 +1281,32 @@ class ImportOrchestrator {
     // Build comprehensive nested provenance structure
     const userProvenance = options.provenance || {};
 
+    // Auto-fill provenance fields with available metadata when user doesn't provide values
+    const autoFilledProvenance = { ...userProvenance };
+
+    // Auto-fill source with original filename if not provided
+    if (!autoFilledProvenance.source) {
+      autoFilledProvenance.source = setName || options.setName || null;
+    }
+
+    // Auto-fill method based on file type/parser used
+    if (!autoFilledProvenance.method) {
+      const parserType = parseResult.fileType === 'ics' ? 'ICS calendar' :
+                        parseResult.fileType === 'xlsx' || parseResult.fileType === 'xls' ? 'Excel spreadsheet' :
+                        parseResult.delimiter ? 'CSV' : 'JSON';
+      autoFilledProvenance.method = `${parserType} import`;
+    }
+
+    // Auto-fill timeframe with import date if not provided
+    if (!autoFilledProvenance.timeframe) {
+      const importDate = new Date();
+      autoFilledProvenance.timeframe = `Imported ${importDate.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })}`;
+    }
+
     // Collect transformation log steps
     const transformationLog = [];
 
@@ -1408,16 +1434,16 @@ class ImportOrchestrator {
       provenance: {
         // EPISTEMIC TRIAD
         agent: {
-          value: userProvenance.agent || null,
+          value: autoFilledProvenance.agent || null,
           uploadContext: uploadContext
         },
         method: {
-          value: userProvenance.method || null,
+          value: autoFilledProvenance.method || null,
           transformationLog: transformationLog,
           qualityAudit: qualityAudit
         },
         source: {
-          value: userProvenance.source || null,
+          value: autoFilledProvenance.source || null,
           fileIdentity: fileIdentity,
           originVerification: options.originVerification || null,
           mergeManifest: options.mergeManifest || null
@@ -1425,29 +1451,29 @@ class ImportOrchestrator {
 
         // SEMANTIC TRIAD
         term: {
-          value: userProvenance.term || null,
+          value: autoFilledProvenance.term || null,
           schemaMapping: schemaMapping
         },
         definition: {
-          value: userProvenance.definition || null,
+          value: autoFilledProvenance.definition || null,
           parserInterpretation: parserInterpretation
         },
         jurisdiction: {
-          value: userProvenance.jurisdiction || null,
+          value: autoFilledProvenance.jurisdiction || null,
           domainAuthority: options.domainAuthority || null
         },
 
         // SITUATIONAL TRIAD
         scale: {
-          value: userProvenance.scale || null,
+          value: autoFilledProvenance.scale || null,
           importScope: importScope
         },
         timeframe: {
-          value: userProvenance.timeframe || null,
+          value: autoFilledProvenance.timeframe || null,
           temporalChain: temporalChain
         },
         background: {
-          value: userProvenance.background || null,
+          value: autoFilledProvenance.background || null,
           importContext: importContext
         }
       }
