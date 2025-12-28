@@ -8313,6 +8313,8 @@ class EODataWorkbench {
 
         ${this._renderProvenanceSection(record, set)}
 
+        ${this._renderHistorySection(record)}
+
         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
           <div style="font-size: 11px; color: var(--text-muted);">
             <i class="ph ph-clock"></i> Created: ${new Date(record.createdAt).toLocaleString()}<br>
@@ -10638,7 +10640,7 @@ class EODataWorkbench {
       <div class="provenance-section" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
         <div class="provenance-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
           <span class="prov-indicator prov-${status}" style="font-size: 14px;">${indicator}</span>
-          <span style="font-weight: 500; font-size: 13px;">Provenance</span>
+          <span style="font-weight: 500; font-size: 13px;">Interpretation</span>
           <span style="font-size: 11px; color: var(--text-muted);">
             ${status === 'full' ? '(complete)' : status === 'partial' ? '(partial)' : '(none)'}
           </span>
@@ -10646,9 +10648,10 @@ class EODataWorkbench {
         <div class="provenance-grid" style="display: grid; gap: 8px;">
           ${elements.map(el => {
             const value = recordProv[el.key] ?? datasetProv[el.key] ?? null;
-            const inherited = !recordProv[el.key] && datasetProv[el.key];
-            const isRef = value && typeof value === 'object' && '$ref' in value;
+            const inherited = !this._hasProvenanceValue(recordProv[el.key]) && this._hasProvenanceValue(datasetProv[el.key]);
+            const isRef = this._isProvenanceRef(value);
             const displayValue = this._formatProvenanceValue(value);
+            const hasValue = this._hasProvenanceValue(value);
 
             return `
               <div class="provenance-field" data-prov-key="${el.key}" data-record-id="${record.id}"
@@ -10663,7 +10666,7 @@ class EODataWorkbench {
                        data-prov-key="${el.key}"
                        data-record-id="${record.id}"
                        title="${el.hint}"
-                       style="font-size: 12px; color: ${value ? 'var(--text-primary)' : 'var(--text-muted)'}; cursor: pointer;">
+                       style="font-size: 12px; color: ${hasValue ? 'var(--text-primary)' : 'var(--text-muted)'}; cursor: pointer;">
                     ${displayValue || '<span style="opacity: 0.5;">Click to add</span>'}
                   </div>
                 </div>
@@ -10676,6 +10679,34 @@ class EODataWorkbench {
   }
 
   /**
+   * Check if a provenance value has actual content (handles nested format)
+   */
+  _hasProvenanceValue(value) {
+    if (value === null || value === undefined) {
+      return false;
+    }
+    // Extract from nested format
+    if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
+      return value.value !== null && value.value !== undefined;
+    }
+    return true;
+  }
+
+  /**
+   * Check if provenance value is a record reference (handles nested format)
+   */
+  _isProvenanceRef(value) {
+    if (!value) return false;
+    // Check nested format first
+    if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
+      const actualValue = value.value;
+      return actualValue && typeof actualValue === 'object' && '$ref' in actualValue;
+    }
+    // Direct reference check
+    return typeof value === 'object' && '$ref' in value;
+  }
+
+  /**
    * Format provenance value for display
    */
   _formatProvenanceValue(value) {
@@ -10683,16 +10714,32 @@ class EODataWorkbench {
       return '';
     }
 
+    // Extract actual value from nested format (handles both old flat and new nested format)
+    // Nested format: { value: "actual_value", uploadContext: {...}, ... }
+    let actualValue = value;
+    if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
+      actualValue = value.value;
+    }
+
+    // Use getProvenanceValue helper if available for consistent extraction
+    if (typeof getProvenanceValue === 'function') {
+      actualValue = getProvenanceValue(value);
+    }
+
+    if (actualValue === null || actualValue === undefined) {
+      return '';
+    }
+
     // Record reference
-    if (typeof value === 'object' && '$ref' in value) {
-      const refId = value.$ref;
+    if (typeof actualValue === 'object' && '$ref' in actualValue) {
+      const refId = actualValue.$ref;
       // Try to find the referenced record's name
       const refRecord = this._findRecordById(refId);
       const refName = refRecord ? this._getRecordPrimaryValue(refRecord) : refId.substring(0, 8);
       return `<span class="prov-ref"><i class="ph ph-arrow-right"></i> ${this._escapeHtml(refName)}</span>`;
     }
 
-    return this._escapeHtml(String(value));
+    return this._escapeHtml(String(actualValue));
   }
 
   /**
@@ -10714,6 +10761,210 @@ class EODataWorkbench {
     if (!set) return record.id;
     const primaryField = set.fields.find(f => f.isPrimary) || set.fields[0];
     return record.values[primaryField?.id] || record.id;
+  }
+
+  // --------------------------------------------------------------------------
+  // History Section (Grounding: Lineage + History + Impact)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Get history events for a record from the Event Store
+   */
+  _getRecordHistory(recordId) {
+    // Try to get events from the Event Store
+    const eventStore = this.eoApp?.eventStore;
+    if (eventStore && typeof eventStore.getEntityHistory === 'function') {
+      return eventStore.getEntityHistory(recordId);
+    }
+
+    // Fallback: check if global EOEventStore exists
+    if (typeof window !== 'undefined' && window.eoEventStore) {
+      return window.eoEventStore.getEntityHistory(recordId);
+    }
+
+    return [];
+  }
+
+  /**
+   * Render history section for detail panel
+   * Shows: Lineage (where from) → History (what changed) → Impact (what depends)
+   */
+  _renderHistorySection(record) {
+    const history = this._getRecordHistory(record.id);
+    const hasHistory = history.length > 0;
+
+    // Group events by type for display
+    const creationEvents = history.filter(e =>
+      e.payload?.action === 'record_created' ||
+      e.payload?.action === 'import' ||
+      e.payload?.action === 'create'
+    );
+    const modificationEvents = history.filter(e =>
+      e.payload?.action === 'record_updated' ||
+      e.payload?.action === 'field_changed' ||
+      e.payload?.action === 'update'
+    );
+    const otherEvents = history.filter(e =>
+      !creationEvents.includes(e) && !modificationEvents.includes(e)
+    );
+
+    return `
+      <div class="history-section" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
+        <div class="history-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <i class="ph ph-clock-counter-clockwise" style="font-size: 14px; color: var(--text-muted);"></i>
+          <span style="font-weight: 500; font-size: 13px;">History</span>
+          <span style="font-size: 11px; color: var(--text-muted);">
+            ${hasHistory ? `(${history.length} event${history.length !== 1 ? 's' : ''})` : '(no events tracked)'}
+          </span>
+        </div>
+
+        ${hasHistory ? `
+          <div class="history-timeline" style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
+            ${history.slice().reverse().map(event => this._renderHistoryEvent(event)).join('')}
+          </div>
+        ` : `
+          <div style="font-size: 12px; color: var(--text-muted); padding: 8px 0;">
+            <div style="margin-bottom: 8px;">
+              <i class="ph ph-info" style="margin-right: 4px;"></i>
+              Event tracking not connected. History shows:
+            </div>
+            <ul style="margin: 0; padding-left: 20px; opacity: 0.8;">
+              <li>When records were created/modified</li>
+              <li>Who made changes and why</li>
+              <li>Field-level change details</li>
+            </ul>
+            <div style="margin-top: 12px; padding: 8px; background: var(--bg-secondary); border-radius: 4px;">
+              <div style="font-size: 11px; opacity: 0.7;">Inferred from timestamps:</div>
+              <div style="margin-top: 4px;">
+                <i class="ph ph-plus-circle" style="color: var(--success);"></i>
+                Created ${this._formatRelativeTime(record.createdAt)}
+              </div>
+              ${record.updatedAt !== record.createdAt ? `
+                <div style="margin-top: 2px;">
+                  <i class="ph ph-pencil-simple" style="color: var(--primary);"></i>
+                  Modified ${this._formatRelativeTime(record.updatedAt)}
+                </div>
+              ` : ''}
+            </div>
+          </div>
+        `}
+      </div>
+    `;
+  }
+
+  /**
+   * Render a single history event
+   */
+  _renderHistoryEvent(event) {
+    const action = event.payload?.action || 'unknown';
+    const timestamp = event.timestamp ? new Date(event.timestamp) : null;
+    const actor = event.actor || 'system';
+
+    // Determine icon and color based on action
+    let icon = 'ph-circle';
+    let color = 'var(--text-muted)';
+    let label = action;
+
+    switch (action) {
+      case 'record_created':
+      case 'create':
+      case 'import':
+        icon = 'ph-plus-circle';
+        color = 'var(--success)';
+        label = 'Created';
+        break;
+      case 'record_updated':
+      case 'field_changed':
+      case 'update':
+        icon = 'ph-pencil-simple';
+        color = 'var(--primary)';
+        label = 'Modified';
+        break;
+      case 'record_deleted':
+      case 'delete':
+        icon = 'ph-trash';
+        color = 'var(--danger)';
+        label = 'Deleted';
+        break;
+      case 'tombstone':
+        icon = 'ph-prohibit';
+        color = 'var(--warning)';
+        label = 'Tombstoned';
+        break;
+      case 'supersession':
+        icon = 'ph-arrows-clockwise';
+        color = 'var(--info)';
+        label = 'Superseded';
+        break;
+    }
+
+    // Extract field change details if available
+    const fieldId = event.payload?.fieldId;
+    const previousValue = event.payload?.previousValue;
+    const newValue = event.payload?.newValue || event.payload?.value;
+    const hasFieldChange = fieldId && (previousValue !== undefined || newValue !== undefined);
+
+    return `
+      <div class="history-event" style="display: flex; gap: 8px; font-size: 12px; padding: 4px 0;">
+        <i class="ph ${icon}" style="color: ${color}; margin-top: 2px; flex-shrink: 0;"></i>
+        <div style="flex: 1; min-width: 0;">
+          <div style="display: flex; justify-content: space-between; gap: 8px;">
+            <span style="font-weight: 500;">${label}</span>
+            <span style="color: var(--text-muted); font-size: 11px;">
+              ${timestamp ? this._formatRelativeTime(timestamp) : ''}
+            </span>
+          </div>
+          ${hasFieldChange ? `
+            <div style="color: var(--text-secondary); font-size: 11px; margin-top: 2px;">
+              ${fieldId}: ${previousValue !== undefined ? `"${this._truncate(previousValue, 20)}" → ` : ''}${newValue !== undefined ? `"${this._truncate(newValue, 20)}"` : ''}
+            </div>
+          ` : ''}
+          <div style="color: var(--text-muted); font-size: 10px; margin-top: 2px;">
+            by ${this._formatActor(actor)}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Format relative time (e.g., "2 hours ago")
+   */
+  _formatRelativeTime(date) {
+    if (!date) return '';
+    const d = date instanceof Date ? date : new Date(date);
+    const now = new Date();
+    const diff = now - d;
+
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 7) return d.toLocaleDateString();
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    if (minutes > 0) return `${minutes}m ago`;
+    return 'just now';
+  }
+
+  /**
+   * Format actor for display
+   */
+  _formatActor(actor) {
+    if (!actor) return 'unknown';
+    if (actor.startsWith('user:')) return actor.substring(5);
+    if (actor.startsWith('system:')) return actor.substring(7);
+    return actor;
+  }
+
+  /**
+   * Truncate string for display
+   */
+  _truncate(value, maxLen) {
+    if (value === null || value === undefined) return 'null';
+    const str = String(value);
+    return str.length > maxLen ? str.substring(0, maxLen) + '…' : str;
   }
 
   /**
