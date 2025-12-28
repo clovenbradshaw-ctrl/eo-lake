@@ -25,56 +25,11 @@
  */
 
 // ============================================================================
-// Core Types
+// Core Types - Imported from eo_types.js
 // ============================================================================
 
-/**
- * Epistemic types - exhaustive and mutually exclusive (Rule 1)
- */
-const EpistemicType = Object.freeze({
-  GIVEN: 'given',
-  MEANT: 'meant',
-  DERIVED_VALUE: 'derived_value'
-});
-
-/**
- * Mode of givenness for Given events
- */
-const GivenMode = Object.freeze({
-  PERCEIVED: 'perceived',
-  REPORTED: 'reported',
-  MEASURED: 'measured',
-  RECEIVED: 'received'
-});
-
-/**
- * Grounding kinds
- */
-const GroundingKind = Object.freeze({
-  EXTERNAL: 'external',
-  STRUCTURAL: 'structural',
-  SEMANTIC: 'semantic',
-  COMPUTATIONAL: 'computational',
-  EPISTEMIC: 'epistemic'
-});
-
-/**
- * Epistemic status for Meant events
- */
-const EpistemicStatus = Object.freeze({
-  PRELIMINARY: 'preliminary',
-  CONFIRMED: 'confirmed',
-  DISPUTED: 'disputed'
-});
-
-/**
- * Supersession types
- */
-const SupersessionType = Object.freeze({
-  CORRECTION: 'correction',
-  REFINEMENT: 'refinement',
-  RETRACTION: 'retraction'
-});
+// EpistemicType, GivenMode, GroundingKind, EpistemicStatus, SupersessionType
+// are defined in eo_types.js which is loaded before this file.
 
 // ============================================================================
 // ID Generation
@@ -928,11 +883,12 @@ function initEventStore(options = {}) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     EOEventStore,
-    EpistemicType,
-    GivenMode,
-    GroundingKind,
-    EpistemicStatus,
-    SupersessionType,
+    // Types re-exported for convenience (defined in eo_types.js)
+    EpistemicType: typeof EpistemicType !== 'undefined' ? EpistemicType : null,
+    GivenMode: typeof GivenMode !== 'undefined' ? GivenMode : null,
+    GroundingKind: typeof GroundingKind !== 'undefined' ? GroundingKind : null,
+    EpistemicStatus: typeof EpistemicStatus !== 'undefined' ? EpistemicStatus : null,
+    SupersessionType: typeof SupersessionType !== 'undefined' ? SupersessionType : null,
     generateEventId,
     validateEvent,
     validateGrounding,
@@ -943,11 +899,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
 if (typeof window !== 'undefined') {
   window.EOEventStore = EOEventStore;
-  window.EpistemicType = EpistemicType;
-  window.GivenMode = GivenMode;
-  window.GroundingKind = GroundingKind;
-  window.EpistemicStatus = EpistemicStatus;
-  window.SupersessionType = SupersessionType;
+  // Types already exported by eo_types.js, just export event store functions
   window.generateEventId = generateEventId;
   window.validateEvent = validateEvent;
   window.validateGrounding = validateGrounding;
