@@ -861,11 +861,10 @@ class EODataWorkbench {
 
   _renderSidebar() {
     // Two-panel navigation: Sources (GIVEN) / Sets (Schema)
-    // Views are shown in the View Disclosure panel (like Airtable)
+    // Views are shown nested under sets in sidebar (Airtable-style)
     this._renderSourcesNav();
     this._renderSetsNavFlat();
-    // Update view disclosure panel and tab bar
-    this._renderViewDisclosure();
+    // Update tab bar (view disclosure removed - views in sidebar only)
     this._renderTabBar();
   }
 
@@ -3829,6 +3828,105 @@ class EODataWorkbench {
       default:
         this._renderTableView();
     }
+
+    // Inject view tabs header at the top of the content area
+    this._injectViewTabsHeader();
+  }
+
+  /**
+   * Get HTML for compact view tabs header (Airtable-style)
+   * Shows tabs for existing views with add button
+   */
+  _getViewTabsHeaderHTML() {
+    const set = this.getCurrentSet();
+    if (!set) return '';
+
+    const views = set.views || [];
+    const currentViewId = this.currentViewId;
+
+    const viewTypeIcons = {
+      'table': 'ph-table',
+      'cards': 'ph-cards',
+      'kanban': 'ph-kanban',
+      'calendar': 'ph-calendar-blank',
+      'graph': 'ph-graph',
+      'filesystem': 'ph-folder-open',
+      'timeline': 'ph-clock-countdown'
+    };
+
+    const viewTabs = views.map(view => {
+      const isActive = view.id === currentViewId;
+      const icon = viewTypeIcons[view.type] || 'ph-table';
+      return `
+        <button class="view-tab ${isActive ? 'active' : ''}"
+                data-view-id="${view.id}"
+                title="${this._escapeHtml(view.name)} (${view.type})">
+          <i class="ph ${icon}"></i>
+          <span class="view-tab-name">${this._escapeHtml(view.name)}</span>
+        </button>
+      `;
+    }).join('');
+
+    return `
+      <div class="view-tabs-header">
+        <div class="view-tabs-scroll">
+          ${viewTabs}
+        </div>
+        <button class="view-tabs-add" id="view-tabs-add-btn" title="Add view">
+          <i class="ph ph-plus"></i>
+        </button>
+      </div>
+    `;
+  }
+
+  /**
+   * Inject view tabs header at the top of the content area
+   */
+  _injectViewTabsHeader() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    // Don't inject if we're on empty state or no current set
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    // Check if header already exists
+    const existingHeader = contentArea.querySelector('.view-tabs-header');
+    if (existingHeader) {
+      existingHeader.remove();
+    }
+
+    // Inject at top
+    const headerHTML = this._getViewTabsHeaderHTML();
+    contentArea.insertAdjacentHTML('afterbegin', headerHTML);
+
+    // Attach event handlers
+    this._attachViewTabsHandlers();
+  }
+
+  /**
+   * Attach event handlers for view tabs
+   */
+  _attachViewTabsHandlers() {
+    const header = this.elements.contentArea?.querySelector('.view-tabs-header');
+    if (!header) return;
+
+    // View tab clicks
+    header.querySelectorAll('.view-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        const viewId = tab.dataset.viewId;
+        if (viewId && viewId !== this.currentViewId) {
+          this._selectView(viewId);
+        }
+      });
+    });
+
+    // Add view button
+    const addBtn = header.querySelector('#view-tabs-add-btn');
+    addBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._showCreateViewModal();
+    });
   }
 
   _renderEmptyState() {
