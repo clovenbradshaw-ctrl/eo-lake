@@ -2021,6 +2021,60 @@ class ImportAnalyzer {
   }
 
   /**
+   * Extract a balanced array from text starting at a given position.
+   * Handles nested brackets, strings (with escaped quotes), and comments.
+   */
+  _extractBalancedArray(text, startIndex) {
+    let depth = 0;
+    let inString = false;
+    let stringChar = null;
+    let escaped = false;
+    let arrayStart = -1;
+
+    for (let i = startIndex; i < text.length; i++) {
+      const char = text[i];
+      const prevChar = i > 0 ? text[i - 1] : '';
+
+      // Handle escape sequences
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\' && inString) {
+        escaped = true;
+        continue;
+      }
+
+      // Handle string boundaries
+      if ((char === '"' || char === "'" || char === '`') && !inString) {
+        inString = true;
+        stringChar = char;
+        continue;
+      }
+      if (char === stringChar && inString) {
+        inString = false;
+        stringChar = null;
+        continue;
+      }
+
+      // Skip content inside strings
+      if (inString) continue;
+
+      // Handle brackets
+      if (char === '[') {
+        if (depth === 0) arrayStart = i;
+        depth++;
+      } else if (char === ']') {
+        depth--;
+        if (depth === 0 && arrayStart !== -1) {
+          return text.substring(arrayStart, i + 1);
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Detect if this is graph data (nodes/edges pattern)
    */
   _analyzeGraphData(parseResult, rawText) {
@@ -2043,54 +2097,68 @@ class ImportAnalyzer {
       if (hasNodes || hasEdges) {
         // Try to extract graph structure from JS module
         try {
-          // Look for const nodes = [...] patterns
-          const nodeMatch = rawText.match(/(?:const|let|var)\s+nodes\s*=\s*(\[[\s\S]*?\]);/);
-          const edgeMatch = rawText.match(/(?:const|let|var)\s+edges\s*=\s*(\[[\s\S]*?\]);/);
-          const edgeEventsMatch = rawText.match(/(?:const|let|var)\s+edgeEvents\s*=\s*(\[[\s\S]*?\]);/);
+          // Find the start position of each array and extract with balanced bracket matching
+          const nodeStart = rawText.match(/(?:const|let|var)\s+nodes\s*=\s*/);
+          const edgeStart = rawText.match(/(?:const|let|var)\s+edges\s*=\s*/);
+          const edgeEventsStart = rawText.match(/(?:const|let|var)\s+edgeEvents\s*=\s*/);
 
-          // Try Function constructor for safe evaluation
-          if (nodeMatch) {
-            try {
-              const fn = new Function('return ' + nodeMatch[1]);
-              result.nodes = fn();
-              result.nodeCount = result.nodes.length;
-              result.isGraph = true;
+          // Extract nodes array with balanced brackets
+          if (nodeStart) {
+            const startIdx = rawText.indexOf(nodeStart[0]) + nodeStart[0].length;
+            const nodesArray = this._extractBalancedArray(rawText, startIdx);
+            if (nodesArray) {
+              try {
+                const fn = new Function('return ' + nodesArray);
+                result.nodes = fn();
+                result.nodeCount = result.nodes.length;
+                result.isGraph = true;
 
-              // Extract node types
-              const types = new Set();
-              result.nodes.forEach(n => {
-                if (n.type) types.add(n.type);
-              });
-              result.nodeTypes = Array.from(types);
-            } catch (e) {
-              console.warn('Failed to parse nodes:', e);
+                // Extract node types
+                const types = new Set();
+                result.nodes.forEach(n => {
+                  if (n.type) types.add(n.type);
+                });
+                result.nodeTypes = Array.from(types);
+              } catch (e) {
+                console.warn('Failed to parse nodes:', e);
+              }
             }
           }
 
-          if (edgeMatch) {
-            try {
-              const fn = new Function('return ' + edgeMatch[1]);
-              result.edges = fn();
-              result.edgeCount = result.edges.length;
-              result.isGraph = true;
+          // Extract edges array with balanced brackets
+          if (edgeStart) {
+            const startIdx = rawText.indexOf(edgeStart[0]) + edgeStart[0].length;
+            const edgesArray = this._extractBalancedArray(rawText, startIdx);
+            if (edgesArray) {
+              try {
+                const fn = new Function('return ' + edgesArray);
+                result.edges = fn();
+                result.edgeCount = result.edges.length;
+                result.isGraph = true;
 
-              // Extract edge types
-              const types = new Set();
-              result.edges.forEach(e => {
-                if (e.type) types.add(e.type);
-              });
-              result.edgeTypes = Array.from(types);
-            } catch (e) {
-              console.warn('Failed to parse edges:', e);
+                // Extract edge types
+                const types = new Set();
+                result.edges.forEach(e => {
+                  if (e.type) types.add(e.type);
+                });
+                result.edgeTypes = Array.from(types);
+              } catch (e) {
+                console.warn('Failed to parse edges:', e);
+              }
             }
           }
 
-          if (edgeEventsMatch) {
-            try {
-              const fn = new Function('return ' + edgeEventsMatch[1]);
-              result.edgeEvents = fn();
-            } catch (e) {
-              console.warn('Failed to parse edgeEvents:', e);
+          // Extract edgeEvents array with balanced brackets
+          if (edgeEventsStart) {
+            const startIdx = rawText.indexOf(edgeEventsStart[0]) + edgeEventsStart[0].length;
+            const edgeEventsArray = this._extractBalancedArray(rawText, startIdx);
+            if (edgeEventsArray) {
+              try {
+                const fn = new Function('return ' + edgeEventsArray);
+                result.edgeEvents = fn();
+              } catch (e) {
+                console.warn('Failed to parse edgeEvents:', e);
+              }
             }
           }
         } catch (e) {
