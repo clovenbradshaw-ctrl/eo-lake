@@ -2153,7 +2153,13 @@ class EODataWorkbench {
   }
 
   /**
-   * Execute SQL and create a new Set with EO-IR provenance
+   * Execute SQL and create a new Set with full EO-IR provenance
+   *
+   * Uses EOSQLSetBuilder to:
+   * - Parse SQL to EO-IR pipeline
+   * - Execute with provenance tracking
+   * - Create EO-IR events (query_executed, set_defined, record_created)
+   * - Store events in the event store for full traceability
    */
   _executeSQLAndCreateSet() {
     const sql = document.getElementById('sql-query-input')?.value?.trim();
@@ -2167,30 +2173,52 @@ class EODataWorkbench {
       return;
     }
 
+    // Get or create event store for EO-IR provenance
+    const eventStore = this._getOrCreateEventStore();
     const dataProvider = this._createSQLDataProvider();
-    const parser = new EOSQLParser();
-    const parsed = parser.parse(sql);
 
-    if (!parsed.success) {
-      this._showToast(`SQL Error: ${parsed.error}`, 'error');
+    // Use EOSQLSetBuilder for full EO-IR provenance tracking
+    const setBuilder = new EOSQLSetBuilder(eventStore, dataProvider);
+
+    let builderResult;
+    try {
+      builderResult = setBuilder.createSetFromSQL({
+        sql,
+        setName,
+        actor: 'user',
+        frame: {
+          purpose: purpose || `Created from SQL: ${sql.substring(0, 50)}...`,
+          epistemicStatus: 'preliminary',
+          caveats
+        }
+      });
+    } catch (error) {
+      this._showToast(`SQL Error: ${error.message}`, 'error');
       return;
     }
 
-    const executor = new EOSQLExecutor(dataProvider);
-    const result = executor.execute(parsed.pipeline);
+    // Store all EO-IR events in the event store
+    for (const event of builderResult.events) {
+      eventStore.append(event);
+    }
 
-    // Create the new set
-    const setId = generateId();
-    const fields = result.columns.map((name, i) => ({
-      id: generateId(),
-      name,
-      type: this._inferFieldTypeFromValues(result.rows.map(r => r[name]))
+    // Convert SetConfig to workbench format with full provenance
+    const setConfig = builderResult.set;
+    const result = builderResult.result;
+
+    // Create workbench-compatible fields from SetConfig fields
+    const fields = (setConfig.fields || []).map(field => ({
+      id: field.id,
+      name: field.name,
+      type: this._mapEOFieldType(field.type),
+      sourceColumn: field.sourceColumn
     }));
 
+    // Create records with values mapped to field IDs
     const records = result.rows.map((row, i) => {
       const values = {};
       fields.forEach(field => {
-        values[field.id] = row[field.name];
+        values[field.id] = row[field.sourceColumn || field.name];
       });
       return {
         id: generateId(),
@@ -2199,8 +2227,11 @@ class EODataWorkbench {
       };
     });
 
+    // Determine the derivation strategy based on SQL operations
+    const derivationStrategy = this._inferDerivationStrategy(builderResult.pipeline);
+
     const newSet = {
-      id: setId,
+      id: setConfig.id,
       name: setName,
       fields,
       records,
@@ -2212,21 +2243,40 @@ class EODataWorkbench {
         sorts: [],
         hiddenFields: []
       }],
-      // EO-IR Derivation with full provenance
+      // Full EO-IR Derivation with proper strategy and event references
       derivation: {
-        strategy: 'sql',
+        strategy: derivationStrategy,
         sql: sql,
-        pipeline: parsed.pipeline,
-        sourceRefs: parsed.sourceRefs,
+        pipeline: builderResult.pipeline,
+        sourceRefs: builderResult.events[0]?.payload?.sourceRefs || [],
+        // Event IDs for provenance chain
+        queryEventId: builderResult.events.find(e => e.category === 'query_executed')?.id,
+        setEventId: builderResult.events.find(e => e.category === 'set_defined')?.id,
+        recordEventIds: builderResult.events
+          .filter(e => e.category === 'record_created')
+          .map(e => e.id),
         frame: {
           purpose: purpose || `Created from SQL: ${sql.substring(0, 50)}...`,
           epistemicStatus: 'preliminary',
           methodology: 'SQL query execution',
           caveats
         },
+        grounding: {
+          // Reference to source sets/events
+          references: (builderResult.events[0]?.grounding?.references || []).map(ref => ({
+            eventId: ref.eventId,
+            kind: ref.kind
+          })),
+          // The transformation pipeline
+          derivation: {
+            operators: builderResult.pipeline,
+            frozenParams: { sql }
+          }
+        },
         derivedAt: new Date().toISOString(),
+        derivedBy: 'user',
         stats: {
-          inputSources: parsed.sourceRefs.length,
+          inputSources: builderResult.events[0]?.payload?.sourceRefs?.length || 0,
           outputRows: result.rows.length,
           executionMs: result.stats.executionTime
         }
@@ -2237,8 +2287,104 @@ class EODataWorkbench {
     this.sets.push(newSet);
     this._saveData();
     this._renderSidebar();
-    this._selectSet(setId);
-    this._showToast(`Set "${setName}" created with ${result.rows.length} records`, 'success');
+    this._selectSet(newSet.id);
+
+    // Log provenance for debugging
+    console.log('SQL Set created with EO-IR provenance:', {
+      setId: newSet.id,
+      events: builderResult.events.length,
+      queryEventId: newSet.derivation.queryEventId,
+      setEventId: newSet.derivation.setEventId,
+      recordEvents: newSet.derivation.recordEventIds?.length
+    });
+
+    this._showToast(`Set "${setName}" created with ${result.rows.length} records (${builderResult.events.length} EO-IR events)`, 'success');
+  }
+
+  /**
+   * Get or create an event store for EO-IR provenance tracking
+   */
+  _getOrCreateEventStore() {
+    // Try to get event store from eoApp
+    if (this.eoApp?.eventStore) {
+      return this.eoApp.eventStore;
+    }
+
+    // Try global event store
+    if (typeof window !== 'undefined' && window.eoEventStore) {
+      return window.eoEventStore;
+    }
+
+    // Create a simple in-memory event store
+    if (!this._localEventStore) {
+      this._localEventStore = {
+        events: new Map(),
+        append(event) {
+          this.events.set(event.id, event);
+          return event;
+        },
+        get(id) {
+          return this.events.get(id);
+        },
+        getAll() {
+          return Array.from(this.events.values());
+        },
+        getByCategory(category) {
+          return Array.from(this.events.values()).filter(e => e.category === category);
+        },
+        getEntityHistory(entityId) {
+          return Array.from(this.events.values()).filter(e =>
+            e.payload?.id === entityId ||
+            e.payload?.setId === entityId ||
+            e.payload?.recordId === entityId
+          );
+        }
+      };
+    }
+    return this._localEventStore;
+  }
+
+  /**
+   * Infer derivation strategy from SQL pipeline operations
+   * - SEG: filtering/segmentation (WHERE)
+   * - CON: connection/joining (JOIN)
+   * - ALT: alteration/transformation (aggregates, computed columns)
+   */
+  _inferDerivationStrategy(pipeline) {
+    const ops = pipeline.map(p => p.op);
+
+    // If there's a JOIN, it's a connection (CON)
+    if (ops.includes('JOIN')) {
+      return 'con';  // DerivationStrategy.CON
+    }
+
+    // If there are aggregates or GROUP BY, it's an alteration (ALT)
+    if (ops.includes('AGGREGATE') || ops.includes('GROUP')) {
+      return 'alt';  // DerivationStrategy.ALT
+    }
+
+    // If there's just filtering/selection, it's segmentation (SEG)
+    if (ops.includes('FILTER') || ops.includes('SELECT') || ops.includes('LIMIT')) {
+      return 'seg';  // DerivationStrategy.SEG
+    }
+
+    // Default to SEG for simple queries
+    return 'seg';
+  }
+
+  /**
+   * Map EO field types to workbench field types
+   */
+  _mapEOFieldType(eoType) {
+    const typeMap = {
+      'integer': 'number',
+      'number': 'number',
+      'text': 'text',
+      'date': 'date',
+      'boolean': 'checkbox',
+      'string': 'text'
+    };
+    return typeMap[eoType] || 'text';
   }
 
   /**
@@ -12638,6 +12784,151 @@ class EODataWorkbench {
     if (!set) return record.id;
     const primaryField = set.fields.find(f => f.isPrimary) || set.fields[0];
     return record.values[primaryField?.id] || record.id;
+  }
+
+  // --------------------------------------------------------------------------
+  // SQL Derivation Provenance (EO-IR)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Get the full EO-IR provenance chain for a SQL-derived set
+   * Returns the query event, set event, and source references
+   */
+  _getSQLProvenanceChain(set) {
+    if (!set?.derivation?.queryEventId) {
+      return null;
+    }
+
+    const eventStore = this._getOrCreateEventStore();
+    const chain = {
+      queryEvent: null,
+      setEvent: null,
+      sources: [],
+      pipeline: set.derivation.pipeline || [],
+      sql: set.derivation.sql
+    };
+
+    // Get query event
+    if (set.derivation.queryEventId) {
+      chain.queryEvent = eventStore.get(set.derivation.queryEventId);
+    }
+
+    // Get set event
+    if (set.derivation.setEventId) {
+      chain.setEvent = eventStore.get(set.derivation.setEventId);
+    }
+
+    // Get source references
+    const sourceRefs = set.derivation.sourceRefs || [];
+    for (const sourceId of sourceRefs) {
+      const sourceSet = this.sets.find(s => s.id === sourceId || s.name === sourceId);
+      if (sourceSet) {
+        chain.sources.push({
+          id: sourceSet.id,
+          name: sourceSet.name,
+          recordCount: sourceSet.records?.length || 0
+        });
+      }
+    }
+
+    return chain;
+  }
+
+  /**
+   * Render SQL derivation provenance section in the set details panel
+   */
+  _renderSQLDerivationSection(set) {
+    const derivation = set?.derivation;
+    if (!derivation?.sql) {
+      return '';
+    }
+
+    const chain = this._getSQLProvenanceChain(set);
+    const strategyLabels = {
+      'seg': 'Segmentation (Filter)',
+      'con': 'Connection (Join)',
+      'alt': 'Alteration (Transform)',
+      'direct': 'Direct Import'
+    };
+
+    const strategyLabel = strategyLabels[derivation.strategy] || derivation.strategy;
+
+    // Format the pipeline steps
+    const pipelineHtml = (derivation.pipeline || []).map(step => {
+      const params = Object.entries(step.params || {})
+        .map(([k, v]) => `${k}=${JSON.stringify(v)}`)
+        .join(', ');
+      return `<div class="pipeline-step">
+        <span class="pipeline-op">${step.op}</span>
+        <span class="pipeline-params">${this._escapeHtml(params)}</span>
+      </div>`;
+    }).join('<div class="pipeline-arrow">↓</div>');
+
+    // Format source references
+    const sourcesHtml = (chain?.sources || []).map(src =>
+      `<span class="source-ref">${this._escapeHtml(src.name)} (${src.recordCount} rows)</span>`
+    ).join(', ');
+
+    return `
+      <div class="sql-derivation-section" style="margin-top: 16px; padding: 12px; background: var(--surface-secondary); border-radius: 8px; border: 1px solid var(--border-primary);">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <i class="ph ph-database" style="color: var(--accent-primary);"></i>
+          <span style="font-weight: 600; font-size: 13px;">SQL Derivation</span>
+          <span class="derivation-strategy-badge" style="font-size: 10px; padding: 2px 6px; background: var(--accent-primary); color: white; border-radius: 4px;">
+            ${strategyLabel}
+          </span>
+        </div>
+
+        <div style="margin-bottom: 12px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">SQL Query</div>
+          <pre style="font-size: 11px; background: var(--surface-primary); padding: 8px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap;">${this._escapeHtml(derivation.sql)}</pre>
+        </div>
+
+        ${sourcesHtml ? `
+        <div style="margin-bottom: 12px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Source Sets</div>
+          <div style="font-size: 12px;">${sourcesHtml}</div>
+        </div>
+        ` : ''}
+
+        <div style="margin-bottom: 12px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">EO-IR Pipeline</div>
+          <div class="pipeline-view" style="font-size: 11px;">
+            ${pipelineHtml || '<span style="color: var(--text-muted);">No pipeline steps</span>'}
+          </div>
+        </div>
+
+        ${derivation.frame?.purpose ? `
+        <div style="margin-bottom: 8px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Purpose</div>
+          <div style="font-size: 12px;">${this._escapeHtml(derivation.frame.purpose)}</div>
+        </div>
+        ` : ''}
+
+        ${derivation.frame?.caveats?.length ? `
+        <div style="margin-bottom: 8px;">
+          <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 4px;">Caveats</div>
+          <ul style="font-size: 12px; margin: 0; padding-left: 16px;">
+            ${derivation.frame.caveats.map(c => `<li>${this._escapeHtml(c)}</li>`).join('')}
+          </ul>
+        </div>
+        ` : ''}
+
+        <div style="display: flex; gap: 16px; font-size: 11px; color: var(--text-muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-secondary);">
+          <span><i class="ph ph-rows"></i> ${derivation.stats?.outputRows || set.records?.length || 0} rows</span>
+          <span><i class="ph ph-timer"></i> ${derivation.stats?.executionMs || 0}ms</span>
+          <span><i class="ph ph-calendar"></i> ${derivation.derivedAt ? new Date(derivation.derivedAt).toLocaleDateString() : 'Unknown'}</span>
+        </div>
+
+        ${chain?.queryEventId || chain?.setEventId ? `
+        <div style="font-size: 10px; color: var(--text-muted); margin-top: 8px;">
+          <i class="ph ph-fingerprint"></i> Event IDs:
+          ${derivation.queryEventId ? `<code>${derivation.queryEventId.substring(0, 12)}...</code>` : ''}
+          ${derivation.setEventId ? `<code>${derivation.setEventId.substring(0, 12)}...</code>` : ''}
+        </div>
+        ` : ''}
+      </div>
+    `;
   }
 
   // --------------------------------------------------------------------------
