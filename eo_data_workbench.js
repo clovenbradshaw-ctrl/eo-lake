@@ -524,7 +524,7 @@ class EODataWorkbench {
 
     // Detail panel close
     document.getElementById('detail-panel-close')?.addEventListener('click', () => {
-      this.elements.detailPanel.classList.remove('open');
+      this._closeDetailPanel();
     });
 
     // Modal close handlers
@@ -549,8 +549,16 @@ class EODataWorkbench {
 
     // Mobile menu
     document.getElementById('mobile-menu-btn')?.addEventListener('click', () => {
-      this.elements.sidebar.classList.toggle('mobile-open');
+      this._toggleMobileSidebar();
     });
+
+    // Mobile panel backdrop - close panels when clicking backdrop
+    document.getElementById('mobile-panel-backdrop')?.addEventListener('click', () => {
+      this._closeMobilePanels();
+    });
+
+    // Mobile swipe gestures
+    this._initMobileSwipeGestures();
 
     // Import button
     document.getElementById('btn-import')?.addEventListener('click', () => {
@@ -8953,6 +8961,148 @@ class EODataWorkbench {
     this.elements.modal?.classList.remove('active');
   }
 
+  // Mobile panel management methods
+  _isMobile() {
+    return window.matchMedia('(max-width: 768px)').matches;
+  }
+
+  _showMobileBackdrop() {
+    const backdrop = document.getElementById('mobile-panel-backdrop');
+    if (backdrop && this._isMobile()) {
+      backdrop.classList.add('active');
+    }
+  }
+
+  _hideMobileBackdrop() {
+    const backdrop = document.getElementById('mobile-panel-backdrop');
+    if (backdrop) {
+      backdrop.classList.remove('active');
+    }
+  }
+
+  _toggleMobileSidebar() {
+    const sidebar = this.elements.sidebar;
+    if (!sidebar) return;
+
+    const isOpen = sidebar.classList.contains('mobile-open');
+
+    if (isOpen) {
+      sidebar.classList.remove('mobile-open');
+      this._hideMobileBackdrop();
+    } else {
+      // Close detail panel first if open
+      this._closeDetailPanel();
+      sidebar.classList.add('mobile-open');
+      this._showMobileBackdrop();
+    }
+  }
+
+  _closeDetailPanel() {
+    const detailPanel = this.elements.detailPanel;
+    if (detailPanel) {
+      detailPanel.classList.remove('open');
+      if (this._isMobile()) {
+        this._hideMobileBackdrop();
+      }
+    }
+  }
+
+  _openDetailPanel() {
+    const detailPanel = this.elements.detailPanel;
+    if (detailPanel) {
+      // Close sidebar first on mobile
+      if (this._isMobile()) {
+        this.elements.sidebar?.classList.remove('mobile-open');
+      }
+      detailPanel.classList.add('open');
+      if (this._isMobile()) {
+        this._showMobileBackdrop();
+      }
+    }
+  }
+
+  _closeMobilePanels() {
+    // Close sidebar
+    this.elements.sidebar?.classList.remove('mobile-open');
+    // Close detail panel
+    this.elements.detailPanel?.classList.remove('open');
+    // Hide backdrop
+    this._hideMobileBackdrop();
+  }
+
+  _initMobileSwipeGestures() {
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchEndX = 0;
+    let touchEndY = 0;
+    const minSwipeDistance = 50;
+
+    // Sidebar swipe handling
+    const sidebar = this.elements.sidebar;
+    if (sidebar) {
+      sidebar.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+      }, { passive: true });
+
+      sidebar.addEventListener('touchend', (e) => {
+        touchEndX = e.changedTouches[0].screenX;
+        touchEndY = e.changedTouches[0].screenY;
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = Math.abs(touchEndY - touchStartY);
+
+        // Left swipe on sidebar to close
+        if (deltaX < -minSwipeDistance && deltaY < 100) {
+          this.elements.sidebar?.classList.remove('mobile-open');
+          this._hideMobileBackdrop();
+        }
+      }, { passive: true });
+    }
+
+    // Detail panel swipe handling
+    const detailPanel = this.elements.detailPanel;
+    if (detailPanel) {
+      detailPanel.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+      }, { passive: true });
+
+      detailPanel.addEventListener('touchend', (e) => {
+        touchEndX = e.changedTouches[0].screenX;
+        touchEndY = e.changedTouches[0].screenY;
+        const deltaX = touchEndX - touchStartX;
+        const deltaY = Math.abs(touchEndY - touchStartY);
+
+        // Right swipe on detail panel to close
+        if (deltaX > minSwipeDistance && deltaY < 100) {
+          this._closeDetailPanel();
+        }
+      }, { passive: true });
+    }
+
+    // Edge swipe to open sidebar (from left edge)
+    document.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+      touchStartY = e.changedTouches[0].screenY;
+    }, { passive: true });
+
+    document.addEventListener('touchend', (e) => {
+      if (!this._isMobile()) return;
+
+      touchEndX = e.changedTouches[0].screenX;
+      touchEndY = e.changedTouches[0].screenY;
+      const deltaX = touchEndX - touchStartX;
+      const deltaY = Math.abs(touchEndY - touchStartY);
+
+      // Right swipe from left edge to open sidebar
+      if (touchStartX < 30 && deltaX > minSwipeDistance && deltaY < 100) {
+        if (!this.elements.sidebar?.classList.contains('mobile-open')) {
+          this._toggleMobileSidebar();
+        }
+      }
+    }, { passive: true });
+  }
+
   _showImportModal() {
     // Call the global showImportModal function from eo_import.js
     if (typeof showImportModal === 'function') {
@@ -9609,7 +9759,7 @@ class EODataWorkbench {
       });
     });
 
-    panel.classList.add('open');
+    this._openDetailPanel();
   }
 
   /**
@@ -9685,7 +9835,7 @@ class EODataWorkbench {
       });
     });
 
-    panel.classList.add('open');
+    this._openDetailPanel();
   }
 
   /**
