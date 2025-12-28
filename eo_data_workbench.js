@@ -3706,10 +3706,11 @@ class EODataWorkbench {
             ${showProvenance ? `
               <td class="col-provenance col-source"
                   data-record-id="${record.id}"
+                  data-source-id="${this._escapeHtml(sourceInfo.sourceId)}"
                   title="${this._escapeHtml(sourceInfo.tooltip)}">
                 <div class="provenance-cell">
                   <span class="provenance-icon ${sourceInfo.type}">${sourceInfo.icon}</span>
-                  <span class="provenance-source-name" data-source="${this._escapeHtml(sourceInfo.source)}">${this._escapeHtml(sourceInfo.shortName)}</span>
+                  <span class="provenance-source-name" data-source="${this._escapeHtml(sourceInfo.source)}" data-source-id="${this._escapeHtml(sourceInfo.sourceId)}">${this._escapeHtml(sourceInfo.shortName)}</span>
                 </div>
               </td>
             ` : ''}
@@ -3826,13 +3827,17 @@ class EODataWorkbench {
     let type = 'given';
     let icon = '◉';
     let source = '';
+    let sourceId = '';
     let shortName = '';
     let tooltip = '';
 
     if (datasetProv?.originalFilename) {
       source = datasetProv.originalFilename;
+      // Generate sourceId matching the format used in _renderSourcesPanel
+      const sourceKey = source.toLowerCase();
+      sourceId = `src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`;
       shortName = this._truncateSourceName(source, 15);
-      tooltip = `Source: ${source}`;
+      tooltip = `Source: ${source}\nClick to view source details`;
 
       if (datasetProv.importedAt) {
         tooltip += `\nImported: ${new Date(datasetProv.importedAt).toLocaleDateString()}`;
@@ -3861,7 +3866,7 @@ class EODataWorkbench {
       tooltip = 'Manually created record';
     }
 
-    return { type, icon, source, shortName, tooltip };
+    return { type, icon, source, sourceId, shortName, tooltip };
   }
 
   /**
@@ -3877,19 +3882,22 @@ class EODataWorkbench {
    * Attach click handlers for provenance column
    */
   _attachProvenanceClickHandlers() {
-    this.container.querySelectorAll('.provenance-source-name').forEach(el => {
+    // Make the entire provenance cell clickable
+    this.container.querySelectorAll('td.col-provenance').forEach(el => {
       el.addEventListener('click', (e) => {
         e.stopPropagation();
-        const source = el.dataset.source;
-        if (source && source !== 'Manual' && source !== 'Derived') {
-          // Navigate to source in sidebar
-          const sourceGroup = document.querySelector(`.source-group[data-source="${source}"]`);
-          if (sourceGroup) {
-            sourceGroup.classList.add('expanded');
-            sourceGroup.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        const sourceId = el.dataset.sourceId;
+        if (sourceId) {
+          // Show source detail panel
+          this._showSourceDetail(sourceId);
+
+          // Also highlight the source in sidebar
+          const sourceItem = document.querySelector(`.source-item[data-source-id="${sourceId}"]`);
+          if (sourceItem) {
+            sourceItem.scrollIntoView({ behavior: 'smooth', block: 'center' });
             // Highlight briefly
-            sourceGroup.style.outline = '2px solid var(--primary-500)';
-            setTimeout(() => sourceGroup.style.outline = '', 2000);
+            sourceItem.classList.add('highlighted');
+            setTimeout(() => sourceItem.classList.remove('highlighted'), 2000);
           }
         }
       });
