@@ -590,9 +590,6 @@
   <script src="eo_export.js"></script>
   <script src="eo_data_workbench.js"></script>
 
-  <!-- Scripts - Transparency -->
-  <script src="eo_principles_transparency.js"></script>
-
   <!-- Scripts - UI Controllers -->
   <script src="eo_app.js"></script>
   <script src="eo_workbench.js"></script>
@@ -600,15 +597,7 @@
   <!-- Initialize Application -->
   <script>
     document.addEventListener('DOMContentLoaded', async () => {
-      // Initialize the transparency panel first (so it's ready for connection)
-      if (window.initTransparencyPanel) {
-        const transparency = window.initTransparencyPanel({
-          eventBus: window.getEventBus ? window.getEventBus() : null
-        });
-        transparency.init('principles-panel');
-      }
-
-      // Initialize the main application (this will connect the transparency panel)
+      // Initialize the main application
       if (window.initApp) {
         await window.initApp();
       }
