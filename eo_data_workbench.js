@@ -9448,6 +9448,12 @@ class EODataWorkbench {
               <div class="detail-field-label">
                 <i class="ph ${FieldTypeIcons[field.type]}"></i>
                 ${this._escapeHtml(field.name)}
+                <button class="field-history-btn"
+                        data-field-id="${field.id}"
+                        data-record-id="${recordId}"
+                        title="View field history & provenance">
+                  <i class="ph ph-clock-counter-clockwise"></i>
+                </button>
               </div>
               <div class="detail-field-value ${isEditable ? 'editable' : ''}"
                    data-field-id="${field.id}"
@@ -9508,6 +9514,16 @@ class EODataWorkbench {
     body.querySelectorAll('.provenance-value.editable').forEach(el => {
       el.addEventListener('click', () => {
         this._startProvenanceEdit(el, recordId, set);
+      });
+    });
+
+    // Field history buttons
+    body.querySelectorAll('.field-history-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fieldId = btn.dataset.fieldId;
+        const recId = btn.dataset.recordId;
+        this._showFieldHistoryPopover(recId, fieldId, btn);
       });
     });
 
@@ -12027,6 +12043,276 @@ class EODataWorkbench {
     }
 
     return [];
+  }
+
+  /**
+   * Get history events for a specific field within a record
+   */
+  _getFieldHistory(recordId, fieldId) {
+    const recordHistory = this._getRecordHistory(recordId);
+
+    // Filter to events that affect this specific field
+    return recordHistory.filter(event => {
+      // Include creation events (they affect all fields)
+      const action = event.payload?.action;
+      if (action === 'record_created' || action === 'import' || action === 'create') {
+        return true;
+      }
+      // Include field-specific changes
+      return event.payload?.fieldId === fieldId;
+    });
+  }
+
+  /**
+   * Render field history popover/tooltip
+   * Shows change history for a specific field with agent, timestamps, and value changes
+   */
+  _renderFieldHistoryPopover(record, field, set) {
+    const fieldHistory = this._getFieldHistory(record.id, field.id);
+    const currentValue = record.values[field.id];
+    const hasHistory = fieldHistory.length > 0;
+
+    // Get field-level provenance if available
+    const fieldProv = record.fieldProvenance?.[field.id];
+    const recordProv = record.provenance;
+    const datasetProv = set?.datasetProvenance?.provenance;
+
+    // Determine provenance source for display
+    let provenanceSource = 'dataset';
+    let effectiveProv = datasetProv;
+    if (fieldProv && Object.values(fieldProv).some(v => v !== null)) {
+      provenanceSource = 'field';
+      effectiveProv = fieldProv;
+    } else if (recordProv && Object.values(recordProv).some(v => v !== null)) {
+      provenanceSource = 'record';
+      effectiveProv = recordProv;
+    }
+
+    return `
+      <div class="field-history-popover" data-field-id="${field.id}" data-record-id="${record.id}">
+        <div class="field-history-header">
+          <div class="field-history-title">
+            <i class="ph ph-clock-counter-clockwise"></i>
+            <span>History: ${this._escapeHtml(field.name)}</span>
+          </div>
+          <button class="field-history-close" title="Close">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+
+        <div class="field-history-current">
+          <div class="field-history-current-label">Current Value</div>
+          <div class="field-history-current-value">
+            ${currentValue !== null && currentValue !== undefined
+              ? this._escapeHtml(this._truncate(String(currentValue), 100))
+              : '<span class="empty-value">Empty</span>'}
+          </div>
+        </div>
+
+        <div class="field-history-provenance">
+          <div class="field-history-section-label">
+            <i class="ph ph-git-branch"></i>
+            Provenance
+            <span class="provenance-source-badge ${provenanceSource}">${provenanceSource}</span>
+          </div>
+          <div class="field-history-provenance-grid">
+            ${effectiveProv?.agent ? `
+              <div class="prov-item">
+                <span class="prov-label">Agent</span>
+                <span class="prov-value">${this._escapeHtml(
+                  typeof effectiveProv.agent === 'object'
+                    ? effectiveProv.agent.value || '-'
+                    : effectiveProv.agent || '-'
+                )}</span>
+              </div>
+            ` : ''}
+            ${effectiveProv?.method ? `
+              <div class="prov-item">
+                <span class="prov-label">Method</span>
+                <span class="prov-value">${this._escapeHtml(
+                  typeof effectiveProv.method === 'object'
+                    ? effectiveProv.method.value || '-'
+                    : effectiveProv.method || '-'
+                )}</span>
+              </div>
+            ` : ''}
+            ${effectiveProv?.source ? `
+              <div class="prov-item">
+                <span class="prov-label">Source</span>
+                <span class="prov-value">${this._escapeHtml(
+                  typeof effectiveProv.source === 'object'
+                    ? effectiveProv.source.value || '-'
+                    : effectiveProv.source || '-'
+                )}</span>
+              </div>
+            ` : ''}
+            ${!effectiveProv?.agent && !effectiveProv?.method && !effectiveProv?.source ? `
+              <div class="prov-item empty">
+                <span class="prov-value">No provenance set</span>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+
+        <div class="field-history-timeline">
+          <div class="field-history-section-label">
+            <i class="ph ph-list-bullets"></i>
+            Change History
+            <span class="history-count">${fieldHistory.length} event${fieldHistory.length !== 1 ? 's' : ''}</span>
+          </div>
+
+          ${hasHistory ? `
+            <div class="field-history-events">
+              ${fieldHistory.slice().reverse().map(event => this._renderFieldHistoryEvent(event, field.id)).join('')}
+            </div>
+          ` : `
+            <div class="field-history-empty">
+              <i class="ph ph-clock-afternoon"></i>
+              <span>No changes tracked yet</span>
+              <div class="field-history-empty-hint">
+                Changes will appear here as you edit this field
+              </div>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render a single field history event
+   */
+  _renderFieldHistoryEvent(event, fieldId) {
+    const action = event.payload?.action || 'unknown';
+    const timestamp = event.timestamp ? new Date(event.timestamp) : null;
+    const actor = event.actor || 'system';
+    const previousValue = event.payload?.previousValue;
+    const newValue = event.payload?.newValue || event.payload?.value;
+
+    // Determine event type and styling
+    let icon = 'ph-circle';
+    let iconClass = '';
+    let label = action;
+
+    switch (action) {
+      case 'record_created':
+      case 'create':
+      case 'import':
+        icon = 'ph-plus-circle';
+        iconClass = 'event-created';
+        label = 'Created';
+        break;
+      case 'record_updated':
+      case 'field_changed':
+      case 'update':
+        icon = 'ph-pencil-simple';
+        iconClass = 'event-modified';
+        label = 'Modified';
+        break;
+      case 'supersession':
+        icon = 'ph-arrows-clockwise';
+        iconClass = 'event-superseded';
+        label = 'Superseded';
+        break;
+    }
+
+    const isFieldSpecific = event.payload?.fieldId === fieldId;
+
+    return `
+      <div class="field-history-event ${iconClass} ${isFieldSpecific ? 'field-specific' : 'record-level'}">
+        <div class="event-icon">
+          <i class="ph ${icon}"></i>
+        </div>
+        <div class="event-content">
+          <div class="event-header">
+            <span class="event-label">${label}</span>
+            <span class="event-time">${timestamp ? this._formatRelativeTime(timestamp) : ''}</span>
+          </div>
+          ${isFieldSpecific && (previousValue !== undefined || newValue !== undefined) ? `
+            <div class="event-change">
+              ${previousValue !== undefined ? `
+                <span class="old-value" title="${this._escapeHtml(String(previousValue))}">${this._escapeHtml(this._truncate(previousValue, 25))}</span>
+                <i class="ph ph-arrow-right"></i>
+              ` : ''}
+              <span class="new-value" title="${this._escapeHtml(String(newValue))}">${this._escapeHtml(this._truncate(newValue, 25))}</span>
+            </div>
+          ` : ''}
+          <div class="event-actor">
+            <i class="ph ph-user"></i>
+            ${this._formatActor(actor)}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Show field history popover for a specific field
+   */
+  _showFieldHistoryPopover(recordId, fieldId, anchorEl) {
+    // Remove any existing popover
+    this._hideFieldHistoryPopover();
+
+    const record = this._getRecordById(recordId);
+    const set = this.getCurrentSet();
+    const field = set?.fields?.find(f => f.id === fieldId);
+
+    if (!record || !field) return;
+
+    // Create popover element
+    const popover = document.createElement('div');
+    popover.className = 'field-history-popover-container';
+    popover.innerHTML = this._renderFieldHistoryPopover(record, field, set);
+
+    // Position relative to anchor
+    document.body.appendChild(popover);
+
+    const rect = anchorEl.getBoundingClientRect();
+    const popoverRect = popover.getBoundingClientRect();
+
+    // Position to the left of the anchor, or right if no space
+    let left = rect.left - popoverRect.width - 8;
+    if (left < 8) {
+      left = rect.right + 8;
+    }
+
+    // Ensure it stays within viewport vertically
+    let top = rect.top;
+    if (top + popoverRect.height > window.innerHeight - 8) {
+      top = window.innerHeight - popoverRect.height - 8;
+    }
+    if (top < 8) top = 8;
+
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
+
+    // Add close handler
+    popover.querySelector('.field-history-close')?.addEventListener('click', () => {
+      this._hideFieldHistoryPopover();
+    });
+
+    // Close on click outside
+    setTimeout(() => {
+      document.addEventListener('click', this._fieldHistoryOutsideClickHandler = (e) => {
+        if (!popover.contains(e.target) && !anchorEl.contains(e.target)) {
+          this._hideFieldHistoryPopover();
+        }
+      });
+    }, 0);
+  }
+
+  /**
+   * Hide field history popover
+   */
+  _hideFieldHistoryPopover() {
+    const existing = document.querySelector('.field-history-popover-container');
+    if (existing) {
+      existing.remove();
+    }
+    if (this._fieldHistoryOutsideClickHandler) {
+      document.removeEventListener('click', this._fieldHistoryOutsideClickHandler);
+      this._fieldHistoryOutsideClickHandler = null;
+    }
   }
 
   /**

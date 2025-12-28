@@ -9778,3 +9778,416 @@ body.has-picked-up .browser-tab:hover {
   background: var(--purple-900);
   color: var(--purple-300);
 }
+
+/* ===== Field History Button & Popover ===== */
+
+.field-history-btn {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: var(--transition-fast);
+}
+
+.detail-field-label {
+  display: flex;
+  align-items: center;
+}
+
+.detail-field-group:hover .field-history-btn {
+  opacity: 0.6;
+}
+
+.field-history-btn:hover {
+  opacity: 1 !important;
+  background: var(--bg-hover);
+  color: var(--primary-500);
+}
+
+/* Field History Popover Container */
+.field-history-popover-container {
+  position: fixed;
+  z-index: 9999;
+  animation: fieldHistoryFadeIn 0.15s ease-out;
+}
+
+@keyframes fieldHistoryFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Field History Popover */
+.field-history-popover {
+  width: 320px;
+  max-height: 480px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.field-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.field-history-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.field-history-title i {
+  color: var(--primary-500);
+  font-size: 16px;
+}
+
+.field-history-close {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-fast);
+}
+
+.field-history-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Current Value Section */
+.field-history-current {
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.field-history-current-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.field-history-current-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.field-history-current-value .empty-value {
+  color: var(--text-muted);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Provenance Section */
+.field-history-provenance {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.field-history-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.field-history-section-label i {
+  font-size: 14px;
+}
+
+.provenance-source-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.provenance-source-badge.field {
+  background: var(--primary-100);
+  color: var(--primary-700);
+}
+
+.provenance-source-badge.record {
+  background: var(--warning-100);
+  color: var(--warning-700);
+}
+
+.provenance-source-badge.dataset {
+  background: var(--gray-100);
+  color: var(--gray-600);
+}
+
+:root.dark-theme .provenance-source-badge.field,
+.dark-theme .provenance-source-badge.field {
+  background: var(--primary-900);
+  color: var(--primary-300);
+}
+
+:root.dark-theme .provenance-source-badge.record,
+.dark-theme .provenance-source-badge.record {
+  background: var(--warning-900);
+  color: var(--warning-300);
+}
+
+:root.dark-theme .provenance-source-badge.dataset,
+.dark-theme .provenance-source-badge.dataset {
+  background: var(--gray-800);
+  color: var(--gray-400);
+}
+
+.history-count {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  color: var(--text-secondary);
+}
+
+.field-history-provenance-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prov-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.prov-item.empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.prov-label {
+  color: var(--text-muted);
+  min-width: 50px;
+  font-size: 11px;
+}
+
+.prov-value {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* Timeline Section */
+.field-history-timeline {
+  padding: 12px 14px;
+  flex: 1;
+  overflow-y: auto;
+  max-height: 260px;
+}
+
+.field-history-events {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.field-history-event {
+  display: flex;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  transition: var(--transition-fast);
+}
+
+.field-history-event:hover {
+  background: var(--bg-hover);
+}
+
+.field-history-event .event-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+
+.field-history-event.event-created .event-icon {
+  background: var(--success-100);
+  color: var(--success-600);
+}
+
+.field-history-event.event-modified .event-icon {
+  background: var(--primary-100);
+  color: var(--primary-600);
+}
+
+.field-history-event.event-superseded .event-icon {
+  background: var(--info-100);
+  color: var(--info-600);
+}
+
+:root.dark-theme .field-history-event.event-created .event-icon,
+.dark-theme .field-history-event.event-created .event-icon {
+  background: var(--success-900);
+  color: var(--success-400);
+}
+
+:root.dark-theme .field-history-event.event-modified .event-icon,
+.dark-theme .field-history-event.event-modified .event-icon {
+  background: var(--primary-900);
+  color: var(--primary-400);
+}
+
+:root.dark-theme .field-history-event.event-superseded .event-icon,
+.dark-theme .field-history-event.event-superseded .event-icon {
+  background: var(--info-900);
+  color: var(--info-400);
+}
+
+.field-history-event .event-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-history-event .event-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.field-history-event .event-label {
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.field-history-event .event-time {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.field-history-event .event-change {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.field-history-event .event-change .old-value {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-history-event .event-change .new-value {
+  color: var(--success-600);
+  font-weight: 500;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-history-event .event-change i {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.field-history-event .event-actor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.field-history-event .event-actor i {
+  font-size: 11px;
+}
+
+.field-history-event.record-level {
+  opacity: 0.7;
+}
+
+.field-history-event.field-specific {
+  border-left: 2px solid var(--primary-400);
+  padding-left: 10px;
+  margin-left: -2px;
+}
+
+/* Empty State */
+.field-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.field-history-empty i {
+  font-size: 32px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.field-history-empty span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.field-history-empty-hint {
+  font-size: 11px;
+  margin-top: 4px;
+  opacity: 0.7;
+}
