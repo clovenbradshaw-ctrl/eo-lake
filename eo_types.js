@@ -569,6 +569,7 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 if (typeof window !== 'undefined') {
+  // Export as namespace (for backwards compatibility)
   window.EOTypes = {
     // Core types
     EpistemicType,
@@ -596,4 +597,19 @@ if (typeof window !== 'undefined') {
     validateGroundingRules,
     validateEventStructure
   };
+
+  // Also export core types directly to window for global access
+  // Required by eo_event_store.js, eo_compliance.js, and other modules
+  window.EpistemicType = EpistemicType;
+  window.GroundingKind = GroundingKind;
+  window.EpistemicStatus = EpistemicStatus;
+  window.SupersessionType = SupersessionType;
+  window.EventCategory = EventCategory;
+  window.GivenMode = GivenMode;
+  window.GroundingReference = GroundingReference;
+  window.Derivation = Derivation;
+  window.Grounding = Grounding;
+  window.Frame = Frame;
+  window.Supersession = Supersession;
+  window.EOTypeError = EOTypeError;
 }

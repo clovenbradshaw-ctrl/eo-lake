@@ -163,7 +163,7 @@ class EOApp {
   recordGiven(mode, content, options = {}) {
     const event = {
       id: generateEventId({ action: 'record_given', content }),
-      type: EventType.GIVEN,
+      type: EpistemicType.GIVEN,
       actor: options.actor || this.currentActor,
       timestamp: new Date().toISOString(),
       mode: mode,
@@ -198,7 +198,7 @@ class EOApp {
 
     const event = {
       id: generateEventId({ action: 'record_meant', interpretation }),
-      type: EventType.MEANT,
+      type: EpistemicType.MEANT,
       actor: options.actor || this.currentActor,
       timestamp: new Date().toISOString(),
       parents: this.eventStore.getHeads().map(e => e.id),
