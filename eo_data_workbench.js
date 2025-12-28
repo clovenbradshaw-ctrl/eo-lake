@@ -4176,6 +4176,17 @@ class EODataWorkbench {
     const allRecords = this.getFilteredRecords();
     const fields = this._getVisibleFields();
     const view = this.getCurrentView();
+
+    // Debug: Log render state to help diagnose empty cell issues
+    console.log('[Debug] _renderTableView:', {
+      setId: set?.id,
+      setName: set?.name,
+      recordCount: allRecords.length,
+      fieldCount: fields.length,
+      fieldIds: fields.map(f => f.id),
+      sampleRecordKeys: allRecords[0] ? Object.keys(allRecords[0].values) : []
+    });
+
     // Always show provenance column for data with sources
     const hasProvenance = set?.datasetProvenance?.originalFilename || allRecords.some(r => r.provenance);
     const showProvenance = view?.config.showProvenance !== false && hasProvenance;
@@ -4479,6 +4490,16 @@ class EODataWorkbench {
   _renderCell(record, field) {
     const value = record.values[field.id];
     const cellClass = `cell-${field.type} cell-editable`;
+
+    // Debug: Log if field ID doesn't match any keys in record.values
+    if (value === undefined && Object.keys(record.values).length > 0) {
+      console.warn('[Debug] Field ID mismatch:', {
+        fieldId: field.id,
+        fieldName: field.name,
+        recordValueKeys: Object.keys(record.values),
+        recordId: record.id
+      });
+    }
 
     let content = '';
 
