@@ -247,6 +247,9 @@ class EODataWorkbench {
     // Lazy loading - defer loading records for non-current sets
     this._useLazyLoading = true;
     this._fullSetData = null;
+
+    // View search state
+    this.viewSearchTerm = '';
   }
 
   // --------------------------------------------------------------------------
@@ -849,6 +852,159 @@ class EODataWorkbench {
     if (b == null) return 1;
     if (typeof a === 'string') return a.localeCompare(b);
     return a < b ? -1 : a > b ? 1 : 0;
+  }
+
+  // --------------------------------------------------------------------------
+  // View Search
+  // --------------------------------------------------------------------------
+
+  /**
+   * Handle view search input
+   * Debounces the search to avoid excessive re-renders
+   */
+  _handleViewSearch(term) {
+    // Clear any existing debounce timer
+    if (this._searchDebounceTimer) {
+      clearTimeout(this._searchDebounceTimer);
+    }
+
+    // Debounce the search
+    this._searchDebounceTimer = setTimeout(() => {
+      this.viewSearchTerm = term.trim();
+      this._renderView();
+    }, 150);
+  }
+
+  /**
+   * Clear the view search
+   */
+  _clearViewSearch() {
+    this.viewSearchTerm = '';
+    this._renderView();
+  }
+
+  /**
+   * Check if a record matches the current search term
+   * Searches across all field values
+   */
+  _recordMatchesSearch(record, searchTerm, fields) {
+    if (!searchTerm) return { matches: true, matchedFields: [] };
+
+    const term = searchTerm.toLowerCase();
+    const matchedFields = [];
+
+    for (const field of fields) {
+      const value = record.values[field.id];
+      if (value == null) continue;
+
+      let stringValue = '';
+
+      // Handle different field types
+      switch (field.type) {
+        case FieldTypes.SELECT:
+          const choice = field.options?.choices?.find(c => c.id === value);
+          stringValue = choice?.name || '';
+          break;
+        case FieldTypes.MULTI_SELECT:
+          if (Array.isArray(value)) {
+            stringValue = value.map(v => {
+              const choice = field.options?.choices?.find(c => c.id === v);
+              return choice?.name || '';
+            }).join(' ');
+          }
+          break;
+        case FieldTypes.CHECKBOX:
+          stringValue = value ? 'yes true checked' : 'no false unchecked';
+          break;
+        case FieldTypes.JSON:
+          stringValue = typeof value === 'string' ? value : JSON.stringify(value);
+          break;
+        case FieldTypes.LINK:
+          // For link fields, try to get linked record names
+          if (Array.isArray(value)) {
+            const linkedSet = this.sets.find(s => s.id === field.options?.linkedSetId);
+            if (linkedSet) {
+              const primaryField = linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0];
+              stringValue = value.map(id => {
+                const linkedRecord = linkedSet.records.find(r => r.id === id);
+                return linkedRecord?.values[primaryField?.id] || '';
+              }).join(' ');
+            }
+          }
+          break;
+        default:
+          stringValue = String(value);
+      }
+
+      if (stringValue.toLowerCase().includes(term)) {
+        matchedFields.push(field.id);
+      }
+    }
+
+    return {
+      matches: matchedFields.length > 0,
+      matchedFields
+    };
+  }
+
+  /**
+   * Get records filtered by the current search term
+   * Returns records with matched field information for highlighting
+   */
+  getSearchFilteredRecords() {
+    const set = this.getCurrentSet();
+    const baseRecords = this.getFilteredRecords();
+
+    if (!this.viewSearchTerm || !set) {
+      return baseRecords.map(r => ({ record: r, matchedFields: [] }));
+    }
+
+    const fields = set.fields || [];
+    const results = [];
+
+    for (const record of baseRecords) {
+      const { matches, matchedFields } = this._recordMatchesSearch(record, this.viewSearchTerm, fields);
+      if (matches) {
+        results.push({ record, matchedFields });
+      }
+    }
+
+    return results;
+  }
+
+  /**
+   * Highlight matching text in a string
+   * Returns HTML with <mark> tags around matched portions
+   */
+  _highlightText(text, searchTerm) {
+    if (!searchTerm || !text) return this._escapeHtml(String(text || ''));
+
+    const escapedText = this._escapeHtml(String(text));
+    const term = searchTerm.toLowerCase();
+    const lowerText = String(text).toLowerCase();
+
+    // Find all occurrences
+    const parts = [];
+    let lastIndex = 0;
+
+    let index = lowerText.indexOf(term);
+    while (index !== -1) {
+      // Add text before match
+      if (index > lastIndex) {
+        parts.push(this._escapeHtml(String(text).substring(lastIndex, index)));
+      }
+      // Add highlighted match
+      parts.push(`<mark class="search-highlight">${this._escapeHtml(String(text).substring(index, index + term.length))}</mark>`);
+      lastIndex = index + term.length;
+      index = lowerText.indexOf(term, lastIndex);
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(this._escapeHtml(String(text).substring(lastIndex)));
+    }
+
+    return parts.join('');
   }
 
   // --------------------------------------------------------------------------
@@ -4037,6 +4193,9 @@ class EODataWorkbench {
   _selectSet(setId) {
     this.currentSetId = setId;
 
+    // Clear search when switching sets
+    this.viewSearchTerm = '';
+
     // Lazy load records for this set if needed
     if (this._useLazyLoading) {
       this._loadSetRecords(setId);
@@ -4526,6 +4685,18 @@ class EODataWorkbench {
         <button class="view-tabs-add" id="view-tabs-add-btn" title="Add view">
           <i class="ph ph-plus"></i>
         </button>
+        <div class="view-search-container">
+          <i class="ph ph-magnifying-glass view-search-icon"></i>
+          <input type="text"
+                 class="view-search-input"
+                 id="view-search-input"
+                 placeholder="Search in view..."
+                 value="${this._escapeHtml(this.viewSearchTerm)}"
+                 autocomplete="off">
+          ${this.viewSearchTerm ? `<button class="view-search-clear" id="view-search-clear" title="Clear search">
+            <i class="ph ph-x"></i>
+          </button>` : ''}
+        </div>
       </div>
     `;
   }
@@ -4578,6 +4749,27 @@ class EODataWorkbench {
       e.stopPropagation();
       this._showCreateViewModal();
     });
+
+    // Search input
+    const searchInput = header.querySelector('#view-search-input');
+    searchInput?.addEventListener('input', (e) => {
+      this._handleViewSearch(e.target.value);
+    });
+
+    // Search clear button
+    const clearBtn = header.querySelector('#view-search-clear');
+    clearBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._clearViewSearch();
+    });
+
+    // Handle keyboard shortcuts in search input
+    searchInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this._clearViewSearch();
+        searchInput.blur();
+      }
+    });
   }
 
   _renderEmptyState() {
@@ -4611,9 +4803,19 @@ class EODataWorkbench {
 
   _renderTableView() {
     const set = this.getCurrentSet();
-    const allRecords = this.getFilteredRecords();
+    const baseRecords = this.getFilteredRecords();
     const fields = this._getVisibleFields();
     const view = this.getCurrentView();
+    const searchTerm = this.viewSearchTerm;
+
+    // Apply search filter
+    let allRecords = baseRecords;
+    if (searchTerm) {
+      allRecords = baseRecords.filter(record => {
+        const { matches } = this._recordMatchesSearch(record, searchTerm, set?.fields || []);
+        return matches;
+      });
+    }
 
     // Debug: Log render state to help diagnose empty cell issues
     console.log('[Debug] _renderTableView:', {
@@ -4622,7 +4824,8 @@ class EODataWorkbench {
       recordCount: allRecords.length,
       fieldCount: fields.length,
       fieldIds: fields.map(f => f.id),
-      sampleRecordKeys: allRecords[0] ? Object.keys(allRecords[0].values) : []
+      sampleRecordKeys: allRecords[0] ? Object.keys(allRecords[0].values) : [],
+      searchTerm: searchTerm
     });
 
     // Always show provenance column for data with sources
@@ -4676,13 +4879,25 @@ class EODataWorkbench {
           <tbody>
     `;
 
-    if (allRecords.length === 0) {
+    if (allRecords.length === 0 && !searchTerm) {
       html += `
         <tr>
           <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="add-row-cell" id="add-first-record" title="Add a new record/row (Ctrl+N)">
             <div class="add-row-content">
               <i class="ph ph-rows-plus-bottom"></i>
               <span>Add your first record</span>
+            </div>
+          </td>
+        </tr>
+      `;
+    } else if (allRecords.length === 0 && searchTerm) {
+      html += `
+        <tr>
+          <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="search-no-results">
+            <div class="search-no-results-content">
+              <i class="ph ph-magnifying-glass"></i>
+              <span>No records match "${this._escapeHtml(searchTerm)}"</span>
+              <button class="btn btn-secondary btn-sm" id="clear-search-btn">Clear search</button>
             </div>
           </td>
         </tr>
@@ -4709,7 +4924,7 @@ class EODataWorkbench {
                 </div>
               </td>
             ` : ''}
-            ${fields.map(field => this._renderCell(record, field)).join('')}
+            ${fields.map(field => this._renderCell(record, field, searchTerm)).join('')}
             <td class="col-add"></td>
           </tr>
         `;
@@ -4926,7 +5141,7 @@ class EODataWorkbench {
     return fields;
   }
 
-  _renderCell(record, field) {
+  _renderCell(record, field, searchTerm = '') {
     const value = record.values[field.id];
     const cellClass = `cell-${field.type} cell-editable`;
 
@@ -4945,7 +5160,7 @@ class EODataWorkbench {
     switch (field.type) {
       case FieldTypes.TEXT:
       case FieldTypes.LONG_TEXT:
-        content = value ? this._escapeHtml(value) : '<span class="cell-empty">Empty</span>';
+        content = value ? this._highlightText(value, searchTerm) : '<span class="cell-empty">Empty</span>';
         break;
 
       case FieldTypes.NUMBER:
@@ -4964,7 +5179,7 @@ class EODataWorkbench {
         if (value) {
           const choice = field.options.choices?.find(c => c.id === value);
           if (choice) {
-            content = `<span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>`;
+            content = `<span class="select-tag color-${choice.color || 'gray'}">${this._highlightText(choice.name, searchTerm)}</span>`;
           }
         } else {
           content = '<span class="cell-empty">-</span>';
@@ -4977,7 +5192,7 @@ class EODataWorkbench {
           value.forEach(v => {
             const choice = field.options.choices?.find(c => c.id === v);
             if (choice) {
-              content += `<span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>`;
+              content += `<span class="select-tag color-${choice.color || 'gray'}">${this._highlightText(choice.name, searchTerm)}</span>`;
             }
           });
           content += '</div>';
@@ -4991,11 +5206,11 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.URL:
-        content = value ? `<span class="cell-url"><a href="${this._escapeHtml(value)}" target="_blank">${this._escapeHtml(value)}</a></span>` : '<span class="cell-empty">-</span>';
+        content = value ? `<span class="cell-url"><a href="${this._escapeHtml(value)}" target="_blank">${this._highlightText(value, searchTerm)}</a></span>` : '<span class="cell-empty">-</span>';
         break;
 
       case FieldTypes.EMAIL:
-        content = value ? `<span class="cell-url"><a href="mailto:${this._escapeHtml(value)}">${this._escapeHtml(value)}</a></span>` : '<span class="cell-empty">-</span>';
+        content = value ? `<span class="cell-url"><a href="mailto:${this._escapeHtml(value)}">${this._highlightText(value, searchTerm)}</a></span>` : '<span class="cell-empty">-</span>';
         break;
 
       case FieldTypes.LINK:
@@ -5007,7 +5222,7 @@ class EODataWorkbench {
             const linkedRecord = linkedSet?.records.find(r => r.id === linkedId);
             const primaryField = linkedSet?.fields.find(f => f.isPrimary);
             const name = linkedRecord?.values[primaryField?.id] || linkedId;
-            content += `<span class="link-chip" data-linked-id="${linkedId}"><i class="ph ph-link"></i>${this._escapeHtml(name)}</span>`;
+            content += `<span class="link-chip" data-linked-id="${linkedId}"><i class="ph ph-link"></i>${this._highlightText(name, searchTerm)}</span>`;
           });
           content += '</div>';
         } else {
@@ -5032,10 +5247,10 @@ class EODataWorkbench {
           if (displayMode === 'raw') {
             // Raw mode: show JSON string
             const jsonStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
-            content = `<span class="cell-json-raw">${this._escapeHtml(jsonStr)}</span>`;
+            content = `<span class="cell-json-raw">${this._highlightText(jsonStr, searchTerm)}</span>`;
           } else {
-            // Key-value mode (default): use nested object rendering
-            content = this._renderJsonKeyValue(value, field);
+            // Key-value mode (default): use nested object rendering with search
+            content = this._renderJsonKeyValue(value, field, searchTerm);
           }
         } else {
           content = '<span class="cell-empty">-</span>';
@@ -5046,9 +5261,9 @@ class EODataWorkbench {
         // Handle nested objects and arrays properly
         if (value !== null && value !== undefined) {
           if (typeof value === 'object') {
-            content = this._renderNestedValue(value);
+            content = this._renderNestedValue(value, searchTerm);
           } else {
-            content = this._escapeHtml(String(value));
+            content = this._highlightText(String(value), searchTerm);
           }
         } else {
           content = '<span class="cell-empty">-</span>';
@@ -5166,6 +5381,12 @@ class EODataWorkbench {
       // Add record buttons
       if (target.closest('#add-row-btn') || target.closest('#add-row-cell') || target.closest('#add-first-record')) {
         this.addRecord();
+        return;
+      }
+
+      // Clear search button
+      if (target.closest('#clear-search-btn')) {
+        this._clearViewSearch();
         return;
       }
 
@@ -6395,8 +6616,19 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderCardsView() {
-    const allRecords = this.getFilteredRecords();
+    const set = this.getCurrentSet();
+    const baseRecords = this.getFilteredRecords();
     const fields = this._getVisibleFields();
+    const searchTerm = this.viewSearchTerm;
+
+    // Apply search filter
+    let allRecords = baseRecords;
+    if (searchTerm) {
+      allRecords = baseRecords.filter(record => {
+        const { matches } = this._recordMatchesSearch(record, searchTerm, set?.fields || []);
+        return matches;
+      });
+    }
 
     // Implement chunked loading for large datasets
     const totalRecords = allRecords.length;
@@ -6407,7 +6639,7 @@ class EODataWorkbench {
 
     let html = '<div class="card-grid">';
 
-    if (allRecords.length === 0) {
+    if (allRecords.length === 0 && !searchTerm) {
       html = `
         <div class="empty-state">
           <i class="ph ph-cards"></i>
@@ -6416,6 +6648,17 @@ class EODataWorkbench {
           <button class="btn btn-primary" id="cards-add-record">
             <i class="ph ph-plus"></i>
             Add Record
+          </button>
+        </div>
+      `;
+    } else if (allRecords.length === 0 && searchTerm) {
+      html = `
+        <div class="empty-state search-no-results-state">
+          <i class="ph ph-magnifying-glass"></i>
+          <h3>No Results</h3>
+          <p>No records match "${this._escapeHtml(searchTerm)}"</p>
+          <button class="btn btn-secondary" id="cards-clear-search">
+            Clear search
           </button>
         </div>
       `;
@@ -6428,13 +6671,13 @@ class EODataWorkbench {
         html += `
           <div class="record-card ${isSelected ? 'selected' : ''}" data-record-id="${record.id}">
             <div class="card-header">
-              <span class="card-title">${this._escapeHtml(title)}</span>
+              <span class="card-title">${this._highlightText(title, searchTerm)}</span>
               <button class="card-menu"><i class="ph ph-dots-three"></i></button>
             </div>
             <div class="card-body">
               ${fields.slice(1, 5).map(field => {
                 const value = record.values[field.id];
-                const formatted = this._formatCellValueSimple(value, field);
+                const formatted = this._formatCellValueSimple(value, field, searchTerm);
                 return `
                   <div class="card-field">
                     <span class="card-field-label">${this._escapeHtml(field.name)}</span>
@@ -6482,6 +6725,7 @@ class EODataWorkbench {
     });
 
     document.getElementById('cards-add-record')?.addEventListener('click', () => this.addRecord());
+    document.getElementById('cards-clear-search')?.addEventListener('click', () => this._clearViewSearch());
 
     // Load more handlers for cards view
     document.getElementById('cards-load-more')?.addEventListener('click', () => {
@@ -6530,7 +6774,7 @@ class EODataWorkbench {
     }
   }
 
-  _formatCellValueSimple(value, field) {
+  _formatCellValueSimple(value, field, searchTerm = '') {
     if (value == null || value === '') return '<span class="cell-empty">-</span>';
 
     switch (field.type) {
@@ -6538,11 +6782,11 @@ class EODataWorkbench {
         return value ? '<i class="ph ph-check-circle" style="color: var(--success-500)"></i>' : '<i class="ph ph-circle" style="color: var(--text-muted)"></i>';
       case FieldTypes.SELECT:
         const choice = field.options.choices?.find(c => c.id === value);
-        return choice ? `<span class="select-tag color-${choice.color}">${this._escapeHtml(choice.name)}</span>` : '-';
+        return choice ? `<span class="select-tag color-${choice.color}">${this._highlightText(choice.name, searchTerm)}</span>` : '-';
       case FieldTypes.DATE:
         return this._formatDate(value, field);
       default:
-        return this._escapeHtml(String(value));
+        return this._highlightText(String(value), searchTerm);
     }
   }
 
@@ -6552,8 +6796,18 @@ class EODataWorkbench {
 
   _renderKanbanView() {
     const set = this.getCurrentSet();
-    const records = this.getFilteredRecords();
+    const baseRecords = this.getFilteredRecords();
     const view = this.getCurrentView();
+    const searchTerm = this.viewSearchTerm;
+
+    // Apply search filter
+    let records = baseRecords;
+    if (searchTerm) {
+      records = baseRecords.filter(record => {
+        const { matches } = this._recordMatchesSearch(record, searchTerm, set?.fields || []);
+        return matches;
+      });
+    }
 
     // Find grouping field (must be a select field)
     let groupField = set?.fields.find(f => f.type === FieldTypes.SELECT);
@@ -6576,6 +6830,25 @@ class EODataWorkbench {
 
       document.getElementById('kanban-add-field')?.addEventListener('click', () => {
         this._addField(FieldTypes.SELECT, 'Status');
+      });
+      return;
+    }
+
+    // Check if search returned no results
+    if (records.length === 0 && searchTerm) {
+      this.elements.contentArea.innerHTML = `
+        <div class="empty-state search-no-results-state">
+          <i class="ph ph-magnifying-glass"></i>
+          <h3>No Results</h3>
+          <p>No records match "${this._escapeHtml(searchTerm)}"</p>
+          <button class="btn btn-secondary" id="kanban-clear-search">
+            Clear search
+          </button>
+        </div>
+      `;
+
+      document.getElementById('kanban-clear-search')?.addEventListener('click', () => {
+        this._clearViewSearch();
       });
       return;
     }
@@ -6617,7 +6890,7 @@ class EODataWorkbench {
               const title = record.values[primaryField?.id] || 'Untitled';
               return `
                 <div class="kanban-card" data-record-id="${record.id}" draggable="true">
-                  <div class="kanban-card-title">${this._escapeHtml(title)}</div>
+                  <div class="kanban-card-title">${this._highlightText(title, searchTerm)}</div>
                 </div>
               `;
             }).join('')}
@@ -6863,7 +7136,17 @@ class EODataWorkbench {
 
   _renderCalendarView() {
     const set = this.getCurrentSet();
-    const records = this.getFilteredRecords();
+    const baseRecords = this.getFilteredRecords();
+    const searchTerm = this.viewSearchTerm;
+
+    // Apply search filter
+    let records = baseRecords;
+    if (searchTerm) {
+      records = baseRecords.filter(record => {
+        const { matches } = this._recordMatchesSearch(record, searchTerm, set?.fields || []);
+        return matches;
+      });
+    }
 
     // Find date field
     let dateField = set?.fields.find(f => f.type === FieldTypes.DATE);
@@ -6883,6 +7166,25 @@ class EODataWorkbench {
 
       document.getElementById('calendar-add-field')?.addEventListener('click', () => {
         this._addField(FieldTypes.DATE, 'Date');
+      });
+      return;
+    }
+
+    // Check if search returned no results
+    if (records.length === 0 && searchTerm) {
+      this.elements.contentArea.innerHTML = `
+        <div class="empty-state search-no-results-state">
+          <i class="ph ph-magnifying-glass"></i>
+          <h3>No Results</h3>
+          <p>No records match "${this._escapeHtml(searchTerm)}"</p>
+          <button class="btn btn-secondary" id="calendar-clear-search">
+            Clear search
+          </button>
+        </div>
+      `;
+
+      document.getElementById('calendar-clear-search')?.addEventListener('click', () => {
+        this._clearViewSearch();
       });
       return;
     }
@@ -6940,7 +7242,7 @@ class EODataWorkbench {
           <div class="calendar-day-number">${day}</div>
           ${dayRecords.slice(0, 3).map(r => {
             const title = r.values[primaryField?.id] || 'Event';
-            return `<div class="calendar-event" data-record-id="${r.id}">${this._escapeHtml(title)}</div>`;
+            return `<div class="calendar-event" data-record-id="${r.id}">${this._highlightText(title, searchTerm)}</div>`;
           }).join('')}
           ${dayRecords.length > 3 ? `<div class="calendar-event">+${dayRecords.length - 3} more</div>` : ''}
         </div>
@@ -6975,7 +7277,18 @@ class EODataWorkbench {
 
   _renderGraphView() {
     const set = this.getCurrentSet();
-    const records = this.getFilteredRecords();
+    const baseRecords = this.getFilteredRecords();
+    const searchTerm = this.viewSearchTerm;
+
+    // Apply search filter
+    let records = baseRecords;
+    if (searchTerm) {
+      records = baseRecords.filter(record => {
+        const { matches } = this._recordMatchesSearch(record, searchTerm, set?.fields || []);
+        return matches;
+      });
+    }
+
     const primaryField = set?.fields.find(f => f.isPrimary) || set?.fields[0];
 
     // Check for link fields to show relationships
@@ -6993,6 +7306,25 @@ class EODataWorkbench {
     const relationshipInfo = hasRelationshipSet
       ? `${relationshipSet.records.length} relationships`
       : (linkFields.length > 0 ? `${linkFields.length} relationship type${linkFields.length !== 1 ? 's' : ''}` : '');
+
+    // Check if search returned no results
+    if (records.length === 0 && searchTerm) {
+      this.elements.contentArea.innerHTML = `
+        <div class="empty-state search-no-results-state">
+          <i class="ph ph-magnifying-glass"></i>
+          <h3>No Results</h3>
+          <p>No records match "${this._escapeHtml(searchTerm)}"</p>
+          <button class="btn btn-secondary" id="graph-clear-search">
+            Clear search
+          </button>
+        </div>
+      `;
+
+      document.getElementById('graph-clear-search')?.addEventListener('click', () => {
+        this._clearViewSearch();
+      });
+      return;
+    }
 
     // Initialize graph display settings if not set
     if (!this.graphSettings) {
@@ -12599,7 +12931,7 @@ class EODataWorkbench {
   /**
    * Render a nested value (object or array) for display in a table cell
    */
-  _renderNestedValue(value, depth = 0) {
+  _renderNestedValue(value, searchTerm = '', depth = 0) {
     if (value === null || value === undefined) {
       return '<span class="cell-empty">-</span>';
     }
@@ -12607,7 +12939,7 @@ class EODataWorkbench {
     // Prevent infinite nesting - show JSON after max depth
     const MAX_DEPTH = 3;
     if (depth >= MAX_DEPTH) {
-      return `<span class="nested-json-preview">${this._escapeHtml(JSON.stringify(value))}</span>`;
+      return `<span class="nested-json-preview">${this._highlightText(JSON.stringify(value), searchTerm)}</span>`;
     }
 
     // Array of objects -> nested table
@@ -12618,32 +12950,32 @@ class EODataWorkbench {
 
       // Array of primitives -> comma-separated badges
       if (value.every(item => typeof item !== 'object' || item === null)) {
-        return this._renderPrimitiveArray(value);
+        return this._renderPrimitiveArray(value, searchTerm);
       }
 
       // Array of objects -> nested table
-      return this._renderNestedTable(value, depth);
+      return this._renderNestedTable(value, depth, searchTerm);
     }
 
     // Single object -> key-value display
     if (typeof value === 'object') {
-      return this._renderNestedObject(value, depth);
+      return this._renderNestedObject(value, depth, searchTerm);
     }
 
     // Primitive value
-    return this._escapeHtml(String(value));
+    return this._highlightText(String(value), searchTerm);
   }
 
   /**
    * Render an array of primitive values as badges/chips
    */
-  _renderPrimitiveArray(arr) {
+  _renderPrimitiveArray(arr, searchTerm = '') {
     const items = arr.slice(0, 10); // Limit display
     const hasMore = arr.length > 10;
 
     let html = '<div class="nested-array-badges">';
     items.forEach(item => {
-      html += `<span class="nested-badge">${this._escapeHtml(String(item))}</span>`;
+      html += `<span class="nested-badge">${this._highlightText(String(item), searchTerm)}</span>`;
     });
     if (hasMore) {
       html += `<span class="nested-badge nested-more">+${arr.length - 10} more</span>`;
@@ -12655,13 +12987,13 @@ class EODataWorkbench {
   /**
    * Render an array of objects as a nested table
    */
-  _renderNestedTable(arr, depth) {
+  _renderNestedTable(arr, depth, searchTerm = '') {
     // Filter to only objects
     const objects = arr.filter(item => typeof item === 'object' && item !== null && !Array.isArray(item));
 
     if (objects.length === 0) {
       // Mixed array - show as JSON
-      return `<span class="nested-json-preview">${this._escapeHtml(JSON.stringify(arr))}</span>`;
+      return `<span class="nested-json-preview">${this._highlightText(JSON.stringify(arr), searchTerm)}</span>`;
     }
 
     // Get all unique keys from all objects
@@ -12696,7 +13028,7 @@ class EODataWorkbench {
       html += '<tr>';
       displayHeaders.forEach(h => {
         const cellValue = obj[h];
-        html += `<td>${this._renderNestedValue(cellValue, depth + 1)}</td>`;
+        html += `<td>${this._renderNestedValue(cellValue, searchTerm, depth + 1)}</td>`;
       });
       if (hasMoreCols) {
         html += '<td class="nested-more-col">...</td>';
@@ -12719,7 +13051,7 @@ class EODataWorkbench {
   /**
    * Render a single object as key-value pairs
    */
-  _renderNestedObject(obj, depth) {
+  _renderNestedObject(obj, depth, searchTerm = '') {
     const keys = Object.keys(obj);
 
     if (keys.length === 0) {
@@ -12729,7 +13061,7 @@ class EODataWorkbench {
     // For small objects (1-2 keys), show inline
     if (keys.length <= 2 && keys.every(k => typeof obj[k] !== 'object')) {
       return '<span class="nested-object-inline">' +
-        keys.map(k => `<span class="nested-kv"><span class="nested-key">${this._escapeHtml(k)}:</span> <span class="nested-val">${this._escapeHtml(String(obj[k]))}</span></span>`).join(' ') +
+        keys.map(k => `<span class="nested-kv"><span class="nested-key">${this._escapeHtml(k)}:</span> <span class="nested-val">${this._highlightText(String(obj[k]), searchTerm)}</span></span>`).join(' ') +
         '</span>';
     }
 
@@ -12742,7 +13074,7 @@ class EODataWorkbench {
     displayKeys.forEach(k => {
       html += `<div class="nested-object-row">`;
       html += `<span class="nested-key">${this._escapeHtml(k)}</span>`;
-      html += `<span class="nested-val">${this._renderNestedValue(obj[k], depth + 1)}</span>`;
+      html += `<span class="nested-val">${this._renderNestedValue(obj[k], searchTerm, depth + 1)}</span>`;
       html += '</div>';
     });
     if (hasMore) {
@@ -12761,7 +13093,7 @@ class EODataWorkbench {
    * Render JSON field value as elegant key-value pairs
    * This is the default display for JSON field type
    */
-  _renderJsonKeyValue(value, field) {
+  _renderJsonKeyValue(value, field, searchTerm = '') {
     // Handle string values - try to parse as JSON
     let data = value;
     if (typeof value === 'string') {
@@ -12769,7 +13101,7 @@ class EODataWorkbench {
         data = JSON.parse(value);
       } catch (e) {
         // Not valid JSON, show as raw string
-        return `<span class="cell-json-raw">${this._escapeHtml(value)}</span>`;
+        return `<span class="cell-json-raw">${this._highlightText(value, searchTerm)}</span>`;
       }
     }
 
@@ -12780,7 +13112,7 @@ class EODataWorkbench {
 
     // Primitives (number, boolean, string that wasn't JSON)
     if (typeof data !== 'object') {
-      return this._renderJsonPrimitive(data);
+      return this._renderJsonPrimitive(data, searchTerm);
     }
 
     // Arrays
@@ -12793,7 +13125,7 @@ class EODataWorkbench {
         typeof item === 'object' ? '{...}' : String(item)
       ).join(', ');
       const hasMore = data.length > 3 ? ` +${data.length - 3}` : '';
-      return `<span class="json-array-preview" title="${this._escapeHtml(JSON.stringify(data))}">[${this._escapeHtml(preview)}${hasMore}]</span>`;
+      return `<span class="json-array-preview" title="${this._escapeHtml(JSON.stringify(data))}">[${this._highlightText(preview, searchTerm)}${hasMore}]</span>`;
     }
 
     // Objects - render as key-value pairs
@@ -12810,7 +13142,7 @@ class EODataWorkbench {
       const val = data[key];
       html += '<div class="json-kv-row">';
       html += `<span class="json-key">${this._escapeHtml(key)}</span>`;
-      html += `<span class="json-val">${this._renderJsonPrimitive(val)}</span>`;
+      html += `<span class="json-val">${this._renderJsonPrimitive(val, searchTerm)}</span>`;
       html += '</div>';
     });
 
@@ -12831,7 +13163,7 @@ class EODataWorkbench {
   /**
    * Render a JSON primitive value with appropriate formatting
    */
-  _renderJsonPrimitive(val) {
+  _renderJsonPrimitive(val, searchTerm = '') {
     if (val === null) {
       return '<span class="json-null">null</span>';
     }
@@ -12842,12 +13174,12 @@ class EODataWorkbench {
       return `<span class="json-bool"><i class="ph ${val ? 'ph-check-circle' : 'ph-x-circle'}"></i> ${val}</span>`;
     }
     if (typeof val === 'number') {
-      return `<span class="json-number">${val}</span>`;
+      return `<span class="json-number">${this._highlightText(String(val), searchTerm)}</span>`;
     }
     if (typeof val === 'string') {
       // Truncate long strings
       const display = val.length > 30 ? val.substring(0, 30) + '...' : val;
-      return `<span class="json-string" title="${this._escapeHtml(val)}">${this._escapeHtml(display)}</span>`;
+      return `<span class="json-string" title="${this._escapeHtml(val)}">${this._highlightText(display, searchTerm)}</span>`;
     }
     if (Array.isArray(val)) {
       return `<span class="json-array">[${val.length}]</span>`;
