@@ -7326,6 +7326,8 @@ class EODataWorkbench {
         const record = this.addRecord();
         if (columnId) {
           this._updateRecordValue(record.id, groupField.id, columnId);
+          // Re-render kanban to show the card in the correct column
+          this._renderKanbanView();
         }
       });
     });
@@ -7631,7 +7633,10 @@ class EODataWorkbench {
       // Find records for this day
       const dayRecords = records.filter(r => {
         const val = r.values[dateField.id];
-        return val && val.startsWith(dateStr);
+        if (!val) return false;
+        // Handle both string dates and Date objects
+        const dateValue = typeof val === 'string' ? val : (val instanceof Date ? val.toISOString() : String(val));
+        return dateValue.startsWith(dateStr);
       });
 
       html += `
@@ -7663,22 +7668,27 @@ class EODataWorkbench {
         if (date) {
           const record = this.addRecord();
           this._updateRecordValue(record.id, dateField.id, date);
+          // Re-render calendar to show the new event on this day
+          this._renderCalendarView();
         }
       });
     });
 
     // Calendar navigation handlers
-    document.getElementById('cal-prev')?.addEventListener('click', () => {
+    document.getElementById('cal-prev')?.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.calendarDate.setMonth(this.calendarDate.getMonth() - 1);
       this._renderCalendarView();
     });
 
-    document.getElementById('cal-next')?.addEventListener('click', () => {
+    document.getElementById('cal-next')?.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.calendarDate.setMonth(this.calendarDate.getMonth() + 1);
       this._renderCalendarView();
     });
 
-    document.getElementById('cal-today')?.addEventListener('click', () => {
+    document.getElementById('cal-today')?.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.calendarDate = new Date();
       this._renderCalendarView();
     });
