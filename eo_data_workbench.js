@@ -4451,30 +4451,98 @@ class EODataWorkbench {
 
   _renderSelectEditor(cell, field, value) {
     const choices = field.options.choices || [];
+    const currentChoice = choices.find(c => c.id === value);
 
-    let html = '<div class="select-dropdown">';
-    choices.forEach(choice => {
-      html += `
-        <div class="select-option ${choice.id === value ? 'selected' : ''}" data-value="${choice.id}">
-          <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+    // Show current value in the cell while modal is open
+    cell.innerHTML = currentChoice
+      ? `<span class="select-tag color-${currentChoice.color || 'gray'}">${this._escapeHtml(currentChoice.name)}</span>`
+      : '<span class="cell-empty">-</span>';
+
+    // Create modal overlay for select options
+    const modal = document.createElement('div');
+    modal.className = 'select-modal-overlay';
+    modal.innerHTML = `
+      <div class="select-modal">
+        <div class="select-modal-header">
+          <div class="select-modal-search">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" class="select-modal-input" placeholder="Find an option...">
+          </div>
         </div>
-      `;
-    });
-    html += '</div>';
+        <div class="select-modal-options">
+          ${value ? `
+            <div class="select-modal-option select-modal-clear" data-value="">
+              <span class="select-modal-check"><i class="ph ph-x"></i></span>
+              <span class="select-modal-label">Clear selection</span>
+            </div>
+          ` : ''}
+          ${choices.map(choice => `
+            <div class="select-modal-option ${choice.id === value ? 'selected' : ''}" data-value="${choice.id}">
+              <span class="select-modal-check">${choice.id === value ? '<i class="ph ph-check"></i>' : ''}</span>
+              <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+            </div>
+          `).join('')}
+          ${choices.length === 0 ? '<div class="select-modal-empty">No options available</div>' : ''}
+        </div>
+      </div>
+    `;
 
-    cell.innerHTML = html;
+    document.body.appendChild(modal);
+    this._selectModal = modal;
 
-    cell.querySelectorAll('.select-option').forEach(option => {
-      option.addEventListener('click', () => {
-        this._updateCellValue(option.dataset.value);
-        this._endCellEdit();
+    const searchInput = modal.querySelector('.select-modal-input');
+    const optionsContainer = modal.querySelector('.select-modal-options');
+
+    // Focus search input
+    setTimeout(() => searchInput?.focus(), 10);
+
+    // Search filtering
+    searchInput?.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      modal.querySelectorAll('.select-modal-option:not(.select-modal-clear)').forEach(opt => {
+        const name = opt.querySelector('.select-tag')?.textContent.toLowerCase() || '';
+        opt.style.display = name.includes(searchTerm) ? '' : 'none';
       });
     });
 
-    // Close on click outside
-    setTimeout(() => {
-      document.addEventListener('click', this._closeSelectEditor, { once: true });
-    }, 10);
+    // Option selection
+    optionsContainer.addEventListener('click', (e) => {
+      const option = e.target.closest('.select-modal-option');
+      if (option) {
+        const newValue = option.dataset.value || null;
+        this._updateCellValue(newValue);
+        this._closeSelectModal();
+        this._endCellEdit();
+      }
+    });
+
+    // Close on overlay click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        this._closeSelectModal();
+        this._endCellEdit();
+      }
+    });
+
+    // Keyboard handling
+    const handleKeydown = (e) => {
+      if (e.key === 'Escape') {
+        this._closeSelectModal();
+        this._endCellEdit();
+      }
+    };
+    document.addEventListener('keydown', handleKeydown);
+    modal._keydownHandler = handleKeydown;
+  }
+
+  _closeSelectModal() {
+    if (this._selectModal) {
+      if (this._selectModal._keydownHandler) {
+        document.removeEventListener('keydown', this._selectModal._keydownHandler);
+      }
+      this._selectModal.remove();
+      this._selectModal = null;
+    }
   }
 
   _closeSelectEditor = (e) => {
@@ -4743,6 +4811,9 @@ class EODataWorkbench {
   _endCellEdit() {
     if (!this.editingCell) return;
 
+    // Close any open select modal
+    this._closeSelectModal();
+
     const { cell, recordId, fieldId, field } = this.editingCell;
     const input = cell.querySelector('.cell-input');
 
@@ -4766,6 +4837,9 @@ class EODataWorkbench {
 
   _cancelCellEdit() {
     if (!this.editingCell) return;
+
+    // Close any open select modal
+    this._closeSelectModal();
 
     const { cell, originalContent } = this.editingCell;
     this.editingCell = null;
