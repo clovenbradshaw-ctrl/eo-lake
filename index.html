@@ -84,12 +84,12 @@
           </div>
         </div>
 
-        <!-- Panel 2: SETS (Schema - Entity Types) -->
+        <!-- Panel 2: SETS with nested VIEWS -->
         <div class="nav-panel sets-panel" data-panel="sets">
           <div class="nav-panel-header">
             <div class="nav-panel-title">
               <i class="ph ph-database"></i>
-              <span>Sets</span>
+              <span>Sets & Views</span>
               <span class="nav-panel-badge schema-badge">SCHEMA</span>
             </div>
             <button class="nav-panel-action" id="btn-new-set" title="Create new set">
@@ -97,7 +97,7 @@
             </button>
           </div>
           <div class="nav-panel-content" id="sets-nav">
-            <!-- Sets rendered dynamically (flat list) -->
+            <!-- Sets with nested views rendered dynamically -->
           </div>
         </div>
 
@@ -129,8 +129,8 @@
 
     <!-- Main Content -->
     <main class="main-content">
-      <!-- Top Toolbar -->
-      <header class="header">
+      <!-- Simplified Top Toolbar -->
+      <header class="header header-simplified">
         <div class="header-left">
           <button class="header-btn mobile-menu" id="mobile-menu-btn">
             <i class="ph ph-list"></i>
@@ -152,54 +152,57 @@
           </div>
         </div>
         <div class="header-center">
-          <!-- View Switcher -->
-          <div class="view-switcher">
-            <button class="view-switch-btn active" data-view="table" title="Table View">
-              <i class="ph ph-table"></i>
+          <!-- Set Tag Selector (compact) -->
+          <div class="set-tag-selector" id="set-tag-selector">
+            <button class="set-tag-btn" id="set-tag-btn" title="Filter by tag">
+              <i class="ph ph-tag"></i>
+              <span class="set-tag-label">All Sets</span>
+              <i class="ph ph-caret-down"></i>
             </button>
-            <button class="view-switch-btn" data-view="cards" title="Card View">
-              <i class="ph ph-cards"></i>
-            </button>
-            <button class="view-switch-btn" data-view="kanban" title="Kanban View">
-              <i class="ph ph-kanban"></i>
-            </button>
-            <button class="view-switch-btn" data-view="calendar" title="Calendar View">
-              <i class="ph ph-calendar-blank"></i>
-            </button>
-            <button class="view-switch-btn" data-view="graph" title="Graph View">
-              <i class="ph ph-graph"></i>
-            </button>
-            <button class="view-switch-btn" data-view="filesystem" title="Filesystem View">
-              <i class="ph ph-folder-open"></i>
-            </button>
+            <div class="set-tag-dropdown" id="set-tag-dropdown" style="display: none;">
+              <!-- Tag options rendered dynamically -->
+            </div>
           </div>
         </div>
         <div class="header-right">
           <div class="header-actions">
-            <button class="header-btn" id="btn-import" title="Import CSV or JSON">
-              <i class="ph ph-download"></i>
-              <span class="btn-label">Import</span>
-            </button>
-            <button class="header-btn" id="btn-filter" title="Create Focus (Rule 5: Restrict only)">
-              <i class="ph ph-funnel"></i>
-              <span class="btn-label">Focus</span>
-            </button>
-            <button class="header-btn" id="btn-sort" title="Sort">
-              <i class="ph ph-sort-ascending"></i>
-              <span class="btn-label">Sort</span>
-            </button>
-            <button class="header-btn" id="btn-fields" title="Show/hide and reorder fields">
-              <i class="ph ph-columns"></i>
-              <span class="btn-label">Fields</span>
-            </button>
-            <button class="header-btn" id="btn-snapshot" title="Create Snapshot (Rule 9: Immutable capture)">
-              <i class="ph ph-camera"></i>
-              <span class="btn-label">Snapshot</span>
-            </button>
+            <!-- Tools Dropdown (consolidates Focus, Sort, Fields, Snapshot) -->
+            <div class="tools-dropdown-container">
+              <button class="header-btn" id="btn-tools" title="View & Data Tools">
+                <i class="ph ph-sliders-horizontal"></i>
+                <span class="btn-label">Tools</span>
+                <i class="ph ph-caret-down"></i>
+              </button>
+              <div class="tools-dropdown" id="tools-dropdown" style="display: none;">
+                <button class="tools-dropdown-item" id="btn-filter-dropdown" title="Create Focus (Rule 5: Restrict only)">
+                  <i class="ph ph-funnel"></i>
+                  <span>Focus</span>
+                  <span class="shortcut-hint">Ctrl+F</span>
+                </button>
+                <button class="tools-dropdown-item" id="btn-sort-dropdown" title="Sort records">
+                  <i class="ph ph-sort-ascending"></i>
+                  <span>Sort</span>
+                </button>
+                <button class="tools-dropdown-item" id="btn-fields-dropdown" title="Show/hide and reorder fields">
+                  <i class="ph ph-columns"></i>
+                  <span>Fields</span>
+                </button>
+                <div class="tools-dropdown-divider"></div>
+                <button class="tools-dropdown-item" id="btn-import-dropdown" title="Import CSV or JSON">
+                  <i class="ph ph-download"></i>
+                  <span>Import</span>
+                </button>
+                <button class="tools-dropdown-item" id="btn-snapshot-dropdown" title="Create Snapshot (Rule 9: Immutable)">
+                  <i class="ph ph-camera"></i>
+                  <span>Snapshot</span>
+                  <span class="shortcut-hint">Ctrl+S</span>
+                </button>
+              </div>
+            </div>
             <div class="header-divider"></div>
             <button class="header-btn primary" id="btn-add-record">
               <i class="ph ph-plus"></i>
-              <span class="btn-label">Add Record</span>
+              <span class="btn-label">Add</span>
             </button>
           </div>
         </div>

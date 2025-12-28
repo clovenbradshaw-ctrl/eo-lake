@@ -211,6 +211,8 @@ class EODataWorkbench {
     this.currentSetId = null;
     this.currentViewId = null;
     this.lastViewPerSet = {}; // Remember last active view for each set
+    this.expandedSets = {}; // Track which sets are expanded in sidebar
+    this.currentSetTagFilter = null; // Filter sets by tag in header
     this.selectedRecords = new Set();
     this.editingCell = null;
     this.clipboard = null;
@@ -600,6 +602,52 @@ class EODataWorkbench {
     document.getElementById('fields-show-all')?.addEventListener('click', () => this._showAllFields());
     document.getElementById('fields-hide-all')?.addEventListener('click', () => this._hideAllFields());
     document.getElementById('fields-apply')?.addEventListener('click', () => this._hideFieldsPanel());
+
+    // Tools dropdown (consolidated actions)
+    document.getElementById('btn-tools')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._toggleToolsDropdown();
+    });
+    document.getElementById('btn-filter-dropdown')?.addEventListener('click', () => {
+      this._hideToolsDropdown();
+      this._toggleFilterPanel();
+    });
+    document.getElementById('btn-sort-dropdown')?.addEventListener('click', () => {
+      this._hideToolsDropdown();
+      this._toggleSortPanel();
+    });
+    document.getElementById('btn-fields-dropdown')?.addEventListener('click', () => {
+      this._hideToolsDropdown();
+      this._toggleFieldsPanel();
+    });
+    document.getElementById('btn-import-dropdown')?.addEventListener('click', () => {
+      this._hideToolsDropdown();
+      if (typeof showImportModal === 'function') {
+        showImportModal();
+      }
+    });
+    document.getElementById('btn-snapshot-dropdown')?.addEventListener('click', () => {
+      this._hideToolsDropdown();
+      this._showNewSnapshotModal();
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      const toolsContainer = document.querySelector('.tools-dropdown-container');
+      if (toolsContainer && !toolsContainer.contains(e.target)) {
+        this._hideToolsDropdown();
+      }
+      const tagSelector = document.getElementById('set-tag-selector');
+      if (tagSelector && !tagSelector.contains(e.target)) {
+        this._hideSetTagDropdown();
+      }
+    });
+
+    // Set tag selector
+    document.getElementById('set-tag-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._toggleSetTagDropdown();
+    });
 
     // Global search
     const searchInput = document.getElementById('global-search');
@@ -1021,19 +1069,28 @@ class EODataWorkbench {
   }
 
   /**
-   * Render Sets as a flat list (Panel 2: Schema)
+   * Render Sets with nested Views in sidebar (Panel 2: Schema)
    * FIX #2: Sets show derivation strategy and operator badges
    * Sets are MEANT events - interpretive schema definitions
+   * Views are disclosed under each set when expanded
    */
   _renderSetsNavFlat() {
     const container = document.getElementById('sets-nav');
     if (!container) return;
 
-    if (this.sets.length === 0) {
+    // Filter sets by tag if filter is active
+    let filteredSets = this.sets;
+    if (this.currentSetTagFilter) {
+      filteredSets = this.sets.filter(set =>
+        set.tags && set.tags.includes(this.currentSetTagFilter)
+      );
+    }
+
+    if (filteredSets.length === 0) {
       container.innerHTML = `
         <div class="nav-empty-state">
           <i class="ph ph-funnel"></i>
-          <span>No sets yet</span>
+          <span>${this.currentSetTagFilter ? 'No sets with this tag' : 'No sets yet'}</span>
           <div class="empty-actions">
             <button class="btn-link" id="btn-create-from-import">Import & Create Set</button>
             <span class="empty-divider">or</span>
@@ -1050,9 +1107,22 @@ class EODataWorkbench {
       return;
     }
 
-    container.innerHTML = this.sets.map(set => {
+    // View type icons mapping
+    const viewTypeIcons = {
+      'table': 'ph-table',
+      'cards': 'ph-cards',
+      'kanban': 'ph-kanban',
+      'calendar': 'ph-calendar-blank',
+      'graph': 'ph-graph',
+      'filesystem': 'ph-folder-open'
+    };
+
+    container.innerHTML = filteredSets.map(set => {
       const recordCount = set.records?.length || 0;
       const fieldCount = set.fields?.length || 0;
+      const isExpanded = this.expandedSets[set.id] || set.id === this.currentSetId;
+      const isActiveSet = set.id === this.currentSetId;
+      const views = set.views || [];
 
       // Determine derivation strategy for operator badge
       const derivation = this._getSetDerivationInfo(set);
@@ -1062,29 +1132,311 @@ class EODataWorkbench {
       const stability = set.stabilityLevel || 'holon';
       const stabilityClass = `stability-${stability}`;
 
+      // Render nested views
+      const viewsHtml = views.map(view => {
+        const isActiveView = view.id === this.currentViewId && isActiveSet;
+        const viewIcon = viewTypeIcons[view.type] || 'ph-eye';
+        return `
+          <div class="set-view-item ${isActiveView ? 'active' : ''}"
+               data-view-id="${view.id}"
+               data-set-id="${set.id}"
+               title="${this._escapeHtml(view.name)} (${view.type})">
+            <i class="ph ${viewIcon}"></i>
+            <span>${this._escapeHtml(view.name)}</span>
+          </div>
+        `;
+      }).join('');
+
       return `
-        <div class="nav-item set-item ${set.id === this.currentSetId ? 'active' : ''} ${stabilityClass}"
-             data-set-id="${set.id}"
-             title="${derivation.description}\n${fieldCount} fields · ${recordCount} records">
-          ${operatorBadge}
-          <i class="${set.icon || 'ph ph-table'}"></i>
-          <span class="set-name">${this._escapeHtml(set.name)}</span>
-          <span class="nav-item-count">${recordCount}</span>
+        <div class="set-item-container ${isExpanded ? 'expanded' : ''} ${stabilityClass}" data-set-id="${set.id}">
+          <div class="set-item-header ${isActiveSet ? 'active' : ''}"
+               data-set-id="${set.id}"
+               title="${derivation.description}\n${fieldCount} fields · ${recordCount} records">
+            <div class="set-item-expand">
+              <i class="ph ph-caret-right"></i>
+            </div>
+            ${operatorBadge}
+            <i class="set-item-icon ${set.icon || 'ph ph-table'}"></i>
+            <span class="set-item-name">${this._escapeHtml(set.name)}</span>
+            <span class="set-item-count">${recordCount}</span>
+            <div class="set-item-actions">
+              <button class="set-item-action-btn add-view-btn" data-set-id="${set.id}" title="Add view">
+                <i class="ph ph-plus"></i>
+              </button>
+            </div>
+          </div>
+          <div class="set-views-list">
+            ${viewsHtml}
+            <button class="set-add-view-btn" data-set-id="${set.id}">
+              <i class="ph ph-plus"></i>
+              <span>Add view</span>
+            </button>
+          </div>
         </div>
       `;
     }).join('');
 
-    // Attach click handlers
-    container.querySelectorAll('.nav-item[data-set-id]').forEach(item => {
-      item.addEventListener('click', () => {
-        this._selectSet(item.dataset.setId);
+    // Attach event handlers
+    this._attachSetNavEventHandlers(container);
+  }
+
+  /**
+   * Attach event handlers to set navigation items
+   */
+  _attachSetNavEventHandlers(container) {
+    // Set header click - toggle expansion and select set
+    container.querySelectorAll('.set-item-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        const setId = header.dataset.setId;
+        const container = header.closest('.set-item-container');
+
+        // If clicking on expand arrow, just toggle expansion
+        if (e.target.closest('.set-item-expand')) {
+          this.expandedSets[setId] = !this.expandedSets[setId];
+          container?.classList.toggle('expanded');
+          return;
+        }
+
+        // If clicking on add view button, show view picker
+        if (e.target.closest('.add-view-btn')) {
+          e.stopPropagation();
+          this._showViewTypePicker(setId, e.target.closest('.add-view-btn'));
+          return;
+        }
+
+        // Otherwise select the set and expand it
+        this.expandedSets[setId] = true;
+        this._selectSet(setId);
+      });
+
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showSetContextMenu(e, header.dataset.setId);
+      });
+    });
+
+    // View item click - select view
+    container.querySelectorAll('.set-view-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const setId = item.dataset.setId;
+        const viewId = item.dataset.viewId;
+
+        // Select set first if not already selected
+        if (this.currentSetId !== setId) {
+          this.currentSetId = setId;
+          if (this._useLazyLoading) {
+            this._loadSetRecords(setId);
+          }
+        }
+
+        this._selectView(viewId);
       });
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        this._showSetContextMenu(e, item.dataset.setId);
+        this._showViewContextMenu(e, item.dataset.viewId, item.dataset.setId);
       });
     });
+
+    // Add view button click
+    container.querySelectorAll('.set-add-view-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._showViewTypePicker(btn.dataset.setId, btn);
+      });
+    });
+  }
+
+  /**
+   * Show view type picker dropdown for adding new views
+   */
+  _showViewTypePicker(setId, anchor) {
+    // Remove any existing picker
+    document.querySelectorAll('.view-type-picker-popup').forEach(p => p.remove());
+
+    const viewTypes = [
+      { type: 'table', icon: 'ph-table', label: 'Table' },
+      { type: 'cards', icon: 'ph-cards', label: 'Cards' },
+      { type: 'kanban', icon: 'ph-kanban', label: 'Kanban' },
+      { type: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar' },
+      { type: 'graph', icon: 'ph-graph', label: 'Graph' },
+      { type: 'filesystem', icon: 'ph-folder-open', label: 'Filesystem' }
+    ];
+
+    const picker = document.createElement('div');
+    picker.className = 'view-type-picker-popup';
+    picker.style.cssText = `
+      position: fixed;
+      min-width: 140px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-primary);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      z-index: 1000;
+      padding: 4px;
+    `;
+
+    picker.innerHTML = viewTypes.map(vt => `
+      <div class="view-type-option" data-type="${vt.type}" style="
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        font-size: 12px;
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      ">
+        <i class="ph ${vt.icon}" style="font-size: 14px;"></i>
+        <span>${vt.label}</span>
+      </div>
+    `).join('');
+
+    // Position near anchor
+    const rect = anchor.getBoundingClientRect();
+    picker.style.left = `${rect.right + 4}px`;
+    picker.style.top = `${rect.top}px`;
+
+    document.body.appendChild(picker);
+
+    // Add hover effects
+    picker.querySelectorAll('.view-type-option').forEach(opt => {
+      opt.addEventListener('mouseenter', () => {
+        opt.style.background = 'var(--bg-hover)';
+        opt.style.color = 'var(--text-primary)';
+      });
+      opt.addEventListener('mouseleave', () => {
+        opt.style.background = 'transparent';
+        opt.style.color = 'var(--text-secondary)';
+      });
+      opt.addEventListener('click', () => {
+        const type = opt.dataset.type;
+        const set = this.sets.find(s => s.id === setId);
+        if (set) {
+          const viewName = `${type.charAt(0).toUpperCase() + type.slice(1)} View`;
+          const newView = createView(viewName, type);
+          set.views.push(newView);
+
+          // Select the set and new view
+          this.currentSetId = setId;
+          this.currentViewId = newView.id;
+          this.lastViewPerSet[setId] = newView.id;
+          this.expandedSets[setId] = true;
+
+          this._renderSidebar();
+          this._renderView();
+          this._updateBreadcrumb();
+          this._saveData();
+        }
+        picker.remove();
+      });
+    });
+
+    // Close on outside click
+    const closeHandler = (e) => {
+      if (!picker.contains(e.target) && e.target !== anchor) {
+        picker.remove();
+        document.removeEventListener('click', closeHandler);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeHandler), 0);
+  }
+
+  /**
+   * Show context menu for a view in the sidebar
+   */
+  _showViewContextMenu(e, viewId, setId) {
+    const set = this.sets.find(s => s.id === setId);
+    const view = set?.views.find(v => v.id === viewId);
+    if (!view) return;
+
+    const menuItems = [
+      { label: 'Rename', icon: 'ph-pencil', action: () => this._renameView(viewId, setId) },
+      { label: 'Duplicate', icon: 'ph-copy', action: () => this._duplicateView(viewId, setId) },
+      { type: 'divider' },
+      { label: 'Delete', icon: 'ph-trash', action: () => this._deleteView(viewId, setId), danger: true }
+    ];
+
+    this._showContextMenu(e.clientX, e.clientY, menuItems);
+  }
+
+  /**
+   * Rename a view
+   */
+  _renameView(viewId, setId) {
+    const set = this.sets.find(s => s.id === setId);
+    const view = set?.views.find(v => v.id === viewId);
+    if (!view) return;
+
+    const html = `
+      <div class="form-group">
+        <label>View Name</label>
+        <input type="text" id="rename-view-input" class="form-input" value="${this._escapeHtml(view.name)}">
+      </div>
+    `;
+
+    this._showModal('Rename View', html, () => {
+      const newName = document.getElementById('rename-view-input')?.value?.trim();
+      if (newName) {
+        view.name = newName;
+        this._renderSidebar();
+        this._updateBreadcrumb();
+        this._saveData();
+      }
+    });
+
+    setTimeout(() => {
+      const input = document.getElementById('rename-view-input');
+      input?.focus();
+      input?.select();
+    }, 50);
+  }
+
+  /**
+   * Duplicate a view
+   */
+  _duplicateView(viewId, setId) {
+    const set = this.sets.find(s => s.id === setId);
+    const view = set?.views.find(v => v.id === viewId);
+    if (!view) return;
+
+    const dupView = createView(`${view.name} (Copy)`, view.type);
+    dupView.config = JSON.parse(JSON.stringify(view.config || {}));
+    set.views.push(dupView);
+
+    this._selectView(dupView.id);
+    this._saveData();
+  }
+
+  /**
+   * Delete a view
+   */
+  _deleteView(viewId, setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    const viewIndex = set.views.findIndex(v => v.id === viewId);
+    if (viewIndex === -1) return;
+
+    // Don't delete if it's the last view
+    if (set.views.length <= 1) {
+      this._showToast('Cannot delete the last view', 'warning');
+      return;
+    }
+
+    set.views.splice(viewIndex, 1);
+
+    // If deleted view was active, switch to another
+    if (this.currentViewId === viewId) {
+      this.currentViewId = set.views[0].id;
+      this.lastViewPerSet[setId] = this.currentViewId;
+    }
+
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
   }
 
   /**
@@ -10207,6 +10559,92 @@ class EODataWorkbench {
     const overlay = document.getElementById('loading-overlay');
     if (overlay) {
       overlay.remove();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Tools Dropdown (consolidated header actions)
+  // --------------------------------------------------------------------------
+
+  _toggleToolsDropdown() {
+    const dropdown = document.getElementById('tools-dropdown');
+    if (dropdown) {
+      const isVisible = dropdown.style.display !== 'none';
+      dropdown.style.display = isVisible ? 'none' : 'block';
+    }
+  }
+
+  _hideToolsDropdown() {
+    const dropdown = document.getElementById('tools-dropdown');
+    if (dropdown) {
+      dropdown.style.display = 'none';
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Set Tag Selector (filter sets by tag in header)
+  // --------------------------------------------------------------------------
+
+  _toggleSetTagDropdown() {
+    const dropdown = document.getElementById('set-tag-dropdown');
+    if (dropdown) {
+      const isVisible = dropdown.style.display !== 'none';
+      if (!isVisible) {
+        this._renderSetTagDropdown();
+      }
+      dropdown.style.display = isVisible ? 'none' : 'block';
+    }
+  }
+
+  _hideSetTagDropdown() {
+    const dropdown = document.getElementById('set-tag-dropdown');
+    if (dropdown) {
+      dropdown.style.display = 'none';
+    }
+  }
+
+  _renderSetTagDropdown() {
+    const dropdown = document.getElementById('set-tag-dropdown');
+    if (!dropdown) return;
+
+    // Collect all unique tags from sets
+    const allTags = new Set();
+    this.sets.forEach(set => {
+      if (set.tags) {
+        set.tags.forEach(tag => allTags.add(tag));
+      }
+    });
+
+    const tagsArray = Array.from(allTags).sort();
+
+    dropdown.innerHTML = `
+      <div class="set-tag-option ${!this.currentSetTagFilter ? 'active' : ''}" data-tag="">
+        <i class="ph ph-squares-four"></i>
+        <span>All Sets</span>
+      </div>
+      ${tagsArray.map(tag => `
+        <div class="set-tag-option ${this.currentSetTagFilter === tag ? 'active' : ''}" data-tag="${this._escapeHtml(tag)}">
+          <i class="ph ph-tag"></i>
+          <span>${this._escapeHtml(tag)}</span>
+        </div>
+      `).join('')}
+    `;
+
+    // Attach click handlers
+    dropdown.querySelectorAll('.set-tag-option').forEach(option => {
+      option.addEventListener('click', () => {
+        this.currentSetTagFilter = option.dataset.tag || null;
+        this._hideSetTagDropdown();
+        this._updateSetTagLabel();
+        this._renderSetsNavFlat();
+      });
+    });
+  }
+
+  _updateSetTagLabel() {
+    const label = document.querySelector('.set-tag-label');
+    if (label) {
+      label.textContent = this.currentSetTagFilter || 'All Sets';
     }
   }
 
