@@ -297,6 +297,9 @@ class EODataWorkbench {
     this._renderSidebar();
     this._renderView();
 
+    // Update tossed items badge
+    this._updateTossedBadge();
+
     // Update status
     this._updateStatus();
 
@@ -585,6 +588,12 @@ class EODataWorkbench {
     document.getElementById('shortcuts-modal')?.addEventListener('click', (e) => {
       if (e.target.id === 'shortcuts-modal') this._hideKeyboardShortcuts();
     });
+
+    // Tossed items panel
+    document.getElementById('nav-tossed-items')?.addEventListener('click', () => this._showTossedPanel());
+    document.getElementById('tossed-panel-close')?.addEventListener('click', () => this._hideTossedPanel());
+    document.getElementById('tossed-panel-done')?.addEventListener('click', () => this._hideTossedPanel());
+    document.getElementById('tossed-clear-all')?.addEventListener('click', () => this._clearAllTossedItems());
 
     // Bulk actions toolbar
     document.getElementById('bulk-duplicate')?.addEventListener('click', () => this._bulkDuplicate());
@@ -3558,6 +3567,184 @@ class EODataWorkbench {
   }
 
   /**
+   * Delete (toss) a set - removes from view but nothing is ever deleted
+   * Tossed items can be picked back up from the tossed items list
+   */
+  _deleteSet(setId) {
+    // Can't delete the last set
+    if (this.sets.length <= 1) {
+      this._showToast('Cannot delete the last set', 'warning');
+      return;
+    }
+
+    const setIndex = this.sets.findIndex(s => s.id === setId);
+    if (setIndex === -1) return;
+
+    const set = this.sets[setIndex];
+    const wasCurrentSet = this.currentSetId === setId;
+
+    // Add to tossed items (nothing is ever deleted per Rule 9)
+    this.tossedItems.unshift({
+      type: 'set',
+      set: JSON.parse(JSON.stringify(set)), // Deep clone
+      tossedAt: new Date().toISOString()
+    });
+    if (this.tossedItems.length > this.maxTossedItems) {
+      this.tossedItems.pop();
+    }
+
+    // Remove from sets array
+    this.sets.splice(setIndex, 1);
+
+    // If we're deleting the current set, switch to adjacent set
+    if (wasCurrentSet) {
+      const newIndex = Math.min(setIndex, this.sets.length - 1);
+      this.currentSetId = this.sets[newIndex]?.id;
+      this.currentViewId = this.sets[newIndex]?.views[0]?.id;
+      // Update lastViewPerSet
+      if (this.currentSetId && this.currentViewId) {
+        this.lastViewPerSet[this.currentSetId] = this.currentViewId;
+      }
+    }
+
+    // Clean up lastViewPerSet for deleted set
+    delete this.lastViewPerSet[setId];
+
+    this._renderTabBar();
+    this._renderSetsNavFlat();
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
+    this._updateTossedBadge();
+
+    // Show undo toast with countdown
+    this._showToast(`Tossed set "${set.name}"`, 'info', {
+      countdown: 5000,
+      action: {
+        label: 'Undo',
+        callback: () => {
+          // Restore the set at its original position
+          const tossedIndex = this.tossedItems.findIndex(
+            t => t.type === 'set' && t.set.id === set.id
+          );
+          if (tossedIndex !== -1) {
+            this.tossedItems.splice(tossedIndex, 1);
+            // Re-insert at original position
+            this.sets.splice(setIndex, 0, set);
+            if (wasCurrentSet) {
+              this.currentSetId = set.id;
+              this.currentViewId = set.views[0]?.id;
+              if (this.currentSetId && this.currentViewId) {
+                this.lastViewPerSet[this.currentSetId] = this.currentViewId;
+              }
+            }
+            this._renderTabBar();
+            this._renderSetsNavFlat();
+            this._renderSidebar();
+            this._renderView();
+            this._updateBreadcrumb();
+            this._saveData();
+            this._updateTossedBadge();
+            this._showToast(`Restored set "${set.name}"`, 'success');
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Duplicate a set with all its fields, views, and records
+   */
+  _duplicateSet(setId) {
+    const sourceSet = this.sets.find(s => s.id === setId);
+    if (!sourceSet) return;
+
+    // Create a deep clone of the set with new IDs
+    const newSet = JSON.parse(JSON.stringify(sourceSet));
+    newSet.id = generateId();
+    newSet.name = `${sourceSet.name} (Copy)`;
+    newSet.createdAt = new Date().toISOString();
+    newSet.updatedAt = new Date().toISOString();
+
+    // Generate new IDs for all fields and create a mapping
+    const fieldIdMap = {};
+    newSet.fields.forEach(field => {
+      const oldId = field.id;
+      field.id = generateId();
+      fieldIdMap[oldId] = field.id;
+    });
+
+    // Update record values to use new field IDs
+    newSet.records.forEach(record => {
+      record.id = generateId();
+      record.setId = newSet.id;
+      const newValues = {};
+      Object.entries(record.values).forEach(([oldFieldId, value]) => {
+        const newFieldId = fieldIdMap[oldFieldId];
+        if (newFieldId) {
+          newValues[newFieldId] = value;
+        }
+      });
+      record.values = newValues;
+    });
+
+    // Generate new IDs for views and update their configs
+    newSet.views.forEach(view => {
+      view.id = generateId();
+      // Update field references in view config
+      if (view.config) {
+        if (view.config.hiddenFields) {
+          view.config.hiddenFields = view.config.hiddenFields.map(
+            fId => fieldIdMap[fId] || fId
+          );
+        }
+        if (view.config.fieldOrder) {
+          view.config.fieldOrder = view.config.fieldOrder.map(
+            fId => fieldIdMap[fId] || fId
+          );
+        }
+        if (view.config.sorts) {
+          view.config.sorts = view.config.sorts.map(sort => ({
+            ...sort,
+            fieldId: fieldIdMap[sort.fieldId] || sort.fieldId
+          }));
+        }
+        if (view.config.filters) {
+          view.config.filters = view.config.filters.map(filter => ({
+            ...filter,
+            fieldId: fieldIdMap[filter.fieldId] || filter.fieldId
+          }));
+        }
+        if (view.config.groups) {
+          view.config.groups = view.config.groups.map(group => ({
+            ...group,
+            fieldId: fieldIdMap[group.fieldId] || group.fieldId
+          }));
+        }
+      }
+    });
+
+    // Add the new set after the source set
+    const sourceIndex = this.sets.findIndex(s => s.id === setId);
+    this.sets.splice(sourceIndex + 1, 0, newSet);
+
+    // Switch to the new set
+    this.currentSetId = newSet.id;
+    this.currentViewId = newSet.views[0]?.id;
+    this.lastViewPerSet[newSet.id] = this.currentViewId;
+
+    this._renderTabBar();
+    this._renderSetsNavFlat();
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
+
+    this._showToast(`Duplicated set as "${newSet.name}"`, 'success');
+  }
+
+  /**
    * Create a new tab (now creates a new Set since tabs = Sets)
    */
   _createNewTab() {
@@ -3639,6 +3826,7 @@ class EODataWorkbench {
     this._renderView();
     this._updateBreadcrumb();
     this._saveData();
+    this._updateTossedBadge();
 
     // Show undo toast with countdown
     this._showToast(`Tossed "${view.name}"`, 'info', {
@@ -3665,6 +3853,7 @@ class EODataWorkbench {
             this._renderView();
             this._updateBreadcrumb();
             this._saveData();
+            this._updateTossedBadge();
             this._showToast(`Restored "${view.name}"`, 'success');
           }
         }
@@ -3725,6 +3914,49 @@ class EODataWorkbench {
       this._renderView();
       this._saveData();
       this._showToast('Picked up record', 'success');
+    } else if (tossedItem.type === 'set') {
+      // Restore the set
+      this.sets.push(tossedItem.set);
+      this.currentSetId = tossedItem.set.id;
+      this.currentViewId = tossedItem.set.views[0]?.id;
+      if (this.currentSetId && this.currentViewId) {
+        this.lastViewPerSet[this.currentSetId] = this.currentViewId;
+      }
+
+      this._renderTabBar();
+      this._renderSetsNavFlat();
+      this._renderSidebar();
+      this._renderView();
+      this._updateBreadcrumb();
+      this._saveData();
+      this._showToast(`Picked up set "${tossedItem.set.name}"`, 'success');
+    } else if (tossedItem.type === 'field') {
+      const set = this.sets.find(s => s.id === tossedItem.setId);
+      if (!set) {
+        this._showToast('Original set no longer exists', 'warning');
+        return;
+      }
+
+      // Restore the field
+      set.fields.push(tossedItem.field);
+
+      // Restore field values to records
+      if (tossedItem.fieldValues) {
+        Object.entries(tossedItem.fieldValues).forEach(([recordId, value]) => {
+          const record = set.records.find(r => r.id === recordId);
+          if (record) {
+            record.values[tossedItem.field.id] = value;
+          }
+        });
+      }
+
+      if (this.currentSetId !== tossedItem.setId) {
+        this.currentSetId = tossedItem.setId;
+      }
+
+      this._renderView();
+      this._saveData();
+      this._showToast(`Picked up field "${tossedItem.field.name}"`, 'success');
     }
   }
 
@@ -8850,7 +9082,30 @@ class EODataWorkbench {
 
     // Don't delete the primary field if it's the only one
     if (set.fields[index].isPrimary && set.fields.length === 1) {
+      this._showToast('Cannot delete the primary field', 'warning');
       return;
+    }
+
+    const field = set.fields[index];
+
+    // Save field values from all records before removing
+    const fieldValues = {};
+    set.records.forEach(record => {
+      if (record.values[fieldId] !== undefined) {
+        fieldValues[record.id] = record.values[fieldId];
+      }
+    });
+
+    // Add to tossed items (nothing is ever deleted per Rule 9)
+    this.tossedItems.unshift({
+      type: 'field',
+      field: { ...field },
+      fieldValues: fieldValues,
+      setId: set.id,
+      tossedAt: new Date().toISOString()
+    });
+    if (this.tossedItems.length > this.maxTossedItems) {
+      this.tossedItems.pop();
     }
 
     set.fields.splice(index, 1);
@@ -8862,6 +9117,39 @@ class EODataWorkbench {
 
     this._saveData();
     this._renderView();
+    this._updateTossedBadge();
+
+    // Show undo toast with countdown
+    this._showToast(`Tossed field "${field.name}"`, 'info', {
+      countdown: 5000,
+      action: {
+        label: 'Undo',
+        callback: () => {
+          // Restore the field at its original position
+          const tossedIndex = this.tossedItems.findIndex(
+            t => t.type === 'field' && t.field.id === field.id
+          );
+          if (tossedIndex !== -1) {
+            const tossedItem = this.tossedItems.splice(tossedIndex, 1)[0];
+            // Re-insert at original position
+            set.fields.splice(index, 0, field);
+            // Restore field values
+            if (tossedItem.fieldValues) {
+              Object.entries(tossedItem.fieldValues).forEach(([recordId, value]) => {
+                const record = set.records.find(r => r.id === recordId);
+                if (record) {
+                  record.values[fieldId] = value;
+                }
+              });
+            }
+            this._saveData();
+            this._renderView();
+            this._updateTossedBadge();
+            this._showToast(`Restored field "${field.name}"`, 'success');
+          }
+        }
+      }
+    });
   }
 
   _renameField(fieldId, newName) {
@@ -9078,6 +9366,7 @@ class EODataWorkbench {
 
     this._renderView();
     this._saveData();
+    this._updateTossedBadge();
     this._showToast('Record tossed - pick it up from the tossed pile', 'info');
   }
 
@@ -11570,6 +11859,328 @@ class EODataWorkbench {
     const modal = document.getElementById('shortcuts-modal');
     if (modal) {
       modal.style.display = 'none';
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Tossed Items Panel (Deletion History)
+  // --------------------------------------------------------------------------
+
+  _showTossedPanel() {
+    const panel = document.getElementById('tossed-panel');
+    if (panel) {
+      panel.style.display = 'flex';
+      this._renderTossedPanel();
+    }
+  }
+
+  _hideTossedPanel() {
+    const panel = document.getElementById('tossed-panel');
+    if (panel) {
+      panel.style.display = 'none';
+    }
+  }
+
+  _updateTossedBadge() {
+    const badge = document.getElementById('tossed-count-badge');
+    if (badge) {
+      const count = this.tossedItems.length;
+      if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  }
+
+  _renderTossedPanel() {
+    const treeEl = document.getElementById('tossed-tree');
+    const emptyEl = document.getElementById('tossed-empty');
+
+    if (!treeEl || !emptyEl) return;
+
+    // Update badge
+    this._updateTossedBadge();
+
+    if (this.tossedItems.length === 0) {
+      treeEl.style.display = 'none';
+      emptyEl.style.display = 'flex';
+      return;
+    }
+
+    treeEl.style.display = 'flex';
+    emptyEl.style.display = 'none';
+
+    // Group items by type
+    const grouped = {
+      set: [],
+      view: [],
+      record: [],
+      field: []
+    };
+
+    this.tossedItems.forEach((item, index) => {
+      if (grouped[item.type]) {
+        grouped[item.type].push({ ...item, originalIndex: index });
+      }
+    });
+
+    // Category configurations
+    const categories = [
+      { type: 'set', label: 'Sets', icon: 'ph-table', iconClass: 'set-icon' },
+      { type: 'view', label: 'Views', icon: 'ph-eye', iconClass: 'view-icon' },
+      { type: 'field', label: 'Fields (Columns)', icon: 'ph-columns', iconClass: 'field-icon' },
+      { type: 'record', label: 'Records (Rows)', icon: 'ph-rows', iconClass: 'record-icon' }
+    ];
+
+    let html = '';
+
+    categories.forEach(cat => {
+      const items = grouped[cat.type];
+      if (items.length === 0) return;
+
+      html += `
+        <div class="tossed-category" data-type="${cat.type}">
+          <div class="tossed-category-header">
+            <i class="ph ${cat.icon} category-icon"></i>
+            <span>${cat.label}</span>
+            <span class="category-count">${items.length}</span>
+            <i class="ph ph-caret-down expand-icon"></i>
+          </div>
+          <div class="tossed-category-items">
+      `;
+
+      items.forEach(item => {
+        const name = this._getTossedItemName(item);
+        const meta = this._getTossedItemMeta(item);
+        const timeAgo = this._formatTimeAgo(item.tossedAt);
+
+        html += `
+          <div class="tossed-item" data-index="${item.originalIndex}" data-type="${item.type}">
+            <div class="tossed-item-icon ${cat.iconClass}">
+              <i class="ph ${cat.icon}"></i>
+            </div>
+            <div class="tossed-item-content">
+              <div class="tossed-item-name">${this._escapeHtml(name)}</div>
+              <div class="tossed-item-meta">
+                ${meta ? `<span>${this._escapeHtml(meta)}</span><span class="meta-separator">•</span>` : ''}
+                <span>${timeAgo}</span>
+              </div>
+            </div>
+            <div class="tossed-item-actions">
+              <button class="tossed-item-action restore" title="Restore" data-action="restore">
+                <i class="ph ph-arrow-counter-clockwise"></i>
+              </button>
+              <button class="tossed-item-action delete" title="Delete permanently" data-action="delete">
+                <i class="ph ph-x"></i>
+              </button>
+            </div>
+          </div>
+        `;
+      });
+
+      html += `
+          </div>
+        </div>
+      `;
+    });
+
+    treeEl.innerHTML = html;
+
+    // Add event listeners
+    treeEl.querySelectorAll('.tossed-category-header').forEach(header => {
+      header.addEventListener('click', () => {
+        header.parentElement.classList.toggle('collapsed');
+      });
+    });
+
+    treeEl.querySelectorAll('.tossed-item-action').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const item = btn.closest('.tossed-item');
+        const index = parseInt(item.dataset.index);
+        const action = btn.dataset.action;
+
+        if (action === 'restore') {
+          this._restoreTossedItem(index);
+        } else if (action === 'delete') {
+          this._permanentlyDeleteTossedItem(index);
+        }
+      });
+    });
+  }
+
+  _getTossedItemName(item) {
+    switch (item.type) {
+      case 'set':
+        return item.set?.name || 'Unnamed Set';
+      case 'view':
+        return item.view?.name || 'Unnamed View';
+      case 'record':
+        // Try to get the primary field value
+        const set = this.sets.find(s => s.id === item.setId);
+        if (set) {
+          const primaryField = set.fields.find(f => f.isPrimary);
+          if (primaryField && item.record?.values?.[primaryField.id]) {
+            return item.record.values[primaryField.id];
+          }
+        }
+        return 'Record';
+      case 'field':
+        return item.field?.name || 'Unnamed Field';
+      default:
+        return 'Unknown Item';
+    }
+  }
+
+  _getTossedItemMeta(item) {
+    switch (item.type) {
+      case 'set':
+        const recordCount = item.set?.records?.length || 0;
+        const viewCount = item.set?.views?.length || 0;
+        return `${recordCount} records, ${viewCount} views`;
+      case 'view':
+        const viewSet = this.sets.find(s => s.id === item.setId);
+        return viewSet ? `from ${viewSet.name}` : null;
+      case 'record':
+        const recSet = this.sets.find(s => s.id === item.setId);
+        return recSet ? `from ${recSet.name}` : null;
+      case 'field':
+        const fieldSet = this.sets.find(s => s.id === item.setId);
+        const fieldType = item.field?.type || 'unknown';
+        return fieldSet ? `${fieldType} field from ${fieldSet.name}` : fieldType;
+      default:
+        return null;
+    }
+  }
+
+  _formatTimeAgo(dateStr) {
+    if (!dateStr) return '';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
+  }
+
+  _restoreTossedItem(index) {
+    if (index < 0 || index >= this.tossedItems.length) return;
+
+    const item = this.tossedItems[index];
+
+    // Remove from tossed items
+    this.tossedItems.splice(index, 1);
+
+    // Restore based on type
+    switch (item.type) {
+      case 'set':
+        this.sets.push(item.set);
+        this.currentSetId = item.set.id;
+        this.currentViewId = item.set.views[0]?.id;
+        if (this.currentSetId && this.currentViewId) {
+          this.lastViewPerSet[this.currentSetId] = this.currentViewId;
+        }
+        this._renderTabBar();
+        this._renderSetsNavFlat();
+        this._renderSidebar();
+        this._renderView();
+        this._updateBreadcrumb();
+        this._showToast(`Restored set "${item.set.name}"`, 'success');
+        break;
+
+      case 'view':
+        const viewSet = this.sets.find(s => s.id === item.setId);
+        if (viewSet) {
+          viewSet.views.push(item.view);
+          this.currentViewId = item.view.id;
+          if (this.currentSetId !== item.setId) {
+            this.currentSetId = item.setId;
+            this._renderSidebar();
+          }
+          this.lastViewPerSet[item.setId] = item.view.id;
+          this._renderViewsNav();
+          this._renderView();
+          this._updateBreadcrumb();
+          this._showToast(`Restored view "${item.view.name}"`, 'success');
+        } else {
+          this._showToast('Original set no longer exists', 'warning');
+        }
+        break;
+
+      case 'record':
+        const recSet = this.sets.find(s => s.id === item.setId);
+        if (recSet) {
+          recSet.records.push(item.record);
+          if (this.currentSetId !== item.setId) {
+            this.currentSetId = item.setId;
+            this._renderSidebar();
+          }
+          this._renderView();
+          this._showToast('Restored record', 'success');
+        } else {
+          this._showToast('Original set no longer exists', 'warning');
+        }
+        break;
+
+      case 'field':
+        const fieldSet = this.sets.find(s => s.id === item.setId);
+        if (fieldSet) {
+          fieldSet.fields.push(item.field);
+          // Restore field values
+          if (item.fieldValues) {
+            Object.entries(item.fieldValues).forEach(([recordId, value]) => {
+              const record = fieldSet.records.find(r => r.id === recordId);
+              if (record) {
+                record.values[item.field.id] = value;
+              }
+            });
+          }
+          if (this.currentSetId !== item.setId) {
+            this.currentSetId = item.setId;
+          }
+          this._renderView();
+          this._showToast(`Restored field "${item.field.name}"`, 'success');
+        } else {
+          this._showToast('Original set no longer exists', 'warning');
+        }
+        break;
+    }
+
+    this._saveData();
+    this._renderTossedPanel();
+  }
+
+  _permanentlyDeleteTossedItem(index) {
+    if (index < 0 || index >= this.tossedItems.length) return;
+
+    const item = this.tossedItems[index];
+    const name = this._getTossedItemName(item);
+
+    if (confirm(`Permanently delete "${name}"? This cannot be undone.`)) {
+      this.tossedItems.splice(index, 1);
+      this._renderTossedPanel();
+      this._showToast(`Permanently deleted "${name}"`, 'info');
+    }
+  }
+
+  _clearAllTossedItems() {
+    if (this.tossedItems.length === 0) {
+      this._showToast('No items to clear', 'info');
+      return;
+    }
+
+    if (confirm(`Permanently delete all ${this.tossedItems.length} tossed items? This cannot be undone.`)) {
+      this.tossedItems = [];
+      this._renderTossedPanel();
+      this._showToast('Cleared all tossed items', 'info');
     }
   }
 

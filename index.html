@@ -105,6 +105,11 @@
 
       <!-- Sidebar Footer -->
       <div class="sidebar-footer">
+        <div class="nav-item" id="nav-tossed-items" title="View tossed items (deletion history)">
+          <i class="ph ph-trash"></i>
+          <span>Tossed</span>
+          <span class="tossed-badge" id="tossed-count-badge" style="display: none;">0</span>
+        </div>
         <div class="nav-item" id="nav-keyboard-shortcuts" title="Keyboard Shortcuts (?)">
           <i class="ph ph-keyboard"></i>
           <span>Shortcuts</span>
@@ -420,6 +425,33 @@
       <button class="btn btn-secondary" id="fields-show-all">Show All</button>
       <button class="btn btn-secondary" id="fields-hide-all">Hide All</button>
       <button class="btn btn-primary" id="fields-apply">Done</button>
+    </div>
+  </div>
+
+  <!-- Tossed Items Panel (Deletion History) -->
+  <div class="tossed-panel" id="tossed-panel" style="display: none;">
+    <div class="tossed-panel-header">
+      <h4><i class="ph ph-trash"></i> Tossed Items</h4>
+      <button class="tossed-panel-close" id="tossed-panel-close">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    <div class="tossed-panel-body">
+      <div class="tossed-panel-description">
+        Items you've removed. Nothing is ever truly deleted - pick them back up anytime.
+      </div>
+      <div class="tossed-tree" id="tossed-tree">
+        <!-- Tossed items rendered dynamically in tree structure -->
+      </div>
+      <div class="tossed-empty" id="tossed-empty">
+        <i class="ph ph-trash-simple"></i>
+        <p>No tossed items</p>
+        <span>Items you delete will appear here for recovery</span>
+      </div>
+    </div>
+    <div class="tossed-panel-footer">
+      <button class="btn btn-secondary" id="tossed-clear-all">Clear All</button>
+      <button class="btn btn-primary" id="tossed-panel-done">Done</button>
     </div>
   </div>
 
