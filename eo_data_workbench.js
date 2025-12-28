@@ -2777,26 +2777,56 @@ class EODataWorkbench {
     const contentArea = this.elements.contentArea;
     if (!contentArea) return;
 
-    // Find sets derived from this source to get the actual data
-    const derivedSets = this.sets.filter(set => {
-      const prov = set.datasetProvenance;
-      if (!prov) return false;
-      const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
-      return sourceName?.toLowerCase() === source.name.toLowerCase();
-    });
-
-    // Get records from the first derived set (this contains the original import data)
-    const primarySet = derivedSets[0];
-
-    // Ensure records are loaded if using lazy loading
-    if (primarySet && this._useLazyLoading) {
-      this._loadSetRecords(primarySet.id);
+    // First try to get source data from SourceStore (for source-only imports)
+    let sourceStoreSource = null;
+    if (this.sourceStore) {
+      // Try by ID first
+      sourceStoreSource = this.sourceStore.get(source.id);
+      // If not found by ID, try by name (IDs may differ between registry and store)
+      if (!sourceStoreSource) {
+        const allSources = this.sourceStore.getByStatus('active');
+        sourceStoreSource = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
+      }
     }
 
-    const records = primarySet?.records || [];
+    let records = [];
+    let fields = [];
 
-    // Get fields from the set's field definitions (not from record keys)
-    const fields = primarySet?.fields || [];
+    // If we have source data in SourceStore, use it directly
+    if (sourceStoreSource && sourceStoreSource.records && sourceStoreSource.records.length > 0) {
+      // Use records directly from SourceStore (raw format)
+      records = sourceStoreSource.records.map((record, index) => ({
+        id: `rec_${index}`,
+        values: record // Raw records use field names as keys
+      }));
+      // Build fields from schema
+      fields = (sourceStoreSource.schema?.fields || []).map((f, i) => ({
+        id: f.name, // Use field name as ID for raw records
+        name: f.name,
+        type: f.type || 'text'
+      }));
+    } else {
+      // Fallback: Find sets derived from this source to get the actual data
+      const derivedSets = this.sets.filter(set => {
+        const prov = set.datasetProvenance;
+        if (!prov) return false;
+        const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
+        return sourceName?.toLowerCase() === source.name.toLowerCase();
+      });
+
+      // Get records from the first derived set (this contains the original import data)
+      const primarySet = derivedSets[0];
+
+      // Ensure records are loaded if using lazy loading
+      if (primarySet && this._useLazyLoading) {
+        this._loadSetRecords(primarySet.id);
+      }
+
+      records = primarySet?.records || [];
+
+      // Get fields from the set's field definitions (not from record keys)
+      fields = primarySet?.fields || [];
+    }
 
     // Build the source data viewer HTML
     contentArea.innerHTML = `
@@ -3070,7 +3100,23 @@ class EODataWorkbench {
    * Create a new Set from a source
    */
   _createSetFromSource(source) {
-    // Find the primary set with this source's data
+    // First check if source exists in SourceStore (source-only import)
+    if (this.sourceStore) {
+      let sourceInStore = this.sourceStore.get(source.id);
+      if (!sourceInStore) {
+        // Try by name
+        const allSources = this.sourceStore.getByStatus('active');
+        sourceInStore = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
+      }
+
+      if (sourceInStore && sourceInStore.records && sourceInStore.records.length > 0) {
+        // Use the SetFromSourceUI for proper field selection
+        this._showSetFromSourceUI(sourceInStore.id);
+        return;
+      }
+    }
+
+    // Fallback: Find the primary set with this source's data (legacy approach)
     const primarySet = this.sets.find(set => {
       const prov = set.datasetProvenance;
       if (!prov) return false;
@@ -3095,6 +3141,9 @@ class EODataWorkbench {
       this._selectSet(newSet.id);
       this._renderSidebar();
       this._saveData();
+    } else {
+      // No source store data and no primary set - show error
+      this._showToast('No source data available. Please re-import the file.', 'error');
     }
   }
 
@@ -3107,23 +3156,48 @@ class EODataWorkbench {
 
     if (!source) return;
 
-    // Find the primary set with this source's data
-    const primarySet = this.sets.find(set => {
-      const prov = set.datasetProvenance;
-      if (!prov) return false;
-      const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
-      return sourceName?.toLowerCase() === source.name.toLowerCase();
-    });
+    let exportData = null;
+    let fileName = source.name.replace(/\.[^/.]+$/, '') + '_export.json';
 
-    if (primarySet?.records) {
-      const json = JSON.stringify(primarySet.records, null, 2);
+    // First try to get data from SourceStore (source-only imports)
+    if (this.sourceStore) {
+      let sourceInStore = this.sourceStore.get(sourceId);
+      if (!sourceInStore) {
+        // Try by name
+        const allSources = this.sourceStore.getByStatus('active');
+        sourceInStore = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
+      }
+
+      if (sourceInStore && sourceInStore.records && sourceInStore.records.length > 0) {
+        exportData = sourceInStore.records;
+      }
+    }
+
+    // Fallback: Find the primary set with this source's data
+    if (!exportData) {
+      const primarySet = this.sets.find(set => {
+        const prov = set.datasetProvenance;
+        if (!prov) return false;
+        const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
+        return sourceName?.toLowerCase() === source.name.toLowerCase();
+      });
+
+      if (primarySet?.records) {
+        exportData = primarySet.records;
+      }
+    }
+
+    if (exportData) {
+      const json = JSON.stringify(exportData, null, 2);
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = source.name.replace(/\.[^/.]+$/, '') + '_export.json';
+      a.download = fileName;
       a.click();
       URL.revokeObjectURL(url);
+    } else {
+      this._showToast('No source data available to export.', 'error');
     }
   }
 
@@ -3183,6 +3257,31 @@ class EODataWorkbench {
       this._setCreator = new SetCreator(this.sourceStore, this.eoApp?.eventStore);
     }
 
+    // Resolve the sourceId to find the actual source in SourceStore
+    // This handles cases where sidebar uses generated IDs that don't match SourceStore IDs
+    let resolvedSourceId = sourceId;
+    let sourceInStore = this.sourceStore.get(sourceId);
+
+    if (!sourceInStore) {
+      // Try to find source by name - first get the source info from sidebar registry
+      const source = this.sources?.find(s => s.id === sourceId) ||
+        Array.from(this._getSourceRegistry().values()).find(s => s.id === sourceId);
+
+      if (source) {
+        // Look up by name in SourceStore
+        const allSources = this.sourceStore.getByStatus('active');
+        sourceInStore = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
+        if (sourceInStore) {
+          resolvedSourceId = sourceInStore.id;
+        }
+      }
+    }
+
+    if (!sourceInStore) {
+      this._showToast('Source not found. Please re-import the file to create a set.', 'error');
+      return;
+    }
+
     // Create container for the modal if it doesn't exist
     let container = document.getElementById('set-from-source-container');
     if (!container) {
@@ -3193,7 +3292,7 @@ class EODataWorkbench {
 
     // Create and show the UI
     const ui = new SetFromSourceUI(this._setCreator, container);
-    ui.show(sourceId, {
+    ui.show(resolvedSourceId, {
       onComplete: (result) => {
         // Add the new set to our sets array
         this.sets.push(result.set);
@@ -3221,6 +3320,24 @@ class EODataWorkbench {
     // Get or create the JoinBuilder
     if (!this._joinBuilder) {
       this._joinBuilder = new JoinBuilder(this.sourceStore, this.eoApp?.eventStore);
+    }
+
+    // Resolve preSelectedSourceId to find the actual source in SourceStore
+    let resolvedSourceId = preSelectedSourceId;
+    if (preSelectedSourceId) {
+      let sourceInStore = this.sourceStore.get(preSelectedSourceId);
+      if (!sourceInStore) {
+        // Try to find source by name
+        const source = this.sources?.find(s => s.id === preSelectedSourceId) ||
+          Array.from(this._getSourceRegistry().values()).find(s => s.id === preSelectedSourceId);
+        if (source) {
+          const allSources = this.sourceStore.getByStatus('active');
+          sourceInStore = allSources.find(s => s.name.toLowerCase() === source.name.toLowerCase());
+          if (sourceInStore) {
+            resolvedSourceId = sourceInStore.id;
+          }
+        }
+      }
     }
 
     // Create container for the modal if it doesn't exist
@@ -3251,9 +3368,9 @@ class EODataWorkbench {
     });
 
     // Pre-select the source if one was provided
-    if (preSelectedSourceId) {
+    if (resolvedSourceId) {
       setTimeout(() => {
-        this._joinBuilder.setLeftSource(preSelectedSourceId);
+        this._joinBuilder.setLeftSource(resolvedSourceId);
       }, 100);
     }
   }
