@@ -4715,42 +4715,137 @@ class EODataWorkbench {
   }
 
   _renderJsonEditor(cell, field, value) {
+    // Parse value into object for table view
+    let data = value;
+    if (typeof value === 'string' && value.trim()) {
+      try {
+        data = JSON.parse(value);
+      } catch (e) {
+        data = value;
+      }
+    }
+
+    // Create wrapper with toggle
+    const wrapper = document.createElement('div');
+    wrapper.className = 'json-editor-wrapper json-editor-table-mode';
+
+    // Create toggle header
+    const header = document.createElement('div');
+    header.className = 'json-editor-header';
+
+    const toggleGroup = document.createElement('div');
+    toggleGroup.className = 'json-editor-toggle-group';
+
+    const tableBtn = document.createElement('button');
+    tableBtn.className = 'json-editor-toggle active';
+    tableBtn.innerHTML = '<i class="ph ph-table"></i> Table';
+    tableBtn.type = 'button';
+
+    const rawBtn = document.createElement('button');
+    rawBtn.className = 'json-editor-toggle';
+    rawBtn.innerHTML = '<i class="ph ph-brackets-curly"></i> JSON';
+    rawBtn.type = 'button';
+
+    toggleGroup.appendChild(tableBtn);
+    toggleGroup.appendChild(rawBtn);
+    header.appendChild(toggleGroup);
+    wrapper.appendChild(header);
+
+    // Create content container
+    const content = document.createElement('div');
+    content.className = 'json-editor-content';
+
+    // Get key suggestions from all records with same field
+    const keySuggestions = this._getJsonKeySuggestions(field.id);
+
+    // Render table view by default
+    const tableView = this._createJsonTableView(data, keySuggestions);
+    content.appendChild(tableView);
+
+    // Create raw JSON view (hidden by default)
+    const rawView = document.createElement('div');
+    rawView.className = 'json-raw-view hidden';
+
     const textarea = document.createElement('textarea');
     textarea.className = 'cell-input cell-json-editor';
-
-    // Convert value to JSON string for editing
     let jsonString = '';
-    if (value !== null && value !== undefined) {
-      if (typeof value === 'object') {
+    if (data !== null && data !== undefined) {
+      if (typeof data === 'object') {
         try {
-          jsonString = JSON.stringify(value, null, 2);
+          jsonString = JSON.stringify(data, null, 2);
         } catch (e) {
-          jsonString = String(value);
+          jsonString = String(data);
         }
       } else {
-        jsonString = String(value);
+        jsonString = String(data);
       }
     }
     textarea.value = jsonString;
-
-    // Add validation indicator
-    const wrapper = document.createElement('div');
-    wrapper.className = 'json-editor-wrapper';
 
     const validationIndicator = document.createElement('span');
     validationIndicator.className = 'json-validation-indicator valid';
     validationIndicator.innerHTML = '<i class="ph ph-check-circle"></i>';
 
-    wrapper.appendChild(textarea);
-    wrapper.appendChild(validationIndicator);
+    rawView.appendChild(textarea);
+    rawView.appendChild(validationIndicator);
+    content.appendChild(rawView);
+
+    wrapper.appendChild(content);
+
+    // Add actions footer
+    const footer = document.createElement('div');
+    footer.className = 'json-editor-footer';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'json-editor-save';
+    saveBtn.innerHTML = '<i class="ph ph-check"></i> Save';
+    saveBtn.type = 'button';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'json-editor-cancel';
+    cancelBtn.innerHTML = 'Cancel';
+    cancelBtn.type = 'button';
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(saveBtn);
+    wrapper.appendChild(footer);
 
     cell.innerHTML = '';
     cell.appendChild(wrapper);
 
-    textarea.focus();
-    textarea.select();
+    // Toggle handlers
+    tableBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      tableBtn.classList.add('active');
+      rawBtn.classList.remove('active');
+      wrapper.classList.add('json-editor-table-mode');
+      wrapper.classList.remove('json-editor-raw-mode');
+      tableView.classList.remove('hidden');
+      rawView.classList.add('hidden');
+      // Sync raw JSON to table
+      try {
+        const rawData = JSON.parse(textarea.value.trim() || '{}');
+        this._updateJsonTableView(tableView, rawData, keySuggestions);
+      } catch (e) {
+        // Invalid JSON, keep current table state
+      }
+    });
 
-    // Validate JSON on input
+    rawBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      rawBtn.classList.add('active');
+      tableBtn.classList.remove('active');
+      wrapper.classList.add('json-editor-raw-mode');
+      wrapper.classList.remove('json-editor-table-mode');
+      rawView.classList.remove('hidden');
+      tableView.classList.add('hidden');
+      // Sync table to raw JSON
+      const tableData = this._getJsonFromTableView(tableView);
+      textarea.value = JSON.stringify(tableData, null, 2);
+      textarea.focus();
+    });
+
+    // Validation for raw mode
     const validateJson = () => {
       const val = textarea.value.trim();
       if (!val) {
@@ -4769,27 +4864,239 @@ class EODataWorkbench {
         return false;
       }
     };
-
     textarea.addEventListener('input', validateJson);
 
-    textarea.addEventListener('blur', () => {
-      // Only save if valid JSON
-      if (validateJson()) {
+    // Save handler
+    saveBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (wrapper.classList.contains('json-editor-raw-mode')) {
+        if (validateJson()) {
+          this._endJsonEdit();
+        }
+      } else {
+        // Get data from table view
+        const tableData = this._getJsonFromTableView(tableView);
+        textarea.value = JSON.stringify(tableData);
         this._endJsonEdit();
       }
     });
 
-    textarea.addEventListener('keydown', (e) => {
+    // Cancel handler
+    cancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._cancelCellEdit();
+    });
+
+    // Keyboard shortcuts
+    wrapper.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         this._cancelCellEdit();
       }
-      // Cmd/Ctrl+Enter to save
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-        if (validateJson()) {
-          this._endJsonEdit();
+        e.preventDefault();
+        saveBtn.click();
+      }
+    });
+
+    // Focus first input in table view
+    const firstInput = tableView.querySelector('input');
+    if (firstInput) {
+      firstInput.focus();
+    }
+  }
+
+  /**
+   * Get all unique keys used in this JSON field across all records
+   */
+  _getJsonKeySuggestions(fieldId) {
+    const set = this.sets.find(s => s.id === this.currentSetId);
+    if (!set) return [];
+
+    const keys = new Set();
+    set.records.forEach(record => {
+      let value = record.values?.[fieldId];
+      if (typeof value === 'string') {
+        try {
+          value = JSON.parse(value);
+        } catch (e) {
+          return;
+        }
+      }
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        Object.keys(value).forEach(k => keys.add(k));
+      }
+    });
+    return Array.from(keys).sort();
+  }
+
+  /**
+   * Create editable table view for JSON object
+   */
+  _createJsonTableView(data, keySuggestions = []) {
+    const container = document.createElement('div');
+    container.className = 'json-table-editor';
+
+    // Create datalist for autocomplete
+    const datalistId = 'json-keys-' + Date.now();
+    const datalist = document.createElement('datalist');
+    datalist.id = datalistId;
+    keySuggestions.forEach(key => {
+      const option = document.createElement('option');
+      option.value = key;
+      datalist.appendChild(option);
+    });
+    container.appendChild(datalist);
+
+    // Create table
+    const table = document.createElement('div');
+    table.className = 'json-table-rows';
+
+    // Ensure data is an object
+    let objData = {};
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      objData = data;
+    } else if (data !== null && data !== undefined && typeof data !== 'object') {
+      // Primitive value - show as single row
+      objData = { value: data };
+    }
+
+    // Add rows for each key-value pair
+    Object.entries(objData).forEach(([key, value]) => {
+      const row = this._createJsonTableRow(key, value, datalistId);
+      table.appendChild(row);
+    });
+
+    container.appendChild(table);
+
+    // Add row button
+    const addRow = document.createElement('button');
+    addRow.className = 'json-add-row';
+    addRow.type = 'button';
+    addRow.innerHTML = '<i class="ph ph-plus"></i> Add field';
+    addRow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const row = this._createJsonTableRow('', '', datalistId);
+      table.appendChild(row);
+      const keyInput = row.querySelector('.json-row-key');
+      if (keyInput) keyInput.focus();
+    });
+    container.appendChild(addRow);
+
+    return container;
+  }
+
+  /**
+   * Create a single key-value row for the JSON table editor
+   */
+  _createJsonTableRow(key, value, datalistId) {
+    const row = document.createElement('div');
+    row.className = 'json-table-row';
+
+    // Key input with autocomplete
+    const keyInput = document.createElement('input');
+    keyInput.type = 'text';
+    keyInput.className = 'json-row-key';
+    keyInput.placeholder = 'key';
+    keyInput.value = key;
+    keyInput.setAttribute('list', datalistId);
+
+    // Value input
+    const valueInput = document.createElement('input');
+    valueInput.type = 'text';
+    valueInput.className = 'json-row-value';
+    valueInput.placeholder = 'value';
+    // Format value for display
+    if (value !== null && value !== undefined) {
+      if (typeof value === 'object') {
+        valueInput.value = JSON.stringify(value);
+      } else {
+        valueInput.value = String(value);
+      }
+    }
+
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'json-row-delete';
+    deleteBtn.innerHTML = '<i class="ph ph-trash"></i>';
+    deleteBtn.title = 'Remove field';
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      row.remove();
+    });
+
+    row.appendChild(keyInput);
+    row.appendChild(valueInput);
+    row.appendChild(deleteBtn);
+
+    return row;
+  }
+
+  /**
+   * Update JSON table view with new data
+   */
+  _updateJsonTableView(container, data, keySuggestions) {
+    const table = container.querySelector('.json-table-rows');
+    if (!table) return;
+
+    // Get datalist ID
+    const datalist = container.querySelector('datalist');
+    const datalistId = datalist?.id || 'json-keys-' + Date.now();
+
+    // Clear existing rows
+    table.innerHTML = '';
+
+    // Add rows for new data
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      Object.entries(data).forEach(([key, value]) => {
+        const row = this._createJsonTableRow(key, value, datalistId);
+        table.appendChild(row);
+      });
+    }
+  }
+
+  /**
+   * Extract JSON object from table view
+   */
+  _getJsonFromTableView(container) {
+    const result = {};
+    const rows = container.querySelectorAll('.json-table-row');
+
+    rows.forEach(row => {
+      const keyInput = row.querySelector('.json-row-key');
+      const valueInput = row.querySelector('.json-row-value');
+
+      if (keyInput && valueInput) {
+        const key = keyInput.value.trim();
+        let value = valueInput.value.trim();
+
+        if (key) {
+          // Try to parse value as JSON (for numbers, booleans, objects, arrays)
+          if (value === '') {
+            result[key] = '';
+          } else if (value === 'true') {
+            result[key] = true;
+          } else if (value === 'false') {
+            result[key] = false;
+          } else if (value === 'null') {
+            result[key] = null;
+          } else if (!isNaN(value) && value !== '') {
+            result[key] = Number(value);
+          } else if ((value.startsWith('{') && value.endsWith('}')) ||
+                     (value.startsWith('[') && value.endsWith(']'))) {
+            try {
+              result[key] = JSON.parse(value);
+            } catch (e) {
+              result[key] = value;
+            }
+          } else {
+            result[key] = value;
+          }
         }
       }
     });
+
+    return result;
   }
 
   _endJsonEdit() {

@@ -2466,6 +2466,240 @@ html, body {
   opacity: 1;
 }
 
+/* ===== JSON Table Editor ===== */
+.json-editor-wrapper.json-editor-table-mode,
+.json-editor-wrapper.json-editor-raw-mode {
+  width: 100%;
+  min-width: 320px;
+  background: var(--bg-primary);
+  border: 2px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.json-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.json-editor-toggle-group {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+}
+
+.json-editor-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.json-editor-toggle:hover {
+  color: var(--text-primary);
+}
+
+.json-editor-toggle.active {
+  background: var(--accent-primary);
+  color: white;
+}
+
+.json-editor-toggle i {
+  font-size: 14px;
+}
+
+.json-editor-content {
+  padding: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.json-table-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.json-table-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.json-table-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.json-row-key {
+  flex: 0 0 120px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-primary);
+}
+
+.json-row-key:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  background: var(--bg-primary);
+}
+
+.json-row-key::placeholder {
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.json-row-value {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.json-row-value:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+  background: var(--bg-primary);
+}
+
+.json-row-value::placeholder {
+  color: var(--text-muted);
+}
+
+.json-row-delete {
+  flex: 0 0 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.json-row-delete:hover {
+  background: var(--color-red-dim);
+  color: var(--color-red);
+}
+
+.json-add-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px dashed var(--border-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-top: 4px;
+}
+
+.json-add-row:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: var(--bg-tertiary);
+}
+
+.json-raw-view {
+  position: relative;
+}
+
+.json-raw-view.hidden,
+.json-table-editor.hidden {
+  display: none;
+}
+
+.json-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.json-editor-save {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 14px;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.json-editor-save:hover {
+  background: var(--accent-hover);
+}
+
+.json-editor-cancel {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.json-editor-cancel:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* JSON cell with table editor open */
+.data-table td:has(.json-editor-table-mode),
+.data-table td:has(.json-editor-raw-mode) {
+  overflow: visible;
+  position: relative;
+  z-index: 100;
+}
+
+.json-editor-wrapper.json-editor-table-mode .cell-json-editor,
+.json-editor-wrapper.json-editor-raw-mode .cell-json-editor {
+  width: 100%;
+  min-height: 100px;
+  max-height: 200px;
+  padding-right: 10px;
+}
+
 /* Add Row */
 .add-row-cell {
   border-bottom: none;
