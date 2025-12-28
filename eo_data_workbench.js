@@ -2793,10 +2793,19 @@ class EODataWorkbench {
       this._loadSetRecords(primarySet.id);
     }
 
-    const records = primarySet?.records || [];
+    // Use derived set records if available, otherwise fall back to source's own records
+    const records = primarySet?.records || source.records || [];
 
-    // Get fields from the set's field definitions (not from record keys)
-    const fields = primarySet?.fields || [];
+    // Get fields from the set's field definitions, or infer from source schema/records
+    let fields = primarySet?.fields || [];
+    if (fields.length === 0 && source.schema?.fields) {
+      fields = source.schema.fields;
+    }
+    if (fields.length === 0 && records.length > 0) {
+      // Infer fields from the first record
+      const firstRecord = records[0];
+      fields = Object.keys(firstRecord).map(key => ({ name: key, type: 'text' }));
+    }
 
     // Build the source data viewer HTML
     contentArea.innerHTML = `
@@ -2867,7 +2876,8 @@ class EODataWorkbench {
                   <tr>
                     <td class="source-row-num">${index + 1}</td>
                     ${fields.map(field => {
-                      const value = record.values?.[field.id];
+                      // Support both structured records (with values object) and plain records
+                      const value = record.values?.[field.id] ?? record[field.name] ?? record[field.sourceColumn];
                       const cellClass = this._getSourceCellClass(value);
                       const displayValue = this._formatSourceCellValue(value);
                       const titleValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
