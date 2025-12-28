@@ -1013,6 +1013,198 @@ class ImportOrchestrator {
   }
 
   /**
+   * Import file as Source only (no automatic Set creation)
+   *
+   * This is the recommended import mode. It creates a Source (GIVEN data)
+   * which users can then explicitly create Sets from with field selection.
+   *
+   * @param {File} file - File to import
+   * @param {Object} options - Import options
+   * @returns {Promise<{ success: boolean, source: Source, schema: Object }>}
+   */
+  async importToSource(file, options = {}) {
+    const startTime = Date.now();
+    const uploadInitiatedAt = new Date().toISOString();
+
+    this._emitProgress('started', {
+      fileName: file.name,
+      fileSize: file.size,
+      phase: 'reading',
+      mode: 'source_only'
+    });
+
+    try {
+      // Read file content
+      const text = await this._readFile(file);
+
+      this._emitProgress('progress', {
+        phase: 'parsing',
+        percentage: 10
+      });
+
+      const parseStartedAt = new Date().toISOString();
+
+      // Determine file type and parse
+      const fileName = file.name.toLowerCase();
+      const isICS = fileName.endsWith('.ics') || file.type === 'text/calendar';
+      const isCSV = fileName.endsWith('.csv') ||
+                    file.type === 'text/csv' ||
+                    (!isICS && !this._isJSON(text));
+
+      const mimeType = file.type || (isICS ? 'text/calendar' :
+                       isCSV ? 'text/csv' : 'application/json');
+
+      let parseResult;
+      if (isICS) {
+        parseResult = this.icsParser.parse(text);
+      } else if (isCSV) {
+        parseResult = this.csvParser.parse(text, options);
+      } else {
+        parseResult = this._parseJSON(text);
+      }
+
+      const parseCompletedAt = new Date().toISOString();
+
+      this._emitProgress('progress', {
+        phase: 'inferring',
+        percentage: 30,
+        rowCount: parseResult.rows.length
+      });
+
+      // Infer schema
+      const schema = this.schemaInferrer.inferSchema(parseResult.headers, parseResult.rows);
+
+      this._emitProgress('progress', {
+        phase: 'creating_source',
+        percentage: 60,
+        fieldCount: schema.fields.length
+      });
+
+      // Get or create SourceStore
+      const sourceStore = this._getSourceStore();
+
+      // Build provenance from options
+      const provenance = {
+        agent: options.provenance?.agent || null,
+        method: options.provenance?.method || `${isICS ? 'ICS' : isCSV ? 'CSV' : 'JSON'} import`,
+        source: options.provenance?.source || file.name,
+        term: options.provenance?.term || null,
+        definition: options.provenance?.definition || null,
+        jurisdiction: options.provenance?.jurisdiction || null,
+        scale: options.provenance?.scale || null,
+        timeframe: options.provenance?.timeframe || null,
+        background: options.provenance?.background || null
+      };
+
+      // Compute content hash if possible
+      let contentHash = null;
+      if (typeof crypto !== 'undefined' && crypto.subtle) {
+        try {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(text);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (e) {
+          console.warn('Could not compute content hash:', e);
+        }
+      }
+
+      // Create the Source
+      const source = sourceStore.createSource({
+        name: file.name,
+        records: parseResult.rows,
+        schema: schema,
+        provenance: provenance,
+        parseResult: parseResult,
+        fileMetadata: {
+          originalFilename: file.name,
+          contentHash: contentHash,
+          rawSize: file.size,
+          encoding: 'utf-8',
+          mimeType: mimeType,
+          lastModified: file.lastModified ? new Date(file.lastModified).toISOString() : null
+        }
+      });
+
+      this._emitProgress('progress', {
+        phase: 'finalizing',
+        percentage: 90
+      });
+
+      // Store the source store reference on workbench for later use
+      if (this.workbench && !this.workbench.sourceStore) {
+        this.workbench.sourceStore = sourceStore;
+      }
+
+      this._emitProgress('completed', {
+        fileName: file.name,
+        sourceId: source.id,
+        recordCount: source.recordCount,
+        fieldCount: schema.fields.length,
+        duration: Date.now() - startTime,
+        mode: 'source_only'
+      });
+
+      return {
+        success: true,
+        source: source,
+        schema: schema,
+        recordCount: source.recordCount,
+        fieldCount: schema.fields.length
+      };
+
+    } catch (error) {
+      this._emitProgress('failed', {
+        fileName: file.name,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get or create the SourceStore instance
+   */
+  _getSourceStore() {
+    // Check if workbench already has a source store
+    if (this.workbench?.sourceStore) {
+      return this.workbench.sourceStore;
+    }
+
+    // Check for global SourceStore
+    if (typeof SourceStore !== 'undefined') {
+      const eventStore = this.workbench?.eoApp?.eventStore || null;
+      return new SourceStore(eventStore);
+    }
+
+    // Fallback: simple in-memory store
+    return {
+      sources: new Map(),
+      createSource(config) {
+        const id = 'src_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 8);
+        const source = {
+          id,
+          name: config.name,
+          records: Object.freeze([...config.records]),
+          recordCount: config.records.length,
+          schema: config.schema,
+          provenance: config.provenance,
+          fileIdentity: config.fileMetadata,
+          importedAt: new Date().toISOString(),
+          derivedSetIds: [],
+          status: 'active'
+        };
+        this.sources.set(id, source);
+        return source;
+      },
+      get(id) { return this.sources.get(id); },
+      getAll() { return Array.from(this.sources.values()); },
+      getByStatus(status) { return this.getAll().filter(s => s.status === status); }
+    };
+  }
+
+  /**
    * Read file as text
    */
   _readFile(file) {
@@ -2108,6 +2300,29 @@ function showImportModal() {
           </button>
         </div>
 
+        <!-- Import Mode Toggle -->
+        <div class="import-mode-toggle">
+          <div class="import-mode-option active" data-mode="source" id="import-mode-source">
+            <div class="mode-title">
+              <i class="ph ph-database"></i>
+              Import as Source
+              <span class="mode-badge recommended">Recommended</span>
+            </div>
+            <div class="mode-desc">
+              Creates raw data source. You'll choose which fields to include when creating Sets.
+            </div>
+          </div>
+          <div class="import-mode-option" data-mode="auto" id="import-mode-auto">
+            <div class="mode-title">
+              <i class="ph ph-table"></i>
+              Auto Create Set
+            </div>
+            <div class="mode-desc">
+              Immediately creates a Set with all fields (legacy behavior).
+            </div>
+          </div>
+        </div>
+
         <!-- Graph Data Detection Banner -->
         <div class="import-graph-detected" id="import-graph-detected" style="display: none;">
           <div class="graph-detected-icon">
@@ -2281,6 +2496,7 @@ function initImportHandlers() {
   let analysisData = null;
   let rawFileContent = null;
   let orchestrator = null;
+  let importMode = 'source'; // 'source' or 'auto'
   const analyzer = new ImportAnalyzer();
 
   // Get workbench reference
@@ -2288,6 +2504,32 @@ function initImportHandlers() {
   if (workbench) {
     orchestrator = new ImportOrchestrator(workbench);
   }
+
+  // Import mode toggle handlers
+  const modeSourceBtn = document.getElementById('import-mode-source');
+  const modeAutoBtn = document.getElementById('import-mode-auto');
+
+  modeSourceBtn?.addEventListener('click', () => {
+    importMode = 'source';
+    modeSourceBtn.classList.add('active');
+    modeAutoBtn.classList.remove('active');
+    // Update button text
+    confirmBtn.innerHTML = '<i class="ph ph-database"></i> Import as Source';
+    // Hide set name field when importing as source (source uses filename)
+    const setNameGroup = document.querySelector('.import-options');
+    if (setNameGroup) setNameGroup.style.display = 'none';
+  });
+
+  modeAutoBtn?.addEventListener('click', () => {
+    importMode = 'auto';
+    modeAutoBtn.classList.add('active');
+    modeSourceBtn.classList.remove('active');
+    // Update button text
+    confirmBtn.innerHTML = '<i class="ph ph-table"></i> Import & Create Set';
+    // Show set name field
+    const setNameGroup = document.querySelector('.import-options');
+    if (setNameGroup) setNameGroup.style.display = 'block';
+  });
 
   // Dropzone click
   dropzone.addEventListener('click', () => fileInput.click());
@@ -2371,45 +2613,85 @@ function initImportHandlers() {
       };
       window.addEventListener('eo-import-progress', progressHandler);
 
-      // Import with enhanced options
-      const result = await orchestrator.import(currentFile, {
-        setName,
-        provenance,
-        originalSource: rawFileContent,
-        createViewsByType,
-        viewSplitField: analysisData?.viewSplitCandidates?.[0]?.field || 'type',
-        graphInfo: analysisData?.graphInfo,
-        includeEdges
-      });
+      let result;
 
-      window.removeEventListener('eo-import-progress', progressHandler);
+      // Check import mode
+      if (importMode === 'source') {
+        // Import as Source only (recommended)
+        result = await orchestrator.importToSource(currentFile, {
+          provenance,
+          originalSource: rawFileContent
+        });
 
-      // Show success
-      progressSection.style.display = 'none';
-      successSection.style.display = 'flex';
+        window.removeEventListener('eo-import-progress', progressHandler);
 
-      // Build success message including edges if imported
-      let successMsg = `Successfully imported ${result.recordCount} records with ${result.fieldCount} fields`;
-      if (result.edgesImported > 0) {
-        successMsg += ` and ${result.edgesImported} relationships`;
-      }
-      document.getElementById('success-message').textContent = successMsg;
+        // Show success for source import
+        progressSection.style.display = 'none';
+        successSection.style.display = 'flex';
 
-      // Show created views info
-      if (result.viewsCreated && result.viewsCreated.length > 0) {
-        document.getElementById('success-views-created').innerHTML =
-          `<i class="ph ph-eye"></i> Created ${result.viewsCreated.length} views: ${result.viewsCreated.join(', ')}`;
-      }
+        document.getElementById('success-message').textContent =
+          `Successfully imported ${result.recordCount} records as Source`;
 
-      // Show edges info if imported
-      if (result.edgesImported > 0) {
-        const edgesInfo = document.getElementById('success-edges-created') || document.createElement('div');
-        edgesInfo.id = 'success-edges-created';
-        edgesInfo.style.cssText = 'margin-top: 8px; font-size: 13px; color: var(--text-secondary);';
-        edgesInfo.innerHTML = `<i class="ph ph-arrows-left-right"></i> ${result.edgesImported} edges available in Graph view`;
-        const successViewsEl = document.getElementById('success-views-created');
-        if (successViewsEl && !document.getElementById('success-edges-created')) {
-          successViewsEl.parentNode.insertBefore(edgesInfo, successViewsEl.nextSibling);
+        // Show next steps info
+        document.getElementById('success-views-created').innerHTML = `
+          <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
+            <p style="margin: 0 0 8px 0; font-weight: 500;">
+              <i class="ph ph-info"></i> Next Steps
+            </p>
+            <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
+              Click on the source in the sidebar to view data, then use
+              <strong>"Create Set"</strong> to select fields and create a Set,
+              or <strong>"Join"</strong> to combine with other sources.
+            </p>
+          </div>
+        `;
+
+        // Refresh workbench sidebar to show new source
+        if (workbench?._renderSidebar) {
+          workbench._renderSidebar();
+        }
+
+      } else {
+        // Legacy: Auto-create Set
+        result = await orchestrator.import(currentFile, {
+          setName,
+          provenance,
+          originalSource: rawFileContent,
+          createViewsByType,
+          viewSplitField: analysisData?.viewSplitCandidates?.[0]?.field || 'type',
+          graphInfo: analysisData?.graphInfo,
+          includeEdges
+        });
+
+        window.removeEventListener('eo-import-progress', progressHandler);
+
+        // Show success
+        progressSection.style.display = 'none';
+        successSection.style.display = 'flex';
+
+        // Build success message including edges if imported
+        let successMsg = `Successfully imported ${result.recordCount} records with ${result.fieldCount} fields`;
+        if (result.edgesImported > 0) {
+          successMsg += ` and ${result.edgesImported} relationships`;
+        }
+        document.getElementById('success-message').textContent = successMsg;
+
+        // Show created views info
+        if (result.viewsCreated && result.viewsCreated.length > 0) {
+          document.getElementById('success-views-created').innerHTML =
+            `<i class="ph ph-eye"></i> Created ${result.viewsCreated.length} views: ${result.viewsCreated.join(', ')}`;
+        }
+
+        // Show edges info if imported
+        if (result.edgesImported > 0) {
+          const edgesInfo = document.getElementById('success-edges-created') || document.createElement('div');
+          edgesInfo.id = 'success-edges-created';
+          edgesInfo.style.cssText = 'margin-top: 8px; font-size: 13px; color: var(--text-secondary);';
+          edgesInfo.innerHTML = `<i class="ph ph-arrows-left-right"></i> ${result.edgesImported} edges available in Graph view`;
+          const successViewsEl = document.getElementById('success-views-created');
+          if (successViewsEl && !document.getElementById('success-edges-created')) {
+            successViewsEl.parentNode.insertBefore(edgesInfo, successViewsEl.nextSibling);
+          }
         }
       }
 

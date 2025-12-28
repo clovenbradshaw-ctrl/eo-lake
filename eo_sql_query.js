@@ -846,12 +846,16 @@ class EOSQLSetBuilder {
     const timestamp = new Date().toISOString();
     const setId = generateOntologyId('set');
 
+    // Check if query involves joins
+    const joinOps = parsed.pipeline.filter(op => op.op === 'JOIN');
+    const isJoinQuery = joinOps.length > 0;
+
     // Event: Query Executed (documents the transformation)
     const queryEventId = generateOntologyId('evt');
     const queryEvent = {
       id: queryEventId,
       epistemicType: 'meant',
-      category: 'query_executed',
+      category: isJoinQuery ? 'join_executed' : 'query_executed',
       timestamp,
       actor,
       payload: {
@@ -862,7 +866,21 @@ class EOSQLSetBuilder {
           rowCount: result.rows.length,
           columns: result.columns,
           executionMs: result.stats.executionTime
-        }
+        },
+        // Include join-specific information for CON derivation
+        ...(isJoinQuery && {
+          joinDetails: {
+            joinCount: joinOps.length,
+            joinTypes: joinOps.map(op => op.params.type),
+            joinConditions: joinOps.map(op => ({
+              leftSource: parsed.sourceRefs[0],
+              rightSource: op.params.rightSourceId,
+              leftKey: op.params.leftKey,
+              rightKey: op.params.rightKey,
+              type: op.params.type
+            }))
+          }
+        })
       },
       grounding: {
         references: parsed.sourceRefs.map(srcId => ({
@@ -870,15 +888,19 @@ class EOSQLSetBuilder {
           kind: 'structural'
         })),
         derivation: {
+          strategy: isJoinQuery ? 'con' : 'seg',
           operators: parsed.pipeline,
           inputs: Object.fromEntries(parsed.sourceRefs.map(s => [s, this._getSourceEventId(s)])),
           frozenParams: { sql: parsed.sql }
-        }
+        },
+        kind: 'computational'
       },
       frame: {
-        claim: `Executed SQL query: ${parsed.sql.substring(0, 100)}...`,
+        claim: isJoinQuery
+          ? `Joined ${parsed.sourceRefs.length} sources: ${parsed.sourceRefs.join(', ')}`
+          : `Executed SQL query: ${parsed.sql.substring(0, 100)}...`,
         epistemicStatus: 'confirmed',
-        purpose: 'query_execution'
+        purpose: isJoinQuery ? 'data_join' : 'query_execution'
       }
     };
     events.push(queryEvent);
@@ -947,12 +969,34 @@ class EOSQLSetBuilder {
     });
     events.push(...recordEvents);
 
-    // Create SetConfig
-    const setConfig = new SetConfig({
-      id: setId,
-      name: setName,
-      fields: this._inferFieldsFromResult(result),
-      derivation: new DerivationConfig({
+    // Determine derivation strategy based on pipeline
+    // CON = Join (multiple sources), SEG = Single source with filters
+    const hasJoin = parsed.pipeline.some(op => op.op === 'JOIN');
+    const derivationStrategy = hasJoin ? DerivationStrategy.CON : DerivationStrategy.SEG;
+
+    // Build derivation config based on strategy
+    let derivationConfig;
+    if (hasJoin) {
+      // CON derivation for joins
+      const joinOps = parsed.pipeline.filter(op => op.op === 'JOIN');
+      derivationConfig = new DerivationConfig({
+        strategy: DerivationStrategy.CON,
+        joinSetIds: parsed.sourceRefs, // All sources involved in the join
+        constraint: {
+          sql: parsed.sql,
+          pipeline: parsed.pipeline,
+          joinConditions: joinOps.map(op => ({
+            leftKey: op.params.leftKey,
+            rightKey: op.params.rightKey,
+            type: op.params.type,
+            rightSourceId: op.params.rightSourceId
+          }))
+        },
+        derivedBy: actor
+      });
+    } else {
+      // SEG derivation for single-source queries
+      derivationConfig = new DerivationConfig({
         strategy: DerivationStrategy.SEG,
         parentSourceId: parsed.sourceRefs[0],
         constraint: {
@@ -960,7 +1004,15 @@ class EOSQLSetBuilder {
           pipeline: parsed.pipeline
         },
         derivedBy: actor
-      })
+      });
+    }
+
+    // Create SetConfig
+    const setConfig = new SetConfig({
+      id: setId,
+      name: setName,
+      fields: this._inferFieldsFromResult(result),
+      derivation: derivationConfig
     });
 
     return {

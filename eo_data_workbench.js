@@ -2601,10 +2601,31 @@ class EODataWorkbench {
       this.sources = [];
     }
 
+    // Get sources from the new SourceStore (priority) if available
+    const sourceStoreActive = this.sourceStore && typeof this.sourceStore.getByStatus === 'function';
+    const storedSources = sourceStoreActive ? this.sourceStore.getByStatus('active') : [];
+
     // Extract true sources from sets with provenance (for backwards compatibility)
     // but DO NOT show sets in sources panel
     const sourceRegistry = new Map();
 
+    // First add sources from SourceStore (new system - takes priority)
+    for (const source of storedSources) {
+      sourceRegistry.set(source.id, {
+        id: source.id,
+        type: 'given',
+        entityType: 'source',
+        name: source.name,
+        importedAt: source.importedAt,
+        provenance: source.provenance,
+        recordCount: source.recordCount,
+        isReadOnly: true,
+        hasSchema: !!source.schema,
+        isSourceStore: true // Mark as from SourceStore for special handling
+      });
+    }
+
+    // Then add legacy sources from sets with provenance
     for (const set of this.sets) {
       const prov = set.datasetProvenance;
       const provSourceValue = this._getProvenanceValue(prov?.provenance?.source);
@@ -2612,7 +2633,7 @@ class EODataWorkbench {
         const sourceName = prov.originalFilename || provSourceValue || 'Unknown';
         const sourceKey = sourceName.toLowerCase();
 
-        if (!sourceRegistry.has(sourceKey)) {
+        if (!sourceRegistry.has(sourceKey) && !sourceRegistry.has(`src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`)) {
           // Create a true Source entry (GIVEN)
           sourceRegistry.set(sourceKey, {
             id: `src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`,
@@ -2626,7 +2647,10 @@ class EODataWorkbench {
           });
         } else {
           // Aggregate record count from multiple sets derived from same source
-          sourceRegistry.get(sourceKey).recordCount += (set.records?.length || 0);
+          const existingKey = sourceRegistry.has(sourceKey) ? sourceKey : `src_${sourceKey.replace(/[^a-z0-9]/g, '_')}`;
+          if (sourceRegistry.has(existingKey) && !sourceRegistry.get(existingKey).isSourceStore) {
+            sourceRegistry.get(existingKey).recordCount += (set.records?.length || 0);
+          }
         }
       }
     }
@@ -3116,12 +3140,161 @@ class EODataWorkbench {
   _showSourceContextMenu(e, sourceId) {
     const menu = [
       { icon: 'ph-info', label: 'View Details', action: () => this._showSourceDetail(sourceId) },
-      { icon: 'ph-table', label: 'Create Derived Set...', action: () => this._showCreateDerivedSetModal(sourceId) },
+      { icon: 'ph-table', label: 'Create Set from Source...', action: () => this._showSetFromSourceUI(sourceId) },
+      { icon: 'ph-intersect', label: 'Join with Another Source...', action: () => this._showJoinBuilderUI(sourceId) },
       { divider: true },
       { icon: 'ph-export', label: 'Export Source Data', action: () => this._exportSource(sourceId) }
     ];
 
     this._showContextMenu(e.pageX, e.pageY, menu);
+  }
+
+  /**
+   * Show the SetFromSourceUI modal for creating a Set from a Source
+   * Uses the new SourceStore-based approach with field selection
+   */
+  _showSetFromSourceUI(sourceId) {
+    // Ensure we have a source store
+    if (!this.sourceStore) {
+      this._initSourceStore();
+    }
+
+    // Get or create the SetCreator
+    if (!this._setCreator) {
+      this._setCreator = new SetCreator(this.sourceStore, this.eoApp?.eventStore);
+    }
+
+    // Create container for the modal if it doesn't exist
+    let container = document.getElementById('set-from-source-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'set-from-source-container';
+      document.body.appendChild(container);
+    }
+
+    // Create and show the UI
+    const ui = new SetFromSourceUI(this._setCreator, container);
+    ui.show(sourceId, {
+      onComplete: (result) => {
+        // Add the new set to our sets array
+        this.sets.push(result.set);
+        this._saveData();
+        this._renderSidebar();
+        this._selectSet(result.set.id);
+        this._showToast(`Set "${result.set.name}" created with ${result.set.records.length} records`, 'success');
+      },
+      onCancel: () => {
+        // Nothing to do on cancel
+      }
+    });
+  }
+
+  /**
+   * Show the JoinBuilderUI modal for creating joined Sets
+   * Supports no-code visual join building with field mapping
+   */
+  _showJoinBuilderUI(preSelectedSourceId = null) {
+    // Ensure we have a source store
+    if (!this.sourceStore) {
+      this._initSourceStore();
+    }
+
+    // Get or create the JoinBuilder
+    if (!this._joinBuilder) {
+      this._joinBuilder = new JoinBuilder(this.sourceStore, this.eoApp?.eventStore);
+    }
+
+    // Create container for the modal if it doesn't exist
+    let container = document.getElementById('join-builder-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'join-builder-container';
+      document.body.appendChild(container);
+    }
+
+    // Create and show the UI
+    const ui = new JoinBuilderUI(this._joinBuilder, container);
+    ui.show({
+      onComplete: (result) => {
+        // Add the new joined set to our sets array
+        this.sets.push(result.set);
+        this._saveData();
+        this._renderSidebar();
+        this._selectSet(result.set.id);
+        this._showToast(
+          `Joined set "${result.set.name}" created with ${result.stats.resultRecords} records`,
+          'success'
+        );
+      },
+      onCancel: () => {
+        // Nothing to do on cancel
+      }
+    });
+
+    // Pre-select the source if one was provided
+    if (preSelectedSourceId) {
+      setTimeout(() => {
+        this._joinBuilder.setLeftSource(preSelectedSourceId);
+      }, 100);
+    }
+  }
+
+  /**
+   * Initialize the SourceStore if not already done
+   */
+  _initSourceStore() {
+    if (this.sourceStore) return;
+
+    // Create new SourceStore
+    const eventStore = this.eoApp?.eventStore || null;
+    this.sourceStore = new SourceStore(eventStore);
+
+    // Migrate existing sources from legacy format
+    this._migrateLegacySourcesToStore();
+  }
+
+  /**
+   * Migrate legacy sources (derived from sets) to the new SourceStore
+   */
+  _migrateLegacySourcesToStore() {
+    if (!this.sourceStore) return;
+
+    // Find all unique sources from sets with provenance
+    const seenSources = new Set();
+
+    for (const set of this.sets) {
+      const prov = set.datasetProvenance;
+      if (!prov) continue;
+
+      const sourceName = prov.originalFilename || this._getProvenanceValue(prov.provenance?.source);
+      if (!sourceName || seenSources.has(sourceName.toLowerCase())) continue;
+
+      seenSources.add(sourceName.toLowerCase());
+
+      // Create a source from this set's data (if it has records)
+      if (set.records && set.records.length > 0) {
+        // Extract raw records (remove field ID mapping)
+        const rawRecords = set.records.map(record => {
+          const raw = {};
+          for (const field of set.fields) {
+            raw[field.name] = record.values?.[field.id] ?? null;
+          }
+          return raw;
+        });
+
+        // Create the source
+        this.sourceStore.createSource({
+          name: sourceName,
+          records: rawRecords,
+          schema: { fields: set.fields.map(f => ({ name: f.name, type: f.type })) },
+          provenance: prov.provenance || {},
+          fileMetadata: {
+            originalFilename: sourceName,
+            importedAt: prov.importedAt
+          }
+        });
+      }
+    }
   }
 
   /**
