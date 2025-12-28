@@ -2744,12 +2744,16 @@ class EODataWorkbench {
 
     // Get records from the first derived set (this contains the original import data)
     const primarySet = derivedSets[0];
+
+    // Ensure records are loaded if using lazy loading
+    if (primarySet && this._useLazyLoading) {
+      this._loadSetRecords(primarySet.id);
+    }
+
     const records = primarySet?.records || [];
 
-    // Get fields from the records
-    const fields = records.length > 0
-      ? Object.keys(records[0]).filter(k => !k.startsWith('_'))
-      : [];
+    // Get fields from the set's field definitions (not from record keys)
+    const fields = primarySet?.fields || [];
 
     // Build the source data viewer HTML
     contentArea.innerHTML = `
@@ -2808,8 +2812,8 @@ class EODataWorkbench {
                   ${fields.map(field => `
                     <th>
                       <div class="source-col-header">
-                        <span class="source-col-name">${this._escapeHtml(field)}</span>
-                        <span class="source-col-type">${this._inferFieldType(records, field)}</span>
+                        <span class="source-col-name">${this._escapeHtml(field.name)}</span>
+                        <span class="source-col-type">${field.type || 'text'}</span>
                       </div>
                     </th>
                   `).join('')}
@@ -2820,7 +2824,7 @@ class EODataWorkbench {
                   <tr>
                     <td class="source-row-num">${index + 1}</td>
                     ${fields.map(field => {
-                      const value = record[field];
+                      const value = record.values?.[field.id];
                       const cellClass = this._getSourceCellClass(value);
                       const displayValue = this._formatSourceCellValue(value);
                       const titleValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
