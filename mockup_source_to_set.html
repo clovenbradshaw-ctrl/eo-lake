@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Source → Set Creation - Mockup</title>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <style>
+    :root {
+      --bg-primary: #0d1117;
+      --bg-secondary: #161b22;
+      --bg-tertiary: #21262d;
+      --bg-hover: #30363d;
+      --border-color: #30363d;
+      --text-primary: #e6edf3;
+      --text-secondary: #8b949e;
+      --text-muted: #6e7681;
+      --accent-blue: #58a6ff;
+      --accent-green: #3fb950;
+      --accent-orange: #d29922;
+      --accent-purple: #a371f7;
+      --given-color: #f0883e;
+      --meant-color: #58a6ff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .mockup-label {
+      background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      display: inline-block;
+      margin-bottom: 20px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    .subtitle { color: var(--text-secondary); margin-bottom: 30px; }
+
+    .modes-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    .mode-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .mode-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .mode-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .mode-icon.wizard {
+      background: linear-gradient(135deg, var(--accent-green), #2ea043);
+      color: white;
+    }
+
+    .mode-icon.sql {
+      background: linear-gradient(135deg, var(--accent-purple), #8957e5);
+      color: white;
+    }
+
+    .mode-title {
+      flex: 1;
+    }
+
+    .mode-title h3 {
+      font-size: 16px;
+      margin-bottom: 2px;
+    }
+
+    .mode-title p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .mode-badge {
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .mode-badge.easy {
+      background: rgba(63, 185, 80, 0.2);
+      color: var(--accent-green);
+    }
+
+    .mode-badge.power {
+      background: rgba(163, 113, 247, 0.2);
+      color: var(--accent-purple);
+    }
+
+    .mode-body {
+      padding: 20px;
+    }
+
+    /* Wizard Mode Styles */
+    .wizard-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .wizard-step {
+      display: flex;
+      gap: 12px;
+    }
+
+    .step-num {
+      width: 28px;
+      height: 28px;
+      background: var(--bg-tertiary);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .step-num.active {
+      background: var(--accent-green);
+      color: white;
+    }
+
+    .step-num.done {
+      background: var(--accent-green);
+      color: white;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-label {
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 8px;
+    }
+
+    .step-input {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 13px;
+    }
+
+    .step-input:focus {
+      outline: none;
+      border-color: var(--accent-green);
+    }
+
+    .step-input::placeholder {
+      color: var(--text-muted);
+    }
+
+    /* Filter builder */
+    .filter-builder {
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .filter-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .filter-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .filter-select {
+      padding: 8px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+      min-width: 100px;
+    }
+
+    .filter-value {
+      flex: 1;
+      padding: 8px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+
+    .filter-remove {
+      width: 28px;
+      height: 28px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+    }
+
+    .filter-remove:hover {
+      background: var(--bg-hover);
+      color: #f85149;
+    }
+
+    .add-filter-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 12px;
+      background: transparent;
+      border: 1px dashed var(--border-color);
+      border-radius: 6px;
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      width: 100%;
+      margin-top: 8px;
+    }
+
+    .add-filter-btn:hover {
+      border-color: var(--accent-green);
+      color: var(--accent-green);
+    }
+
+    /* Column selector */
+    .column-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .column-chip {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .column-chip.selected {
+      background: rgba(88, 166, 255, 0.2);
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+
+    .column-chip i {
+      font-size: 10px;
+    }
+
+    /* SQL Mode Styles */
+    .sql-editor-container {
+      background: var(--bg-primary);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .sql-editor-tabs {
+      display: flex;
+      background: var(--bg-tertiary);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .sql-tab {
+      padding: 10px 16px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-muted);
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+
+    .sql-tab.active {
+      color: var(--text-primary);
+      border-bottom-color: var(--accent-purple);
+    }
+
+    .sql-tab:hover:not(.active) {
+      color: var(--text-secondary);
+    }
+
+    .sql-editor {
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      padding: 16px;
+      min-height: 150px;
+      color: var(--text-primary);
+      white-space: pre;
+    }
+
+    .sql-keyword { color: var(--accent-purple); font-weight: 500; }
+    .sql-function { color: var(--accent-blue); }
+    .sql-string { color: var(--accent-green); }
+    .sql-number { color: var(--accent-orange); }
+    .sql-comment { color: var(--text-muted); font-style: italic; }
+    .sql-source { color: var(--given-color); }
+
+    .sql-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: var(--bg-tertiary);
+      border-top: 1px solid var(--border-color);
+    }
+
+    .sql-hints {
+      display: flex;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .sql-hint {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .sql-hint kbd {
+      padding: 2px 6px;
+      background: var(--bg-primary);
+      border-radius: 4px;
+      font-family: inherit;
+    }
+
+    /* Result preview */
+    .result-preview {
+      margin-top: 16px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .result-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .result-title {
+      font-size: 12px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .result-count {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .result-table {
+      width: 100%;
+      font-size: 11px;
+    }
+
+    .result-table th {
+      padding: 8px 12px;
+      text-align: left;
+      font-weight: 500;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .result-table td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .btn-primary {
+      background: var(--accent-blue);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #4393e6;
+    }
+
+    .btn-success {
+      background: var(--accent-green);
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: #2ea043;
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      border-color: var(--border-color);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background: var(--bg-hover);
+    }
+
+    .mode-footer {
+      display: flex;
+      justify-content: space-between;
+      padding: 16px 20px;
+      background: var(--bg-tertiary);
+      border-top: 1px solid var(--border-color);
+    }
+
+    /* Flow diagram */
+    .flow-section {
+      margin-top: 32px;
+    }
+
+    .flow-section h2 {
+      font-size: 16px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .flow-diagram {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 24px;
+      background: var(--bg-secondary);
+      border-radius: 12px;
+    }
+
+    .flow-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .flow-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+    }
+
+    .flow-icon.source {
+      background: linear-gradient(135deg, var(--given-color), #e5622a);
+      color: white;
+    }
+
+    .flow-icon.transform {
+      background: var(--bg-tertiary);
+      border: 2px dashed var(--border-color);
+      color: var(--text-muted);
+    }
+
+    .flow-icon.set {
+      background: linear-gradient(135deg, var(--accent-blue), #388bfd);
+      color: white;
+    }
+
+    .flow-label {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .flow-badge {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+
+    .flow-badge.given {
+      background: var(--given-color);
+      color: #000;
+    }
+
+    .flow-badge.meant {
+      background: var(--accent-blue);
+      color: white;
+    }
+
+    .flow-arrow {
+      font-size: 24px;
+      color: var(--text-muted);
+    }
+
+    /* Language tabs concept */
+    .language-selector {
+      margin-bottom: 16px;
+    }
+
+    .lang-tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--bg-tertiary);
+      padding: 4px;
+      border-radius: 8px;
+      width: fit-content;
+    }
+
+    .lang-tab {
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .lang-tab.active {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    .lang-tab:hover:not(.active) {
+      color: var(--text-secondary);
+    }
+
+    .lang-tab img {
+      width: 16px;
+      height: 16px;
+    }
+
+    /* Annotation */
+    .annotation {
+      background: var(--accent-purple);
+      color: white;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-top: 24px;
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .annotation i {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+  <span class="mockup-label">UI Mockup</span>
+  <h1>Source → Set Creation</h1>
+  <p class="subtitle">Two paths: Simple wizard for quick filtering, or SQL/query languages for power users</p>
+
+  <div class="modes-container">
+    <!-- WIZARD MODE -->
+    <div class="mode-card">
+      <div class="mode-header">
+        <div class="mode-icon wizard">
+          <i class="ph ph-magic-wand"></i>
+        </div>
+        <div class="mode-title">
+          <h3>Simple Wizard</h3>
+          <p>Point-and-click filtering</p>
+        </div>
+        <span class="mode-badge easy">Easy</span>
+      </div>
+
+      <div class="mode-body">
+        <div class="wizard-steps">
+          <div class="wizard-step">
+            <div class="step-num done"><i class="ph ph-check" style="font-size: 12px;"></i></div>
+            <div class="step-content">
+              <div class="step-label">Name your new Set</div>
+              <input type="text" class="step-input" value="Low Cloud Satellite Images" placeholder="e.g., Filtered Orders">
+            </div>
+          </div>
+
+          <div class="wizard-step">
+            <div class="step-num active">2</div>
+            <div class="step-content">
+              <div class="step-label">Filter records (optional)</div>
+              <div class="filter-builder">
+                <div class="filter-row">
+                  <select class="filter-select">
+                    <option>cloud_cover</option>
+                    <option>sensor_type</option>
+                    <option>resolution_m</option>
+                  </select>
+                  <select class="filter-select">
+                    <option>&lt; less than</option>
+                    <option>= equals</option>
+                    <option>&gt; greater than</option>
+                  </select>
+                  <input type="text" class="filter-value" value="0.20">
+                  <button class="filter-remove"><i class="ph ph-x"></i></button>
+                </div>
+                <div class="filter-row">
+                  <select class="filter-select">
+                    <option>resolution_m</option>
+                  </select>
+                  <select class="filter-select">
+                    <option>≤ at most</option>
+                  </select>
+                  <input type="text" class="filter-value" value="10">
+                  <button class="filter-remove"><i class="ph ph-x"></i></button>
+                </div>
+                <button class="add-filter-btn">
+                  <i class="ph ph-plus"></i>
+                  Add filter condition
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="wizard-step">
+            <div class="step-num">3</div>
+            <div class="step-content">
+              <div class="step-label">Select columns to include</div>
+              <div class="column-chips">
+                <span class="column-chip selected"><i class="ph ph-check"></i> image_id</span>
+                <span class="column-chip selected"><i class="ph ph-check"></i> capture_date</span>
+                <span class="column-chip selected"><i class="ph ph-check"></i> latitude</span>
+                <span class="column-chip selected"><i class="ph ph-check"></i> longitude</span>
+                <span class="column-chip"><i class="ph ph-plus"></i> resolution_m</span>
+                <span class="column-chip"><i class="ph ph-plus"></i> cloud_cover</span>
+                <span class="column-chip selected"><i class="ph ph-check"></i> sensor_type</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-preview">
+          <div class="result-header">
+            <span class="result-title">
+              <i class="ph ph-eye"></i>
+              Preview
+            </span>
+            <span class="result-count">287 records will be created</span>
+          </div>
+          <table class="result-table">
+            <thead>
+              <tr>
+                <th>image_id</th>
+                <th>capture_date</th>
+                <th>latitude</th>
+                <th>sensor_type</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>SAT-2024-001283</td>
+                <td>2024-12-15</td>
+                <td>37.7749</td>
+                <td>Sentinel-2</td>
+              </tr>
+              <tr>
+                <td>SAT-2024-001284</td>
+                <td>2024-12-15</td>
+                <td>37.7850</td>
+                <td>Sentinel-2</td>
+              </tr>
+              <tr>
+                <td style="color: var(--text-muted);" colspan="4">... and 285 more</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="mode-footer">
+        <button class="btn btn-secondary">Cancel</button>
+        <button class="btn btn-success">
+          <i class="ph ph-plus-circle"></i>
+          Create Set
+        </button>
+      </div>
+    </div>
+
+    <!-- SQL / QUERY MODE -->
+    <div class="mode-card">
+      <div class="mode-header">
+        <div class="mode-icon sql">
+          <i class="ph ph-code"></i>
+        </div>
+        <div class="mode-title">
+          <h3>Query Builder</h3>
+          <p>SQL or natural language</p>
+        </div>
+        <span class="mode-badge power">Power</span>
+      </div>
+
+      <div class="mode-body">
+        <div class="language-selector">
+          <div class="lang-tabs">
+            <button class="lang-tab active">
+              <i class="ph ph-database"></i>
+              SQL
+            </button>
+            <button class="lang-tab">
+              <i class="ph ph-chat-text"></i>
+              Natural
+            </button>
+            <button class="lang-tab">
+              <i class="ph ph-graph"></i>
+              GraphQL
+            </button>
+          </div>
+        </div>
+
+        <div class="sql-editor-container">
+          <div class="sql-editor-tabs">
+            <button class="sql-tab active">Query</button>
+            <button class="sql-tab">Schema</button>
+            <button class="sql-tab">History</button>
+          </div>
+          <div class="sql-editor">
+<span class="sql-comment">-- Create derived set from satellite imagery</span>
+<span class="sql-keyword">CREATE SET</span> "California High-Res" <span class="sql-keyword">AS</span>
+<span class="sql-keyword">SELECT</span>
+    image_id,
+    capture_date,
+    latitude,
+    longitude,
+    <span class="sql-function">ROUND</span>(cloud_cover * <span class="sql-number">100</span>, <span class="sql-number">1</span>) <span class="sql-keyword">AS</span> cloud_pct
+<span class="sql-keyword">FROM</span> <span class="sql-source">"satellite_imagery.csv"</span>
+<span class="sql-keyword">WHERE</span> latitude <span class="sql-keyword">BETWEEN</span> <span class="sql-number">32</span> <span class="sql-keyword">AND</span> <span class="sql-number">42</span>
+  <span class="sql-keyword">AND</span> resolution_m &lt;= <span class="sql-number">10</span>
+<span class="sql-keyword">ORDER BY</span> capture_date <span class="sql-keyword">DESC</span>;
+          </div>
+          <div class="sql-toolbar">
+            <div class="sql-hints">
+              <span class="sql-hint"><kbd>⌘</kbd>+<kbd>Enter</kbd> Execute</span>
+              <span class="sql-hint"><kbd>Tab</kbd> Autocomplete</span>
+            </div>
+            <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
+              <i class="ph ph-play"></i>
+              Run Query
+            </button>
+          </div>
+        </div>
+
+        <div class="result-preview" style="margin-top: 12px;">
+          <div class="result-header">
+            <span class="result-title">
+              <i class="ph ph-check-circle" style="color: var(--accent-green);"></i>
+              Query Valid
+            </span>
+            <span class="result-count">412 records matched</span>
+          </div>
+          <table class="result-table">
+            <thead>
+              <tr>
+                <th>image_id</th>
+                <th>capture_date</th>
+                <th>latitude</th>
+                <th>longitude</th>
+                <th>cloud_pct</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>SAT-2024-001342</td>
+                <td>2024-12-20</td>
+                <td>37.7749</td>
+                <td>-122.4194</td>
+                <td>8.0%</td>
+              </tr>
+              <tr>
+                <td>SAT-2024-001338</td>
+                <td>2024-12-19</td>
+                <td>34.0522</td>
+                <td>-118.2437</td>
+                <td>12.5%</td>
+              </tr>
+              <tr>
+                <td style="color: var(--text-muted);" colspan="5">... and 410 more</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="mode-footer">
+        <button class="btn btn-secondary">Cancel</button>
+        <button class="btn btn-success">
+          <i class="ph ph-plus-circle"></i>
+          Create Set
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flow Diagram -->
+  <div class="flow-section">
+    <h2><i class="ph ph-flow-arrow"></i> The GIVEN → MEANT Flow</h2>
+    <div class="flow-diagram">
+      <div class="flow-node">
+        <div class="flow-icon source">
+          <i class="ph ph-file-csv"></i>
+        </div>
+        <span class="flow-label">Source</span>
+        <span class="flow-badge given">GIVEN</span>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">
+        <div class="flow-icon transform">
+          <i class="ph ph-funnel"></i>
+        </div>
+        <span class="flow-label">Filter / Transform</span>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-node">
+        <div class="flow-icon set">
+          <i class="ph ph-database"></i>
+        </div>
+        <span class="flow-label">New Set</span>
+        <span class="flow-badge meant">MEANT</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="annotation">
+    <i class="ph ph-lightbulb"></i>
+    <div>
+      <strong>Two Modes, One Goal:</strong><br>
+      <strong>Wizard</strong> — Click-through UI for simple filter + column select. No code needed.<br>
+      <strong>Query</strong> — Full SQL with CREATE SET syntax, aggregations, joins. Plus natural language option ("Show me all California images with low cloud cover") that generates SQL.<br>
+      <strong>Both</strong> preserve provenance chain: the new Set knows exactly which Source it came from.
+    </div>
+  </div>
+</body>
+</html>
