@@ -3893,6 +3893,9 @@ class EODataWorkbench {
     const hasProvenance = set?.datasetProvenance?.originalFilename || allRecords.some(r => r.provenance);
     const showProvenance = view?.config.showProvenance !== false && hasProvenance;
 
+    // Get enabled edge projections for this set
+    const edgeProjections = this._getEnabledEdgeProjections(set);
+
     // Implement chunked loading for large datasets
     const totalRecords = allRecords.length;
     const displayCount = Math.min(this.displayedRecordCount, totalRecords);
@@ -3929,6 +3932,21 @@ class EODataWorkbench {
                   <div class="th-resize-handle"></div>
                 </th>
               `).join('')}
+              ${edgeProjections.map(proj => `
+                <th style="width: 200px; position: relative;"
+                    class="col-edge-projection"
+                    data-projection-id="${proj.id}"
+                    data-edge-type="${proj.edgeType}">
+                  <div class="th-content">
+                    <i class="ph ph-graph"></i>
+                    <span class="field-name">${this._escapeHtml(proj.columnName)}</span>
+                    <button class="th-dropdown">
+                      <i class="ph ph-caret-down"></i>
+                    </button>
+                  </div>
+                  <div class="th-resize-handle"></div>
+                </th>
+              `).join('')}
               <th class="col-add" id="add-column-btn" title="Add a new field/column">
                 <div class="add-column-content">
                   <i class="ph ph-columns-plus-right"></i>
@@ -3940,10 +3958,13 @@ class EODataWorkbench {
           <tbody>
     `;
 
+    // Calculate total column count (for colspan)
+    const totalColumns = fields.length + edgeProjections.length + (showProvenance ? 3 : 2);
+
     if (allRecords.length === 0) {
       html += `
         <tr>
-          <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="add-row-cell" id="add-first-record" title="Add a new record/row (Ctrl+N)">
+          <td colspan="${totalColumns}" class="add-row-cell" id="add-first-record" title="Add a new record/row (Ctrl+N)">
             <div class="add-row-content">
               <i class="ph ph-rows-plus-bottom"></i>
               <span>Add your first record</span>
@@ -3974,6 +3995,7 @@ class EODataWorkbench {
               </td>
             ` : ''}
             ${fields.map(field => this._renderCell(record, field)).join('')}
+            ${edgeProjections.map(proj => this._renderEdgeProjectionCell(record, proj, set)).join('')}
             <td class="col-add"></td>
           </tr>
         `;
@@ -3984,7 +4006,7 @@ class EODataWorkbench {
         const loadMoreCount = Math.min(this.recordBatchSize, remainingRecords);
         html += `
           <tr class="load-more-row">
-            <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="load-more-cell">
+            <td colspan="${totalColumns}" class="load-more-cell">
               <button class="load-more-btn" id="load-more-records">
                 <i class="ph ph-caret-down"></i>
                 <span>Load ${loadMoreCount.toLocaleString()} more</span>
@@ -4005,7 +4027,7 @@ class EODataWorkbench {
           <td class="col-row-number add-row-cell" id="add-row-btn" title="Add a new record/row (Ctrl+N)">
             <i class="ph ph-rows-plus-bottom"></i>
           </td>
-          <td colspan="${fields.length + (showProvenance ? 2 : 1)}" class="add-row-cell" id="add-row-cell" title="Add a new record/row (Ctrl+N)">
+          <td colspan="${totalColumns - 1}" class="add-row-cell" id="add-row-cell" title="Add a new record/row (Ctrl+N)">
             <div class="add-row-content">
               <i class="ph ph-rows-plus-bottom"></i>
               <span>Add record</span>
@@ -4350,6 +4372,410 @@ class EODataWorkbench {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // Edge Projection Rendering
+  // --------------------------------------------------------------------------
+
+  /**
+   * Get enabled edge projections for the current set
+   */
+  _getEnabledEdgeProjections(set) {
+    if (!set?.edgeProjections) return [];
+    return set.edgeProjections.filter(p => p.enabled);
+  }
+
+  /**
+   * Query edges for a specific projection and record
+   */
+  _queryEdgesForProjection(record, projection, set) {
+    if (!set?.spaces?.edges) return [];
+
+    const edges = set.spaces.edges;
+    const edgeType = projection.edgeType;
+    const direction = projection.direction;
+    const typeDef = set.edgeTypes?.[edgeType];
+
+    return edges.filter(edge => {
+      if (edge.type !== edgeType) return false;
+
+      // Symmetric: match either endpoint regardless of direction param
+      if (!edge.directed || typeDef?.symmetric) {
+        return edge.from === record.id || edge.to === record.id;
+      }
+
+      // Directed: respect direction param
+      switch (direction) {
+        case 'outgoing': return edge.from === record.id;
+        case 'incoming': return edge.to === record.id;
+        case 'both': return edge.from === record.id || edge.to === record.id;
+        default: return edge.from === record.id;
+      }
+    });
+  }
+
+  /**
+   * Render an edge projection cell (link chips showing connected records)
+   */
+  _renderEdgeProjectionCell(record, projection, set) {
+    const edges = this._queryEdgesForProjection(record, projection, set);
+
+    if (edges.length === 0) {
+      return `
+        <td class="cell-edge-projection" data-projection-id="${projection.id}">
+          <span class="cell-empty">-</span>
+        </td>
+      `;
+    }
+
+    const { showAs, maxVisible, showProperties, showSetBadge } = projection.display;
+
+    if (showAs === 'count') {
+      return `
+        <td class="cell-edge-projection" data-projection-id="${projection.id}">
+          <span class="edge-count">${edges.length}</span>
+        </td>
+      `;
+    }
+
+    // link_chips or list mode
+    const visible = edges.slice(0, maxVisible);
+    const overflow = edges.length - maxVisible;
+
+    let content = '<div class="edge-projection-cell">';
+
+    for (const edge of visible) {
+      const targetId = edge.from === record.id ? edge.to : edge.from;
+      const resolved = this._resolveEdgeTarget(targetId, set);
+
+      if (resolved.orphaned) {
+        // Orphaned edge - target record was deleted
+        content += `
+          <span class="link-chip orphaned"
+                data-edge-id="${edge.id}"
+                data-record-id="${targetId}"
+                title="Target record was deleted">
+            <i class="ph ph-warning"></i>
+            <span class="link-chip-label">${targetId.slice(0, 8)}...</span>
+          </span>
+        `;
+      } else {
+        const label = resolved.label || 'Untitled';
+        const setBadge = showSetBadge && resolved.isCrossSet
+          ? `<span class="link-chip-set">${this._escapeHtml(resolved.setName)}</span>`
+          : '';
+
+        // Show edge properties if configured
+        let propBadges = '';
+        if (showProperties && showProperties.length > 0) {
+          for (const prop of showProperties) {
+            if (edge.properties?.[prop] != null) {
+              propBadges += `<span class="link-chip-prop">${this._formatEdgeProperty(prop, edge.properties[prop])}</span>`;
+            }
+          }
+        }
+
+        content += `
+          <span class="link-chip"
+                data-edge-id="${edge.id}"
+                data-record-id="${resolved.recordId}"
+                data-set-id="${resolved.setId}"
+                title="Click to view record">
+            <i class="ph ph-link"></i>
+            <span class="link-chip-label">${this._escapeHtml(label)}</span>
+            ${setBadge}
+            ${propBadges}
+          </span>
+        `;
+      }
+    }
+
+    if (overflow > 0) {
+      content += `<span class="link-chip-overflow" title="${overflow} more">+${overflow}</span>`;
+    }
+
+    content += '</div>';
+
+    return `
+      <td class="cell-edge-projection" data-projection-id="${projection.id}">
+        ${content}
+      </td>
+    `;
+  }
+
+  /**
+   * Resolve an edge target to get the linked record's info
+   */
+  _resolveEdgeTarget(targetId, currentSet) {
+    // First check the record registry
+    if (this.recordRegistry?.has(targetId)) {
+      const record = this.recordRegistry.get(targetId);
+      const setId = this.recordRegistry.getSetId(targetId);
+      const targetSet = this.sets.find(s => s.id === setId);
+      const primaryField = targetSet?.fields.find(f => f.isPrimary);
+      const label = record?.values?.[primaryField?.id] || 'Untitled';
+
+      return {
+        recordId: targetId,
+        record,
+        setId,
+        setName: targetSet?.name || 'Unknown Set',
+        label,
+        orphaned: false,
+        isCrossSet: setId !== currentSet.id
+      };
+    }
+
+    // Fallback: search all sets
+    for (const set of this.sets) {
+      const record = set.records?.find(r => r.id === targetId);
+      if (record) {
+        const primaryField = set.fields.find(f => f.isPrimary);
+        const label = record.values?.[primaryField?.id] || 'Untitled';
+        return {
+          recordId: targetId,
+          record,
+          setId: set.id,
+          setName: set.name,
+          label,
+          orphaned: false,
+          isCrossSet: set.id !== currentSet.id
+        };
+      }
+    }
+
+    // Check if it was deleted
+    if (this.recordRegistry?.wasDeleted(targetId)) {
+      const deletionInfo = this.recordRegistry.getDeletionInfo(targetId);
+      return {
+        recordId: targetId,
+        record: deletionInfo?.originalRecord || null,
+        setId: null,
+        setName: null,
+        label: null,
+        orphaned: true,
+        wasDeleted: true,
+        deletedAt: deletionInfo?.deletedAt
+      };
+    }
+
+    // Record not found
+    return {
+      recordId: targetId,
+      record: null,
+      setId: null,
+      setName: null,
+      label: null,
+      orphaned: true,
+      wasDeleted: false
+    };
+  }
+
+  /**
+   * Format an edge property value for display
+   */
+  _formatEdgeProperty(key, value) {
+    if (value instanceof Date) {
+      return value.toLocaleDateString();
+    }
+    if (typeof value === 'boolean') {
+      return value ? 'Yes' : 'No';
+    }
+    if (typeof value === 'number') {
+      return value.toLocaleString();
+    }
+    // Truncate long strings
+    const str = String(value);
+    return str.length > 20 ? str.slice(0, 17) + '...' : str;
+  }
+
+  /**
+   * Navigate to a linked record (possibly in a different set)
+   */
+  _navigateToRecord(recordId, setId) {
+    const targetSet = this.sets.find(s => s.id === setId);
+    if (!targetSet) {
+      console.warn('Target set not found:', setId);
+      return;
+    }
+
+    const targetRecord = targetSet.records?.find(r => r.id === recordId);
+    if (!targetRecord) {
+      console.warn('Target record not found:', recordId);
+      return;
+    }
+
+    // If different set, switch to it first
+    if (this.currentSetId !== setId) {
+      this.currentSetId = setId;
+      this.currentViewId = targetSet.views?.[0]?.id || null;
+      this._renderAll();
+    }
+
+    // Show the record detail panel
+    this._showRecordDetail(recordId);
+  }
+
+  /**
+   * Show info about an orphaned edge
+   */
+  _showOrphanedEdgeInfo(edgeId) {
+    const set = this.getCurrentSet();
+    const edge = set?.spaces?.edges?.find(e => e.id === edgeId);
+
+    if (!edge) {
+      console.warn('Edge not found:', edgeId);
+      return;
+    }
+
+    // Find which endpoint is orphaned
+    const fromResolved = this._resolveEdgeTarget(edge.from, set);
+    const toResolved = this._resolveEdgeTarget(edge.to, set);
+
+    const orphanedId = fromResolved.orphaned ? edge.from : edge.to;
+    const validId = fromResolved.orphaned ? edge.to : edge.from;
+    const validResolved = fromResolved.orphaned ? toResolved : fromResolved;
+
+    const content = `
+      <div class="orphaned-edge-info">
+        <div class="orphaned-header">
+          <i class="ph ph-warning"></i>
+          <span>Orphaned Edge</span>
+        </div>
+        <p>This edge points to a record that no longer exists.</p>
+        <dl>
+          <dt>Edge Type</dt>
+          <dd>${this._escapeHtml(edge.type)}</dd>
+          <dt>Missing Record ID</dt>
+          <dd><code>${orphanedId}</code></dd>
+          ${validResolved && !validResolved.orphaned ? `
+            <dt>Still Connected To</dt>
+            <dd>${this._escapeHtml(validResolved.label || validId)}</dd>
+          ` : ''}
+          ${edge.grounding?.origin ? `
+            <dt>Origin</dt>
+            <dd>${this._escapeHtml(edge.grounding.origin.sourceId || 'Unknown')}</dd>
+          ` : ''}
+        </dl>
+        <div class="orphaned-actions">
+          <button class="btn btn-sm btn-danger" data-action="delete-edge" data-edge-id="${edgeId}">
+            <i class="ph ph-trash"></i> Delete Edge
+          </button>
+        </div>
+      </div>
+    `;
+
+    this._showPopover(content, document.activeElement || document.body);
+  }
+
+  /**
+   * Show popover with all links for an edge projection cell
+   */
+  _showAllLinksPopover(recordId, projectionId, anchorElement) {
+    const set = this.getCurrentSet();
+    const record = set?.records?.find(r => r.id === recordId);
+    const projection = set?.edgeProjections?.find(p => p.id === projectionId);
+
+    if (!record || !projection) return;
+
+    const edges = this._queryEdgesForProjection(record, projection, set);
+
+    let listHtml = '<div class="all-links-list">';
+    for (const edge of edges) {
+      const targetId = edge.from === record.id ? edge.to : edge.from;
+      const resolved = this._resolveEdgeTarget(targetId, set);
+
+      if (resolved.orphaned) {
+        listHtml += `
+          <div class="link-item orphaned" data-edge-id="${edge.id}">
+            <i class="ph ph-warning"></i>
+            <span>${targetId.slice(0, 12)}...</span>
+            <span class="link-item-status">Deleted</span>
+          </div>
+        `;
+      } else {
+        listHtml += `
+          <div class="link-item"
+               data-record-id="${resolved.recordId}"
+               data-set-id="${resolved.setId}">
+            <i class="ph ph-link"></i>
+            <span>${this._escapeHtml(resolved.label || 'Untitled')}</span>
+            ${resolved.isCrossSet ? `<span class="link-item-set">${this._escapeHtml(resolved.setName)}</span>` : ''}
+          </div>
+        `;
+      }
+    }
+    listHtml += '</div>';
+
+    const content = `
+      <div class="all-links-popover">
+        <div class="popover-header">${edges.length} linked records</div>
+        ${listHtml}
+      </div>
+    `;
+
+    const popover = this._showPopover(content, anchorElement);
+
+    // Add click handlers for link items
+    popover?.querySelectorAll('.link-item:not(.orphaned)').forEach(item => {
+      item.addEventListener('click', () => {
+        this._navigateToRecord(item.dataset.recordId, item.dataset.setId);
+        this._hidePopover();
+      });
+    });
+  }
+
+  /**
+   * Show a generic popover near an anchor element
+   */
+  _showPopover(content, anchorElement) {
+    this._hidePopover();
+
+    const popover = document.createElement('div');
+    popover.className = 'edge-popover';
+    popover.innerHTML = content;
+
+    document.body.appendChild(popover);
+
+    // Position near anchor
+    if (anchorElement) {
+      const rect = anchorElement.getBoundingClientRect();
+      popover.style.position = 'fixed';
+      popover.style.left = `${rect.left}px`;
+      popover.style.top = `${rect.bottom + 4}px`;
+
+      // Adjust if off-screen
+      const popRect = popover.getBoundingClientRect();
+      if (popRect.right > window.innerWidth) {
+        popover.style.left = `${window.innerWidth - popRect.width - 8}px`;
+      }
+      if (popRect.bottom > window.innerHeight) {
+        popover.style.top = `${rect.top - popRect.height - 4}px`;
+      }
+    }
+
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', this._hidePopoverOnOutsideClick);
+    }, 0);
+
+    this._currentPopover = popover;
+    return popover;
+  }
+
+  _hidePopoverOnOutsideClick = (e) => {
+    if (this._currentPopover && !this._currentPopover.contains(e.target)) {
+      this._hidePopover();
+    }
+  }
+
+  _hidePopover() {
+    if (this._currentPopover) {
+      this._currentPopover.remove();
+      this._currentPopover = null;
+      document.removeEventListener('click', this._hidePopoverOnOutsideClick);
+    }
+  }
+
   _attachTableEventListeners() {
     const table = document.querySelector('.data-table');
     if (!table) return;
@@ -4419,6 +4845,36 @@ class EODataWorkbench {
       // Add record buttons
       if (target.closest('#add-row-btn') || target.closest('#add-row-cell') || target.closest('#add-first-record')) {
         this.addRecord();
+        return;
+      }
+
+      // Link chip click - navigate to linked record
+      const linkChip = target.closest('.link-chip');
+      if (linkChip) {
+        e.stopPropagation();
+        const targetRecordId = linkChip.dataset.recordId;
+        const targetSetId = linkChip.dataset.setId;
+
+        if (linkChip.classList.contains('orphaned')) {
+          // Show orphaned edge info
+          this._showOrphanedEdgeInfo(linkChip.dataset.edgeId);
+        } else if (targetRecordId && targetSetId) {
+          // Navigate to the linked record
+          this._navigateToRecord(targetRecordId, targetSetId);
+        }
+        return;
+      }
+
+      // Link chip overflow click - show all links
+      const linkOverflow = target.closest('.link-chip-overflow');
+      if (linkOverflow) {
+        e.stopPropagation();
+        const cell = linkOverflow.closest('.cell-edge-projection');
+        const projectionId = cell?.dataset.projectionId;
+        const row = cell?.closest('tr[data-record-id]');
+        if (row && projectionId) {
+          this._showAllLinksPopover(row.dataset.recordId, projectionId, linkOverflow);
+        }
         return;
       }
 
@@ -5927,7 +6383,11 @@ class EODataWorkbench {
     // Check for link fields to show relationships
     const linkFields = set?.fields.filter(f => f.type === FieldTypes.LINK) || [];
 
-    // Check for a corresponding relationship set
+    // Check for edges in the attached edges space (new edge system)
+    const edgesSpace = set?.spaces?.edges || [];
+    const hasEdgesSpace = edgesSpace.length > 0;
+
+    // Check for a corresponding relationship set (legacy support)
     const relationshipSet = set ? this.sets.find(s =>
       s.name === `${set.name} - Relationships` ||
       s.name === `${set.name} - Edges`
@@ -5935,10 +6395,12 @@ class EODataWorkbench {
     const hasRelationshipSet = relationshipSet && relationshipSet.records?.length > 0;
 
     // Determine if we have any relationship data
-    const hasRelationships = linkFields.length > 0 || hasRelationshipSet;
-    const relationshipInfo = hasRelationshipSet
-      ? `${relationshipSet.records.length} relationships`
-      : (linkFields.length > 0 ? `${linkFields.length} relationship type${linkFields.length !== 1 ? 's' : ''}` : '');
+    const hasRelationships = hasEdgesSpace || linkFields.length > 0 || hasRelationshipSet;
+    const relationshipInfo = hasEdgesSpace
+      ? `${edgesSpace.length} edge${edgesSpace.length !== 1 ? 's' : ''}`
+      : (hasRelationshipSet
+        ? `${relationshipSet.records.length} relationships`
+        : (linkFields.length > 0 ? `${linkFields.length} relationship type${linkFields.length !== 1 ? 's' : ''}` : ''));
 
     // Initialize graph display settings if not set
     if (!this.graphSettings) {
@@ -6030,10 +6492,10 @@ class EODataWorkbench {
     // Initialize Cytoscape graph (use setTimeout to allow loading UI to render)
     if (showGraphLoading) {
       setTimeout(() => {
-        this._initWorkbenchCytoscape(records, primaryField, linkFields);
+        this._initWorkbenchCytoscape(records, primaryField, linkFields, edgesSpace, set);
       }, 50);
     } else {
-      this._initWorkbenchCytoscape(records, primaryField, linkFields);
+      this._initWorkbenchCytoscape(records, primaryField, linkFields, edgesSpace, set);
     }
 
     // Add control event listeners
@@ -6103,7 +6565,7 @@ class EODataWorkbench {
   /**
    * Initialize Cytoscape graph for workbench
    */
-  _initWorkbenchCytoscape(records, primaryField, linkFields) {
+  _initWorkbenchCytoscape(records, primaryField, linkFields, edgesSpace = [], currentSet = null) {
     const container = document.getElementById('cy-workbench-container');
     if (!container || records.length === 0) return;
 
@@ -6138,8 +6600,62 @@ class EODataWorkbench {
       if (title) nodeByTitle.set(title, record);
     });
 
-    // Create edges from link fields
+    // Create edges - prioritize edges space (new edge system)
     const edges = [];
+    const addedEdgeIds = new Set();
+
+    // First: Add edges from spaces.edges (primary source)
+    edgesSpace.forEach(edge => {
+      // Skip if either endpoint is not in current record set
+      const sourceInSet = nodeMap.has(edge.from);
+      const targetInSet = nodeMap.has(edge.to);
+
+      // Only add edge if at least one endpoint is in current view
+      if (!sourceInSet && !targetInSet) return;
+
+      // Get edge type definition for styling
+      const typeDef = currentSet?.edgeTypes?.[edge.type] || {};
+      const edgeId = edge.id || `${edge.from}-${edge.to}-${edge.type}`;
+
+      if (addedEdgeIds.has(edgeId)) return;
+      addedEdgeIds.add(edgeId);
+
+      // Determine edge color based on type
+      let edgeColor = typeDef.style?.color || CytoscapeColors.GRAPH_DATA;
+
+      // Create Cytoscape edge
+      const cyEdge = {
+        data: {
+          id: edgeId,
+          source: edge.from,
+          target: edge.to,
+          fieldName: typeDef.name || edge.type,
+          edgeType: edge.type,
+          directed: edge.directed !== false,
+          color: edgeColor,
+          // Include edge properties for tooltips
+          properties: edge.properties || {}
+        },
+        classes: `link-edge edge-type-${edge.type.replace(/[^a-z0-9]/gi, '-')}`
+      };
+
+      // Add class for undirected/symmetric edges
+      if (!edge.directed) {
+        cyEdge.classes += ' symmetric-edge';
+      }
+
+      // Add class if orphaned (target not in set)
+      if (!targetInSet) {
+        cyEdge.classes += ' orphaned-target';
+      }
+      if (!sourceInSet) {
+        cyEdge.classes += ' orphaned-source';
+      }
+
+      edges.push(cyEdge);
+    });
+
+    // Second: Add edges from link fields (for backward compatibility)
     records.forEach(record => {
       linkFields.forEach(field => {
         let linkedIds = record.values?.[field.id];
@@ -6153,43 +6669,51 @@ class EODataWorkbench {
         linkedIds.forEach(linkedId => {
           // Check if target is in current set
           if (nodeMap.has(linkedId)) {
-            edges.push({
-              data: {
-                id: `${record.id}-${linkedId}-${field.name}`,
-                source: record.id,
-                target: linkedId,
-                fieldName: field.name,
-                color: CytoscapeColors.GRAPH_DATA
-              },
-              classes: 'link-edge'
-            });
-          } else {
-            // Try to find by title/name match for cross-set or legacy links
-            const targetRecord = nodeByTitle.get(linkedId);
-            if (targetRecord) {
+            const edgeId = `${record.id}-${linkedId}-${field.name}`;
+            if (!addedEdgeIds.has(edgeId)) {
+              addedEdgeIds.add(edgeId);
               edges.push({
                 data: {
-                  id: `${record.id}-${targetRecord.id}-${field.name}`,
+                  id: edgeId,
                   source: record.id,
-                  target: targetRecord.id,
+                  target: linkedId,
                   fieldName: field.name,
                   color: CytoscapeColors.GRAPH_DATA
                 },
                 classes: 'link-edge'
               });
             }
+          } else {
+            // Try to find by title/name match for cross-set or legacy links
+            const targetRecord = nodeByTitle.get(linkedId);
+            if (targetRecord) {
+              const edgeId = `${record.id}-${targetRecord.id}-${field.name}`;
+              if (!addedEdgeIds.has(edgeId)) {
+                addedEdgeIds.add(edgeId);
+                edges.push({
+                  data: {
+                    id: edgeId,
+                    source: record.id,
+                    target: targetRecord.id,
+                    fieldName: field.name,
+                    color: CytoscapeColors.GRAPH_DATA
+                  },
+                  classes: 'link-edge'
+                });
+              }
+            }
           }
         });
       });
     });
 
-    // Also look for edges in relationship sets
-    const currentSet = this.getCurrentSet();
-    if (currentSet) {
+    // Third: Look for edges in relationship sets (legacy support)
+    const set = currentSet || this.getCurrentSet();
+    if (set) {
       const relationshipSet = this.sets.find(s =>
-        s.name === `${currentSet.name} - Relationships` ||
-        s.name === `${currentSet.name} - Edges` ||
-        (s.name?.includes('Relationships') && s.name?.includes(currentSet.name))
+        s.name === `${set.name} - Relationships` ||
+        s.name === `${set.name} - Edges` ||
+        (s.name?.includes('Relationships') && s.name?.includes(set.name))
       );
 
       if (relationshipSet) {
@@ -6214,17 +6738,21 @@ class EODataWorkbench {
             if (sourceRecord && targetRecord) {
               const typeField = relationshipSet.fields?.find(f => f.name?.toLowerCase() === 'type');
               const edgeType = typeField ? relRecord.values?.[typeField.id] : 'relationship';
+              const edgeId = `${sourceRecord.id}-${targetRecord.id}-${edgeType}`;
 
-              edges.push({
-                data: {
-                  id: `${sourceRecord.id}-${targetRecord.id}-${edgeType}`,
-                  source: sourceRecord.id,
-                  target: targetRecord.id,
-                  fieldName: edgeType,
-                  color: CytoscapeColors.GRAPH_DATA
-                },
-                classes: 'link-edge'
-              });
+              if (!addedEdgeIds.has(edgeId)) {
+                addedEdgeIds.add(edgeId);
+                edges.push({
+                  data: {
+                    id: edgeId,
+                    source: sourceRecord.id,
+                    target: targetRecord.id,
+                    fieldName: edgeType,
+                    color: CytoscapeColors.GRAPH_DATA
+                  },
+                  classes: 'link-edge'
+                });
+              }
             }
           });
         }
@@ -8423,6 +8951,150 @@ class EODataWorkbench {
   // Detail Panel
   // --------------------------------------------------------------------------
 
+  /**
+   * Render relationships section for record detail panel
+   * Shows all edges connected to this record (incoming + outgoing)
+   */
+  _renderRelationshipsSection(record, set) {
+    if (!set?.spaces?.edges || set.spaces.edges.length === 0) {
+      return '';
+    }
+
+    // Query all edges connected to this record
+    const connectedEdges = set.spaces.edges.filter(edge =>
+      edge.from === record.id || edge.to === record.id
+    );
+
+    if (connectedEdges.length === 0) {
+      return '';
+    }
+
+    // Group edges by type and direction
+    const grouped = {
+      outgoing: new Map(), // type -> edges where from === record.id
+      incoming: new Map()  // type -> edges where to === record.id
+    };
+
+    for (const edge of connectedEdges) {
+      const isOutgoing = edge.from === record.id;
+      const direction = isOutgoing ? 'outgoing' : 'incoming';
+
+      // For symmetric edges, show in both directions if record matches both endpoints
+      const typeDef = set.edgeTypes?.[edge.type];
+      const isSymmetric = !edge.directed || typeDef?.symmetric;
+
+      // Store edge with the appropriate direction
+      if (!grouped[direction].has(edge.type)) {
+        grouped[direction].set(edge.type, []);
+      }
+      grouped[direction].get(edge.type).push({
+        edge,
+        targetId: isOutgoing ? edge.to : edge.from
+      });
+
+      // For symmetric edges, also add to opposite direction for display purposes
+      // (but only if both endpoints are this record - unlikely but handle it)
+    }
+
+    const hasOutgoing = grouped.outgoing.size > 0;
+    const hasIncoming = grouped.incoming.size > 0;
+
+    if (!hasOutgoing && !hasIncoming) {
+      return '';
+    }
+
+    let html = `
+      <div class="relationships-section">
+        <div class="relationships-header">
+          <i class="ph ph-graph"></i>
+          <span>Relationships</span>
+          <span class="relationships-count">${connectedEdges.length}</span>
+        </div>
+    `;
+
+    // Render outgoing edges
+    if (hasOutgoing) {
+      html += '<div class="relationships-direction">';
+      html += '<div class="direction-label"><i class="ph ph-arrow-right"></i> Outgoing</div>';
+
+      for (const [edgeType, items] of grouped.outgoing) {
+        const typeDef = set.edgeTypes?.[edgeType] || {};
+        const typeName = typeDef.name || edgeType.replace(/_/g, ' ');
+
+        html += `
+          <div class="relationship-group">
+            <div class="relationship-type-label">${this._escapeHtml(typeName)}</div>
+            <div class="relationship-items">
+        `;
+
+        for (const { edge, targetId } of items) {
+          const resolved = this._resolveEdgeTarget(targetId, set);
+          html += this._renderRelationshipItem(edge, resolved, 'outgoing');
+        }
+
+        html += '</div></div>';
+      }
+      html += '</div>';
+    }
+
+    // Render incoming edges
+    if (hasIncoming) {
+      html += '<div class="relationships-direction">';
+      html += '<div class="direction-label"><i class="ph ph-arrow-left"></i> Incoming</div>';
+
+      for (const [edgeType, items] of grouped.incoming) {
+        const typeDef = set.edgeTypes?.[edgeType] || {};
+        // Use inverseName for incoming edges if available
+        const typeName = typeDef.inverseName || typeDef.name || edgeType.replace(/_/g, ' ');
+
+        html += `
+          <div class="relationship-group">
+            <div class="relationship-type-label">${this._escapeHtml(typeName)}</div>
+            <div class="relationship-items">
+        `;
+
+        for (const { edge, targetId } of items) {
+          const resolved = this._resolveEdgeTarget(targetId, set);
+          html += this._renderRelationshipItem(edge, resolved, 'incoming');
+        }
+
+        html += '</div></div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Render a single relationship item
+   */
+  _renderRelationshipItem(edge, resolved, direction) {
+    if (resolved.orphaned) {
+      return `
+        <div class="relationship-item orphaned"
+             data-edge-id="${edge.id}"
+             title="Target record was deleted">
+          <i class="ph ph-warning"></i>
+          <span class="relationship-label">${edge[direction === 'outgoing' ? 'to' : 'from'].slice(0, 12)}...</span>
+          <span class="relationship-status">Deleted</span>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="relationship-item"
+           data-edge-id="${edge.id}"
+           data-record-id="${resolved.recordId}"
+           data-set-id="${resolved.setId}">
+        <i class="ph ph-link"></i>
+        <span class="relationship-label">${this._escapeHtml(resolved.label || 'Untitled')}</span>
+        ${resolved.isCrossSet ? `<span class="relationship-set">${this._escapeHtml(resolved.setName)}</span>` : ''}
+      </div>
+    `;
+  }
+
   _showRecordDetail(recordId) {
     const set = this.getCurrentSet();
     const record = set?.records.find(r => r.id === recordId);
@@ -8474,6 +9146,8 @@ class EODataWorkbench {
           </button>
         </div>
 
+        ${this._renderRelationshipsSection(record, set)}
+
         ${this._renderProvenanceSection(record, set)}
 
         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
@@ -8514,6 +9188,27 @@ class EODataWorkbench {
       });
     });
 
+    // Relationship item clicks - navigate to linked records
+    body.querySelectorAll('.relationship-item:not(.orphaned)').forEach(el => {
+      el.addEventListener('click', () => {
+        const targetRecordId = el.dataset.recordId;
+        const targetSetId = el.dataset.setId;
+        if (targetRecordId && targetSetId) {
+          this._navigateToRecord(targetRecordId, targetSetId);
+        }
+      });
+    });
+
+    // Orphaned relationship items - show edge info
+    body.querySelectorAll('.relationship-item.orphaned').forEach(el => {
+      el.addEventListener('click', () => {
+        const edgeId = el.dataset.edgeId;
+        if (edgeId) {
+          this._showOrphanedEdgeInfo(edgeId);
+        }
+      });
+    });
+
     panel.classList.add('open');
   }
 
@@ -8526,6 +9221,10 @@ class EODataWorkbench {
     if (!panel || !body) return;
 
     const set = this.getCurrentSet();
+
+    // Try to get full edge record from spaces.edges for grounding info
+    const fullEdge = set?.spaces?.edges?.find(e => e.id === edgeData.id);
+
     const sourceRecord = set?.records.find(r => r.id === edgeData.source);
     const targetRecord = set?.records.find(r => r.id === edgeData.target);
 
@@ -8533,29 +9232,105 @@ class EODataWorkbench {
     const sourceName = sourceRecord?.values?.[primaryField?.id] || edgeData.source;
     const targetName = targetRecord?.values?.[primaryField?.id] || edgeData.target;
 
+    // Get edge type definition
+    const edgeType = fullEdge?.type || edgeData.edgeType;
+    const typeDef = set?.edgeTypes?.[edgeType] || {};
+    const isDirected = fullEdge?.directed !== false;
+    const isSymmetric = typeDef.symmetric || !isDirected;
+
     this.currentDetailRecordId = null;
 
+    // Render edge properties section if available
+    const properties = fullEdge?.properties || edgeData.properties || {};
+    const hasProperties = Object.keys(properties).length > 0;
+
+    let propertiesHtml = '';
+    if (hasProperties) {
+      propertiesHtml = `
+        <div class="edge-properties-section">
+          <div class="edge-section-header">
+            <i class="ph ph-list-dashes"></i>
+            <span>Properties</span>
+          </div>
+          ${Object.entries(properties).map(([key, value]) => `
+            <div class="detail-field-group">
+              <div class="detail-field-label">${this._escapeHtml(key)}</div>
+              <div class="detail-field-value">${this._escapeHtml(String(value))}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    // Render grounding section if available
+    const grounding = fullEdge?.grounding;
+    let groundingHtml = '';
+    if (grounding) {
+      groundingHtml = `
+        <div class="edge-grounding-section">
+          <div class="edge-section-header">
+            <i class="ph ph-git-branch"></i>
+            <span>Provenance</span>
+          </div>
+          ${grounding.origin ? `
+            <div class="grounding-subsection">
+              <div class="grounding-label">Origin</div>
+              ${grounding.origin.sourceId ? `
+                <div class="grounding-item">
+                  <span class="grounding-key">Source:</span>
+                  <span class="grounding-value source-link" data-source-id="${this._escapeHtml(grounding.origin.sourceId)}">
+                    ${this._escapeHtml(grounding.origin.sourceId)}
+                  </span>
+                </div>
+              ` : ''}
+              ${grounding.origin.eventId ? `
+                <div class="grounding-item">
+                  <span class="grounding-key">Event:</span>
+                  <span class="grounding-value">${this._escapeHtml(grounding.origin.eventId)}</span>
+                </div>
+              ` : ''}
+              ${grounding.origin.locator ? `
+                <div class="grounding-item">
+                  <span class="grounding-key">Location:</span>
+                  <span class="grounding-value"><code>${this._escapeHtml(grounding.origin.locator)}</code></span>
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
+          ${grounding.derivation ? `
+            <div class="grounding-subsection">
+              <div class="grounding-label">Derivation</div>
+              <div class="grounding-item">
+                <span class="grounding-value">${this._escapeHtml(String(grounding.derivation))}</span>
+              </div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
     body.innerHTML = `
-      <div class="detail-record">
+      <div class="detail-record edge-detail">
         <h2 style="font-size: 18px; margin-bottom: 16px;">
-          <i class="ph ph-arrow-right" style="color: var(--primary-500);"></i>
+          <i class="ph ph-graph" style="color: var(--primary-500);"></i>
           Edge Details
         </h2>
 
         <div class="detail-field-group">
           <div class="detail-field-label">
-            <i class="ph ph-link"></i>
-            Relationship Type
+            <i class="ph ph-tag"></i>
+            Type
           </div>
           <div class="detail-field-value">
-            ${this._escapeHtml(edgeData.fieldName || 'Link')}
+            <span class="edge-type-badge">${this._escapeHtml(typeDef.name || edgeType || edgeData.fieldName || 'Link')}</span>
+            ${isSymmetric ? '<span class="edge-direction-badge symmetric">Symmetric</span>' : '<span class="edge-direction-badge directed">Directed</span>'}
           </div>
         </div>
 
         <div class="detail-field-group">
           <div class="detail-field-label">
             <i class="ph ph-export"></i>
-            Source
+            From
           </div>
           <div class="detail-field-value edge-node-link" data-record-id="${edgeData.source}" style="cursor: pointer; color: var(--primary-500);">
             ${this._escapeHtml(sourceName)}
@@ -8565,16 +9340,20 @@ class EODataWorkbench {
         <div class="detail-field-group">
           <div class="detail-field-label">
             <i class="ph ph-sign-in"></i>
-            Target
+            To
           </div>
           <div class="detail-field-value edge-node-link" data-record-id="${edgeData.target}" style="cursor: pointer; color: var(--primary-500);">
             ${this._escapeHtml(targetName)}
           </div>
         </div>
 
-        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
+        ${propertiesHtml}
+
+        ${groundingHtml}
+
+        <div class="edge-metadata">
           <div style="font-size: 11px; color: var(--text-muted);">
-            <i class="ph ph-hash"></i> Edge ID: ${this._escapeHtml(edgeData.id)}
+            <i class="ph ph-hash"></i> ID: <code>${this._escapeHtml(edgeData.id)}</code>
           </div>
         </div>
       </div>
@@ -8586,6 +9365,16 @@ class EODataWorkbench {
         const recordId = el.dataset.recordId;
         if (recordId) {
           this._showRecordDetail(recordId);
+        }
+      });
+    });
+
+    // Add click handler for source links in grounding section
+    body.querySelectorAll('.source-link').forEach(el => {
+      el.addEventListener('click', () => {
+        const sourceId = el.dataset.sourceId;
+        if (sourceId) {
+          this._showSourceDetail(sourceId);
         }
       });
     });

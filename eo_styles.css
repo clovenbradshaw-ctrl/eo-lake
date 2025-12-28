@@ -8867,3 +8867,502 @@ body.has-picked-up .browser-tab:hover {
   padding: 8px 12px;
   text-align: center;
 }
+
+/* ==========================================================================
+   Edge Projections - Link Columns from Graph Edges
+   ========================================================================== */
+
+/* Edge Projection Column Header */
+.col-edge-projection {
+  background: var(--bg-secondary);
+}
+
+.col-edge-projection .th-content {
+  color: var(--primary-600);
+}
+
+.col-edge-projection .th-content i {
+  color: var(--primary-500);
+}
+
+/* Edge Projection Cell */
+.cell-edge-projection {
+  padding: 4px 8px;
+  vertical-align: middle;
+}
+
+.edge-projection-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Edge Count Display */
+.edge-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* Link Chip Enhancements for Edge Projections */
+.link-chip-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-chip-set {
+  font-size: 10px;
+  padding: 1px 4px;
+  background: var(--primary-100);
+  border-radius: var(--radius-xs);
+  color: var(--primary-700);
+  margin-left: 2px;
+}
+
+.link-chip-prop {
+  font-size: 10px;
+  padding: 1px 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  margin-left: 2px;
+}
+
+/* Orphaned Link Chip */
+.link-chip.orphaned {
+  background: var(--red-100);
+  color: var(--red-700);
+  border: 1px dashed var(--red-300);
+}
+
+.link-chip.orphaned:hover {
+  background: var(--red-200);
+}
+
+.link-chip.orphaned i {
+  color: var(--red-500);
+}
+
+/* Link Chip Overflow Badge */
+.link-chip-overflow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 22px;
+  padding: 0 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.link-chip-overflow:hover {
+  background: var(--primary-100);
+  color: var(--primary-600);
+}
+
+/* Edge Popover */
+.edge-popover {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 400px;
+  overflow: hidden;
+}
+
+/* All Links Popover */
+.all-links-popover {
+  display: flex;
+  flex-direction: column;
+}
+
+.all-links-popover .popover-header {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.all-links-list {
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.link-item:hover {
+  background: var(--bg-hover);
+}
+
+.link-item i {
+  color: var(--primary-500);
+  font-size: 14px;
+}
+
+.link-item span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.link-item-set {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--primary-100);
+  border-radius: var(--radius-sm);
+  color: var(--primary-700);
+}
+
+.link-item-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--red-100);
+  border-radius: var(--radius-sm);
+  color: var(--red-700);
+}
+
+.link-item.orphaned {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.link-item.orphaned i {
+  color: var(--red-500);
+}
+
+/* Orphaned Edge Info Popover */
+.orphaned-edge-info {
+  padding: 16px;
+}
+
+.orphaned-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  color: var(--red-700);
+}
+
+.orphaned-header i {
+  font-size: 18px;
+  color: var(--red-500);
+}
+
+.orphaned-edge-info p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.orphaned-edge-info dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.orphaned-edge-info dt {
+  color: var(--text-muted);
+}
+
+.orphaned-edge-info dd {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.orphaned-edge-info code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xs);
+}
+
+.orphaned-actions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* ==========================================================================
+   Relationships Section in Detail Panel
+   ========================================================================== */
+
+.relationships-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.relationships-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.relationships-header i {
+  color: var(--primary-500);
+  font-size: 16px;
+}
+
+.relationships-count {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+}
+
+.relationships-direction {
+  margin-bottom: 12px;
+}
+
+.direction-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.direction-label i {
+  font-size: 12px;
+}
+
+.relationship-group {
+  margin-bottom: 8px;
+}
+
+.relationship-type-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  padding-left: 4px;
+}
+
+.relationship-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.relationship-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.relationship-item:hover {
+  background: var(--bg-hover);
+}
+
+.relationship-item i {
+  font-size: 14px;
+  color: var(--primary-500);
+}
+
+.relationship-label {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.relationship-set {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--primary-100);
+  border-radius: var(--radius-sm);
+  color: var(--primary-700);
+}
+
+.relationship-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--red-100);
+  border-radius: var(--radius-sm);
+  color: var(--red-700);
+}
+
+.relationship-item.orphaned {
+  opacity: 0.7;
+}
+
+.relationship-item.orphaned i {
+  color: var(--red-500);
+}
+
+.relationship-item.orphaned:hover {
+  background: var(--red-50);
+}
+
+/* ==========================================================================
+   Edge Detail Panel
+   ========================================================================== */
+
+.edge-detail {
+  /* Container for edge detail panel */
+}
+
+.edge-type-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  background: var(--primary-100);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--primary-700);
+}
+
+.edge-direction-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.edge-direction-badge.directed {
+  background: var(--blue-100);
+  color: var(--blue-700);
+}
+
+.edge-direction-badge.symmetric {
+  background: var(--green-100);
+  color: var(--green-700);
+}
+
+.edge-properties-section,
+.edge-grounding-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.edge-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.edge-section-header i {
+  font-size: 14px;
+  color: var(--primary-500);
+}
+
+/* Grounding Section Styles */
+.grounding-subsection {
+  margin-bottom: 12px;
+}
+
+.grounding-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.grounding-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.grounding-key {
+  color: var(--text-muted);
+  min-width: 60px;
+}
+
+.grounding-value {
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.grounding-value.source-link {
+  color: var(--primary-500);
+  cursor: pointer;
+}
+
+.grounding-value.source-link:hover {
+  text-decoration: underline;
+}
+
+.grounding-value code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xs);
+}
+
+.edge-metadata {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.edge-metadata code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 4px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xs);
+}
