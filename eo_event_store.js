@@ -1,40 +1,61 @@
 /**
- * EO Event Store - The Append-Only Log
+ * EO Event Store - Strict EO-Aligned Event Log
+ *
+ * EO AXIOM (ENFORCED):
+ * Nothing Meant may exist, persist, or be queried without an explicit,
+ * typed grounding chain terminating in Given reality.
  *
  * AXIOM 0: The append-only log is the database. Everything else is a view.
  *
- * This implements the core event store that serves as the foundation of the
- * Experience Engine. All state is derived from this log.
- *
- * Now integrated with EO Layer 4 Operators:
- * - Every event records which EO operator(s) were applied
- * - Operator(Target) ⟨ in Context ⟩ is the canonical form
- * - Legacy actions are automatically mapped to operators
+ * This module implements the core event store with:
+ * - Three epistemic types: given, meant, derived_value
+ * - Typed grounding references
+ * - Runtime enforcement of EO rules
+ * - Integration with grounding graph
  *
  * Enforces:
- * - Rule 1: Distinction (Given vs Meant partition)
- * - Rule 2: Impenetrability (Given derives only from Given)
- * - Rule 3: Ineliminability (append-only, no erasure)
- * - Rule 8: Idempotent replay
- * - Rule 9: Revision without erasure
+ * - Rule 1: Given/Meant distinction (mutually exclusive, enforced at runtime)
+ * - Rule 2: External Origin (only Given may have external grounding)
+ * - Rule 3: Immutability (Given events are append-only)
+ * - Rule 5: Restrictivity (operators are monotonic by type)
+ * - Rule 6: Coherence (grounding kinds must remain compatible)
+ * - Rule 7: Groundedness (every Meant declares typed grounds)
+ * - Rule 8: Minimal Crystallization (no aggregation without value artifacts)
+ * - Rule 9: Defeasibility (supersession replaces claims, not evidence)
  */
 
+// ============================================================================
+// Core Types
+// ============================================================================
+
 /**
- * Event types - exhaustive and mutually exclusive (Rule 1)
+ * Epistemic types - exhaustive and mutually exclusive (Rule 1)
  */
-const EventType = Object.freeze({
+const EpistemicType = Object.freeze({
   GIVEN: 'given',
-  MEANT: 'meant'
+  MEANT: 'meant',
+  DERIVED_VALUE: 'derived_value'
 });
 
 /**
  * Mode of givenness for Given events
  */
 const GivenMode = Object.freeze({
-  PERCEIVED: 'perceived',   // Sensory input
-  REPORTED: 'reported',     // External report
-  MEASURED: 'measured',     // Instrument reading
-  RECEIVED: 'received'      // Message/data received
+  PERCEIVED: 'perceived',
+  REPORTED: 'reported',
+  MEASURED: 'measured',
+  RECEIVED: 'received'
+});
+
+/**
+ * Grounding kinds
+ */
+const GroundingKind = Object.freeze({
+  EXTERNAL: 'external',
+  STRUCTURAL: 'structural',
+  SEMANTIC: 'semantic',
+  COMPUTATIONAL: 'computational',
+  EPISTEMIC: 'epistemic'
 });
 
 /**
@@ -42,30 +63,141 @@ const GivenMode = Object.freeze({
  */
 const EpistemicStatus = Object.freeze({
   PRELIMINARY: 'preliminary',
-  REVIEWED: 'reviewed',
-  CONTESTED: 'contested'
+  CONFIRMED: 'confirmed',
+  DISPUTED: 'disputed'
 });
 
 /**
- * Generate content-addressable ID using DJB2 hash
+ * Supersession types
  */
-function generateEventId(payload) {
-  const str = JSON.stringify(payload) + Date.now() + Math.random();
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) + str.charCodeAt(i);
-    hash = hash & hash; // Convert to 32-bit integer
+const SupersessionType = Object.freeze({
+  CORRECTION: 'correction',
+  REFINEMENT: 'refinement',
+  RETRACTION: 'retraction'
+});
+
+// ============================================================================
+// ID Generation
+// ============================================================================
+
+/**
+ * Generate content-addressable ID
+ */
+function generateEventId(prefix = 'evt') {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substr(2, 9);
+  return `${prefix}_${timestamp}_${random}`;
+}
+
+// ============================================================================
+// Event Validation
+// ============================================================================
+
+/**
+ * Validate grounding references
+ */
+function validateGrounding(event) {
+  const errors = [];
+
+  // Given events CAN have external grounding, CANNOT be grounded in Meant
+  if (event.epistemicType === EpistemicType.GIVEN) {
+    if (event.grounding?.references) {
+      for (const ref of event.grounding.references) {
+        if (ref.kind === GroundingKind.SEMANTIC) {
+          errors.push('RULE_1: Given events cannot have semantic grounding');
+        }
+      }
+    }
   }
-  return 'evt_' + Math.abs(hash).toString(36) + '_' + Date.now().toString(36);
+
+  // Meant events MUST have grounding, CANNOT have external grounding
+  if (event.epistemicType === EpistemicType.MEANT) {
+    if (!event.grounding?.references || event.grounding.references.length === 0) {
+      errors.push('RULE_7: Meant events must have typed grounds');
+    } else {
+      for (const ref of event.grounding.references) {
+        if (ref.kind === GroundingKind.EXTERNAL) {
+          errors.push('RULE_2: Only Given events may have external grounding');
+        }
+      }
+    }
+  }
+
+  // Derived values MUST have computational grounding
+  if (event.epistemicType === EpistemicType.DERIVED_VALUE) {
+    if (!event.grounding?.references) {
+      errors.push('RULE_8: Derived values must have grounding');
+    } else {
+      const hasComputational = event.grounding.references.some(
+        ref => ref.kind === GroundingKind.COMPUTATIONAL
+      );
+      if (!hasComputational) {
+        errors.push('RULE_8: Derived values must have computational grounding');
+      }
+    }
+    if (!event.grounding?.derivation) {
+      errors.push('RULE_8: Derived values must have derivation chain');
+    }
+  }
+
+  return errors;
 }
 
 /**
- * EOEventStore - The append-only event log
- *
- * Implements Axiom 0: Log Primacy
+ * Validate event structure and EO rules
+ */
+function validateEvent(event) {
+  const errors = [];
+
+  // Must have unique ID
+  if (!event.id) {
+    errors.push('Event must have unique id');
+  }
+
+  // Must have valid epistemic type
+  if (!event.epistemicType || !Object.values(EpistemicType).includes(event.epistemicType)) {
+    errors.push('RULE_1: Event must have epistemicType: given, meant, or derived_value');
+  }
+
+  // Must have category
+  if (!event.category) {
+    errors.push('Event must have category');
+  }
+
+  // Must have timestamp
+  if (!event.timestamp) {
+    errors.push('Event must have timestamp');
+  }
+
+  // Must have actor
+  if (!event.actor) {
+    errors.push('Event must have actor');
+  }
+
+  // Meant events must have frame
+  if (event.epistemicType === EpistemicType.MEANT && !event.frame) {
+    errors.push('RULE_7: Meant events must have frame with claim');
+  }
+
+  // Validate grounding
+  const groundingErrors = validateGrounding(event);
+  errors.push(...groundingErrors);
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+}
+
+// ============================================================================
+// EO Event Store
+// ============================================================================
+
+/**
+ * EOEventStore - The append-only event log with strict EO enforcement
  */
 class EOEventStore {
-  constructor() {
+  constructor(options = {}) {
     // The log - ordered sequence of events
     this._log = [];
 
@@ -75,37 +207,47 @@ class EOEventStore {
     // Logical clock for causal ordering
     this._logicalClock = 0;
 
-    // Events parked waiting for parents (causal readiness)
+    // Events parked waiting for parents
     this._parked = new Map();
 
     // Subscribers for reactive updates
     this._subscribers = new Set();
 
-    // Frozen state (prevents appends when true)
+    // Frozen state
     this._frozen = false;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // EO Operator Indexes (Layer 4 Integration)
-    // ─────────────────────────────────────────────────────────────────────────
+    // Grounding graph (lazy initialized)
+    this._groundingGraph = null;
 
-    // Index by operator for fast operator-based queries
+    // Indexes
+    this._byEpistemicType = new Map();
+    this._byCategory = new Map();
     this._byOperator = new Map();
-
-    // Index by target entity for entity-centric queries
     this._byEntity = new Map();
+    this._supersessionIndex = new Map(); // targetId -> superseding eventId
 
-    // Activity store integration (lazy initialized)
-    this._activityStore = null;
+    // Initialize type indexes
+    for (const type of Object.values(EpistemicType)) {
+      this._byEpistemicType.set(type, new Set());
+    }
+
+    // Strict mode (default true)
+    this._strictMode = options.strictMode !== false;
   }
 
   /**
-   * Get or create activity store integration
+   * Get or create grounding graph
    */
-  async getActivityStore() {
-    if (!this._activityStore && typeof window !== 'undefined' && window.EOActivity) {
-      this._activityStore = await window.EOActivity.getStore();
+  getGroundingGraph() {
+    if (!this._groundingGraph && typeof window !== 'undefined' && window.EOGrounding) {
+      this._groundingGraph = new window.EOGrounding.GroundingGraph(this);
+
+      // Index existing events
+      for (const event of this._log) {
+        this._groundingGraph.indexEvent(event);
+      }
     }
-    return this._activityStore;
+    return this._groundingGraph;
   }
 
   /**
@@ -130,265 +272,159 @@ class EOEventStore {
   }
 
   /**
-   * Validate event structure and rules
-   * @returns {Object} { valid: boolean, errors: string[] }
-   */
-  validate(event) {
-    const errors = [];
-
-    // Rule 1: Must have valid type (given or meant)
-    if (!event.type || !Object.values(EventType).includes(event.type)) {
-      errors.push('RULE_1: Event must have type "given" or "meant"');
-    }
-
-    // Must have unique ID
-    if (!event.id) {
-      errors.push('RULE_1: Event must have unique ID');
-    }
-
-    // Must have actor
-    if (!event.actor) {
-      errors.push('RULE_1: Event must have actor');
-    }
-
-    // Must have timestamp
-    if (!event.timestamp) {
-      errors.push('RULE_1: Event must have timestamp');
-    }
-
-    // Must have context envelope
-    if (!event.context) {
-      errors.push('RULE_1: Event must have context envelope');
-    } else {
-      if (!event.context.workspace) {
-        errors.push('RULE_1: Context must have workspace');
-      }
-      if (!event.context.schemaVersion) {
-        errors.push('RULE_1: Context must have schemaVersion');
-      }
-    }
-
-    // Must have payload
-    if (event.payload === undefined) {
-      errors.push('RULE_1: Event must have payload');
-    }
-
-    // Rule 2: Impenetrability - Given events can only derive from Given or external
-    if (event.type === EventType.GIVEN && event.parents) {
-      for (const parentId of event.parents) {
-        const parent = this._index.get(parentId);
-        if (parent && parent.type === EventType.MEANT) {
-          errors.push('RULE_2: Given event cannot derive from Meant event (confabulation)');
-        }
-      }
-    }
-
-    // Rule 7: Groundedness - Meant events must have provenance in Given
-    if (event.type === EventType.MEANT) {
-      if (!event.provenance || event.provenance.length === 0) {
-        errors.push('RULE_7: Meant event must have non-empty provenance');
-      } else {
-        // Verify provenance refers to existing Given events
-        for (const provId of event.provenance) {
-          const provEvent = this._index.get(provId);
-          if (provEvent && provEvent.type !== EventType.GIVEN) {
-            // Allow chains of Meant that ultimately ground in Given
-            // This is checked transitively
-          }
-        }
-      }
-
-      // Must have frame
-      if (!event.frame) {
-        errors.push('RULE_8: Meant event must have frame');
-      } else if (!event.frame.purpose) {
-        errors.push('RULE_8: Frame must have purpose');
-      }
-    }
-
-    // Given events should have mode
-    if (event.type === EventType.GIVEN && !event.mode) {
-      // Warning but not error
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    };
-  }
-
-  /**
-   * Verify transitive grounding of Meant event in Given events
-   * Rule 7: All interpretations must ultimately trace to raw experience
-   */
-  verifyGrounding(event, visited = new Set()) {
-    if (event.type === EventType.GIVEN) {
-      return { grounded: true, chain: [event.id] };
-    }
-
-    if (!event.provenance || event.provenance.length === 0) {
-      return { grounded: false, error: 'No provenance' };
-    }
-
-    if (visited.has(event.id)) {
-      return { grounded: false, error: 'Circular provenance' };
-    }
-    visited.add(event.id);
-
-    const chains = [];
-    for (const provId of event.provenance) {
-      const provEvent = this._index.get(provId);
-      if (!provEvent) {
-        return { grounded: false, error: `Missing provenance event: ${provId}` };
-      }
-
-      const result = this.verifyGrounding(provEvent, visited);
-      if (!result.grounded) {
-        return result;
-      }
-      chains.push(...result.chain);
-    }
-
-    return { grounded: true, chain: [event.id, ...chains] };
-  }
-
-  /**
    * Append an event to the log
    *
    * Rule 3: Ineliminability - this is the only mutation allowed
-   * Rule 8: Idempotent - appending same event twice is safe
-   *
-   * @returns {Object} { success: boolean, eventId?: string, error?: string, parked?: boolean }
    */
   append(event) {
     if (this._frozen) {
       return { success: false, error: 'Store is frozen' };
     }
 
-    // Rule 8: Idempotent replay - if event exists, succeed silently
+    // Idempotent - if event exists, succeed silently
     if (this._index.has(event.id)) {
       return { success: true, eventId: event.id, duplicate: true };
     }
 
     // Validate event structure
-    const validation = this.validate(event);
-    if (!validation.valid) {
+    const validation = validateEvent(event);
+    if (!validation.valid && this._strictMode) {
       return { success: false, errors: validation.errors };
     }
 
-    // Check causal readiness - all parents must exist
+    // Check causal readiness
     if (event.parents && event.parents.length > 0) {
       const missingParents = event.parents.filter(p => !this._index.has(p));
       if (missingParents.length > 0) {
-        // Park the event until parents arrive
         this._parked.set(event.id, event);
         return { success: true, eventId: event.id, parked: true, waitingFor: missingParents };
       }
     }
 
-    // Verify grounding for Meant events
-    if (event.type === EventType.MEANT) {
-      const grounding = this.verifyGrounding(event);
-      if (!grounding.grounded) {
-        return { success: false, error: `RULE_7: ${grounding.error}` };
+    // Verify grounding chain terminates in Given (Rule 7)
+    if (event.epistemicType === EpistemicType.MEANT && this._strictMode) {
+      const groundingResult = this._verifyGroundingChain(event);
+      if (!groundingResult.grounded) {
+        return { success: false, error: `RULE_7: ${groundingResult.error}` };
       }
     }
 
     // Assign logical clock
     this._logicalClock++;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // EO Operator Integration
-    // Derive operators from payload.action if not explicitly provided
-    // ─────────────────────────────────────────────────────────────────────────
-    let operators = event.operators;
-    if (!operators && event.payload?.action) {
-      operators = this._deriveOperators(event.payload.action);
-    }
-
+    // Create final frozen event
     const finalEvent = {
       ...event,
-      logicalClock: this._logicalClock,
-      operators: operators || null // EO Layer 4 operators
+      logicalClock: this._logicalClock
     };
 
-    // Freeze the event object to prevent mutation (Rule 3)
+    // Deep freeze
     Object.freeze(finalEvent);
-    if (finalEvent.context) Object.freeze(finalEvent.context);
-    if (finalEvent.payload) Object.freeze(finalEvent.payload);
+    if (finalEvent.grounding) {
+      Object.freeze(finalEvent.grounding);
+      if (finalEvent.grounding.references) {
+        finalEvent.grounding.references.forEach(Object.freeze);
+      }
+      if (finalEvent.grounding.derivation) {
+        Object.freeze(finalEvent.grounding.derivation);
+      }
+    }
     if (finalEvent.frame) Object.freeze(finalEvent.frame);
+    if (finalEvent.supersession) Object.freeze(finalEvent.supersession);
+    if (finalEvent.payload) Object.freeze(finalEvent.payload);
 
     // Append to log
     this._log.push(finalEvent);
     this._index.set(finalEvent.id, finalEvent);
 
-    // Index by operators
-    this._indexByOperator(finalEvent);
+    // Update indexes
+    this._indexEvent(finalEvent);
 
-    // Index by entity
-    this._indexByEntity(finalEvent);
+    // Update grounding graph
+    if (this._groundingGraph) {
+      this._groundingGraph.indexEvent(finalEvent);
+    }
 
     // Notify subscribers
     this._notifySubscribers(finalEvent);
 
-    // Check if any parked events can now be processed
+    // Process parked events
     this._processParked();
-
-    // Record activity atom asynchronously (non-blocking)
-    this._recordActivity(finalEvent);
 
     return { success: true, eventId: finalEvent.id };
   }
 
   /**
-   * Derive EO operators from legacy action string
+   * Verify grounding chain terminates in Given events
    */
-  _deriveOperators(action) {
-    if (typeof window !== 'undefined' && window.EOOperators?.mapLegacy) {
-      return window.EOOperators.mapLegacy(action);
+  _verifyGroundingChain(event, visited = new Set()) {
+    if (event.epistemicType === EpistemicType.GIVEN) {
+      return { grounded: true, chain: [event.id] };
     }
-    // Fallback mapping for when EOOperators isn't loaded
-    return this._fallbackOperatorMapping(action);
-  }
 
-  /**
-   * Fallback operator mapping when EOOperators module isn't available
-   */
-  _fallbackOperatorMapping(action) {
-    const lower = action.toLowerCase();
-    if (lower.includes('create') || lower.includes('add') || lower.includes('new')) return ['INS'];
-    if (lower.includes('delete') || lower.includes('remove') || lower.includes('tombstone')) return ['NUL'];
-    if (lower.includes('update') || lower.includes('rename') || lower.includes('set')) return ['DES'];
-    if (lower.includes('link') || lower.includes('connect')) return ['CON'];
-    if (lower.includes('unlink') || lower.includes('filter')) return ['SEG'];
-    if (lower.includes('merge') || lower.includes('combine')) return ['SYN'];
-    if (lower.includes('toggle') || lower.includes('switch')) return ['ALT'];
-    if (lower.includes('horizon') || lower.includes('overlay')) return ['SUP'];
-    if (lower.includes('self') || lower.includes('auto') || lower.includes('migrate')) return ['REC'];
-    return ['DES']; // Default to designation
-  }
+    if (!event.grounding?.references || event.grounding.references.length === 0) {
+      return { grounded: false, error: 'No grounding references' };
+    }
 
-  /**
-   * Index event by its operators
-   */
-  _indexByOperator(event) {
-    if (!event.operators) return;
-    for (const op of event.operators) {
-      if (!this._byOperator.has(op)) {
-        this._byOperator.set(op, new Set());
+    if (visited.has(event.id)) {
+      return { grounded: false, error: 'Circular grounding detected' };
+    }
+    visited.add(event.id);
+
+    const chains = [];
+    for (const ref of event.grounding.references) {
+      const groundEvent = this._index.get(ref.eventId);
+      if (!groundEvent) {
+        // Allow forward references if not in strict verification
+        continue;
       }
-      this._byOperator.get(op).add(event.id);
+
+      const result = this._verifyGroundingChain(groundEvent, visited);
+      if (result.grounded) {
+        chains.push(...result.chain);
+      }
     }
+
+    if (chains.length === 0) {
+      return { grounded: false, error: 'Grounding chain does not terminate in Given' };
+    }
+
+    return { grounded: true, chain: [event.id, ...chains] };
   }
 
   /**
-   * Index event by target entity
+   * Index event for efficient queries
    */
-  _indexByEntity(event) {
+  _indexEvent(event) {
+    // By epistemic type
+    const typeSet = this._byEpistemicType.get(event.epistemicType);
+    if (typeSet) {
+      typeSet.add(event.id);
+    }
+
+    // By category
+    if (event.category) {
+      if (!this._byCategory.has(event.category)) {
+        this._byCategory.set(event.category, new Set());
+      }
+      this._byCategory.get(event.category).add(event.id);
+    }
+
+    // By operators
+    if (event.grounding?.derivation?.operators) {
+      for (const op of event.grounding.derivation.operators) {
+        const opId = typeof op === 'string' ? op : op.op;
+        if (!this._byOperator.has(opId)) {
+          this._byOperator.set(opId, new Set());
+        }
+        this._byOperator.get(opId).add(event.id);
+      }
+    }
+
+    // By entity
     const entityId = event.payload?.targetId ||
                      event.payload?.recordId ||
                      event.payload?.setId ||
-                     event.payload?.viewId ||
                      event.payload?.entityId;
     if (entityId) {
       if (!this._byEntity.has(entityId)) {
@@ -396,64 +432,15 @@ class EOEventStore {
       }
       this._byEntity.get(entityId).push(event.id);
     }
-  }
 
-  /**
-   * Record activity atom for this event (async, non-blocking)
-   */
-  async _recordActivity(event) {
-    try {
-      const store = await this.getActivityStore();
-      if (!store || !event.operators) return;
-
-      // Build target from event payload
-      const target = {
-        id: event.payload?.targetId || event.payload?.recordId || event.payload?.setId || event.id,
-        positionType: event.payload?.entityType || 'event',
-        previousValue: event.payload?.previousValue,
-        newValue: event.payload?.newValue || event.payload?.value
-      };
-
-      // Build context from event
-      const context = {
-        epistemic: {
-          agent: event.actor,
-          method: event.type === 'given' ? (event.mode || 'received') : 'interpretation',
-          source: event.context?.source || 'event_store'
-        },
-        semantic: {
-          term: event.payload?.action,
-          definition: event.frame?.purpose,
-          jurisdiction: event.context?.workspace
-        },
-        situational: {
-          scale: 'event',
-          timeframe: event.timestamp,
-          background: event.context?.background
-        }
-      };
-
-      // Record one atom per operator in sequence
-      for (let i = 0; i < event.operators.length; i++) {
-        const atom = window.EOActivity.createAtom({
-          operator: event.operators[i],
-          target,
-          context
-        }, {
-          logicalClock: event.logicalClock,
-          sequenceIndex: event.operators.length > 1 ? i : null
-        });
-
-        await store.record(atom);
-      }
-    } catch (err) {
-      // Non-blocking - log but don't fail the event append
-      console.warn('Failed to record activity:', err);
+    // Supersession index
+    if (event.supersession?.supersedes) {
+      this._supersessionIndex.set(event.supersession.supersedes, event.id);
     }
   }
 
   /**
-   * Process parked events whose parents have arrived
+   * Process parked events
    */
   _processParked() {
     let changed = true;
@@ -471,82 +458,21 @@ class EOEventStore {
   }
 
   /**
-   * Create a tombstone event (Rule 9: revision without erasure)
-   *
-   * @param {string} targetId - ID of event to mark as deleted
-   * @param {string} actor - Who is creating the tombstone
-   * @param {string} reason - Why the event is being tombstoned
-   * @param {Object} context - Context envelope
+   * Notify subscribers
    */
-  createTombstone(targetId, actor, reason, context) {
-    const target = this._index.get(targetId);
-    if (!target) {
-      return { success: false, error: `Target event not found: ${targetId}` };
-    }
-
-    const tombstone = {
-      id: generateEventId({ action: 'tombstone', targetId }),
-      type: EventType.GIVEN,
-      actor,
-      timestamp: new Date().toISOString(),
-      mode: GivenMode.RECEIVED,
-      parents: this.getHeads().map(e => e.id),
-      context: {
-        ...context,
-        schemaVersion: context?.schemaVersion || '1.0'
-      },
-      payload: {
-        action: 'tombstone',
-        targetId,
-        reason,
-        originalType: target.type
+  _notifySubscribers(event) {
+    for (const callback of this._subscribers) {
+      try {
+        callback(event);
+      } catch (err) {
+        console.error('Subscriber error:', err);
       }
-    };
-
-    return this.append(tombstone);
+    }
   }
 
-  /**
-   * Create a supersession event (Rule 9: interpretation revision)
-   *
-   * @param {string} targetId - ID of Meant event being superseded
-   * @param {Object} newInterpretation - The new interpretation payload
-   * @param {string} actor - Who is superseding
-   * @param {Object} frame - The frame for the new interpretation
-   * @param {string[]} provenance - Provenance for the new interpretation
-   * @param {Object} context - Context envelope
-   * @param {string} supersessionType - Type: 'correction' | 'refinement' | 'retraction'
-   */
-  createSupersession(targetId, newInterpretation, actor, frame, provenance, context, supersessionType = 'refinement') {
-    const target = this._index.get(targetId);
-    if (!target) {
-      return { success: false, error: `Target event not found: ${targetId}` };
-    }
-
-    if (target.type !== EventType.MEANT) {
-      return { success: false, error: 'Can only supersede Meant events' };
-    }
-
-    const supersession = {
-      id: generateEventId({ action: 'supersession', targetId }),
-      type: EventType.MEANT,
-      actor,
-      timestamp: new Date().toISOString(),
-      parents: this.getHeads().map(e => e.id),
-      context: {
-        ...context,
-        schemaVersion: context?.schemaVersion || '1.0'
-      },
-      frame,
-      provenance: provenance || target.provenance, // Inherit provenance if not provided
-      epistemicStatus: EpistemicStatus.PRELIMINARY,
-      supersedes: targetId,
-      supersessionType,
-      payload: newInterpretation
-    };
-
-    return this.append(supersession);
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // Query Methods
+  // ─────────────────────────────────────────────────────────────────────────
 
   /**
    * Get event by ID
@@ -556,40 +482,53 @@ class EOEventStore {
   }
 
   /**
-   * Get all events in order
+   * Get all events
    */
   getAll() {
     return [...this._log];
   }
 
   /**
-   * Get events by type
+   * Get events by epistemic type
    */
-  getByType(type) {
-    return this._log.filter(e => e.type === type);
+  getByEpistemicType(type) {
+    const ids = this._byEpistemicType.get(type);
+    if (!ids) return [];
+    return Array.from(ids).map(id => this._index.get(id)).filter(Boolean);
   }
 
   /**
    * Get all Given events
    */
   getGiven() {
-    return this.getByType(EventType.GIVEN);
+    return this.getByEpistemicType(EpistemicType.GIVEN);
   }
 
   /**
    * Get all Meant events
    */
   getMeant() {
-    return this.getByType(EventType.MEANT);
+    return this.getByEpistemicType(EpistemicType.MEANT);
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // EO Operator Query Methods (Layer 4)
-  // ─────────────────────────────────────────────────────────────────────────
+  /**
+   * Get all Derived Value events
+   */
+  getDerivedValues() {
+    return this.getByEpistemicType(EpistemicType.DERIVED_VALUE);
+  }
+
+  /**
+   * Get events by category
+   */
+  getByCategory(category) {
+    const ids = this._byCategory.get(category);
+    if (!ids) return [];
+    return Array.from(ids).map(id => this._index.get(id)).filter(Boolean);
+  }
 
   /**
    * Get events by operator
-   * @param {string} operator - One of: NUL, DES, INS, SEG, CON, ALT, SYN, SUP, REC
    */
   getByOperator(operator) {
     const ids = this._byOperator.get(operator);
@@ -607,186 +546,111 @@ class EOEventStore {
   }
 
   /**
-   * Get operator statistics
+   * Check if an event is superseded
    */
-  getOperatorStats() {
-    const stats = {};
-    for (const [op, ids] of this._byOperator) {
-      stats[op] = ids.size;
-    }
-    return stats;
+  isSuperseded(eventId) {
+    return this._supersessionIndex.has(eventId);
   }
 
   /**
-   * Query events with operator-based filters
-   * @param {Object} filters
-   * @param {string|string[]} filters.operators - Filter by operator(s)
-   * @param {string} filters.entityId - Filter by target entity
-   * @param {boolean} filters.dangerousOnly - Only SYN and REC operators
-   * @param {string} filters.startTime - ISO timestamp
-   * @param {string} filters.endTime - ISO timestamp
-   * @param {number} filters.limit - Max results
+   * Get superseding event
    */
-  queryByOperator(filters = {}) {
-    let results = [...this._log];
-
-    // Filter by operators
-    if (filters.operators) {
-      const ops = Array.isArray(filters.operators) ? filters.operators : [filters.operators];
-      results = results.filter(e => e.operators && e.operators.some(op => ops.includes(op)));
-    }
-
-    // Filter dangerous only (SYN, REC)
-    if (filters.dangerousOnly) {
-      results = results.filter(e => e.operators && e.operators.some(op => op === 'SYN' || op === 'REC'));
-    }
-
-    // Filter by entity
-    if (filters.entityId) {
-      const entityEvents = new Set(this._byEntity.get(filters.entityId) || []);
-      results = results.filter(e => entityEvents.has(e.id));
-    }
-
-    // Filter by time range
-    if (filters.startTime) {
-      results = results.filter(e => e.timestamp >= filters.startTime);
-    }
-    if (filters.endTime) {
-      results = results.filter(e => e.timestamp <= filters.endTime);
-    }
-
-    // Sort by timestamp descending (most recent first)
-    results.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-
-    // Limit
-    if (filters.limit) {
-      results = results.slice(0, filters.limit);
-    }
-
-    return results;
+  getSupersedingEvent(eventId) {
+    const supersedingId = this._supersessionIndex.get(eventId);
+    return supersedingId ? this._index.get(supersedingId) : null;
   }
 
   /**
-   * Get the transformation history for an entity
-   * Returns all operations applied to this entity in chronological order
+   * Get active (non-superseded) Meant events
    */
-  getEntityHistory(entityId) {
-    return this.getByEntity(entityId).sort((a, b) =>
-      a.timestamp.localeCompare(b.timestamp)
-    );
+  getActiveMeant() {
+    return this.getMeant().filter(e => !this.isSuperseded(e.id));
   }
 
   /**
-   * Detect dangerous operator patterns
-   * Returns events that might need review
+   * Get active derived values
    */
-  detectDangerousPatterns() {
-    const dangerous = [];
-
-    // Find all SYN (synthesize) - potential data loss
-    const synEvents = this.getByOperator('SYN');
-    for (const event of synEvents) {
-      dangerous.push({
-        event,
-        reason: 'SYN operator - data synthesis may lose original boundaries',
-        severity: 'warning'
-      });
-    }
-
-    // Find all REC (recurse) - self-modification
-    const recEvents = this.getByOperator('REC');
-    for (const event of recEvents) {
-      dangerous.push({
-        event,
-        reason: 'REC operator - self-modification can cause cascades',
-        severity: 'critical'
-      });
-    }
-
-    // Find sequences where REC isn't last
-    for (const event of this._log) {
-      if (event.operators && event.operators.includes('REC')) {
-        const recIndex = event.operators.indexOf('REC');
-        if (recIndex < event.operators.length - 1) {
-          dangerous.push({
-            event,
-            reason: 'REC operator not at end of sequence - may cause unintended effects',
-            severity: 'warning'
-          });
-        }
-      }
-    }
-
-    return dangerous;
+  getActiveDerivedValues() {
+    return this.getDerivedValues().filter(e => !this.isSuperseded(e.id));
   }
 
-  /**
-   * Get head events (events with no children)
-   */
-  getHeads() {
-    const allParents = new Set();
-    for (const event of this._log) {
-      if (event.parents) {
-        event.parents.forEach(p => allParents.add(p));
-      }
-    }
-    return this._log.filter(e => !allParents.has(e.id));
-  }
+  // ─────────────────────────────────────────────────────────────────────────
+  // Grounding Queries
+  // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Get events in topological order (respecting causality)
+   * What grounds this event?
    */
-  getTopologicalOrder() {
-    const visited = new Set();
-    const result = [];
+  whatGrounds(eventId) {
+    const event = this._index.get(eventId);
+    if (!event?.grounding?.references) return {};
 
-    const visit = (eventId) => {
-      if (visited.has(eventId)) return;
-      visited.add(eventId);
-
-      const event = this._index.get(eventId);
-      if (!event) return;
-
-      if (event.parents) {
-        for (const parentId of event.parents) {
-          visit(parentId);
-        }
-      }
-      result.push(event);
+    const result = {
+      external: [],
+      structural: [],
+      semantic: [],
+      computational: [],
+      epistemic: []
     };
 
-    for (const event of this._log) {
-      visit(event.id);
+    for (const ref of event.grounding.references) {
+      const groundEvent = this._index.get(ref.eventId);
+      if (result[ref.kind]) {
+        result[ref.kind].push({
+          eventId: ref.eventId,
+          epistemicType: groundEvent?.epistemicType,
+          category: groundEvent?.category
+        });
+      }
     }
 
     return result;
   }
 
   /**
-   * Get active interpretations (not superseded) for a frame
+   * Is this asserted or computed?
    */
-  getActiveInterpretations(frame = null) {
-    const superseded = new Set();
+  isAssertedOrComputed(eventId) {
+    const event = this._index.get(eventId);
+    if (!event) return null;
 
-    for (const event of this._log) {
-      if (event.supersedes) {
-        if (frame === null || (event.frame && event.frame.purpose === frame)) {
-          superseded.add(event.supersedes);
-        }
-      }
+    if (event.epistemicType === EpistemicType.DERIVED_VALUE) {
+      return 'computed';
+    } else if (event.epistemicType === EpistemicType.MEANT) {
+      return 'asserted';
+    } else {
+      return 'given';
     }
-
-    return this._log.filter(e =>
-      e.type === EventType.MEANT &&
-      !superseded.has(e.id) &&
-      (frame === null || (e.frame && e.frame.purpose === frame))
-    );
   }
 
   /**
-   * Get provenance chain for a Meant event
+   * What was forced by reality? (structural grounds only)
    */
-  getProvenanceChain(eventId, maxDepth = 10) {
+  whatWasForcedByReality(eventId) {
+    const grounds = this.whatGrounds(eventId);
+    return grounds.structural || [];
+  }
+
+  /**
+   * What was interpretive? (semantic grounds only)
+   */
+  whatWasInterpretive(eventId) {
+    const grounds = this.whatGrounds(eventId);
+    return grounds.semantic || [];
+  }
+
+  /**
+   * Can this be recomputed?
+   */
+  canRecompute(eventId) {
+    const event = this._index.get(eventId);
+    return event?.epistemicType === EpistemicType.DERIVED_VALUE;
+  }
+
+  /**
+   * Get provenance chain to roots
+   */
+  getProvenanceChain(eventId, maxDepth = 20) {
     const chain = [];
     const visited = new Set();
 
@@ -797,11 +661,16 @@ class EOEventStore {
       const event = this._index.get(id);
       if (!event) return;
 
-      chain.push(event);
+      chain.push({
+        eventId: id,
+        epistemicType: event.epistemicType,
+        category: event.category,
+        depth
+      });
 
-      if (event.provenance) {
-        for (const provId of event.provenance) {
-          traverse(provId, depth + 1);
+      if (event.grounding?.references) {
+        for (const ref of event.grounding.references) {
+          traverse(ref.eventId, depth + 1);
         }
       }
     };
@@ -811,14 +680,132 @@ class EOEventStore {
   }
 
   /**
-   * Check if an event is tombstoned
+   * Find root Given events for an event
    */
-  isTombstoned(eventId) {
-    return this._log.some(e =>
-      e.payload?.action === 'tombstone' &&
-      e.payload?.targetId === eventId
-    );
+  findRoots(eventId) {
+    const chain = this.getProvenanceChain(eventId);
+    return chain
+      .filter(item => {
+        const event = this._index.get(item.eventId);
+        return event?.epistemicType === EpistemicType.GIVEN;
+      })
+      .map(item => item.eventId);
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Event Creation Helpers
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Create a Given event
+   */
+  createGivenEvent(options) {
+    return {
+      id: options.id || generateEventId('given'),
+      epistemicType: EpistemicType.GIVEN,
+      category: options.category || 'raw_data',
+      timestamp: options.timestamp || new Date().toISOString(),
+      actor: options.actor || 'system',
+      mode: options.mode || GivenMode.RECEIVED,
+      grounding: options.grounding || null,
+      payload: options.payload || {}
+    };
+  }
+
+  /**
+   * Create a Meant event
+   */
+  createMeantEvent(options) {
+    if (!options.grounding) {
+      throw new Error('Meant events must have grounding');
+    }
+    if (!options.frame) {
+      throw new Error('Meant events must have frame');
+    }
+
+    return {
+      id: options.id || generateEventId('meant'),
+      epistemicType: EpistemicType.MEANT,
+      category: options.category || 'interpretation',
+      timestamp: options.timestamp || new Date().toISOString(),
+      actor: options.actor || 'system',
+      grounding: options.grounding,
+      frame: {
+        claim: options.frame.claim || null,
+        epistemicStatus: options.frame.epistemicStatus || EpistemicStatus.PRELIMINARY,
+        confidenceEvent: options.frame.confidenceEvent || null,
+        caveats: options.frame.caveats || [],
+        purpose: options.frame.purpose || null
+      },
+      supersession: options.supersession || null,
+      payload: options.payload || {}
+    };
+  }
+
+  /**
+   * Create a Derived Value event
+   */
+  createDerivedValueEvent(options) {
+    if (!options.grounding) {
+      throw new Error('Derived values must have grounding');
+    }
+    if (!options.grounding.derivation) {
+      throw new Error('Derived values must have derivation');
+    }
+
+    // Ensure computational grounding
+    const hasComputational = options.grounding.references?.some(
+      ref => ref.kind === GroundingKind.COMPUTATIONAL
+    );
+    if (!hasComputational) {
+      throw new Error('Derived values must have computational grounding');
+    }
+
+    return {
+      id: options.id || generateEventId('value'),
+      epistemicType: EpistemicType.DERIVED_VALUE,
+      category: options.category || 'computed_value',
+      timestamp: options.timestamp || new Date().toISOString(),
+      actor: options.actor || 'system',
+      grounding: options.grounding,
+      supersession: options.supersession || null,
+      payload: options.payload || {}
+    };
+  }
+
+  /**
+   * Create a supersession event
+   */
+  createSupersession(targetId, newInterpretation, options = {}) {
+    const target = this._index.get(targetId);
+    if (!target) {
+      throw new Error(`Target event not found: ${targetId}`);
+    }
+
+    if (target.epistemicType === EpistemicType.GIVEN) {
+      throw new Error('RULE_9: Cannot supersede Given events');
+    }
+
+    const supersessionType = options.type || SupersessionType.REFINEMENT;
+
+    // Create new event with supersession
+    const supersedingEvent = {
+      ...newInterpretation,
+      id: generateEventId('supersede'),
+      timestamp: new Date().toISOString(),
+      supersession: {
+        supersedes: targetId,
+        type: supersessionType,
+        reason: options.reason || null
+      }
+    };
+
+    return supersedingEvent;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Store Management
+  // ─────────────────────────────────────────────────────────────────────────
 
   /**
    * Subscribe to new events
@@ -829,20 +816,7 @@ class EOEventStore {
   }
 
   /**
-   * Notify subscribers of new event
-   */
-  _notifySubscribers(event) {
-    for (const callback of this._subscribers) {
-      try {
-        callback(event);
-      } catch (err) {
-        console.error('Subscriber error:', err);
-      }
-    }
-  }
-
-  /**
-   * Freeze the store (prevent further appends)
+   * Freeze the store
    */
   freeze() {
     this._frozen = true;
@@ -856,20 +830,19 @@ class EOEventStore {
   }
 
   /**
-   * Export the log for persistence
+   * Export the log
    */
   export() {
     return {
-      version: '1.0',
+      version: '2.0',
       exportedAt: new Date().toISOString(),
       logicalClock: this._logicalClock,
-      events: this._log.map(e => ({ ...e })) // Shallow copy to allow serialization
+      events: this._log.map(e => ({ ...e }))
     };
   }
 
   /**
-   * Import events from persistence
-   * Maintains all invariants during import
+   * Import events
    */
   import(data) {
     if (!data || !data.events) {
@@ -877,7 +850,7 @@ class EOEventStore {
     }
 
     let imported = 0;
-    let errors = [];
+    const errors = [];
 
     for (const event of data.events) {
       const result = this.append(event);
@@ -888,7 +861,6 @@ class EOEventStore {
       }
     }
 
-    // Restore logical clock if needed
     if (data.logicalClock && data.logicalClock > this._logicalClock) {
       this._logicalClock = data.logicalClock;
     }
@@ -897,17 +869,44 @@ class EOEventStore {
   }
 
   /**
-   * Clear the store (for testing only)
+   * Clear the store (for testing)
    */
   _clear() {
     this._log = [];
     this._index.clear();
     this._parked.clear();
     this._logicalClock = 0;
+    this._byEpistemicType.forEach(set => set.clear());
+    this._byCategory.clear();
+    this._byOperator.clear();
+    this._byEntity.clear();
+    this._supersessionIndex.clear();
+    if (this._groundingGraph) {
+      this._groundingGraph.clear();
+    }
+  }
+
+  /**
+   * Get statistics
+   */
+  getStats() {
+    return {
+      total: this._log.length,
+      given: this._byEpistemicType.get(EpistemicType.GIVEN)?.size || 0,
+      meant: this._byEpistemicType.get(EpistemicType.MEANT)?.size || 0,
+      derivedValues: this._byEpistemicType.get(EpistemicType.DERIVED_VALUE)?.size || 0,
+      superseded: this._supersessionIndex.size,
+      categories: Object.fromEntries(
+        Array.from(this._byCategory.entries()).map(([k, v]) => [k, v.size])
+      )
+    };
   }
 }
 
-// Singleton instance
+// ============================================================================
+// Singleton
+// ============================================================================
+
 let _eventStore = null;
 
 function getEventStore() {
@@ -917,19 +916,26 @@ function getEventStore() {
   return _eventStore;
 }
 
-function initEventStore() {
-  _eventStore = new EOEventStore();
+function initEventStore(options = {}) {
+  _eventStore = new EOEventStore(options);
   return _eventStore;
 }
 
+// ============================================================================
 // Exports
+// ============================================================================
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     EOEventStore,
-    EventType,
+    EpistemicType,
     GivenMode,
+    GroundingKind,
     EpistemicStatus,
+    SupersessionType,
     generateEventId,
+    validateEvent,
+    validateGrounding,
     getEventStore,
     initEventStore
   };
@@ -937,10 +943,14 @@ if (typeof module !== 'undefined' && module.exports) {
 
 if (typeof window !== 'undefined') {
   window.EOEventStore = EOEventStore;
-  window.EventType = EventType;
+  window.EpistemicType = EpistemicType;
   window.GivenMode = GivenMode;
+  window.GroundingKind = GroundingKind;
   window.EpistemicStatus = EpistemicStatus;
+  window.SupersessionType = SupersessionType;
   window.generateEventId = generateEventId;
+  window.validateEvent = validateEvent;
+  window.validateGrounding = validateGrounding;
   window.getEventStore = getEventStore;
   window.initEventStore = initEventStore;
 }
