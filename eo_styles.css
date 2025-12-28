@@ -6808,6 +6808,22 @@ a:focus-visible,
   color: white;
 }
 
+/* Tab record count badge (for Sets) */
+.tab-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.browser-tab.active .tab-count {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
 .browser-tab.active .tab-close {
   opacity: 0.7;
 }

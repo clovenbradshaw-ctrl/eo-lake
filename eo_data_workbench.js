@@ -462,7 +462,6 @@ class EODataWorkbench {
     this.elements = {
       sidebar: document.getElementById('app-sidebar'),
       setsNav: document.getElementById('sets-nav'),
-      viewsNav: document.getElementById('views-nav'),
       contentArea: document.getElementById('content-area'),
       detailPanel: document.getElementById('detail-panel'),
       modal: document.getElementById('modal-overlay'),
@@ -811,12 +810,13 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderSidebar() {
-    // Three-panel navigation: Sources (GIVEN) / Sets (Schema) / Views (MEANT)
+    // Two-panel navigation: Sources (GIVEN) / Sets (Schema)
+    // Views are shown in the View Disclosure panel (like Airtable)
     this._renderSourcesNav();
     this._renderSetsNavFlat();
-    this._renderViewsHierarchy();
-    // Update view disclosure panel when inside a set
+    // Update view disclosure panel and tab bar
     this._renderViewDisclosure();
+    this._renderTabBar();
   }
 
   /**
@@ -1387,69 +1387,14 @@ class EODataWorkbench {
   }
 
   /**
-   * Render Views hierarchy (Panel 3: MEANT)
-   * Shows Workspaces > Lenses > Focuses nested structure
+   * Render Views hierarchy - DEPRECATED
+   * The sidebar VIEWS panel has been removed. Views are now managed via the
+   * View Disclosure panel below the tab bar (like Airtable).
+   * This function is kept as a no-op for backwards compatibility.
    */
   _renderViewsHierarchy() {
-    const container = document.getElementById('views-nav');
-    if (!container) return;
-
-    const workspaces = this.viewRegistry?.getAllWorkspaces?.() || [];
-    const set = this.getCurrentSet();
-
-    // Build view hierarchy HTML
-    let html = '';
-
-    // If we have workspaces from the registry, use them
-    if (workspaces.length > 0) {
-      html = workspaces.map(workspace => {
-        const isExpanded = this.expandedWorkspaces?.has(workspace.id) ??
-                          (workspace.id === this.currentWorkspaceId);
-        const isActive = workspace.id === this.currentWorkspaceId;
-
-        // Get lenses for this workspace's sets
-        const workspaceLenses = this._getLensesForWorkspace(workspace.id);
-
-        return `
-          <div class="workspace-group ${isExpanded ? 'expanded' : ''}" data-workspace-id="${workspace.id}">
-            <div class="workspace-header ${isActive ? 'active' : ''}" title="${workspace.description || ''}">
-              <i class="ph ph-caret-right workspace-toggle"></i>
-              <i class="ph ${workspace.icon || 'ph-folder-simple'} workspace-icon"></i>
-              <span class="workspace-name">${this._escapeHtml(workspace.name)}</span>
-            </div>
-            <div class="workspace-children">
-              ${workspaceLenses.map(lens => this._renderLensItem(lens)).join('')}
-            </div>
-          </div>
-        `;
-      }).join('');
-    } else if (set && set.views && set.views.length > 0) {
-      // Fallback: show current set's views directly
-      html = `
-        <div class="workspace-group expanded" data-workspace-id="default">
-          <div class="workspace-header active">
-            <i class="ph ph-caret-right workspace-toggle"></i>
-            <i class="ph ph-folder-simple workspace-icon"></i>
-            <span class="workspace-name">${this._escapeHtml(set.name)} Views</span>
-          </div>
-          <div class="workspace-children">
-            ${set.views.map(view => this._renderLensItemFromView(view, set)).join('')}
-          </div>
-        </div>
-      `;
-    } else {
-      html = `
-        <div class="nav-item empty-hint" id="create-first-view">
-          <i class="ph ph-plus-circle"></i>
-          <span>Add a view</span>
-        </div>
-      `;
-    }
-
-    container.innerHTML = html;
-
-    // Attach event handlers
-    this._attachViewsHierarchyHandlers(container);
+    // No-op: sidebar views panel has been removed
+    // Views are now shown in the view disclosure panel only
   }
 
   /**
@@ -2081,43 +2026,16 @@ class EODataWorkbench {
     });
   }
 
+  /**
+   * Render navigation elements for views
+   * Since sidebar VIEWS panel is removed, this now just renders the tab bar (Sets)
+   * and the view disclosure panel
+   */
   _renderViewsNav() {
-    const container = this.elements.viewsNav;
-    const set = this.getCurrentSet();
-    if (!container || !set) return;
-
-    const viewIcons = {
-      table: 'ph-table',
-      cards: 'ph-cards',
-      kanban: 'ph-kanban',
-      calendar: 'ph-calendar-blank',
-      graph: 'ph-graph',
-      filesystem: 'ph-folder-open'
-    };
-
-    container.innerHTML = set.views.map(view => `
-      <div class="nav-item ${view.id === this.currentViewId ? 'active' : ''}"
-           data-view-id="${view.id}">
-        <i class="ph ${viewIcons[view.type] || 'ph-table'}"></i>
-        <span>${this._escapeHtml(view.name)}</span>
-      </div>
-    `).join('');
-
-    // Attach click handlers
-    container.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const viewId = item.dataset.viewId;
-        this._selectView(viewId);
-      });
-
-      item.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        this._showViewContextMenu(e, item.dataset.viewId);
-      });
-    });
-
-    // Also render the tab bar
+    // Render the tab bar (now shows Sets)
     this._renderTabBar();
+    // Render the view disclosure (shows Views for current Set)
+    this._renderViewDisclosure();
   }
 
   // --------------------------------------------------------------------------
@@ -2125,42 +2043,33 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   /**
-   * Render the browser-style tab bar
+   * Render the browser-style tab bar showing Sets (like Airtable tables)
+   * Tabs = Sets, Views are shown in the disclosure panel below
    */
   _renderTabBar() {
     const container = this.elements.tabBarTabs;
-    const set = this.getCurrentSet();
     if (!container) return;
 
-    if (!set) {
+    if (this.sets.length === 0) {
       container.innerHTML = '';
       return;
     }
 
-    const viewIcons = {
-      table: 'ph-table',
-      cards: 'ph-cards',
-      kanban: 'ph-kanban',
-      calendar: 'ph-calendar-blank',
-      graph: 'ph-graph',
-      filesystem: 'ph-folder-open'
-    };
-
-    container.innerHTML = set.views.map(view => `
-      <div class="browser-tab ${view.id === this.currentViewId ? 'active' : ''}"
-           data-view-id="${view.id}"
-           draggable="true">
-        <div class="tab-icon">
-          <i class="ph ${viewIcons[view.type] || 'ph-table'}"></i>
+    container.innerHTML = this.sets.map(set => {
+      const recordCount = set.records?.length || 0;
+      return `
+        <div class="browser-tab ${set.id === this.currentSetId ? 'active' : ''}"
+             data-set-id="${set.id}"
+             draggable="true">
+          <div class="tab-icon">
+            <i class="${set.icon || 'ph ph-table'}"></i>
+          </div>
+          <span class="tab-title">${this._escapeHtml(set.name)}</span>
+          <span class="tab-count">${recordCount}</span>
+          ${set.id === this.currentSetId ? '<div class="tab-curve-right"></div>' : ''}
         </div>
-        <span class="tab-title">${this._escapeHtml(view.name)}</span>
-        <div class="tab-modified"></div>
-        <div class="tab-close" title="Close tab (Ctrl+W)">
-          <i class="ph ph-x"></i>
-        </div>
-        ${view.id === this.currentViewId ? '<div class="tab-curve-right"></div>' : ''}
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     // Attach event handlers to tabs
     this._attachTabEventHandlers();
@@ -2168,45 +2077,29 @@ class EODataWorkbench {
   }
 
   /**
-   * Attach event handlers to tab elements
+   * Attach event handlers to tab elements (now for Sets, not Views)
    */
   _attachTabEventHandlers() {
     const container = this.elements.tabBarTabs;
     if (!container) return;
 
     container.querySelectorAll('.browser-tab').forEach(tab => {
-      const viewId = tab.dataset.viewId;
+      const setId = tab.dataset.setId;
 
-      // Click to select tab
-      tab.addEventListener('click', (e) => {
-        if (!e.target.closest('.tab-close')) {
-          this._selectView(viewId);
-        }
+      // Click to select set
+      tab.addEventListener('click', () => {
+        this._selectSet(setId);
       });
 
-      // Middle-click to toss tab
-      tab.addEventListener('auxclick', (e) => {
-        if (e.button === 1) {
-          e.preventDefault();
-          this._tossTab(viewId);
-        }
-      });
-
-      // Right-click context menu
+      // Right-click context menu for set
       tab.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        this._showTabContextMenu(e, viewId);
+        this._showSetTabContextMenu(e, setId);
       });
 
-      // Close button
-      tab.querySelector('.tab-close')?.addEventListener('click', (e) => {
-        e.stopPropagation();
-        this._tossTab(viewId);
-      });
-
-      // Drag and drop for reordering
+      // Drag and drop for reordering sets
       tab.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('text/plain', viewId);
+        e.dataTransfer.setData('text/plain', setId);
         tab.classList.add('dragging');
       });
 
@@ -2238,71 +2131,51 @@ class EODataWorkbench {
 
       tab.addEventListener('drop', (e) => {
         e.preventDefault();
-        const draggedViewId = e.dataTransfer.getData('text/plain');
-        const targetViewId = viewId;
-        if (draggedViewId !== targetViewId) {
+        const draggedSetId = e.dataTransfer.getData('text/plain');
+        const targetSetId = setId;
+        if (draggedSetId !== targetSetId) {
           const rect = tab.getBoundingClientRect();
           const midpoint = rect.left + rect.width / 2;
           const insertAfter = e.clientX >= midpoint;
-          this._reorderTabs(draggedViewId, targetViewId, insertAfter);
+          this._reorderSetTabs(draggedSetId, targetSetId, insertAfter);
         }
         tab.classList.remove('drag-over', 'drag-over-right');
       });
 
-      // Double-click to rename
-      tab.addEventListener('dblclick', (e) => {
-        if (!e.target.closest('.tab-close')) {
-          this._renameTab(viewId);
-        }
+      // Double-click to rename set
+      tab.addEventListener('dblclick', () => {
+        this._renameSetTab(setId);
       });
     });
   }
 
   /**
-   * Create a new tab
+   * Show context menu for set tab
    */
-  _createNewTab() {
-    const set = this.getCurrentSet();
-    if (!set) return;
-
-    // Show a quick menu to choose view type
-    this._showNewViewTypeMenu();
-  }
-
-  /**
-   * Show menu to select new view type
-   */
-  _showNewViewTypeMenu() {
-    const existing = document.querySelector('.tab-new-menu');
+  _showSetTabContextMenu(e, setId) {
+    const existing = document.querySelector('.tab-context-menu');
     if (existing) existing.remove();
 
-    const btn = this.elements.newTabBtn;
-    const rect = btn.getBoundingClientRect();
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
 
     const menu = document.createElement('div');
-    menu.className = 'tab-context-menu tab-new-menu';
-    menu.style.left = `${rect.left}px`;
-    menu.style.top = `${rect.bottom + 4}px`;
+    menu.className = 'tab-context-menu';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
     menu.innerHTML = `
-      <div class="tab-context-item" data-type="table">
-        <i class="ph ph-table"></i>
-        <span>Table View</span>
+      <div class="tab-context-item" data-action="rename">
+        <i class="ph ph-pencil-simple"></i>
+        <span>Rename Set</span>
       </div>
-      <div class="tab-context-item" data-type="cards">
-        <i class="ph ph-cards"></i>
-        <span>Cards View</span>
+      <div class="tab-context-item" data-action="duplicate">
+        <i class="ph ph-copy"></i>
+        <span>Duplicate Set</span>
       </div>
-      <div class="tab-context-item" data-type="kanban">
-        <i class="ph ph-kanban"></i>
-        <span>Kanban View</span>
-      </div>
-      <div class="tab-context-item" data-type="calendar">
-        <i class="ph ph-calendar-blank"></i>
-        <span>Calendar View</span>
-      </div>
-      <div class="tab-context-item" data-type="graph">
-        <i class="ph ph-graph"></i>
-        <span>Graph View</span>
+      <div class="tab-context-divider"></div>
+      <div class="tab-context-item danger" data-action="delete">
+        <i class="ph ph-trash"></i>
+        <span>Delete Set</span>
       </div>
     `;
 
@@ -2310,21 +2183,71 @@ class EODataWorkbench {
 
     menu.querySelectorAll('.tab-context-item').forEach(item => {
       item.addEventListener('click', () => {
-        const viewType = item.dataset.type;
-        this._addNewTabOfType(viewType);
+        const action = item.dataset.action;
+        if (action === 'rename') {
+          this._renameSetTab(setId);
+        } else if (action === 'duplicate') {
+          this._duplicateSet(setId);
+        } else if (action === 'delete') {
+          this._deleteSet(setId);
+        }
         menu.remove();
       });
     });
 
-    // Close on click outside
-    setTimeout(() => {
-      document.addEventListener('click', function closeMenu(e) {
-        if (!e.target.closest('.tab-new-menu')) {
-          menu.remove();
-          document.removeEventListener('click', closeMenu);
-        }
-      });
-    }, 0);
+    const closeMenu = (evt) => {
+      if (!menu.contains(evt.target)) {
+        menu.remove();
+        document.removeEventListener('click', closeMenu);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+  }
+
+  /**
+   * Reorder set tabs via drag and drop
+   */
+  _reorderSetTabs(draggedSetId, targetSetId, insertAfter) {
+    const draggedIndex = this.sets.findIndex(s => s.id === draggedSetId);
+    const targetIndex = this.sets.findIndex(s => s.id === targetSetId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    const [draggedSet] = this.sets.splice(draggedIndex, 1);
+    let newIndex = targetIndex;
+    if (insertAfter) newIndex++;
+    if (draggedIndex < targetIndex) newIndex--;
+
+    this.sets.splice(newIndex, 0, draggedSet);
+    this._renderTabBar();
+    this._renderSetsNavFlat();
+    this._saveData();
+  }
+
+  /**
+   * Rename a set from the tab bar
+   */
+  _renameSetTab(setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    const newName = prompt('Rename set:', set.name);
+    if (newName && newName.trim() && newName !== set.name) {
+      set.name = newName.trim();
+      this._renderTabBar();
+      this._renderSetsNavFlat();
+      this._updateBreadcrumb();
+      this._saveData();
+      this._showToast(`Set renamed to "${set.name}"`, 'success');
+    }
+  }
+
+  /**
+   * Create a new tab (now creates a new Set since tabs = Sets)
+   */
+  _createNewTab() {
+    // Show the operator-first creation modal to create a new Set
+    this._showOperatorFirstCreationModal();
   }
 
   /**
