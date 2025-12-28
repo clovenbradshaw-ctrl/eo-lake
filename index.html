@@ -70,7 +70,7 @@
         <!-- Panel 1: SOURCES (Given - Physical Origins) -->
         <div class="nav-panel sources-panel" data-panel="sources">
           <div class="nav-panel-header">
-            <div class="nav-panel-title">
+            <div class="nav-panel-title sources-header-clickable" id="sources-header-title" title="Click to open Sources Explorer">
               <i class="ph ph-download-simple"></i>
               <span>Sources</span>
               <span class="nav-panel-badge given-badge">GIVEN</span>
@@ -612,6 +612,48 @@
             <span class="shortcut-desc">Rename tab</span>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sources Explorer Modal -->
+  <div class="sources-explorer-overlay" id="sources-explorer-overlay" style="display: none;">
+    <div class="sources-explorer-modal">
+      <div class="sources-explorer-header">
+        <div class="sources-explorer-title">
+          <i class="ph ph-download-simple"></i>
+          <span>Sources Explorer</span>
+          <span class="given-badge">GIVEN</span>
+        </div>
+        <button class="sources-explorer-close" id="sources-explorer-close">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+      <div class="sources-explorer-toolbar">
+        <div class="sources-explorer-search">
+          <i class="ph ph-magnifying-glass"></i>
+          <input type="text" id="sources-explorer-search" placeholder="Search sources...">
+        </div>
+        <div class="sources-explorer-sort">
+          <label>Sort:</label>
+          <select id="sources-explorer-sort">
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+            <option value="name-asc">Name A-Z</option>
+            <option value="name-desc">Name Z-A</option>
+            <option value="records-desc">Most records</option>
+            <option value="records-asc">Fewest records</option>
+          </select>
+        </div>
+      </div>
+      <div class="sources-explorer-body" id="sources-explorer-body">
+        <!-- Sources list rendered dynamically -->
+      </div>
+      <div class="sources-explorer-footer">
+        <span class="sources-explorer-count" id="sources-explorer-count">0 sources</span>
+        <button class="btn-primary" id="sources-explorer-import">
+          <i class="ph ph-plus"></i> Import New Source
+        </button>
       </div>
     </div>
   </div>

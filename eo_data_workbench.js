@@ -516,6 +516,11 @@ class EODataWorkbench {
       this._showImportModal();
     });
 
+    // Sources header - opens explorer
+    document.getElementById('sources-header-title')?.addEventListener('click', () => {
+      this._showSourcesExplorer();
+    });
+
     // New view button
     document.getElementById('btn-new-view')?.addEventListener('click', () => {
       this._showNewViewModal();
@@ -1992,9 +1997,17 @@ class EODataWorkbench {
       return;
     }
 
+    // Show only most recent sources in sidebar preview
+    const MAX_SIDEBAR_SOURCES = 3;
+    const previewSources = sortedSources.slice(0, MAX_SIDEBAR_SOURCES);
+    const hasMore = sortedSources.length > MAX_SIDEBAR_SOURCES;
+
+    // Store full sources list for explorer
+    this._allSources = sortedSources;
+
     // Render sources as a flat list (not a tree with sets!)
     let html = '';
-    for (const source of sortedSources) {
+    for (const source of previewSources) {
       const sourceIcon = this._getSourceIcon(source.name);
       const provenanceInfo = this._formatSourceProvenance(source);
       const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : '';
@@ -2012,6 +2025,17 @@ class EODataWorkbench {
       `;
     }
 
+    // Add "See all" link if more sources exist
+    if (hasMore) {
+      html += `
+        <div class="nav-item sources-see-all" id="btn-sources-see-all">
+          <i class="ph ph-folder-open"></i>
+          <span>See all ${sortedSources.length} sources</span>
+          <i class="ph ph-arrow-right"></i>
+        </div>
+      `;
+    }
+
     container.innerHTML = html;
 
     // Attach event handlers for source items
@@ -2025,6 +2049,11 @@ class EODataWorkbench {
         e.preventDefault();
         this._showSourceContextMenu(e, item.dataset.sourceId);
       });
+    });
+
+    // Attach handler for "See all" link
+    document.getElementById('btn-sources-see-all')?.addEventListener('click', () => {
+      this._showSourcesExplorer();
     });
   }
 
@@ -2145,6 +2174,272 @@ class EODataWorkbench {
       }
     }
     return registry;
+  }
+
+  /**
+   * Show Sources Explorer modal
+   * Full-screen explorer with search, sort, and source-set relationships
+   */
+  _showSourcesExplorer() {
+    const overlay = document.getElementById('sources-explorer-overlay');
+    if (!overlay) return;
+
+    // Show modal
+    overlay.style.display = 'flex';
+
+    // Initialize state
+    this._explorerSearchTerm = '';
+    this._explorerSortBy = 'date-desc';
+
+    // Render sources
+    this._renderSourcesExplorerList();
+
+    // Attach event handlers (only once)
+    if (!this._explorerHandlersAttached) {
+      this._explorerHandlersAttached = true;
+
+      // Close button
+      document.getElementById('sources-explorer-close')?.addEventListener('click', () => {
+        this._closeSourcesExplorer();
+      });
+
+      // Overlay click to close
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          this._closeSourcesExplorer();
+        }
+      });
+
+      // Search input
+      document.getElementById('sources-explorer-search')?.addEventListener('input', (e) => {
+        this._explorerSearchTerm = e.target.value.toLowerCase();
+        this._renderSourcesExplorerList();
+      });
+
+      // Sort select
+      document.getElementById('sources-explorer-sort')?.addEventListener('change', (e) => {
+        this._explorerSortBy = e.target.value;
+        this._renderSourcesExplorerList();
+      });
+
+      // Import button
+      document.getElementById('sources-explorer-import')?.addEventListener('click', () => {
+        this._closeSourcesExplorer();
+        this._showImportModal();
+      });
+
+      // Escape key to close
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlay.style.display !== 'none') {
+          this._closeSourcesExplorer();
+        }
+      });
+    }
+
+    // Focus search
+    document.getElementById('sources-explorer-search')?.focus();
+  }
+
+  /**
+   * Close Sources Explorer modal
+   */
+  _closeSourcesExplorer() {
+    const overlay = document.getElementById('sources-explorer-overlay');
+    if (overlay) {
+      overlay.style.display = 'none';
+    }
+  }
+
+  /**
+   * Render the sources list in the explorer
+   */
+  _renderSourcesExplorerList() {
+    const container = document.getElementById('sources-explorer-body');
+    const countEl = document.getElementById('sources-explorer-count');
+    if (!container) return;
+
+    // Get all sources (use cached list or rebuild)
+    let sources = this._allSources || Array.from(this._getSourceRegistry().values());
+
+    // Filter by search term
+    if (this._explorerSearchTerm) {
+      sources = sources.filter(s =>
+        s.name.toLowerCase().includes(this._explorerSearchTerm)
+      );
+    }
+
+    // Sort sources
+    sources = this._sortSourcesExplorer(sources, this._explorerSortBy);
+
+    // Update count
+    if (countEl) {
+      countEl.textContent = `${sources.length} source${sources.length !== 1 ? 's' : ''}`;
+    }
+
+    // Empty state
+    if (sources.length === 0) {
+      container.innerHTML = `
+        <div class="sources-explorer-empty">
+          <i class="ph ph-folder-open"></i>
+          <p>${this._explorerSearchTerm ? 'No sources match your search' : 'No sources imported yet'}</p>
+          ${!this._explorerSearchTerm ? '<button class="btn-link" id="explorer-first-import">Import your first source</button>' : ''}
+        </div>
+      `;
+      document.getElementById('explorer-first-import')?.addEventListener('click', () => {
+        this._closeSourcesExplorer();
+        this._showImportModal();
+      });
+      return;
+    }
+
+    // Render source rows
+    let html = '';
+    for (const source of sources) {
+      const derivedSets = this._getDerivedSetsForSource(source);
+      const sourceIcon = this._getSourceIcon(source.name);
+      const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : 'Unknown';
+      const importTime = source.importedAt ? new Date(source.importedAt).toLocaleTimeString() : '';
+
+      html += `
+        <div class="sources-explorer-item" data-source-id="${source.id}">
+          <div class="sources-explorer-item-header">
+            <button class="sources-explorer-expand" data-expanded="false">
+              <i class="ph ph-caret-right"></i>
+            </button>
+            <i class="ph ${sourceIcon} source-icon"></i>
+            <div class="sources-explorer-item-info">
+              <span class="sources-explorer-item-name">${this._escapeHtml(source.name)}</span>
+              <span class="sources-explorer-item-meta">
+                ${importDate} at ${importTime}
+                ${source.provenance?.method ? ` · ${source.provenance.method}` : ''}
+              </span>
+            </div>
+            <div class="sources-explorer-item-stats">
+              <span class="sources-explorer-item-records" title="${source.recordCount} records">
+                <i class="ph ph-rows"></i> ${source.recordCount}
+              </span>
+              <span class="sources-explorer-item-sets" title="${derivedSets.length} derived sets">
+                <i class="ph ph-table"></i> ${derivedSets.length}
+              </span>
+            </div>
+            <span class="given-badge-small">GIVEN</span>
+          </div>
+          <div class="sources-explorer-item-body" style="display: none;">
+            <div class="sources-explorer-provenance">
+              <h5><i class="ph ph-git-branch"></i> Provenance</h5>
+              <div class="provenance-grid">
+                <span class="provenance-label">Source:</span>
+                <span class="provenance-value">${this._escapeHtml(source.name)}</span>
+                ${source.provenance?.agent ? `<span class="provenance-label">Agent:</span><span class="provenance-value">${source.provenance.agent}</span>` : ''}
+                ${source.provenance?.method ? `<span class="provenance-label">Method:</span><span class="provenance-value">${source.provenance.method}</span>` : ''}
+                <span class="provenance-label">Imported:</span>
+                <span class="provenance-value">${importDate} ${importTime}</span>
+              </div>
+            </div>
+            <div class="sources-explorer-sets">
+              <h5><i class="ph ph-diagram-next"></i> Derived Sets (${derivedSets.length})</h5>
+              ${derivedSets.length === 0 ? '<p class="no-sets-hint">No sets derived from this source yet</p>' : ''}
+              <div class="derived-sets-tree">
+                ${derivedSets.map(set => this._renderDerivedSetNode(set)).join('')}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+
+    // Attach expand/collapse handlers
+    container.querySelectorAll('.sources-explorer-expand').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const item = btn.closest('.sources-explorer-item');
+        const body = item.querySelector('.sources-explorer-item-body');
+        const isExpanded = btn.dataset.expanded === 'true';
+
+        btn.dataset.expanded = (!isExpanded).toString();
+        btn.querySelector('i').className = isExpanded ? 'ph ph-caret-right' : 'ph ph-caret-down';
+        body.style.display = isExpanded ? 'none' : 'block';
+      });
+    });
+
+    // Attach click handlers for derived sets
+    container.querySelectorAll('.derived-set-node').forEach(node => {
+      node.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const setId = node.dataset.setId;
+        this._closeSourcesExplorer();
+        this._selectSet(setId);
+      });
+    });
+
+    // Header row click to expand
+    container.querySelectorAll('.sources-explorer-item-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const btn = header.querySelector('.sources-explorer-expand');
+        btn?.click();
+      });
+    });
+  }
+
+  /**
+   * Sort sources for explorer
+   */
+  _sortSourcesExplorer(sources, sortBy) {
+    const sorted = [...sources];
+    switch (sortBy) {
+      case 'date-desc':
+        return sorted.sort((a, b) => new Date(b.importedAt || 0) - new Date(a.importedAt || 0));
+      case 'date-asc':
+        return sorted.sort((a, b) => new Date(a.importedAt || 0) - new Date(b.importedAt || 0));
+      case 'name-asc':
+        return sorted.sort((a, b) => a.name.localeCompare(b.name));
+      case 'name-desc':
+        return sorted.sort((a, b) => b.name.localeCompare(a.name));
+      case 'records-desc':
+        return sorted.sort((a, b) => (b.recordCount || 0) - (a.recordCount || 0));
+      case 'records-asc':
+        return sorted.sort((a, b) => (a.recordCount || 0) - (b.recordCount || 0));
+      default:
+        return sorted;
+    }
+  }
+
+  /**
+   * Get sets derived from a source
+   */
+  _getDerivedSetsForSource(source) {
+    return this.sets.filter(set => {
+      const prov = set.datasetProvenance;
+      if (!prov) return false;
+      const sourceName = prov.originalFilename || prov.provenance?.source;
+      return sourceName?.toLowerCase() === source.name.toLowerCase();
+    });
+  }
+
+  /**
+   * Render a derived set node with its views
+   */
+  _renderDerivedSetNode(set) {
+    const views = set.views || [];
+    const viewsHtml = views.map(view => `
+      <div class="derived-view-node" data-view-id="${view.id}">
+        <i class="ph ${this._getViewIcon(view.type)}"></i>
+        <span>${this._escapeHtml(view.name)}</span>
+      </div>
+    `).join('');
+
+    return `
+      <div class="derived-set-node" data-set-id="${set.id}">
+        <div class="derived-set-header">
+          <i class="${set.icon || 'ph ph-table'}"></i>
+          <span class="derived-set-name">${this._escapeHtml(set.name)}</span>
+          <span class="derived-set-count">${set.records?.length || 0} records</span>
+        </div>
+        ${views.length > 0 ? `<div class="derived-set-views">${viewsHtml}</div>` : ''}
+      </div>
+    `;
   }
 
   /**
