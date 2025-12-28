@@ -1643,19 +1643,10 @@ class ImportOrchestrator {
       edgeSet.records.push(createRecord(edgeSet.id, values));
     }
 
-    // Create views by edge type
-    const edgeTypes = new Set(graphInfo.edges.map(e => e.type).filter(Boolean));
-    for (const edgeType of edgeTypes) {
-      const view = createView(this._formatViewName(edgeType), 'table', {
-        filters: [{
-          fieldId: edgeSet.fields[3].id,
-          operator: 'is',
-          filterValue: edgeType,
-          enabled: true
-        }]
-      });
-      edgeSet.views.push(view);
-    }
+    // Note: We intentionally don't create views per edge type here.
+    // Graph datasets often have many relationship types (brother_of, sibling_of,
+    // married_to, owns, employed_by, etc.) and auto-creating a view for each
+    // would clutter the UI. Users can filter by type manually if needed.
 
     this.workbench.sets.push(edgeSet);
   }
