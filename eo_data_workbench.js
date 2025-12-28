@@ -561,10 +561,6 @@ class EODataWorkbench {
       }
     });
 
-    // Filter/Sort buttons - Now opens Focus modal (Rule 5)
-    document.getElementById('btn-filter')?.addEventListener('click', () => this._showNewFocusModal());
-    document.getElementById('btn-sort')?.addEventListener('click', () => this._showSortPanel());
-
     // Snapshot button (Rule 9)
     document.getElementById('btn-snapshot')?.addEventListener('click', () => this._showNewSnapshotModal());
 
@@ -584,8 +580,7 @@ class EODataWorkbench {
     document.getElementById('bulk-delete')?.addEventListener('click', () => this._bulkDelete());
     document.getElementById('bulk-actions-close')?.addEventListener('click', () => this._clearSelection());
 
-    // Filter panel
-    document.getElementById('btn-filter')?.removeEventListener('click', () => {});
+    // Filter/Focus panel - Focus button opens the filter panel for creating focused views (Rule 5)
     document.getElementById('btn-filter')?.addEventListener('click', () => this._toggleFilterPanel());
     document.getElementById('filter-panel-close')?.addEventListener('click', () => this._hideFilterPanel());
     document.getElementById('add-filter-btn')?.addEventListener('click', () => this._addFilterRow());
@@ -5368,7 +5363,11 @@ class EODataWorkbench {
       return;
     }
 
-    const choices = groupField.options.choices || [];
+    // Ensure field.options.choices exists (defensive check)
+    if (!groupField.options) groupField.options = {};
+    if (!groupField.options.choices) groupField.options.choices = [];
+
+    const choices = groupField.options.choices;
     const primaryField = set?.fields.find(f => f.isPrimary) || set?.fields[0];
 
     let html = '<div class="kanban-container">';
@@ -5996,8 +5995,10 @@ class EODataWorkbench {
                 id: `${record.id}-${linkedId}-${field.name}`,
                 source: record.id,
                 target: linkedId,
-                fieldName: field.name
-              }
+                fieldName: field.name,
+                color: CytoscapeColors.GRAPH_DATA
+              },
+              classes: 'link-edge'
             });
           } else {
             // Try to find by title/name match for cross-set or legacy links
@@ -6008,8 +6009,10 @@ class EODataWorkbench {
                   id: `${record.id}-${targetRecord.id}-${field.name}`,
                   source: record.id,
                   target: targetRecord.id,
-                  fieldName: field.name
-                }
+                  fieldName: field.name,
+                  color: CytoscapeColors.GRAPH_DATA
+                },
+                classes: 'link-edge'
               });
             }
           }
@@ -6054,8 +6057,10 @@ class EODataWorkbench {
                   id: `${sourceRecord.id}-${targetRecord.id}-${edgeType}`,
                   source: sourceRecord.id,
                   target: targetRecord.id,
-                  fieldName: edgeType
-                }
+                  fieldName: edgeType,
+                  color: CytoscapeColors.GRAPH_DATA
+                },
+                classes: 'link-edge'
               });
             }
           });
@@ -8653,10 +8658,15 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.SELECT:
+        // Ensure field.options.choices exists (defensive check for legacy data)
+        if (!field.options) field.options = {};
+        if (!field.options.choices) field.options.choices = [];
+
+        const selectChoices = field.options.choices;
         el.innerHTML = `
           <select class="detail-editor">
             <option value="">Select...</option>
-            ${(field.options?.choices || []).map(c =>
+            ${selectChoices.map(c =>
               `<option value="${c.id}" ${c.id === currentValue ? 'selected' : ''}>${this._escapeHtml(c.name)}</option>`
             ).join('')}
           </select>
@@ -8664,14 +8674,19 @@ class EODataWorkbench {
         const selectEditor = el.querySelector('select');
         selectEditor.focus();
         selectEditor.addEventListener('change', () => {
-          this._updateRecordValue(recordId, fieldId, selectEditor.value || null);
+          const newValue = selectEditor.value || null;
+          this._updateRecordValue(recordId, fieldId, newValue);
           el.classList.remove('editing');
-          el.innerHTML = this._renderDetailFieldValue(field, selectEditor.value || null);
+          el.innerHTML = this._renderDetailFieldValue(field, newValue);
           this._renderView();
         });
         selectEditor.addEventListener('blur', () => {
-          el.classList.remove('editing');
-          el.innerHTML = this._renderDetailFieldValue(field, record.values[fieldId]);
+          setTimeout(() => {
+            if (el.classList.contains('editing')) {
+              el.classList.remove('editing');
+              el.innerHTML = this._renderDetailFieldValue(field, record.values[fieldId]);
+            }
+          }, 150);
         });
         break;
 
@@ -9973,6 +9988,9 @@ class EODataWorkbench {
     const view = this.getCurrentView();
     if (!view) return;
 
+    // Ensure view.config exists (defensive check for legacy data)
+    if (!view.config) view.config = {};
+
     const rows = document.querySelectorAll('#filter-groups .filter-row');
     const logic = document.getElementById('filter-logic')?.value || 'and';
 
@@ -10002,6 +10020,7 @@ class EODataWorkbench {
   _clearFilters() {
     const view = this.getCurrentView();
     if (view) {
+      if (!view.config) view.config = {};
       view.config.filters = [];
       view.config.filterLogic = 'and';
     }
@@ -10087,6 +10106,9 @@ class EODataWorkbench {
     const view = this.getCurrentView();
     if (!view) return;
 
+    // Ensure view.config exists (defensive check for legacy data)
+    if (!view.config) view.config = {};
+
     const rows = document.querySelectorAll('#sort-rules .sort-row');
 
     view.config.sorts = [];
@@ -10113,6 +10135,7 @@ class EODataWorkbench {
   _clearSorts() {
     const view = this.getCurrentView();
     if (view) {
+      if (!view.config) view.config = {};
       view.config.sorts = [];
     }
 
