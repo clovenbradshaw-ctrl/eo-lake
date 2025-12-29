@@ -13343,21 +13343,22 @@ class EODataWorkbench {
           display: flex;
           gap: 8px;
           padding: 8px 12px;
-          background: var(--color-bg-secondary, #f5f5f5);
+          background: var(--bg-secondary, #1e293b);
           border-radius: 6px;
           margin-bottom: 12px;
           font-size: 12px;
-          color: var(--color-text-secondary, #666);
+          color: var(--text-secondary, #cbd5e1);
         }
         .source-selection-hint i {
-          color: var(--color-primary, #0066cc);
+          color: var(--accent, #60a5fa);
           flex-shrink: 0;
         }
         .source-selection-list {
           max-height: 250px;
           overflow-y: auto;
-          border: 1px solid var(--color-border, #ddd);
+          border: 1px solid var(--border-color, #334155);
           border-radius: 8px;
+          background: var(--bg-secondary, #1e293b);
         }
         .source-selection-item {
           display: flex;
@@ -13365,22 +13366,25 @@ class EODataWorkbench {
           gap: 12px;
           padding: 12px;
           cursor: pointer;
-          border-bottom: 1px solid var(--color-border, #eee);
+          border-bottom: 1px solid var(--border-color, #334155);
           transition: background 0.15s;
+          color: var(--text-primary, #f1f5f9);
         }
         .source-selection-item:last-child {
           border-bottom: none;
         }
         .source-selection-item:hover {
-          background: var(--color-bg-hover, #f8f8f8);
+          background: var(--bg-hover, rgba(255, 255, 255, 0.05));
         }
         .source-selection-item input[type="checkbox"] {
           width: 18px;
           height: 18px;
           cursor: pointer;
+          accent-color: var(--accent, #60a5fa);
         }
         .source-selection-item input[type="checkbox"]:checked + .source-selection-icon {
-          color: var(--color-primary, #0066cc);
+          color: var(--accent, #60a5fa);
+          background: rgba(96, 165, 250, 0.15);
         }
         .source-selection-icon {
           width: 32px;
@@ -13388,10 +13392,10 @@ class EODataWorkbench {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: var(--color-bg-secondary, #f0f0f0);
+          background: var(--bg-tertiary, #0f172a);
           border-radius: 6px;
           font-size: 16px;
-          color: var(--color-text-secondary, #666);
+          color: var(--text-secondary, #cbd5e1);
         }
         .source-selection-info {
           flex: 1;
@@ -13402,10 +13406,11 @@ class EODataWorkbench {
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          color: var(--text-primary, #f1f5f9);
         }
         .source-selection-meta {
           font-size: 11px;
-          color: var(--color-text-tertiary, #999);
+          color: var(--text-tertiary, #64748b);
           margin-top: 2px;
         }
         .source-selection-empty {
@@ -13415,7 +13420,7 @@ class EODataWorkbench {
           gap: 8px;
           padding: 24px;
           text-align: center;
-          color: var(--color-text-tertiary, #999);
+          color: var(--text-tertiary, #64748b);
         }
         .source-selection-empty i {
           font-size: 32px;
@@ -13445,8 +13450,9 @@ class EODataWorkbench {
         this._closeModal();
         this._showSetFromSourceUI(selectedSourceIds[0]);
       } else {
-        // Multiple sources selected - create set with combined data
-        this._createSetFromMultipleSources(name, selectedSourceIds);
+        // Multiple sources selected - show merge options modal
+        this._closeModal();
+        this._showMergeOptionsModal(name, selectedSourceIds);
       }
     });
 
@@ -13602,6 +13608,883 @@ class EODataWorkbench {
     this._renderView();
     this._updateBreadcrumb();
     this._showToast(`Set "${name}" created with ${allRecords.length} records from ${sources.length} sources`, 'success');
+  }
+
+  /**
+   * Show merge options modal when multiple sources are selected
+   * Allows user to choose merge strategy, join columns, and output options
+   */
+  _showMergeOptionsModal(setName, sourceIds) {
+    const sources = sourceIds.map(id => this.sources?.find(s => s.id === id)).filter(Boolean);
+
+    if (sources.length < 2) {
+      this._showToast('Need at least 2 sources to merge', 'error');
+      return;
+    }
+
+    // Collect all fields from all sources for join column selection
+    const allFields = new Map();
+    sources.forEach((source, idx) => {
+      const fields = source.schema?.fields || [];
+      fields.forEach(field => {
+        const key = field.name.toLowerCase();
+        if (!allFields.has(key)) {
+          allFields.set(key, {
+            name: field.name,
+            sources: [source.id]
+          });
+        } else {
+          allFields.get(key).sources.push(source.id);
+        }
+      });
+    });
+
+    // Find common fields (exist in multiple sources) for join suggestions
+    const commonFields = Array.from(allFields.entries())
+      .filter(([_, data]) => data.sources.length > 1)
+      .map(([_, data]) => data.name);
+
+    const sourceFieldsHtml = sources.map((source, idx) => {
+      const fields = source.schema?.fields || [];
+      return `
+        <div class="merge-source-fields" data-source-id="${source.id}">
+          <div class="merge-source-header">
+            <i class="ph ${this._getSourceIcon(source.name)}"></i>
+            <span class="merge-source-name">${source.name}</span>
+            <span class="merge-source-count">${source.recordCount || source.records?.length || 0} records</span>
+          </div>
+          <select class="merge-join-field form-select" id="join-field-${idx}" data-source-idx="${idx}">
+            <option value="">Select join column...</option>
+            ${fields.map(f => `<option value="${f.name}" ${commonFields.includes(f.name) ? 'class="suggested"' : ''}>${f.name}</option>`).join('')}
+          </select>
+        </div>
+      `;
+    }).join('');
+
+    this._showModal('Merge Sources', `
+      <div class="merge-options-container">
+        <div class="merge-set-name">
+          <label class="form-label">Set Name</label>
+          <input type="text" class="form-input" id="merge-set-name" value="${setName}" placeholder="Merged Data">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Merge Strategy</label>
+          <div class="merge-strategy-options">
+            <label class="merge-strategy-option">
+              <input type="radio" name="merge-strategy" value="union" checked>
+              <div class="merge-strategy-card">
+                <i class="ph ph-rows"></i>
+                <div class="merge-strategy-content">
+                  <strong>Union (Stack)</strong>
+                  <span>Combine all records from each source into one table. Columns are merged by name.</span>
+                </div>
+              </div>
+            </label>
+            <label class="merge-strategy-option">
+              <input type="radio" name="merge-strategy" value="join">
+              <div class="merge-strategy-card">
+                <i class="ph ph-intersect"></i>
+                <div class="merge-strategy-content">
+                  <strong>Join (Match)</strong>
+                  <span>Match records between sources based on a common column value.</span>
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="merge-join-options" id="merge-join-options" style="display: none;">
+          <div class="form-group">
+            <label class="form-label">Join Type</label>
+            <div class="merge-join-type-options">
+              <label class="join-type-option">
+                <input type="radio" name="join-type" value="inner" checked>
+                <span class="join-type-badge inner">Inner</span>
+                <span class="join-type-desc">Only matching records</span>
+              </label>
+              <label class="join-type-option">
+                <input type="radio" name="join-type" value="left">
+                <span class="join-type-badge left">Left</span>
+                <span class="join-type-desc">All from first + matches</span>
+              </label>
+              <label class="join-type-option">
+                <input type="radio" name="join-type" value="right">
+                <span class="join-type-badge right">Right</span>
+                <span class="join-type-desc">All from second + matches</span>
+              </label>
+              <label class="join-type-option">
+                <input type="radio" name="join-type" value="full">
+                <span class="join-type-badge full">Full</span>
+                <span class="join-type-desc">All records from both</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Join Columns</label>
+            ${commonFields.length > 0 ? `
+              <div class="merge-common-fields-hint">
+                <i class="ph ph-lightbulb"></i>
+                <span>Common columns found: ${commonFields.join(', ')}</span>
+              </div>
+            ` : ''}
+            <div class="merge-source-fields-container">
+              ${sourceFieldsHtml}
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Output Options</label>
+          <label class="merge-output-option">
+            <input type="checkbox" id="merge-split-types">
+            <span>Split into separate record types by source</span>
+            <i class="ph ph-info" title="Creates a _recordType field to distinguish records from each source"></i>
+          </label>
+          <label class="merge-output-option">
+            <input type="checkbox" id="merge-include-source">
+            <span>Include source reference field</span>
+            <i class="ph ph-info" title="Adds a _sourceId field to track which source each record came from"></i>
+          </label>
+        </div>
+
+        <div class="merge-preview-section" id="merge-preview-section">
+          <button class="btn btn-secondary btn-sm" id="merge-preview-btn">
+            <i class="ph ph-eye"></i> Preview Result
+          </button>
+          <div class="merge-preview-result" id="merge-preview-result"></div>
+        </div>
+      </div>
+
+      <style>
+        .merge-options-container {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .merge-strategy-options {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .merge-strategy-option {
+          cursor: pointer;
+        }
+        .merge-strategy-option input[type="radio"] {
+          display: none;
+        }
+        .merge-strategy-card {
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          padding: 12px;
+          border: 2px solid var(--border-color, #334155);
+          border-radius: 8px;
+          transition: all 0.15s;
+          background: var(--bg-secondary, #1e293b);
+        }
+        .merge-strategy-card i {
+          font-size: 24px;
+          color: var(--text-secondary, #cbd5e1);
+          margin-top: 2px;
+        }
+        .merge-strategy-content {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .merge-strategy-content strong {
+          color: var(--text-primary, #f1f5f9);
+        }
+        .merge-strategy-content span {
+          font-size: 12px;
+          color: var(--text-tertiary, #64748b);
+        }
+        .merge-strategy-option input:checked + .merge-strategy-card {
+          border-color: var(--accent, #60a5fa);
+          background: rgba(96, 165, 250, 0.1);
+        }
+        .merge-strategy-option input:checked + .merge-strategy-card i {
+          color: var(--accent, #60a5fa);
+        }
+        .merge-join-options {
+          padding: 16px;
+          background: var(--bg-secondary, #1e293b);
+          border-radius: 8px;
+          border: 1px solid var(--border-color, #334155);
+        }
+        .merge-join-type-options {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+        }
+        .join-type-option {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 4px;
+          padding: 8px;
+          border: 1px solid var(--border-color, #334155);
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .join-type-option:hover {
+          background: var(--bg-hover, rgba(255, 255, 255, 0.05));
+        }
+        .join-type-option input {
+          display: none;
+        }
+        .join-type-option input:checked ~ .join-type-badge {
+          transform: scale(1.1);
+        }
+        .join-type-option input:checked ~ .join-type-badge.inner {
+          background: #3b82f6;
+          color: white;
+        }
+        .join-type-option input:checked ~ .join-type-badge.left {
+          background: #8b5cf6;
+          color: white;
+        }
+        .join-type-option input:checked ~ .join-type-badge.right {
+          background: #10b981;
+          color: white;
+        }
+        .join-type-option input:checked ~ .join-type-badge.full {
+          background: #f59e0b;
+          color: white;
+        }
+        .join-type-badge {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 4px 8px;
+          border-radius: 4px;
+          background: var(--bg-tertiary, #0f172a);
+          color: var(--text-secondary, #cbd5e1);
+          transition: all 0.15s;
+        }
+        .join-type-desc {
+          font-size: 10px;
+          color: var(--text-tertiary, #64748b);
+          text-align: center;
+        }
+        .merge-source-fields-container {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .merge-source-fields {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 12px;
+          background: var(--bg-tertiary, #0f172a);
+          border-radius: 6px;
+        }
+        .merge-source-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .merge-source-header i {
+          font-size: 16px;
+          color: var(--text-secondary, #cbd5e1);
+        }
+        .merge-source-name {
+          font-weight: 500;
+          color: var(--text-primary, #f1f5f9);
+        }
+        .merge-source-count {
+          font-size: 11px;
+          color: var(--text-tertiary, #64748b);
+          margin-left: auto;
+        }
+        .merge-common-fields-hint {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: rgba(96, 165, 250, 0.1);
+          border-radius: 6px;
+          margin-bottom: 8px;
+          font-size: 12px;
+          color: var(--accent, #60a5fa);
+        }
+        .merge-common-fields-hint i {
+          font-size: 16px;
+        }
+        .merge-output-option {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          background: var(--bg-secondary, #1e293b);
+          border-radius: 6px;
+          cursor: pointer;
+          margin-bottom: 8px;
+          color: var(--text-primary, #f1f5f9);
+        }
+        .merge-output-option input {
+          accent-color: var(--accent, #60a5fa);
+        }
+        .merge-output-option i {
+          margin-left: auto;
+          color: var(--text-tertiary, #64748b);
+          font-size: 14px;
+        }
+        .merge-preview-section {
+          padding-top: 8px;
+          border-top: 1px solid var(--border-color, #334155);
+        }
+        .merge-preview-result {
+          margin-top: 8px;
+          padding: 12px;
+          background: var(--bg-tertiary, #0f172a);
+          border-radius: 6px;
+          font-size: 12px;
+          color: var(--text-secondary, #cbd5e1);
+          display: none;
+        }
+        .merge-preview-result.visible {
+          display: block;
+        }
+        .merge-preview-stat {
+          display: flex;
+          justify-content: space-between;
+          padding: 4px 0;
+          border-bottom: 1px solid var(--border-color, #334155);
+        }
+        .merge-preview-stat:last-child {
+          border-bottom: none;
+        }
+        .merge-preview-stat strong {
+          color: var(--text-primary, #f1f5f9);
+        }
+        .merge-join-field.form-select option.suggested {
+          font-weight: bold;
+        }
+      </style>
+    `, () => {
+      // Get all configuration values
+      const finalName = document.getElementById('merge-set-name')?.value || setName;
+      const strategy = document.querySelector('input[name="merge-strategy"]:checked')?.value || 'union';
+      const joinType = document.querySelector('input[name="join-type"]:checked')?.value || 'inner';
+      const splitTypes = document.getElementById('merge-split-types')?.checked || false;
+      const includeSource = document.getElementById('merge-include-source')?.checked || false;
+
+      // Get join columns if join strategy
+      const joinColumns = [];
+      if (strategy === 'join') {
+        sources.forEach((source, idx) => {
+          const select = document.getElementById(`join-field-${idx}`);
+          if (select?.value) {
+            joinColumns.push({
+              sourceId: source.id,
+              field: select.value
+            });
+          }
+        });
+
+        // Validate join columns
+        if (joinColumns.length < 2) {
+          this._showToast('Please select join columns for all sources', 'warning');
+          return;
+        }
+      }
+
+      const mergeConfig = {
+        name: finalName,
+        strategy,
+        joinType,
+        joinColumns,
+        splitTypes,
+        includeSource,
+        sourceIds
+      };
+
+      this._executeMerge(mergeConfig);
+    });
+
+    // Attach event listeners after modal is shown
+    setTimeout(() => {
+      // Toggle join options visibility
+      document.querySelectorAll('input[name="merge-strategy"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+          const joinOptions = document.getElementById('merge-join-options');
+          if (joinOptions) {
+            joinOptions.style.display = e.target.value === 'join' ? 'block' : 'none';
+          }
+        });
+      });
+
+      // Preview button
+      document.getElementById('merge-preview-btn')?.addEventListener('click', () => {
+        this._showMergePreview(sources);
+      });
+    }, 100);
+  }
+
+  /**
+   * Show merge preview based on current settings
+   */
+  _showMergePreview(sources) {
+    const strategy = document.querySelector('input[name="merge-strategy"]:checked')?.value || 'union';
+    const resultDiv = document.getElementById('merge-preview-result');
+
+    if (!resultDiv) return;
+
+    let totalRecords = 0;
+    let totalFields = new Set();
+
+    sources.forEach(source => {
+      totalRecords += source.recordCount || source.records?.length || 0;
+      const fields = source.schema?.fields || [];
+      fields.forEach(f => totalFields.add(f.name.toLowerCase()));
+    });
+
+    let previewHtml = '';
+    if (strategy === 'union') {
+      previewHtml = `
+        <div class="merge-preview-stat">
+          <span>Total records (combined)</span>
+          <strong>${totalRecords}</strong>
+        </div>
+        <div class="merge-preview-stat">
+          <span>Unique fields</span>
+          <strong>${totalFields.size}</strong>
+        </div>
+        <div class="merge-preview-stat">
+          <span>Sources</span>
+          <strong>${sources.length}</strong>
+        </div>
+      `;
+    } else {
+      // For join, estimate is harder - just show source info
+      const joinType = document.querySelector('input[name="join-type"]:checked')?.value || 'inner';
+      const joinDesc = {
+        'inner': 'Records that match in both sources',
+        'left': `All ${sources[0]?.records?.length || 0} from first source + matches`,
+        'right': `All ${sources[1]?.records?.length || 0} from second source + matches`,
+        'full': 'All records from both sources'
+      };
+      previewHtml = `
+        <div class="merge-preview-stat">
+          <span>Join type</span>
+          <strong>${joinType.charAt(0).toUpperCase() + joinType.slice(1)}</strong>
+        </div>
+        <div class="merge-preview-stat">
+          <span>Expected result</span>
+          <strong>${joinDesc[joinType]}</strong>
+        </div>
+        <div class="merge-preview-stat">
+          <span>Combined fields</span>
+          <strong>${totalFields.size}</strong>
+        </div>
+      `;
+    }
+
+    resultDiv.innerHTML = previewHtml;
+    resultDiv.classList.add('visible');
+  }
+
+  /**
+   * Execute the merge based on configuration
+   */
+  _executeMerge(config) {
+    const sources = config.sourceIds.map(id => this.sources?.find(s => s.id === id)).filter(Boolean);
+
+    if (sources.length < 2) {
+      this._showToast('Invalid source configuration', 'error');
+      return;
+    }
+
+    if (config.strategy === 'union') {
+      this._executeUnionMerge(config, sources);
+    } else if (config.strategy === 'join') {
+      this._executeJoinMerge(config, sources);
+    }
+  }
+
+  /**
+   * Execute a union (stack) merge - combines all records
+   */
+  _executeUnionMerge(config, sources) {
+    // Collect all unique fields from all sources
+    const fieldMap = new Map();
+    sources.forEach(source => {
+      const fields = source.schema?.fields || [];
+      fields.forEach(field => {
+        const fieldName = field.name.toLowerCase();
+        if (!fieldMap.has(fieldName)) {
+          fieldMap.set(fieldName, {
+            id: `fld_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+            name: field.name,
+            type: field.type || 'TEXT',
+            width: field.width || 150
+          });
+        }
+      });
+    });
+
+    // Add special fields if requested
+    if (config.splitTypes) {
+      fieldMap.set('_recordtype', {
+        id: `fld_${Date.now().toString(36)}_rt`,
+        name: '_recordType',
+        type: 'TEXT',
+        width: 150
+      });
+    }
+
+    if (config.includeSource) {
+      fieldMap.set('_sourceid', {
+        id: `fld_${Date.now().toString(36)}_sid`,
+        name: '_sourceId',
+        type: 'TEXT',
+        width: 150
+      });
+    }
+
+    const combinedFields = Array.from(fieldMap.values());
+
+    // Combine all records
+    const allRecords = [];
+    const timestamp = new Date().toISOString();
+
+    sources.forEach(source => {
+      const records = source.records || [];
+      const sourceName = source.name;
+
+      records.forEach(record => {
+        const newRecord = {
+          id: `rec_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+          setId: null,
+          values: { ...record },
+          createdAt: timestamp,
+          updatedAt: timestamp
+        };
+
+        if (config.splitTypes) {
+          newRecord.values['_recordType'] = sourceName;
+        }
+
+        if (config.includeSource) {
+          newRecord.values['_sourceId'] = source.id;
+        }
+
+        allRecords.push(newRecord);
+      });
+    });
+
+    // Create the set
+    const setId = `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+
+    const newSet = {
+      id: setId,
+      name: config.name,
+      icon: 'ph-table',
+      fields: combinedFields,
+      records: allRecords.map(r => ({ ...r, setId })),
+      views: [{
+        id: `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+        name: 'Main View',
+        type: 'table',
+        config: {}
+      }],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      derivation: {
+        strategy: 'union',
+        sourceIds: config.sourceIds,
+        options: {
+          splitTypes: config.splitTypes,
+          includeSource: config.includeSource
+        },
+        derivedAt: timestamp
+      }
+    };
+
+    this.sets.push(newSet);
+    this.currentSetId = newSet.id;
+    this.currentViewId = newSet.views[0]?.id;
+
+    this._saveData();
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._showToast(`Set "${config.name}" created with ${allRecords.length} records from ${sources.length} sources`, 'success');
+  }
+
+  /**
+   * Execute a join merge - matches records based on common column
+   */
+  _executeJoinMerge(config, sources) {
+    if (sources.length !== 2) {
+      this._showToast('Join currently supports exactly 2 sources', 'warning');
+      return;
+    }
+
+    const [leftSource, rightSource] = sources;
+    const leftField = config.joinColumns.find(c => c.sourceId === leftSource.id)?.field;
+    const rightField = config.joinColumns.find(c => c.sourceId === rightSource.id)?.field;
+
+    if (!leftField || !rightField) {
+      this._showToast('Please select join columns for both sources', 'error');
+      return;
+    }
+
+    const leftRecords = leftSource.records || [];
+    const rightRecords = rightSource.records || [];
+
+    // Build index on right records
+    const rightIndex = new Map();
+    rightRecords.forEach((record, idx) => {
+      const key = String(record[rightField] ?? '').toLowerCase().trim();
+      if (!rightIndex.has(key)) {
+        rightIndex.set(key, []);
+      }
+      rightIndex.get(key).push({ record, idx });
+    });
+
+    // Collect all fields from both sources
+    const leftFields = leftSource.schema?.fields || [];
+    const rightFields = rightSource.schema?.fields || [];
+
+    const fieldMap = new Map();
+
+    // Add left fields
+    leftFields.forEach(field => {
+      const fieldId = `fld_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+      fieldMap.set(field.name.toLowerCase(), {
+        id: fieldId,
+        name: field.name,
+        type: field.type || 'TEXT',
+        width: field.width || 150,
+        sourceTable: 'left'
+      });
+    });
+
+    // Add right fields (with prefix if name conflicts)
+    rightFields.forEach(field => {
+      const baseName = field.name.toLowerCase();
+      let finalName = field.name;
+      if (fieldMap.has(baseName)) {
+        finalName = `${rightSource.name}_${field.name}`;
+      }
+      const fieldId = `fld_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+      fieldMap.set(finalName.toLowerCase(), {
+        id: fieldId,
+        name: finalName,
+        originalName: field.name,
+        type: field.type || 'TEXT',
+        width: field.width || 150,
+        sourceTable: 'right'
+      });
+    });
+
+    // Add special fields if requested
+    if (config.splitTypes) {
+      fieldMap.set('_recordtype', {
+        id: `fld_${Date.now().toString(36)}_rt`,
+        name: '_recordType',
+        type: 'TEXT',
+        width: 150
+      });
+    }
+
+    if (config.includeSource) {
+      fieldMap.set('_leftsourceid', {
+        id: `fld_${Date.now().toString(36)}_lsid`,
+        name: '_leftSourceId',
+        type: 'TEXT',
+        width: 150
+      });
+      fieldMap.set('_rightsourceid', {
+        id: `fld_${Date.now().toString(36)}_rsid`,
+        name: '_rightSourceId',
+        type: 'TEXT',
+        width: 150
+      });
+    }
+
+    const combinedFields = Array.from(fieldMap.values());
+    const timestamp = new Date().toISOString();
+
+    // Execute join
+    const joinedRecords = [];
+    const matchedRightIndices = new Set();
+
+    // Process left records
+    leftRecords.forEach((leftRecord, leftIdx) => {
+      const leftKey = String(leftRecord[leftField] ?? '').toLowerCase().trim();
+      const matches = rightIndex.get(leftKey) || [];
+
+      if (matches.length > 0) {
+        // Found matches
+        matches.forEach(({ record: rightRecord, idx: rightIdx }) => {
+          matchedRightIndices.add(rightIdx);
+
+          const values = {};
+
+          // Add left values
+          Object.entries(leftRecord).forEach(([key, val]) => {
+            values[key] = val;
+          });
+
+          // Add right values (with renaming for conflicts)
+          Object.entries(rightRecord).forEach(([key, val]) => {
+            const baseName = key.toLowerCase();
+            if (fieldMap.has(baseName) && fieldMap.get(baseName).sourceTable === 'left') {
+              // Conflict - use prefixed name
+              values[`${rightSource.name}_${key}`] = val;
+            } else {
+              values[key] = val;
+            }
+          });
+
+          if (config.splitTypes) {
+            values['_recordType'] = 'matched';
+          }
+
+          if (config.includeSource) {
+            values['_leftSourceId'] = leftSource.id;
+            values['_rightSourceId'] = rightSource.id;
+          }
+
+          joinedRecords.push({
+            id: `rec_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+            setId: null,
+            values,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            _leftIndex: leftIdx,
+            _rightIndex: rightIdx
+          });
+        });
+      } else if (config.joinType === 'left' || config.joinType === 'full') {
+        // No match - include left only
+        const values = { ...leftRecord };
+
+        // Null out right fields
+        rightFields.forEach(field => {
+          const baseName = field.name.toLowerCase();
+          if (fieldMap.has(baseName) && fieldMap.get(baseName).sourceTable === 'left') {
+            values[`${rightSource.name}_${field.name}`] = null;
+          } else {
+            values[field.name] = null;
+          }
+        });
+
+        if (config.splitTypes) {
+          values['_recordType'] = `${leftSource.name}_only`;
+        }
+
+        if (config.includeSource) {
+          values['_leftSourceId'] = leftSource.id;
+          values['_rightSourceId'] = null;
+        }
+
+        joinedRecords.push({
+          id: `rec_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+          setId: null,
+          values,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          _leftIndex: leftIdx,
+          _rightIndex: null
+        });
+      }
+    });
+
+    // For right/full join - include unmatched right records
+    if (config.joinType === 'right' || config.joinType === 'full') {
+      rightRecords.forEach((rightRecord, rightIdx) => {
+        if (!matchedRightIndices.has(rightIdx)) {
+          const values = {};
+
+          // Null out left fields
+          leftFields.forEach(field => {
+            values[field.name] = null;
+          });
+
+          // Add right values
+          Object.entries(rightRecord).forEach(([key, val]) => {
+            const baseName = key.toLowerCase();
+            if (fieldMap.has(baseName) && fieldMap.get(baseName).sourceTable === 'left') {
+              values[`${rightSource.name}_${key}`] = val;
+            } else {
+              values[key] = val;
+            }
+          });
+
+          if (config.splitTypes) {
+            values['_recordType'] = `${rightSource.name}_only`;
+          }
+
+          if (config.includeSource) {
+            values['_leftSourceId'] = null;
+            values['_rightSourceId'] = rightSource.id;
+          }
+
+          joinedRecords.push({
+            id: `rec_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+            setId: null,
+            values,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            _leftIndex: null,
+            _rightIndex: rightIdx
+          });
+        }
+      });
+    }
+
+    // Create the set
+    const setId = `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+
+    const newSet = {
+      id: setId,
+      name: config.name,
+      icon: 'ph-intersect',
+      fields: combinedFields,
+      records: joinedRecords.map(r => ({ ...r, setId })),
+      views: [{
+        id: `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+        name: 'Main View',
+        type: 'table',
+        config: {}
+      }],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      derivation: {
+        strategy: 'con',
+        joinSetIds: [leftSource.id, rightSource.id],
+        constraint: {
+          joinConditions: [{
+            leftField,
+            rightField,
+            operator: 'eq'
+          }],
+          joinType: config.joinType,
+          splitTypes: config.splitTypes,
+          includeSource: config.includeSource
+        },
+        derivedAt: timestamp
+      }
+    };
+
+    this.sets.push(newSet);
+    this.currentSetId = newSet.id;
+    this.currentViewId = newSet.views[0]?.id;
+
+    this._saveData();
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+
+    const matchedCount = matchedRightIndices.size;
+    this._showToast(`Joined set "${config.name}" created with ${joinedRecords.length} records (${matchedCount} matches)`, 'success');
   }
 
   _showNewViewModal() {
