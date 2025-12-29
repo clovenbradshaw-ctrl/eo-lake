@@ -93,7 +93,7 @@
   --border-focus: var(--primary-500);
 
   /* Sizing */
-  --sidebar-width: 260px;
+  --sidebar-width: 300px;
   --sidebar-collapsed: 64px;
   --header-height: 52px;
   --status-bar-height: 32px;
