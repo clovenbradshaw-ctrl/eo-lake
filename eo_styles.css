@@ -9210,6 +9210,31 @@ a:focus-visible,
   margin: 0;
 }
 
+/* Dark mode: Active tab should be lighter to stand out */
+html:not(.light-theme) .browser-tab {
+  background: var(--bg-primary);
+}
+
+html:not(.light-theme) .browser-tab:hover {
+  background: var(--bg-secondary);
+}
+
+html:not(.light-theme) .browser-tab.active {
+  background: var(--bg-tertiary);
+}
+
+html:not(.light-theme) .browser-tab.active::after {
+  background: var(--bg-tertiary);
+}
+
+html:not(.light-theme) .browser-tab.active::before {
+  background: radial-gradient(circle at 0 0, transparent 8px, var(--bg-tertiary) 8px);
+}
+
+html:not(.light-theme) .browser-tab.active .tab-curve-right {
+  background: radial-gradient(circle at 100% 0, transparent 8px, var(--bg-tertiary) 8px);
+}
+
 /* Tab Badge (for notifications/counts) */
 .tab-badge {
   position: absolute;
