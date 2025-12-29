@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>EO Query Builder Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    h2 { color: #666; margin-top: 40px; }
+    .section {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 16px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .keyword { color: #569cd6; }
+    .string { color: #ce9178; }
+    .operator { color: #dcdcaa; }
+    .comment { color: #6a9955; }
+    button {
+      background: #0066cc;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+    }
+    button:hover {
+      background: #0052a3;
+    }
+    .result {
+      background: #f0f8ff;
+      padding: 16px;
+      border-radius: 6px;
+      margin-top: 10px;
+      border: 1px solid #cce5ff;
+    }
+    .error {
+      background: #fff0f0;
+      border-color: #ffcccc;
+      color: #cc0000;
+    }
+    .success {
+      background: #f0fff0;
+      border-color: #ccffcc;
+      color: #006600;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    th {
+      background: #f8f9fa;
+      font-weight: 600;
+    }
+    .op-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      margin: 2px;
+    }
+    .op-INS { background: rgba(34, 197, 94, 0.1); color: #16a34a; }
+    .op-SEG { background: rgba(168, 85, 247, 0.1); color: #7c3aed; }
+    .op-CON { background: rgba(236, 72, 153, 0.1); color: #db2777; }
+    .op-ALT { background: rgba(14, 165, 233, 0.1); color: #0284c7; }
+    .op-DES { background: rgba(249, 115, 22, 0.1); color: #ea580c; }
+    .op-AGG { background: rgba(239, 68, 68, 0.1); color: #dc2626; }
+    .pipeline {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin: 10px 0;
+    }
+    .arrow {
+      color: #999;
+      font-size: 18px;
+    }
+    textarea {
+      width: 100%;
+      height: 150px;
+      font-family: 'Monaco', 'Menlo', monospace;
+      font-size: 13px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      resize: vertical;
+    }
+  </style>
+</head>
+<body>
+  <h1>EO Query Builder Test</h1>
+  <p>Test the operator-centric query builder with EOQL and SQL.</p>
+
+  <!-- Test 1: Fluent API -->
+  <div class="section">
+    <h2>Test 1: Fluent API (OperatorChain)</h2>
+    <p>Build queries programmatically using the fluent builder.</p>
+    <button onclick="testFluentAPI()">Run Test</button>
+    <div id="fluent-result"></div>
+  </div>
+
+  <!-- Test 2: EOQL Parser -->
+  <div class="section">
+    <h2>Test 2: EOQL Parser</h2>
+    <p>Parse EOQL (pipe-based, operator-explicit) syntax.</p>
+    <textarea id="eoql-input">FROM evictions AS e
+|> SEG e.plaintiff CONTAINS 'WALLACE'
+|> SEG e.filing_year = 2024
+|> ALT NOW
+|> DES 'Wallace_Evictions_2024'</textarea>
+    <br><br>
+    <button onclick="testEOQL()">Parse EOQL</button>
+    <div id="eoql-result"></div>
+  </div>
+
+  <!-- Test 3: SQL Parser -->
+  <div class="section">
+    <h2>Test 3: SQL Parser (with EO Extensions)</h2>
+    <p>Parse SQL with required EO clauses (CONFLICT, AS OF, AS SET).</p>
+    <textarea id="sql-input">SELECT e.case_number, e.plaintiff, e.filed_date, p.amount
+FROM evictions e
+LEFT JOIN payments p ON e.case_number = p.case_id
+CONFLICT EXPOSE_ALL
+WHERE e.plaintiff LIKE '%WALLACE%'
+  AND e.filing_year = 2024
+AS OF NOW
+AS SET 'Wallace_With_Payments'</textarea>
+    <br><br>
+    <button onclick="testSQL()">Parse SQL</button>
+    <div id="sql-result"></div>
+  </div>
+
+  <!-- Test 4: Predicate Builder -->
+  <div class="section">
+    <h2>Test 4: Nested Predicates</h2>
+    <p>Build complex filter conditions with AND/OR/NOT.</p>
+    <button onclick="testPredicates()">Run Test</button>
+    <div id="predicate-result"></div>
+  </div>
+
+  <!-- Test 5: Validation -->
+  <div class="section">
+    <h2>Test 5: Chain Validation</h2>
+    <p>Test that invalid chains are rejected.</p>
+    <button onclick="testValidation()">Run Test</button>
+    <div id="validation-result"></div>
+  </div>
+
+  <!-- Test 6: Full Integration -->
+  <div class="section">
+    <h2>Test 6: Full Integration (Mock Data)</h2>
+    <p>Execute a query against mock source data.</p>
+    <button onclick="testFullIntegration()">Run Test</button>
+    <div id="integration-result"></div>
+  </div>
+
+  <!-- Load the modules -->
+  <script src="eo_query_builder.js"></script>
+  <script src="eo_query_language.js"></script>
+
+  <script>
+    // Helper to display results
+    function showResult(elementId, content, isError = false, isSuccess = false) {
+      const el = document.getElementById(elementId);
+      el.className = 'result' + (isError ? ' error' : '') + (isSuccess ? ' success' : '');
+      el.innerHTML = content;
+    }
+
+    function renderPipeline(operators) {
+      return `<div class="pipeline">
+        ${operators.map((op, i) =>
+          `<span class="op-badge op-${op.op}">${window.EOQueryBuilder?.OperatorSymbols?.[op.op] || ''} ${op.op}</span>` +
+          (i < operators.length - 1 ? '<span class="arrow">→</span>' : '')
+        ).join('')}
+      </div>`;
+    }
+
+    // Test 1: Fluent API
+    function testFluentAPI() {
+      try {
+        const { OperatorChain, Predicate, ConflictPolicy } = window.EOQueryBuilder;
+
+        // Build a query using the fluent API
+        const chain = new OperatorChain()
+          .fromSource('src_evictions', 'e')
+          .filter(Predicate.and(
+            Predicate.contains('plaintiff', 'WALLACE'),
+            Predicate.eq('filing_year', '2024')
+          ))
+          .asOf('NOW')
+          .name('Wallace_Evictions');
+
+        const validation = chain.validate();
+
+        let html = `<h3>Fluent API Chain Built Successfully</h3>`;
+        html += renderPipeline(chain.operators);
+        html += `<p><strong>Validation:</strong> ${validation.valid ? '✓ Valid' : '✗ Invalid'}</p>`;
+
+        if (validation.errors.length > 0) {
+          html += `<p>Errors: ${validation.errors.join(', ')}</p>`;
+        }
+        if (validation.warnings.length > 0) {
+          html += `<p>Warnings: ${validation.warnings.join(', ')}</p>`;
+        }
+
+        html += `<pre>${JSON.stringify(chain.toJSON(), null, 2)}</pre>`;
+
+        showResult('fluent-result', html, !validation.valid, validation.valid);
+      } catch (e) {
+        showResult('fluent-result', `<strong>Error:</strong> ${e.message}`, true);
+      }
+    }
+
+    // Test 2: EOQL Parser
+    function testEOQL() {
+      try {
+        const { EOQLParser } = window.EOQueryLanguage;
+        const query = document.getElementById('eoql-input').value;
+
+        const parser = new EOQLParser();
+        const result = parser.parse(query);
+
+        if (!result.success) {
+          showResult('eoql-result', `<strong>Parse Error:</strong> ${result.error}`, true);
+          return;
+        }
+
+        let html = `<h3>EOQL Parsed Successfully</h3>`;
+        html += renderPipeline(result.pipeline);
+        html += `<p><strong>Operators:</strong> ${result.pipeline.length}</p>`;
+        html += `<pre>${JSON.stringify(result.pipeline, null, 2)}</pre>`;
+
+        showResult('eoql-result', html, false, true);
+      } catch (e) {
+        showResult('eoql-result', `<strong>Error:</strong> ${e.message}`, true);
+      }
+    }
+
+    // Test 3: SQL Parser
+    function testSQL() {
+      try {
+        const { SQLParser } = window.EOQueryLanguage;
+        const query = document.getElementById('sql-input').value;
+
+        const parser = new SQLParser();
+        const result = parser.parse(query);
+
+        if (!result.success) {
+          showResult('sql-result', `<strong>Parse Error:</strong> ${result.error}`, true);
+          return;
+        }
+
+        let html = `<h3>SQL Parsed Successfully</h3>`;
+        html += renderPipeline(result.pipeline);
+        html += `<p><strong>Operators:</strong> ${result.pipeline.length}</p>`;
+        html += `<pre>${JSON.stringify(result.pipeline, null, 2)}</pre>`;
+
+        showResult('sql-result', html, false, true);
+      } catch (e) {
+        showResult('sql-result', `<strong>Error:</strong> ${e.message}`, true);
+      }
+    }
+
+    // Test 4: Predicate Builder
+    function testPredicates() {
+      try {
+        const { Predicate } = window.EOQueryBuilder;
+
+        // Build complex nested predicate:
+        // (plaintiff CONTAINS 'WALLACE') AND (status = 'JUDGMENT' OR status = 'DISMISSED') AND NOT (amount = 0)
+        const predicate = Predicate.and(
+          Predicate.contains('plaintiff', 'WALLACE'),
+          Predicate.or(
+            Predicate.eq('status', 'JUDGMENT'),
+            Predicate.eq('status', 'DISMISSED')
+          ),
+          Predicate.not(Predicate.eq('amount', '0'))
+        );
+
+        // Test evaluation
+        const testRecords = [
+          { plaintiff: 'WALLACE LLC', status: 'JUDGMENT', amount: 1000 },
+          { plaintiff: 'WALLACE LLC', status: 'DISMISSED', amount: 500 },
+          { plaintiff: 'WALLACE LLC', status: 'PENDING', amount: 200 },
+          { plaintiff: 'SMITH LLC', status: 'JUDGMENT', amount: 100 },
+          { plaintiff: 'WALLACE LLC', status: 'JUDGMENT', amount: 0 }
+        ];
+
+        const results = testRecords.map(r => ({
+          record: r,
+          matches: predicate.evaluate(r)
+        }));
+
+        let html = `<h3>Predicate: ${predicate.toString()}</h3>`;
+        html += `<table>
+          <tr><th>Record</th><th>Matches?</th></tr>
+          ${results.map(r => `
+            <tr>
+              <td>${JSON.stringify(r.record)}</td>
+              <td>${r.matches ? '✓ Yes' : '✗ No'}</td>
+            </tr>
+          `).join('')}
+        </table>`;
+        html += `<pre>${JSON.stringify(predicate.toJSON(), null, 2)}</pre>`;
+
+        showResult('predicate-result', html, false, true);
+      } catch (e) {
+        showResult('predicate-result', `<strong>Error:</strong> ${e.message}`, true);
+      }
+    }
+
+    // Test 5: Validation
+    function testValidation() {
+      try {
+        const { OperatorChain, Predicate } = window.EOQueryBuilder;
+        const results = [];
+
+        // Test 1: Missing INS (should fail)
+        try {
+          const chain1 = new OperatorChain();
+          chain1.operators.push({ op: 'SEG', params: {} });
+          chain1.asOf('NOW').name('Test');
+          const v1 = chain1.validate();
+          results.push({
+            test: 'Missing INS at start',
+            expected: 'Invalid',
+            actual: v1.valid ? 'Valid' : 'Invalid',
+            pass: !v1.valid,
+            errors: v1.errors
+          });
+        } catch (e) {
+          results.push({ test: 'Missing INS', expected: 'Invalid', actual: 'Error', pass: true });
+        }
+
+        // Test 2: Missing DES (should fail)
+        try {
+          const chain2 = new OperatorChain()
+            .fromSource('test')
+            .asOf('NOW');
+          const v2 = chain2.validate();
+          results.push({
+            test: 'Missing DES at end',
+            expected: 'Invalid',
+            actual: v2.valid ? 'Valid' : 'Invalid',
+            pass: !v2.valid,
+            errors: v2.errors
+          });
+        } catch (e) {
+          results.push({ test: 'Missing DES', expected: 'Invalid', actual: 'Error', pass: true });
+        }
+
+        // Test 3: Missing ALT (should fail)
+        try {
+          const chain3 = new OperatorChain()
+            .fromSource('test')
+            .name('Test');
+          const v3 = chain3.validate();
+          results.push({
+            test: 'Missing ALT (temporal context)',
+            expected: 'Invalid',
+            actual: v3.valid ? 'Valid' : 'Invalid',
+            pass: !v3.valid,
+            errors: v3.errors
+          });
+        } catch (e) {
+          results.push({ test: 'Missing ALT', expected: 'Invalid', actual: 'Error', pass: true });
+        }
+
+        // Test 4: CON without CONFLICT (should fail at construction)
+        try {
+          const chain4 = new OperatorChain()
+            .fromSource('test')
+            .join('other', { on: { left: 'a', right: 'b' } }); // No conflict!
+          results.push({
+            test: 'CON without CONFLICT',
+            expected: 'Error',
+            actual: 'No Error',
+            pass: false
+          });
+        } catch (e) {
+          results.push({
+            test: 'CON without CONFLICT',
+            expected: 'Error',
+            actual: 'Error thrown',
+            pass: true,
+            errors: [e.message]
+          });
+        }
+
+        // Test 5: Valid chain (should pass)
+        try {
+          const chain5 = new OperatorChain()
+            .fromSource('test')
+            .filter(Predicate.eq('status', 'active'))
+            .asOf('NOW')
+            .name('Valid_Chain');
+          const v5 = chain5.validate();
+          results.push({
+            test: 'Valid complete chain',
+            expected: 'Valid',
+            actual: v5.valid ? 'Valid' : 'Invalid',
+            pass: v5.valid,
+            errors: v5.errors
+          });
+        } catch (e) {
+          results.push({ test: 'Valid chain', expected: 'Valid', actual: 'Error', pass: false });
+        }
+
+        let html = `<h3>Validation Tests</h3>`;
+        html += `<table>
+          <tr><th>Test</th><th>Expected</th><th>Actual</th><th>Pass?</th><th>Details</th></tr>
+          ${results.map(r => `
+            <tr>
+              <td>${r.test}</td>
+              <td>${r.expected}</td>
+              <td>${r.actual}</td>
+              <td>${r.pass ? '✓' : '✗'}</td>
+              <td>${r.errors ? r.errors.join('; ') : ''}</td>
+            </tr>
+          `).join('')}
+        </table>`;
+
+        const allPass = results.every(r => r.pass);
+        showResult('validation-result', html, !allPass, allPass);
+      } catch (e) {
+        showResult('validation-result', `<strong>Error:</strong> ${e.message}`, true);
+      }
+    }
+
+    // Test 6: Full Integration with mock data
+    function testFullIntegration() {
+      try {
+        const { OperatorChain, Predicate, ChainExecutor, SetDefinition } = window.EOQueryBuilder;
+
+        // Create a mock SourceStore
+        const mockSourceStore = {
+          sources: new Map(),
+          get(id) { return this.sources.get(id); },
+          registerDerivedSet() {}
+        };
+
+        // Add mock evictions data
+        mockSourceStore.sources.set('evictions', {
+          id: 'evictions',
+          name: 'Evictions 2024',
+          records: [
+            { case_number: '2024-CV-001', plaintiff: 'WALLACE STUDIOS LLC', defendant: 'John Doe', filing_year: 2024, amount: 1500 },
+            { case_number: '2024-CV-002', plaintiff: 'WALLACE STUDIOS LLC', defendant: 'Jane Smith', filing_year: 2024, amount: 2000 },
+            { case_number: '2024-CV-003', plaintiff: 'SMITH PROPERTIES', defendant: 'Bob Jones', filing_year: 2024, amount: 1800 },
+            { case_number: '2024-CV-004', plaintiff: 'WALLACE HOLDINGS', defendant: 'Alice Brown', filing_year: 2024, amount: 2500 },
+            { case_number: '2023-CV-100', plaintiff: 'WALLACE STUDIOS LLC', defendant: 'Old Case', filing_year: 2023, amount: 1000 }
+          ],
+          schema: { fields: [
+            { name: 'case_number', type: 'text' },
+            { name: 'plaintiff', type: 'text' },
+            { name: 'defendant', type: 'text' },
+            { name: 'filing_year', type: 'number' },
+            { name: 'amount', type: 'number' }
+          ]}
+        });
+
+        // Build query
+        const chain = new OperatorChain()
+          .fromSource('evictions')
+          .filter(Predicate.and(
+            Predicate.contains('plaintiff', 'WALLACE'),
+            Predicate.eq('filing_year', '2024')
+          ))
+          .asOf('NOW')
+          .name('Wallace_2024')
+          .withGrounding({
+            actor: 'user:test',
+            reason: 'Filter Wallace evictions from 2024'
+          });
+
+        const setDef = chain.build();
+
+        // Execute
+        const executor = new ChainExecutor(mockSourceStore);
+        const result = executor.execute(setDef);
+
+        let html = `<h3>Query Executed Successfully</h3>`;
+        html += renderPipeline(setDef.operators);
+        html += `<p><strong>Input:</strong> 5 records</p>`;
+        html += `<p><strong>Output:</strong> ${result.rows.length} records (Wallace 2024 only)</p>`;
+        html += `<p><strong>Execution time:</strong> ${result.stats.executionTime}ms</p>`;
+
+        html += `<h4>Result Data</h4>`;
+        html += `<table>
+          <tr>${result.columns.filter(c => !c.startsWith('_')).map(c => `<th>${c}</th>`).join('')}</tr>
+          ${result.rows.map(row => `
+            <tr>${result.columns.filter(c => !c.startsWith('_')).map(c => `<td>${row[c]}</td>`).join('')}</tr>
+          `).join('')}
+        </table>`;
+
+        html += `<h4>Set Definition Events</h4>`;
+        html += `<pre>${JSON.stringify(setDef.toEvents(), null, 2)}</pre>`;
+
+        showResult('integration-result', html, false, true);
+      } catch (e) {
+        showResult('integration-result', `<strong>Error:</strong> ${e.message}<br><pre>${e.stack}</pre>`, true);
+      }
+    }
+
+    // Run all tests on load
+    window.onload = function() {
+      console.log('EO Query Builder modules loaded:');
+      console.log('- EOQueryBuilder:', typeof window.EOQueryBuilder !== 'undefined');
+      console.log('- EOQueryLanguage:', typeof window.EOQueryLanguage !== 'undefined');
+    };
+  </script>
+</body>
+</html>

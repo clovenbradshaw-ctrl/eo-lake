@@ -578,6 +578,321 @@ class SetCreator {
 
     return events;
   }
+
+  /**
+   * Create a Set from an OperatorChain/SetDefinition
+   *
+   * This method integrates with eo_query_builder.js to allow
+   * Sets to be created from parsed EOQL/SQL queries.
+   *
+   * @param {Object} setDefinition - SetDefinition from OperatorChain.build()
+   * @param {Object} options - Additional options
+   * @returns {Object} - { set, events, derivation }
+   */
+  createSetFromChain(setDefinition, options = {}) {
+    const timestamp = new Date().toISOString();
+
+    // Extract info from definition
+    const { setId, name, operators, frame, grounding, strategy, sourceRefs, temporalContext } = setDefinition;
+
+    // Get source(s) data
+    const sources = sourceRefs.map(srcId => this.sourceStore.get(srcId)).filter(Boolean);
+    if (sources.length === 0) {
+      throw new Error(`No valid sources found for: ${sourceRefs.join(', ')}`);
+    }
+
+    // Execute the operator chain to get result data
+    // We need ChainExecutor from eo_query_builder.js
+    let resultRows = [];
+    let resultColumns = [];
+
+    if (typeof window !== 'undefined' && window.EOQueryBuilder) {
+      const executor = new window.EOQueryBuilder.ChainExecutor(this.sourceStore, this.eventStore);
+      const result = executor.execute(setDefinition);
+      resultRows = result.rows;
+      resultColumns = result.columns;
+    } else {
+      // Fallback: simple execution without full ChainExecutor
+      resultRows = this._executeChainSimple(operators, sources);
+      resultColumns = resultRows.length > 0 ? Object.keys(resultRows[0]).filter(k => !k.startsWith('_')) : [];
+    }
+
+    // Build field definitions from result columns
+    const fields = this._buildFieldsFromColumns(resultColumns, resultRows);
+
+    // Transform to records
+    const records = resultRows.map((row, index) => ({
+      id: this._generateRecordId(),
+      setId,
+      values: this._transformRowToFieldValues(row, fields),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      _sourceIndex: index
+    }));
+
+    // Build derivation from operator chain
+    const derivation = {
+      strategy: strategy.toLowerCase(),
+      operatorChain: operators.map(op => ({
+        op: op.op,
+        params: op.params
+      })),
+      parentSourceIds: sourceRefs,
+      constraint: {
+        operators: operators.length,
+        temporalContext
+      },
+      derivedBy: grounding?.actor || options.actor || 'user',
+      derivedAt: timestamp
+    };
+
+    // Build the Set
+    const set = {
+      id: setId,
+      name,
+      icon: this._getIconForStrategy(strategy),
+      fields,
+      records,
+      views: [this._createDefaultView()],
+      derivation,
+      datasetProvenance: {
+        sources: sources.map(s => ({
+          id: s.id,
+          name: s.name,
+          originalFilename: s.fileIdentity?.originalFilename
+        })),
+        strategy,
+        operatorCount: operators.length,
+        createdAt: timestamp
+      },
+      frame: frame || { id: 'default', version: '1.0' },
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+
+    // Create provenance events
+    const events = this._createChainDerivationEvents(set, sources, derivation, grounding);
+
+    // Register derived sets with sources
+    for (const source of sources) {
+      this.sourceStore.registerDerivedSet(source.id, setId);
+    }
+
+    return { set, events, derivation };
+  }
+
+  /**
+   * Simple chain execution fallback when ChainExecutor not available
+   */
+  _executeChainSimple(operators, sources) {
+    let data = [];
+
+    for (const op of operators) {
+      switch (op.op) {
+        case 'INS':
+          const source = sources.find(s => s.id === op.params.sourceId);
+          if (source) {
+            data = [...source.records];
+          }
+          break;
+
+        case 'SEG':
+          if (op.params.predicate) {
+            data = this._filterByPredicate(data, op.params.predicate);
+          }
+          if (op.params.selectFields) {
+            data = data.map(row => {
+              const newRow = {};
+              for (const col of op.params.selectFields) {
+                newRow[col] = row[col];
+              }
+              return newRow;
+            });
+          }
+          break;
+
+        case 'CON':
+          const rightSource = sources.find(s => s.id === op.params.rightSourceId);
+          if (rightSource) {
+            data = this._executeSimpleJoin(data, rightSource.records, op.params);
+          }
+          break;
+
+        // ALT, DES, and others pass through
+        default:
+          break;
+      }
+    }
+
+    return data;
+  }
+
+  _filterByPredicate(data, predicate) {
+    return data.filter(row => this._evaluatePredicate(row, predicate));
+  }
+
+  _evaluatePredicate(row, pred) {
+    if (!pred) return true;
+
+    switch (pred.type) {
+      case 'AND':
+        return pred.conditions.every(c => this._evaluatePredicate(row, c));
+      case 'OR':
+        return pred.conditions.some(c => this._evaluatePredicate(row, c));
+      case 'NOT':
+        return !this._evaluatePredicate(row, pred.operand);
+      case 'COMPARISON':
+        return this._evaluateComparison(row, pred);
+      default:
+        return true;
+    }
+  }
+
+  _evaluateComparison(row, pred) {
+    const cellValue = row[pred.field];
+    const cellStr = String(cellValue ?? '').toLowerCase();
+    const compareValue = pred.value;
+    const compareStr = String(compareValue ?? '').toLowerCase();
+
+    switch (pred.operator) {
+      case 'eq': return cellStr === compareStr;
+      case 'neq': return cellStr !== compareStr;
+      case 'gt': return parseFloat(cellValue) > parseFloat(compareValue);
+      case 'gte': return parseFloat(cellValue) >= parseFloat(compareValue);
+      case 'lt': return parseFloat(cellValue) < parseFloat(compareValue);
+      case 'lte': return parseFloat(cellValue) <= parseFloat(compareValue);
+      case 'contains': return cellStr.includes(compareStr);
+      case 'starts': return cellStr.startsWith(compareStr);
+      case 'ends': return cellStr.endsWith(compareStr);
+      case 'null': return cellValue === null || cellValue === undefined || cellValue === '';
+      case 'notnull': return cellValue !== null && cellValue !== undefined && cellValue !== '';
+      case 'in':
+        return Array.isArray(compareValue) &&
+               compareValue.map(v => String(v).toLowerCase()).includes(cellStr);
+      default: return true;
+    }
+  }
+
+  _executeSimpleJoin(leftData, rightData, params) {
+    const { on, type, conflict } = params;
+    const result = [];
+
+    // Build index on right
+    const rightIndex = new Map();
+    for (const row of rightData) {
+      const key = String(row[on.right] ?? '').toLowerCase();
+      if (!rightIndex.has(key)) rightIndex.set(key, []);
+      rightIndex.get(key).push(row);
+    }
+
+    for (const leftRow of leftData) {
+      const key = String(leftRow[on.left] ?? '').toLowerCase();
+      const matches = rightIndex.get(key) || [];
+
+      if (matches.length > 0) {
+        if (conflict === 'EXPOSE_ALL') {
+          for (const rightRow of matches) {
+            result.push({ ...leftRow, ...rightRow });
+          }
+        } else {
+          result.push({ ...leftRow, ...matches[0] });
+        }
+      } else if (type === 'LEFT' || type === 'FULL') {
+        result.push({ ...leftRow });
+      }
+    }
+
+    return result;
+  }
+
+  _buildFieldsFromColumns(columns, rows) {
+    return columns.map((col, index) => ({
+      id: this._generateFieldId(),
+      name: col,
+      type: this._inferFieldType(rows, col),
+      width: 200,
+      isPrimary: index === 0,
+      sourceColumn: col
+    }));
+  }
+
+  _inferFieldType(rows, fieldName) {
+    const sample = rows.slice(0, 100);
+    const values = sample.map(r => r[fieldName]).filter(v => v != null && v !== '');
+
+    if (values.length === 0) return 'text';
+
+    if (values.every(v => !isNaN(parseFloat(v)) && isFinite(v))) {
+      return values.every(v => Number.isInteger(parseFloat(v))) ? 'integer' : 'number';
+    }
+
+    const datePattern = /^\d{4}-\d{2}-\d{2}/;
+    if (values.every(v => datePattern.test(String(v)))) {
+      return 'date';
+    }
+
+    return 'text';
+  }
+
+  _transformRowToFieldValues(row, fields) {
+    const values = {};
+    for (const field of fields) {
+      values[field.id] = row[field.sourceColumn];
+    }
+    return values;
+  }
+
+  _getIconForStrategy(strategy) {
+    const icons = {
+      'SEG': 'ph-funnel',
+      'CON': 'ph-intersect',
+      'SYN': 'ph-equals',
+      'DES': 'ph-function',
+      'AGG': 'ph-chart-bar'
+    };
+    return icons[strategy.toUpperCase()] || 'ph-table';
+  }
+
+  _createChainDerivationEvents(set, sources, derivation, grounding) {
+    const events = [];
+    const timestamp = new Date().toISOString();
+
+    // Event: Set created from operator chain
+    events.push({
+      id: `evt_${set.id}`,
+      epistemicType: 'meant',
+      category: 'set_created',
+      timestamp,
+      actor: derivation.derivedBy,
+      payload: {
+        setId: set.id,
+        name: set.name,
+        fieldCount: set.fields.length,
+        recordCount: set.records.length,
+        strategy: derivation.strategy,
+        operatorCount: derivation.operatorChain.length
+      },
+      grounding: {
+        references: sources.map(source => ({
+          eventId: `evt_${source.id}`,
+          kind: 'structural'
+        })),
+        derivation: {
+          strategy: derivation.strategy,
+          operatorChain: derivation.operatorChain,
+          inputs: Object.fromEntries(sources.map(s => [s.id, `evt_${s.id}`]))
+        },
+        kind: 'computational'
+      },
+      frame: {
+        claim: `Created set "${set.name}" via ${derivation.strategy.toUpperCase()} strategy`,
+        epistemicStatus: 'confirmed',
+        purpose: grounding?.reason || 'set_derivation'
+      }
+    });
+
+    return events;
+  }
 }
 
 
