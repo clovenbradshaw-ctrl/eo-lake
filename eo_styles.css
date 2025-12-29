@@ -11394,9 +11394,8 @@ body.has-picked-up .browser-tab:hover {
 }
 
 .source-data-table {
-  width: 100%;
   border-collapse: collapse;
-  table-layout: fixed; /* TABLE RULE 4: Consistent column widths */
+  table-layout: auto; /* Allow columns to expand for content */
   font-size: 13px;
 }
 
