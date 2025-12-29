@@ -562,13 +562,31 @@ class EODataWorkbench {
       createField('Notes', FieldTypes.LONG_TEXT)
     );
 
+    // Debug: Log field structure after creation
+    console.log('[Debug] _createDefaultSet - Fields after creation:', set.fields.map(f => ({
+      id: f.id,
+      name: f.name,
+      type: f.type
+    })));
+
     // Add some sample records
     for (let i = 1; i <= 5; i++) {
-      set.records.push(createRecord(set.id, {
+      const recordValues = {
         [set.fields[0].id]: `Record ${i}`,
         [set.fields[1].id]: set.fields[1].options.choices[i % 3].id,
         [set.fields[2].id]: new Date(Date.now() + i * 86400000).toISOString().split('T')[0]
-      }));
+      };
+
+      // Debug: Log record values being created
+      console.log('[Debug] _createDefaultSet - Creating record:', {
+        i,
+        nameFieldId: set.fields[0].id,
+        statusFieldId: set.fields[1].id,
+        dueDateFieldId: set.fields[2].id,
+        values: recordValues
+      });
+
+      set.records.push(createRecord(set.id, recordValues));
     }
 
     this.sets.push(set);
@@ -896,7 +914,29 @@ class EODataWorkbench {
         // This fixes any legacy data that might have missing width, type, or other properties
         this.sets.forEach(set => {
           if (set.fields) {
+            // Debug: Log fields before validation
+            console.log('[Debug] _loadData - Fields BEFORE ensureValidField:', set.name, set.fields.map(f => ({
+              id: f.id,
+              name: f.name,
+              type: f.type
+            })));
+
             set.fields = set.fields.map(field => ensureValidField(field));
+
+            // Debug: Log fields after validation
+            console.log('[Debug] _loadData - Fields AFTER ensureValidField:', set.name, set.fields.map(f => ({
+              id: f.id,
+              name: f.name,
+              type: f.type
+            })));
+          }
+
+          // Debug: Log record values
+          if (set.records?.length > 0) {
+            console.log('[Debug] _loadData - First record values:', set.name, {
+              keys: Object.keys(set.records[0].values || {}),
+              values: set.records[0].values
+            });
           }
         });
       }
@@ -8417,6 +8457,18 @@ class EODataWorkbench {
     try {
       const value = record.values[field.id];
       const cellClass = `cell-${field.type} cell-editable`;
+
+      // Debug: Log detailed cell rendering info for diagnosing column issues
+      console.log('[Debug] _renderCell:', {
+        fieldId: field.id,
+        fieldName: field.name,
+        fieldType: field.type,
+        value: value,
+        valueType: typeof value,
+        recordId: record.id,
+        allRecordKeys: Object.keys(record.values),
+        allRecordValues: record.values
+      });
 
       // Debug: Log if field ID doesn't match any keys in record.values
       if (value === undefined && Object.keys(record.values).length > 0) {
