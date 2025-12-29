@@ -2400,6 +2400,77 @@ mark.search-highlight {
   line-height: calc(var(--row-height) - 16px);
 }
 
+/* Long Text Field - Expandable */
+.cell-longtext-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.cell-longtext-content {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: calc(var(--row-height) - 16px);
+}
+
+.cell-expand-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: var(--transition-fast);
+}
+
+.cell-longtext-wrapper:hover .cell-expand-btn {
+  opacity: 1;
+}
+
+.cell-expand-btn:hover {
+  background: var(--primary-100);
+  color: var(--primary-500);
+}
+
+.cell-expand-btn:active {
+  transform: scale(0.95);
+}
+
+.cell-expand-btn i {
+  font-size: 14px;
+}
+
+/* Long Text Modal Content */
+.longtext-modal-content {
+  padding: 8px 0;
+}
+
+.longtext-modal-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
 /* Link Field */
 .cell-link {
   display: flex;

@@ -8431,8 +8431,19 @@ class EODataWorkbench {
 
     switch (field.type) {
       case FieldTypes.TEXT:
-      case FieldTypes.LONG_TEXT:
         content = value ? this._highlightText(value, searchTerm) : '<span class="cell-empty">Empty</span>';
+        break;
+      case FieldTypes.LONG_TEXT:
+        if (value) {
+          content = `<div class="cell-longtext-wrapper">
+            <span class="cell-longtext-content">${this._highlightText(value, searchTerm)}</span>
+            <button class="cell-expand-btn" data-field-id="${field.id}" title="Click to expand">
+              <i class="ph ph-arrows-out-simple"></i>
+            </button>
+          </div>`;
+        } else {
+          content = '<span class="cell-empty">Empty</span>';
+        }
         break;
 
       case FieldTypes.NUMBER:
@@ -8631,6 +8642,19 @@ class EODataWorkbench {
         if (recordId && fieldId) {
           e.stopPropagation(); // Prevent row click
           this._toggleCheckbox(recordId, fieldId);
+        }
+        return;
+      }
+
+      // Long text expand button click
+      const expandBtn = target.closest('.cell-expand-btn');
+      if (expandBtn) {
+        e.stopPropagation(); // Prevent row click and cell edit
+        const td = expandBtn.closest('td');
+        const recordId = td?.closest('tr')?.dataset.recordId;
+        const fieldId = td?.dataset.fieldId;
+        if (recordId && fieldId) {
+          this._showLongTextModal(recordId, fieldId);
         }
         return;
       }
@@ -8879,6 +8903,52 @@ class EODataWorkbench {
       this._selectModal.remove();
       this._selectModal = null;
     }
+  }
+
+  /**
+   * Show modal with full long text content
+   */
+  _showLongTextModal(recordId, fieldId) {
+    const set = this.getCurrentSet();
+    const record = set?.records.find(r => r.id === recordId);
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!record || !field) return;
+
+    const value = record.values[fieldId] || '';
+    const fieldName = field.name || 'Notes';
+
+    // Create modal for displaying long text
+    const modal = new EOModal({
+      title: fieldName,
+      size: 'large',
+      content: `
+        <div class="longtext-modal-content">
+          <div class="longtext-modal-text">${this._escapeHtml(value).replace(/\n/g, '<br>')}</div>
+        </div>
+      `,
+      buttons: [
+        {
+          text: 'Edit',
+          icon: 'ph-pencil-simple',
+          variant: 'secondary',
+          action: () => {
+            modal.hide();
+            // Find the cell and start editing
+            const cell = this.container.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
+            if (cell) {
+              this._startCellEdit(cell);
+            }
+          }
+        },
+        {
+          text: 'Close',
+          variant: 'primary',
+          action: () => modal.hide()
+        }
+      ]
+    });
+
+    modal.show();
   }
 
   _closeSelectEditor = (e) => {
