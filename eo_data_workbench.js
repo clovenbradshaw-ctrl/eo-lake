@@ -6312,6 +6312,30 @@ class EODataWorkbench {
       this.tossedItems.pop();
     }
 
+    // Register as ghost if ghost registry is available
+    if (typeof getGhostRegistry === 'function') {
+      const ghostRegistry = getGhostRegistry();
+      const tombstoneEvent = {
+        id: `tombstone_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        actor: 'user',
+        payload: {
+          action: 'tombstone',
+          targetId: setId,
+          reason: 'User tossed set',
+          targetSnapshot: {
+            type: 'set',
+            payload: { name: set.name, fieldCount: set.fields.length, recordCount: set.records.length }
+          }
+        },
+        context: { workspace: 'default' }
+      };
+      ghostRegistry.registerGhost(setId, tombstoneEvent, {
+        entityType: 'set',
+        workspace: 'default'
+      });
+    }
+
     // Remove from sets array
     this.sets.splice(setIndex, 1);
 
@@ -11787,6 +11811,32 @@ class EODataWorkbench {
       this._createEOEvent('record_deleted', { recordId, record });
     }
 
+    // Register as ghost if ghost registry is available
+    if (typeof getGhostRegistry === 'function') {
+      const ghostRegistry = getGhostRegistry();
+      const tombstoneEvent = {
+        id: `tombstone_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`,
+        timestamp: new Date().toISOString(),
+        actor: 'user',
+        payload: {
+          action: 'tombstone',
+          targetId: recordId,
+          reason: 'User deleted record',
+          targetSnapshot: {
+            type: 'record',
+            setId: set.id,
+            setName: set.name,
+            payload: record
+          }
+        },
+        context: { workspace: 'default' }
+      };
+      ghostRegistry.registerGhost(recordId, tombstoneEvent, {
+        entityType: 'record',
+        workspace: 'default'
+      });
+    }
+
     set.records.splice(index, 1);
     this.selectedRecords.delete(recordId);
 
@@ -16347,6 +16397,146 @@ class EODataWorkbench {
     const div = document.createElement('div');
     div.textContent = String(text);
     return div.innerHTML;
+  }
+
+  // --------------------------------------------------------------------------
+  // Ghost/Haunt Utilities
+  // --------------------------------------------------------------------------
+
+  /**
+   * Get haunt info for an entity if available
+   * @param {string} entityId - The entity ID to check
+   * @returns {Object|null} Haunt info or null if not haunted
+   */
+  _getHauntInfo(entityId) {
+    if (typeof getGhostRegistry !== 'function') return null;
+    const ghostRegistry = getGhostRegistry();
+    return ghostRegistry.getHauntInfo(entityId);
+  }
+
+  /**
+   * Render a haunt indicator badge
+   * @param {string} entityId - The entity ID to check
+   * @returns {string} HTML for haunt indicator or empty string
+   */
+  _renderHauntIndicator(entityId) {
+    const hauntInfo = this._getHauntInfo(entityId);
+    if (!hauntInfo || !hauntInfo.isHaunted) return '';
+
+    const ghostNames = hauntInfo.ghosts.map(g => g.name || g.id).join(', ');
+    return `
+      <span class="haunt-indicator" title="Influenced by deleted data: ${this._escapeHtml(ghostNames)}">
+        <i class="ph ph-ghost"></i>
+        <span class="haunt-count">${hauntInfo.ghostCount}</span>
+      </span>
+    `;
+  }
+
+  /**
+   * Get ghost summary for display
+   * @returns {Object} Ghost statistics and recent ghosts
+   */
+  _getGhostSummary() {
+    if (typeof getGhostRegistry !== 'function') return null;
+    const ghostRegistry = getGhostRegistry();
+    return ghostRegistry.getSummary();
+  }
+
+  /**
+   * Show ghost/trash panel modal
+   */
+  _showGhostPanel() {
+    if (typeof getGhostRegistry !== 'function') {
+      this._showToast('Ghost registry not available', 'warning');
+      return;
+    }
+
+    const ghostRegistry = getGhostRegistry();
+    const ghosts = ghostRegistry.getAllGhosts({ status: ['active', 'dormant'] });
+    const stats = ghostRegistry.getStats();
+
+    const content = `
+      <div class="ghost-panel">
+        <div class="ghost-stats">
+          <div class="stat-item">
+            <span class="stat-value">${stats.totalGhosts}</span>
+            <span class="stat-label">Total Ghosts</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">${stats.activeGhosts}</span>
+            <span class="stat-label">Active</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">${stats.hauntsDetected}</span>
+            <span class="stat-label">Haunts Detected</span>
+          </div>
+        </div>
+        <div class="ghost-list">
+          ${ghosts.length === 0 ? '<p class="empty-state">No deleted items</p>' : ''}
+          ${ghosts.map(ghost => `
+            <div class="ghost-item" data-ghost-id="${ghost.id}">
+              <div class="ghost-info">
+                <i class="ph ph-ghost ghost-icon"></i>
+                <div class="ghost-details">
+                  <span class="ghost-name">${this._escapeHtml(ghost.snapshot?.payload?.name || ghost.snapshot?.name || ghost.id)}</span>
+                  <span class="ghost-meta">${ghost.entityType} - ${new Date(ghost.ghostedAt).toLocaleDateString()}</span>
+                  <span class="ghost-reason">${this._escapeHtml(ghost.reason)}</span>
+                </div>
+              </div>
+              <div class="ghost-actions">
+                <button class="btn-icon" onclick="window.eoWorkbench._resurrectGhost('${ghost.id}')" title="Resurrect">
+                  <i class="ph ph-arrow-counter-clockwise"></i>
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    this._showModal({
+      title: 'Deleted Items (Ghosts)',
+      icon: 'ph-ghost',
+      content,
+      size: 'medium'
+    });
+  }
+
+  /**
+   * Resurrect a ghost (restore deleted item)
+   * @param {string} ghostId - The ghost ID to resurrect
+   */
+  _resurrectGhost(ghostId) {
+    if (typeof getGhostRegistry !== 'function') return;
+
+    const ghostRegistry = getGhostRegistry();
+    const result = ghostRegistry.resurrect(ghostId, 'user', {
+      reason: 'User requested restoration',
+      clearHaunts: true
+    });
+
+    if (result.success) {
+      // Restore the item based on its type
+      const ghost = result.ghost;
+      if (ghost.entityType === 'set' && ghost.snapshot?.payload) {
+        // Find in tossed items and restore
+        const tossedIndex = this.tossedItems.findIndex(
+          t => t.type === 'set' && t.set.id === ghostId
+        );
+        if (tossedIndex >= 0) {
+          const tossedItem = this.tossedItems.splice(tossedIndex, 1)[0];
+          this.sets.push(tossedItem.set);
+          this._renderTabBar();
+          this._renderSidebar();
+          this._saveData();
+        }
+      }
+
+      this._showToast(`Resurrected "${ghost.snapshot?.payload?.name || ghost.id}"`, 'success');
+      this._closeModal();
+    } else {
+      this._showToast(`Failed to resurrect: ${result.error}`, 'error');
+    }
   }
 
   // --------------------------------------------------------------------------

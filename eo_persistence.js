@@ -20,7 +20,7 @@
 class IndexedDBBackend {
   constructor(dbName = 'eo_experience_engine') {
     this.dbName = dbName;
-    this.version = 2; // Incremented for graph traversal indexes
+    this.version = 3; // Incremented for ghost data stores
     this.db = null;
   }
 
@@ -76,6 +76,26 @@ class IndexedDBBackend {
         // Metadata store
         if (!db.objectStoreNames.contains('metadata')) {
           db.createObjectStore('metadata', { keyPath: 'key' });
+        }
+
+        // Ghosts store - for ghost data registry
+        if (!db.objectStoreNames.contains('ghosts')) {
+          const ghostStore = db.createObjectStore('ghosts', { keyPath: 'id' });
+          ghostStore.createIndex('status', 'status', { unique: false });
+          ghostStore.createIndex('ghostedAt', 'ghostedAt', { unique: false });
+          ghostStore.createIndex('ghostedBy', 'ghostedBy', { unique: false });
+          ghostStore.createIndex('entityType', 'entityType', { unique: false });
+          ghostStore.createIndex('workspace', 'workspace', { unique: false });
+          ghostStore.createIndex('retentionPolicy', 'retentionPolicy', { unique: false });
+        }
+
+        // Haunts store - tracks ghost influences on active entities
+        if (!db.objectStoreNames.contains('haunts')) {
+          const hauntStore = db.createObjectStore('haunts', { keyPath: ['ghostId', 'targetId'] });
+          hauntStore.createIndex('by_ghost', 'ghostId', { unique: false });
+          hauntStore.createIndex('by_target', 'targetId', { unique: false });
+          hauntStore.createIndex('hauntType', 'hauntType', { unique: false });
+          hauntStore.createIndex('resolved', 'resolved', { unique: false });
         }
       };
     });
@@ -418,7 +438,7 @@ class IndexedDBBackend {
   async clear() {
     return new Promise((resolve, reject) => {
       const tx = this.db.transaction(
-        ['events', 'horizons', 'syncQueue', 'metadata'],
+        ['events', 'horizons', 'syncQueue', 'metadata', 'ghosts', 'haunts'],
         'readwrite'
       );
 
@@ -426,7 +446,152 @@ class IndexedDBBackend {
       tx.objectStore('horizons').clear();
       tx.objectStore('syncQueue').clear();
       tx.objectStore('metadata').clear();
+      if (this.db.objectStoreNames.contains('ghosts')) {
+        tx.objectStore('ghosts').clear();
+      }
+      if (this.db.objectStoreNames.contains('haunts')) {
+        tx.objectStore('haunts').clear();
+      }
 
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Ghost Data Methods
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Save a ghost record
+   */
+  async saveGhost(ghost) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('ghosts', 'readwrite');
+      const store = tx.objectStore('ghosts');
+      store.put(ghost);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Save multiple ghost records
+   */
+  async saveGhosts(ghosts) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('ghosts', 'readwrite');
+      const store = tx.objectStore('ghosts');
+      for (const ghost of ghosts) {
+        store.put(ghost);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Load all ghosts
+   */
+  async loadGhosts() {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('ghosts', 'readonly');
+      const store = tx.objectStore('ghosts');
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get ghost by ID
+   */
+  async getGhost(id) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('ghosts', 'readonly');
+      const store = tx.objectStore('ghosts');
+      const request = store.get(id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get ghosts by status
+   */
+  async getGhostsByStatus(status) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('ghosts', 'readonly');
+      const store = tx.objectStore('ghosts');
+      const index = store.index('status');
+      const request = index.getAll(status);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Delete a ghost record
+   */
+  async deleteGhost(id) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('ghosts', 'readwrite');
+      const store = tx.objectStore('ghosts');
+      store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Save a haunt record
+   */
+  async saveHaunt(haunt) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('haunts', 'readwrite');
+      const store = tx.objectStore('haunts');
+      store.put(haunt);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Get haunts by ghost ID
+   */
+  async getHauntsByGhost(ghostId) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('haunts', 'readonly');
+      const store = tx.objectStore('haunts');
+      const index = store.index('by_ghost');
+      const request = index.getAll(ghostId);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get haunts by target ID
+   */
+  async getHauntsByTarget(targetId) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('haunts', 'readonly');
+      const store = tx.objectStore('haunts');
+      const index = store.index('by_target');
+      const request = index.getAll(targetId);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Delete a haunt record
+   */
+  async deleteHaunt(ghostId, targetId) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('haunts', 'readwrite');
+      const store = tx.objectStore('haunts');
+      store.delete([ghostId, targetId]);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
@@ -570,6 +735,89 @@ class LocalStorageBackend {
 
   _setSyncQueue(queue) {
     localStorage.setItem(this.prefix + 'syncQueue', JSON.stringify(queue));
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Ghost Data Methods (localStorage fallback)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  async saveGhost(ghost) {
+    const ghosts = this._getGhosts();
+    const idx = ghosts.findIndex(g => g.id === ghost.id);
+    if (idx >= 0) {
+      ghosts[idx] = ghost;
+    } else {
+      ghosts.push(ghost);
+    }
+    this._setGhosts(ghosts);
+  }
+
+  async saveGhosts(newGhosts) {
+    for (const ghost of newGhosts) {
+      await this.saveGhost(ghost);
+    }
+  }
+
+  async loadGhosts() {
+    return this._getGhosts();
+  }
+
+  async getGhost(id) {
+    return this._getGhosts().find(g => g.id === id) || null;
+  }
+
+  async getGhostsByStatus(status) {
+    return this._getGhosts().filter(g => g.status === status);
+  }
+
+  async deleteGhost(id) {
+    const ghosts = this._getGhosts().filter(g => g.id !== id);
+    this._setGhosts(ghosts);
+  }
+
+  async saveHaunt(haunt) {
+    const haunts = this._getHaunts();
+    const key = `${haunt.ghostId}:${haunt.targetId}`;
+    const idx = haunts.findIndex(h => `${h.ghostId}:${h.targetId}` === key);
+    if (idx >= 0) {
+      haunts[idx] = haunt;
+    } else {
+      haunts.push(haunt);
+    }
+    this._setHaunts(haunts);
+  }
+
+  async getHauntsByGhost(ghostId) {
+    return this._getHaunts().filter(h => h.ghostId === ghostId);
+  }
+
+  async getHauntsByTarget(targetId) {
+    return this._getHaunts().filter(h => h.targetId === targetId);
+  }
+
+  async deleteHaunt(ghostId, targetId) {
+    const haunts = this._getHaunts().filter(
+      h => !(h.ghostId === ghostId && h.targetId === targetId)
+    );
+    this._setHaunts(haunts);
+  }
+
+  _getGhosts() {
+    const data = localStorage.getItem(this.prefix + 'ghosts');
+    return data ? JSON.parse(data) : [];
+  }
+
+  _setGhosts(ghosts) {
+    localStorage.setItem(this.prefix + 'ghosts', JSON.stringify(ghosts));
+  }
+
+  _getHaunts() {
+    const data = localStorage.getItem(this.prefix + 'haunts');
+    return data ? JSON.parse(data) : [];
+  }
+
+  _setHaunts(haunts) {
+    localStorage.setItem(this.prefix + 'haunts', JSON.stringify(haunts));
   }
 }
 

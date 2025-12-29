@@ -243,6 +243,47 @@ const OPERATION_RULE_MAP = Object.freeze({
       3: 'Deletion is a tombstone event (original preserved)',
       9: 'Tombstone is defeasible (can be reversed)'
     }
+  },
+
+  // Ghost operations
+  'ghost_entity': {
+    name: 'Ghost Entity',
+    description: 'Transition entity to ghost state (soft delete)',
+    rules: [3, 7, 9],
+    explanation: {
+      3: 'Original entity preserved in log, ghost record created',
+      7: 'Ghost maintains provenance to original entity',
+      9: 'Ghost can be resurrected (defeasible deletion)'
+    }
+  },
+  'resurrect_ghost': {
+    name: 'Resurrect Ghost',
+    description: 'Restore a ghost back to active entity',
+    rules: [1, 3, 7],
+    explanation: {
+      1: 'Resurrection recorded as new Given event',
+      3: 'Ghost history preserved, new state appended',
+      7: 'Resurrection grounds in original entity and ghost'
+    }
+  },
+  'detect_haunt': {
+    name: 'Detect Haunt',
+    description: 'System detects ghost influence on active data',
+    rules: [3, 7],
+    explanation: {
+      3: 'Ghost existence is ineliminable (still has effects)',
+      7: 'Haunt relationship has provenance chain'
+    }
+  },
+  'resolve_haunt': {
+    name: 'Resolve Haunt',
+    description: 'Clear ghost influence on an entity',
+    rules: [3, 7, 9],
+    explanation: {
+      3: 'Haunt resolution recorded, original haunt preserved',
+      7: 'Resolution has provenance to haunt and resolver',
+      9: 'Haunt can potentially recur (defeasible resolution)'
+    }
   }
 });
 

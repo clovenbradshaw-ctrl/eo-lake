@@ -344,6 +344,167 @@ const ContextTemplates = {
         background: null
       }
     };
+  },
+
+  /**
+   * Ghost creation (entity deletion)
+   */
+  ghostCreation(actor, reason) {
+    return {
+      epistemic: {
+        agent: actor,
+        method: 'soft_delete',
+        source: 'ghost_registry'
+      },
+      semantic: {
+        term: 'ghost_creation',
+        definition: 'Entity transitioned to ghost state',
+        jurisdiction: 'data_lifecycle'
+      },
+      situational: {
+        scale: 'single_entity',
+        timeframe: new Date().toISOString(),
+        background: reason || 'deletion_requested'
+      }
+    };
+  },
+
+  /**
+   * Ghost resurrection (entity restoration)
+   */
+  ghostResurrection(actor, reason) {
+    return {
+      epistemic: {
+        agent: actor,
+        method: 'restore',
+        source: 'ghost_registry'
+      },
+      semantic: {
+        term: 'ghost_resurrection',
+        definition: 'Ghost restored to active entity',
+        jurisdiction: 'data_lifecycle'
+      },
+      situational: {
+        scale: 'single_entity',
+        timeframe: new Date().toISOString(),
+        background: reason || 'restoration_requested'
+      }
+    };
+  },
+
+  /**
+   * Haunt detection
+   */
+  hauntDetection(hauntType) {
+    return {
+      epistemic: {
+        agent: 'system',
+        method: 'automatic_detection',
+        source: 'ghost_registry'
+      },
+      semantic: {
+        term: 'haunt_detection',
+        definition: `Ghost influence detected (${hauntType})`,
+        jurisdiction: 'data_integrity'
+      },
+      situational: {
+        scale: 'relationship',
+        timeframe: new Date().toISOString(),
+        background: 'ghost_reference_check'
+      }
+    };
+  },
+
+  /**
+   * Haunt resolution
+   */
+  hauntResolution(actor) {
+    return {
+      epistemic: {
+        agent: actor,
+        method: 'manual_resolution',
+        source: 'ghost_registry'
+      },
+      semantic: {
+        term: 'haunt_resolution',
+        definition: 'Ghost influence resolved',
+        jurisdiction: 'data_integrity'
+      },
+      situational: {
+        scale: 'relationship',
+        timeframe: new Date().toISOString(),
+        background: 'reference_cleanup'
+      }
+    };
+  }
+};
+
+// ============================================================================
+// Ghost Activity Helpers
+// ============================================================================
+
+/**
+ * Create activity atoms for ghost operations
+ */
+const GhostActivities = {
+  /**
+   * Record entity ghosting (soft delete)
+   */
+  ghost(entityId, entityType, actor, reason) {
+    return createActivityAtom({
+      operator: 'NUL',
+      target: {
+        entityId,
+        entityType,
+        positionType: 'entity'
+      },
+      context: ContextTemplates.ghostCreation(actor, reason)
+    });
+  },
+
+  /**
+   * Record ghost resurrection
+   */
+  resurrect(ghostId, entityType, actor, reason) {
+    return createActivityAtom({
+      operator: 'INS',
+      target: {
+        entityId: ghostId,
+        entityType,
+        positionType: 'ghost'
+      },
+      context: ContextTemplates.ghostResurrection(actor, reason)
+    });
+  },
+
+  /**
+   * Record haunt detection
+   */
+  haunt(ghostId, targetId, hauntType) {
+    return createActivityAtom({
+      operator: 'CON',
+      target: {
+        entityId: targetId,
+        relatedId: ghostId,
+        positionType: 'haunt_relationship'
+      },
+      context: ContextTemplates.hauntDetection(hauntType)
+    });
+  },
+
+  /**
+   * Record haunt resolution
+   */
+  resolveHaunt(ghostId, targetId, actor) {
+    return createActivityAtom({
+      operator: 'NUL',
+      target: {
+        entityId: targetId,
+        relatedId: ghostId,
+        positionType: 'haunt_relationship'
+      },
+      context: ContextTemplates.hauntResolution(actor)
+    });
   }
 };
 
@@ -1078,8 +1239,13 @@ if (typeof window !== 'undefined') {
     Store: ActivityStore,
     record: recordActivity,
     patterns: ActivityPatterns,
-    getStore: getActivityStore
+    getStore: getActivityStore,
+    // Ghost activities
+    ghost: GhostActivities
   };
+
+  // Expose GhostActivities globally for convenience
+  window.GhostActivities = GhostActivities;
 
   // Auto-initialize
   getActivityStore().then(store => {

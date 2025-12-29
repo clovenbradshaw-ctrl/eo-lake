@@ -884,6 +884,125 @@ class EOComplianceChecker {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Ghost Data Compliance
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Check ghost data compliance with the Nine Rules
+   * Ghost operations must respect:
+   * - Rule 3: Ghosts preserve ineliminability (original data remains in log)
+   * - Rule 7: Ghosts maintain groundedness (provenance to tombstone event)
+   * - Rule 9: Ghosts are defeasible (can be resurrected)
+   *
+   * @param {EOGhostRegistry} ghostRegistry - The ghost registry to check
+   * @returns {Object} Ghost compliance report
+   */
+  checkGhostCompliance(ghostRegistry) {
+    if (!ghostRegistry) {
+      return {
+        passed: true,
+        details: ['Ghost registry not available'],
+        violations: []
+      };
+    }
+
+    const violations = [];
+    const details = [];
+    const ghosts = ghostRegistry.getAllGhosts();
+
+    details.push(`Checking ${ghosts.length} ghost records`);
+
+    for (const ghost of ghosts) {
+      // Rule 3: Ghost must have valid tombstone event in log
+      if (!ghost.tombstoneEventId) {
+        violations.push({
+          ghostId: ghost.id,
+          rule: 3,
+          error: 'Ghost has no tombstone event reference (violates ineliminability)'
+        });
+      } else {
+        // Verify tombstone exists in event store
+        const tombstone = this.eventStore.get(ghost.tombstoneEventId);
+        if (!tombstone) {
+          violations.push({
+            ghostId: ghost.id,
+            rule: 3,
+            error: `Tombstone event ${ghost.tombstoneEventId} not found in log`
+          });
+        }
+      }
+
+      // Rule 7: Ghost snapshot must be grounded
+      if (!ghost.snapshot) {
+        violations.push({
+          ghostId: ghost.id,
+          rule: 7,
+          error: 'Ghost has no snapshot (groundedness violation)'
+        });
+      }
+
+      // Rule 9: Ghost must be in a valid lifecycle state
+      const validStatuses = ['active', 'dormant', 'resurrected', 'purged'];
+      if (!validStatuses.includes(ghost.status)) {
+        violations.push({
+          ghostId: ghost.id,
+          rule: 9,
+          error: `Invalid ghost status: ${ghost.status}`
+        });
+      }
+
+      // Check retention policy compliance
+      if (ghost.retentionPolicy === 'legal_hold' && ghost.status === 'purged') {
+        violations.push({
+          ghostId: ghost.id,
+          rule: 3,
+          error: 'Ghost under legal hold was purged (retention violation)'
+        });
+      }
+    }
+
+    // Check haunt relationships
+    const stats = ghostRegistry.getStats();
+    details.push(`Active ghosts: ${stats.activeGhosts}`);
+    details.push(`Total haunts detected: ${stats.hauntsDetected}`);
+    details.push(`Haunts resolved: ${stats.hauntsResolved}`);
+
+    return {
+      passed: violations.length === 0,
+      details,
+      violations,
+      stats
+    };
+  }
+
+  /**
+   * Run full audit including ghost compliance
+   * @param {EOGhostRegistry} ghostRegistry - Optional ghost registry
+   */
+  async runFullAuditWithGhosts(ghostRegistry = null) {
+    const audit = await this.runFullAudit();
+
+    if (ghostRegistry) {
+      const ghostCompliance = this.checkGhostCompliance(ghostRegistry);
+      audit.ghostCompliance = ghostCompliance;
+
+      // Ghost violations affect overall conformance
+      if (!ghostCompliance.passed) {
+        // Ghost violations primarily affect Rule 3 (ineliminability)
+        const rule3Result = audit.results.find(r => r.ruleNumber === 3);
+        if (rule3Result) {
+          rule3Result.violations.push(...ghostCompliance.violations.filter(v => v.rule === 3));
+          if (rule3Result.violations.length > 0) {
+            rule3Result.passed = false;
+          }
+        }
+      }
+    }
+
+    return audit;
+  }
+
   /**
    * Generate a human-readable compliance report
    */
