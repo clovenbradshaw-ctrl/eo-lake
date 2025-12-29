@@ -255,6 +255,9 @@ class EODataWorkbench {
     // Calendar navigation state
     this.calendarDate = new Date();
 
+    // Sources view mode (list vs table)
+    this.sourcesViewMode = 'list'; // 'list' or 'table'
+
     // File Explorer state
     this.fileExplorerMode = false; // Whether file explorer is active
     this.fileExplorerViewMode = 'list'; // 'tree', 'list', 'grid'
@@ -539,6 +542,31 @@ class EODataWorkbench {
     // File Explorer button
     document.getElementById('btn-file-explorer')?.addEventListener('click', () => {
       this._showFileExplorer();
+    });
+
+    // Sources view toggle (list vs table)
+    document.getElementById('sources-view-toggle')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.view-toggle-btn');
+      if (!btn) return;
+      const viewMode = btn.dataset.view;
+      if (viewMode && viewMode !== this.sourcesViewMode) {
+        this.sourcesViewMode = viewMode;
+        // Update toggle button states
+        document.querySelectorAll('#sources-view-toggle .view-toggle-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.view === viewMode);
+        });
+        // Re-render sources navigation or show table view
+        if (viewMode === 'table') {
+          this._showSourcesTableView();
+        } else {
+          this._renderSourcesNav();
+          // If we were viewing a source table, clear main content
+          if (this.currentSourceId === 'sources-table') {
+            this.currentSourceId = null;
+            this._renderView();
+          }
+        }
+      }
     });
 
     // New view button
@@ -3041,6 +3069,302 @@ class EODataWorkbench {
         toggle.querySelector('.ph-caret-down, .ph-caret-up')?.classList.toggle('ph-caret-up', isHidden);
       }
     });
+  }
+
+  /**
+   * Show sources as a table view in the main content area
+   * Each row represents a source with its metadata
+   */
+  _showSourcesTableView() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    // Get all active sources
+    const activeSources = (this.sources || []).filter(s => s.status !== 'archived');
+
+    // Sort by import date (newest first)
+    const sortedSources = activeSources.sort((a, b) => {
+      if (!a.importedAt) return 1;
+      if (!b.importedAt) return -1;
+      return new Date(b.importedAt) - new Date(a.importedAt);
+    });
+
+    // Mark that we're viewing the sources table
+    this.currentSourceId = 'sources-table';
+
+    // Clear set/view selection in sidebar
+    document.querySelectorAll('.set-item, .source-item').forEach(item => {
+      item.classList.remove('active');
+    });
+
+    // Update breadcrumb
+    this._updateBreadcrumb({
+      workspace: this._getCurrentWorkspaceName(),
+      set: 'Sources',
+      view: 'Table View'
+    });
+
+    // Build the sources table HTML
+    contentArea.innerHTML = `
+      <div class="sources-table-view">
+        <!-- Header -->
+        <div class="sources-table-header">
+          <div class="sources-table-title">
+            <div class="sources-table-icon">
+              <i class="ph ph-download-simple"></i>
+            </div>
+            <div class="sources-table-info">
+              <h2>
+                <span>Sources</span>
+                <span class="given-badge">
+                  <i class="ph ph-lock-simple"></i>
+                  GIVEN
+                </span>
+              </h2>
+              <div class="sources-table-meta">
+                ${sortedSources.length} source${sortedSources.length !== 1 ? 's' : ''} imported
+              </div>
+            </div>
+          </div>
+          <div class="sources-table-actions">
+            <button class="source-action-btn" id="sources-table-import-btn" title="Import new data">
+              <i class="ph ph-plus"></i>
+              <span>Import</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="sources-table-toolbar">
+          <div class="sources-table-search">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" id="sources-table-search" placeholder="Search sources...">
+          </div>
+          <div class="sources-table-count">
+            ${sortedSources.length} source${sortedSources.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="sources-table-container">
+          ${sortedSources.length > 0 ? `
+            <table class="sources-table">
+              <thead>
+                <tr>
+                  <th class="col-icon"></th>
+                  <th class="col-name">Name</th>
+                  <th class="col-type">Type</th>
+                  <th class="col-records">Records</th>
+                  <th class="col-fields">Fields</th>
+                  <th class="col-imported">Imported</th>
+                  <th class="col-agent">Agent</th>
+                  <th class="col-derived">Derived Sets</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sortedSources.map(source => {
+                  const icon = this._getSourceIcon(source.name);
+                  const fileType = this._getSourceFileType(source.name);
+                  const recordCount = source.recordCount || source.records?.length || 0;
+                  const fieldCount = source.schema?.fields?.length || 0;
+                  const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : 'Unknown';
+                  const agent = source.provenance?.agent || '(not set)';
+                  const derivedSets = this.sets.filter(set => {
+                    const prov = set.datasetProvenance;
+                    return prov?.sourceId === source.id ||
+                           prov?.originalFilename?.toLowerCase() === source.name.toLowerCase();
+                  });
+
+                  return `
+                    <tr class="sources-table-row" data-source-id="${source.id}">
+                      <td class="col-icon">
+                        <i class="ph ${icon}"></i>
+                      </td>
+                      <td class="col-name">
+                        <span class="source-name-text">${this._escapeHtml(source.name)}</span>
+                      </td>
+                      <td class="col-type">
+                        <span class="source-type-badge">${fileType}</span>
+                      </td>
+                      <td class="col-records">${recordCount.toLocaleString()}</td>
+                      <td class="col-fields">${fieldCount}</td>
+                      <td class="col-imported">${importDate}</td>
+                      <td class="col-agent" title="${this._escapeHtml(agent)}">
+                        ${this._escapeHtml(this._truncateText(agent, 20))}
+                      </td>
+                      <td class="col-derived">
+                        ${derivedSets.length > 0 ? `
+                          <span class="derived-sets-badge" title="${derivedSets.map(s => s.name).join(', ')}">
+                            ${derivedSets.length}
+                          </span>
+                        ` : '-'}
+                      </td>
+                      <td class="col-actions">
+                        <button class="sources-table-action-btn" data-action="view" title="View source data">
+                          <i class="ph ph-eye"></i>
+                        </button>
+                        <button class="sources-table-action-btn" data-action="create-set" title="Create set from source">
+                          <i class="ph ph-git-branch"></i>
+                        </button>
+                        <button class="sources-table-action-btn" data-action="export" title="Export source">
+                          <i class="ph ph-export"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          ` : `
+            <div class="sources-table-empty">
+              <i class="ph ph-file-arrow-down"></i>
+              <p>No sources imported yet</p>
+              <button class="btn-primary" id="sources-table-first-import">
+                <i class="ph ph-plus"></i>
+                Import your first data file
+              </button>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    this._attachSourcesTableHandlers(sortedSources);
+  }
+
+  /**
+   * Get file type label from source name
+   */
+  _getSourceFileType(name) {
+    const ext = name?.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'csv': return 'CSV';
+      case 'json': return 'JSON';
+      case 'ics': return 'ICS';
+      case 'xlsx':
+      case 'xls': return 'Excel';
+      default: return ext?.toUpperCase() || 'File';
+    }
+  }
+
+  /**
+   * Truncate text to specified length with ellipsis
+   */
+  _truncateText(text, maxLength) {
+    if (!text || text.length <= maxLength) return text || '';
+    return text.substring(0, maxLength) + '...';
+  }
+
+  /**
+   * Attach event handlers for sources table view
+   */
+  _attachSourcesTableHandlers(sources) {
+    // Import button
+    document.getElementById('sources-table-import-btn')?.addEventListener('click', () => {
+      this._showImportModal();
+    });
+
+    // First import button (empty state)
+    document.getElementById('sources-table-first-import')?.addEventListener('click', () => {
+      this._showImportModal();
+    });
+
+    // Search
+    const searchInput = document.getElementById('sources-table-search');
+    searchInput?.addEventListener('input', (e) => {
+      this._filterSourcesTable(e.target.value);
+    });
+
+    // Row click to view source
+    document.querySelectorAll('.sources-table-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        // Ignore if clicking action buttons
+        if (e.target.closest('.sources-table-action-btn')) return;
+
+        const sourceId = row.dataset.sourceId;
+        // Switch back to list view and show the source
+        this.sourcesViewMode = 'list';
+        document.querySelectorAll('#sources-view-toggle .view-toggle-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.view === 'list');
+        });
+        this._renderSourcesNav();
+        this._showSourceDetail(sourceId);
+      });
+
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showSourceContextMenu(e, row.dataset.sourceId);
+      });
+    });
+
+    // Action buttons
+    document.querySelectorAll('.sources-table-action-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const row = btn.closest('.sources-table-row');
+        const sourceId = row.dataset.sourceId;
+        const action = btn.dataset.action;
+        const source = this.sources.find(s => s.id === sourceId);
+
+        if (!source) return;
+
+        switch (action) {
+          case 'view':
+            this.sourcesViewMode = 'list';
+            document.querySelectorAll('#sources-view-toggle .view-toggle-btn').forEach(b => {
+              b.classList.toggle('active', b.dataset.view === 'list');
+            });
+            this._renderSourcesNav();
+            this._showSourceDetail(sourceId);
+            break;
+          case 'create-set':
+            this._createSetFromSource(source);
+            break;
+          case 'export':
+            this._exportSource(sourceId);
+            break;
+        }
+      });
+    });
+  }
+
+  /**
+   * Filter sources table by search term
+   */
+  _filterSourcesTable(searchTerm) {
+    const rows = document.querySelectorAll('.sources-table-row');
+    const term = searchTerm.toLowerCase().trim();
+    let visibleCount = 0;
+
+    rows.forEach(row => {
+      const sourceId = row.dataset.sourceId;
+      const source = this.sources.find(s => s.id === sourceId);
+      if (!source) {
+        row.style.display = 'none';
+        return;
+      }
+
+      const searchFields = [
+        source.name,
+        source.provenance?.agent,
+        this._getSourceFileType(source.name)
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      const matches = !term || searchFields.includes(term);
+      row.style.display = matches ? '' : 'none';
+      if (matches) visibleCount++;
+    });
+
+    // Update count display
+    const countEl = document.querySelector('.sources-table-count');
+    if (countEl) {
+      const total = this.sources.filter(s => s.status !== 'archived').length;
+      countEl.textContent = term
+        ? `${visibleCount} of ${total} source${total !== 1 ? 's' : ''}`
+        : `${total} source${total !== 1 ? 's' : ''}`;
+    }
   }
 
   /**
