@@ -5068,6 +5068,1127 @@ SourceStore.prototype.getUnorganized = function() {
 
 
 // ============================================================================
+// SetJoinFilterCreator - Unified no-code interface for creating sets
+// ============================================================================
+
+/**
+ * SetJoinFilterCreator - Visual wizard for creating sets from multiple sources/sets
+ *
+ * Features:
+ * - Multi-select sources AND existing sets
+ * - Visual join configuration (field mapping, join type)
+ * - Advanced filter builder integration
+ * - Live preview with record counts
+ * - No-code, point-and-click experience
+ */
+class SetJoinFilterCreator {
+  constructor(options = {}) {
+    this.sourceStore = options.sourceStore;
+    this.sets = options.sets || [];
+    this.container = null;
+    this._onComplete = null;
+    this._onCancel = null;
+
+    // State
+    this._step = 1; // 1: Select, 2: Join, 3: Filter, 4: Review
+    this._setName = '';
+    this._selectedItems = []; // Array of { type: 'source'|'set', id, name, fields, records }
+    this._joinConfig = {
+      type: 'left', // 'inner', 'left', 'right', 'full', 'union'
+      conditions: [] // Array of { leftItemIndex, leftField, rightItemIndex, rightField, operator }
+    };
+    this._filterBuilder = null;
+    this._previewData = null;
+    this._searchQuery = '';
+  }
+
+  /**
+   * Show the creator wizard
+   */
+  show(container, options = {}) {
+    this.container = typeof container === 'string'
+      ? document.getElementById(container)
+      : container;
+
+    this._onComplete = options.onComplete;
+    this._onCancel = options.onCancel;
+    this._step = 1;
+    this._setName = '';
+    this._selectedItems = [];
+    this._joinConfig = { type: 'left', conditions: [] };
+    this._filterBuilder = null;
+    this._previewData = null;
+    this._searchQuery = '';
+
+    this._render();
+    this._attachEventListeners();
+  }
+
+  hide() {
+    if (this.container) {
+      this.container.innerHTML = '';
+      this.container.style.display = 'none';
+    }
+  }
+
+  /**
+   * Get all available items (sources + sets)
+   */
+  _getAvailableItems() {
+    const items = [];
+
+    // Add sources
+    if (this.sourceStore) {
+      const sources = this.sourceStore.getAll();
+      for (const source of sources) {
+        items.push({
+          type: 'source',
+          id: source.id,
+          name: source.name,
+          recordCount: source.recordCount || source.records?.length || 0,
+          fields: source.schema?.fields || [],
+          icon: this._getSourceIcon(source),
+          records: source.records || []
+        });
+      }
+    }
+
+    // Add existing sets
+    for (const set of this.sets) {
+      items.push({
+        type: 'set',
+        id: set.id,
+        name: set.name,
+        recordCount: set.records?.length || 0,
+        fields: set.fields || [],
+        icon: 'ph-table',
+        records: set.records || []
+      });
+    }
+
+    return items;
+  }
+
+  _getSourceIcon(source) {
+    const type = source.fileIdentity?.mimeType || '';
+    if (type.includes('json')) return 'ph-brackets-curly';
+    if (type.includes('csv') || type.includes('excel') || type.includes('spreadsheet')) return 'ph-file-xls';
+    return 'ph-file';
+  }
+
+  _render() {
+    this.container.style.display = 'block';
+    this.container.innerHTML = `
+      <div class="sjf-overlay">
+        <div class="sjf-modal">
+          <div class="sjf-header">
+            <h2><i class="ph ph-plus-circle"></i> Create New Set</h2>
+            <button class="sjf-close-btn" id="sjf-close-btn">
+              <i class="ph ph-x"></i>
+            </button>
+          </div>
+
+          <div class="sjf-steps">
+            ${this._renderStepIndicators()}
+          </div>
+
+          <div class="sjf-body">
+            ${this._renderCurrentStep()}
+          </div>
+
+          <div class="sjf-footer">
+            ${this._renderFooterButtons()}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderStepIndicators() {
+    const steps = [
+      { num: 1, label: 'Select Data', icon: 'ph-list-checks' },
+      { num: 2, label: 'Join', icon: 'ph-intersect' },
+      { num: 3, label: 'Filter', icon: 'ph-funnel' },
+      { num: 4, label: 'Review', icon: 'ph-eye' }
+    ];
+
+    return `
+      <div class="sjf-step-indicators">
+        ${steps.map(step => `
+          <div class="sjf-step-indicator ${this._step === step.num ? 'active' : ''} ${this._step > step.num ? 'completed' : ''}" data-step="${step.num}">
+            <div class="sjf-step-icon">
+              <i class="ph ${step.icon}"></i>
+            </div>
+            <span class="sjf-step-label">${step.label}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  _renderCurrentStep() {
+    switch (this._step) {
+      case 1: return this._renderSelectStep();
+      case 2: return this._renderJoinStep();
+      case 3: return this._renderFilterStep();
+      case 4: return this._renderReviewStep();
+      default: return '';
+    }
+  }
+
+  _renderSelectStep() {
+    const items = this._getAvailableItems();
+    const filteredItems = this._searchQuery
+      ? items.filter(item => item.name.toLowerCase().includes(this._searchQuery.toLowerCase()))
+      : items;
+
+    const sources = filteredItems.filter(i => i.type === 'source');
+    const sets = filteredItems.filter(i => i.type === 'set');
+
+    return `
+      <div class="sjf-select-step">
+        <div class="sjf-name-input">
+          <label>Set Name</label>
+          <input type="text" id="sjf-set-name" placeholder="My New Set" value="${this._escapeHtml(this._setName)}">
+        </div>
+
+        <div class="sjf-select-header">
+          <h3><i class="ph ph-database"></i> Select Data Sources</h3>
+          <p class="sjf-hint">Select one or more sources/sets to combine into your new set</p>
+        </div>
+
+        <div class="sjf-search-bar">
+          <i class="ph ph-magnifying-glass"></i>
+          <input type="text" id="sjf-search" placeholder="Search sources and sets..." value="${this._escapeHtml(this._searchQuery)}">
+        </div>
+
+        <div class="sjf-select-actions">
+          <span class="sjf-selected-count">${this._selectedItems.length} selected</span>
+          <button class="sjf-action-btn" id="sjf-clear-selection">Clear All</button>
+        </div>
+
+        <div class="sjf-items-list" id="sjf-items-list">
+          ${sources.length > 0 ? `
+            <div class="sjf-items-group">
+              <div class="sjf-group-header">
+                <i class="ph ph-file"></i> Sources (${sources.length})
+              </div>
+              ${sources.map(item => this._renderSelectItem(item)).join('')}
+            </div>
+          ` : ''}
+
+          ${sets.length > 0 ? `
+            <div class="sjf-items-group">
+              <div class="sjf-group-header">
+                <i class="ph ph-table"></i> Sets (${sets.length})
+              </div>
+              ${sets.map(item => this._renderSelectItem(item)).join('')}
+            </div>
+          ` : ''}
+
+          ${filteredItems.length === 0 ? `
+            <div class="sjf-empty-state">
+              <i class="ph ph-file-dashed"></i>
+              <p>No data sources found</p>
+              <span>Import data first to create sets</span>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  _renderSelectItem(item) {
+    const isSelected = this._selectedItems.some(s => s.type === item.type && s.id === item.id);
+    const selectionOrder = this._selectedItems.findIndex(s => s.type === item.type && s.id === item.id) + 1;
+
+    return `
+      <div class="sjf-select-item ${isSelected ? 'selected' : ''}"
+           data-type="${item.type}"
+           data-id="${item.id}">
+        <div class="sjf-item-checkbox">
+          ${isSelected ? `<span class="sjf-order-badge">${selectionOrder}</span>` : '<i class="ph ph-square"></i>'}
+        </div>
+        <div class="sjf-item-icon">
+          <i class="ph ${item.icon}"></i>
+        </div>
+        <div class="sjf-item-info">
+          <span class="sjf-item-name">${this._escapeHtml(item.name)}</span>
+          <span class="sjf-item-meta">${item.recordCount} records • ${item.fields.length} fields</span>
+        </div>
+        <div class="sjf-item-badge ${item.type}">${item.type}</div>
+      </div>
+    `;
+  }
+
+  _renderJoinStep() {
+    if (this._selectedItems.length < 2) {
+      return `
+        <div class="sjf-join-single">
+          <div class="sjf-info-card">
+            <i class="ph ph-info"></i>
+            <div>
+              <strong>Single source selected</strong>
+              <p>Joins require 2 or more sources. With a single source, you can proceed directly to filtering.</p>
+            </div>
+          </div>
+          <div class="sjf-selected-preview">
+            <h4>Selected: ${this._selectedItems[0]?.name || 'None'}</h4>
+            <p>${this._selectedItems[0]?.recordCount || 0} records</p>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="sjf-join-step">
+        <div class="sjf-join-header">
+          <h3><i class="ph ph-intersect"></i> Configure Join</h3>
+          <p class="sjf-hint">Define how to combine your selected data sources</p>
+        </div>
+
+        <div class="sjf-join-type-section">
+          <label>Join Type</label>
+          <div class="sjf-join-types">
+            ${this._renderJoinTypeOption('left', 'Left Join', 'All from first + matches', 'ph-align-left')}
+            ${this._renderJoinTypeOption('inner', 'Inner Join', 'Only matching records', 'ph-intersect')}
+            ${this._renderJoinTypeOption('right', 'Right Join', 'All from second + matches', 'ph-align-right')}
+            ${this._renderJoinTypeOption('full', 'Full Join', 'All records from both', 'ph-arrows-out-line-horizontal')}
+            ${this._renderJoinTypeOption('union', 'Union', 'Stack all records', 'ph-stack')}
+          </div>
+        </div>
+
+        ${this._joinConfig.type !== 'union' ? `
+          <div class="sjf-join-conditions">
+            <label>Join Conditions</label>
+            <p class="sjf-hint">Map fields between sources to define the join</p>
+
+            <div class="sjf-conditions-list" id="sjf-conditions-list">
+              ${this._joinConfig.conditions.length === 0 ? `
+                <div class="sjf-empty-conditions">
+                  <i class="ph ph-link"></i>
+                  <p>No join conditions defined</p>
+                  <span>Add a condition to link records between sources</span>
+                </div>
+              ` : this._joinConfig.conditions.map((cond, i) => this._renderJoinCondition(cond, i)).join('')}
+            </div>
+
+            <button class="sjf-add-condition-btn" id="sjf-add-condition">
+              <i class="ph ph-plus"></i> Add Join Condition
+            </button>
+          </div>
+        ` : `
+          <div class="sjf-union-info">
+            <div class="sjf-info-card">
+              <i class="ph ph-stack"></i>
+              <div>
+                <strong>Union Mode</strong>
+                <p>Records from all sources will be stacked together. Fields with the same name will be combined.</p>
+              </div>
+            </div>
+          </div>
+        `}
+
+        <div class="sjf-join-preview">
+          <h4>Selected Sources</h4>
+          <div class="sjf-sources-visual">
+            ${this._selectedItems.map((item, i) => `
+              <div class="sjf-source-card" data-index="${i}">
+                <div class="sjf-source-letter">${String.fromCharCode(65 + i)}</div>
+                <div class="sjf-source-info">
+                  <span class="sjf-source-name">${this._escapeHtml(item.name)}</span>
+                  <span class="sjf-source-count">${item.recordCount} records</span>
+                </div>
+              </div>
+            `).join('<i class="ph ph-link-simple sjf-link-icon"></i>')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderJoinTypeOption(value, label, desc, icon) {
+    const isSelected = this._joinConfig.type === value;
+    return `
+      <button class="sjf-join-type-btn ${isSelected ? 'active' : ''}" data-type="${value}">
+        <i class="ph ${icon}"></i>
+        <span class="sjf-jt-label">${label}</span>
+        <span class="sjf-jt-desc">${desc}</span>
+      </button>
+    `;
+  }
+
+  _renderJoinCondition(condition, index) {
+    const leftItem = this._selectedItems[condition.leftItemIndex || 0];
+    const rightItem = this._selectedItems[condition.rightItemIndex || 1];
+
+    return `
+      <div class="sjf-join-condition" data-index="${index}">
+        <div class="sjf-condition-row">
+          <div class="sjf-condition-side left">
+            <select class="sjf-source-select" data-side="left">
+              ${this._selectedItems.map((item, i) => `
+                <option value="${i}" ${condition.leftItemIndex === i ? 'selected' : ''}>
+                  ${String.fromCharCode(65 + i)}: ${this._escapeHtml(item.name)}
+                </option>
+              `).join('')}
+            </select>
+            <select class="sjf-field-select" data-side="left">
+              <option value="">Select field...</option>
+              ${(leftItem?.fields || []).map(f => `
+                <option value="${f.name}" ${condition.leftField === f.name ? 'selected' : ''}>
+                  ${this._escapeHtml(f.name)}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+
+          <div class="sjf-condition-operator">
+            <select class="sjf-operator-select">
+              <option value="eq" ${condition.operator === 'eq' ? 'selected' : ''}>=</option>
+              <option value="contains" ${condition.operator === 'contains' ? 'selected' : ''}>contains</option>
+              <option value="starts" ${condition.operator === 'starts' ? 'selected' : ''}>starts with</option>
+              <option value="ends" ${condition.operator === 'ends' ? 'selected' : ''}>ends with</option>
+            </select>
+          </div>
+
+          <div class="sjf-condition-side right">
+            <select class="sjf-source-select" data-side="right">
+              ${this._selectedItems.map((item, i) => `
+                <option value="${i}" ${condition.rightItemIndex === i ? 'selected' : ''}>
+                  ${String.fromCharCode(65 + i)}: ${this._escapeHtml(item.name)}
+                </option>
+              `).join('')}
+            </select>
+            <select class="sjf-field-select" data-side="right">
+              <option value="">Select field...</option>
+              ${(rightItem?.fields || []).map(f => `
+                <option value="${f.name}" ${condition.rightField === f.name ? 'selected' : ''}>
+                  ${this._escapeHtml(f.name)}
+                </option>
+              `).join('')}
+            </select>
+          </div>
+
+          <button class="sjf-remove-condition" data-index="${index}">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderFilterStep() {
+    // Initialize filter builder if needed
+    if (!this._filterBuilder && this._selectedItems.length > 0) {
+      // Create a combined source for filtering
+      const combinedSource = this._getCombinedSource();
+      this._filterBuilder = new AdvancedFilterBuilder({
+        source: combinedSource,
+        provenanceEnabled: false,
+        onChange: () => this._updatePreview()
+      });
+    }
+
+    return `
+      <div class="sjf-filter-step">
+        <div class="sjf-filter-header">
+          <h3><i class="ph ph-funnel"></i> Filter Records</h3>
+          <p class="sjf-hint">Add conditions to filter the combined data (optional)</p>
+          <div class="sjf-filter-count" id="sjf-filter-count">
+            ${this._getFilteredCount()} records match
+          </div>
+        </div>
+
+        <div id="sjf-filter-builder"></div>
+
+        <div class="sjf-filter-preview">
+          <button class="sjf-preview-btn" id="sjf-preview-filter">
+            <i class="ph ph-eye"></i> Preview Filtered Data
+          </button>
+          <div class="sjf-preview-results" id="sjf-preview-results"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderReviewStep() {
+    const combinedCount = this._getFilteredCount();
+    const fieldCount = this._getCombinedFields().length;
+
+    return `
+      <div class="sjf-review-step">
+        <div class="sjf-review-header">
+          <h3><i class="ph ph-eye"></i> Review & Create</h3>
+          <p class="sjf-hint">Review your configuration before creating the set</p>
+        </div>
+
+        <div class="sjf-review-summary">
+          <div class="sjf-summary-card">
+            <div class="sjf-summary-icon">
+              <i class="ph ph-textbox"></i>
+            </div>
+            <div class="sjf-summary-content">
+              <label>Set Name</label>
+              <span class="sjf-summary-value">${this._escapeHtml(this._setName || 'Untitled Set')}</span>
+            </div>
+          </div>
+
+          <div class="sjf-summary-card">
+            <div class="sjf-summary-icon">
+              <i class="ph ph-database"></i>
+            </div>
+            <div class="sjf-summary-content">
+              <label>Sources</label>
+              <span class="sjf-summary-value">${this._selectedItems.length} selected</span>
+              <div class="sjf-summary-list">
+                ${this._selectedItems.map(item => `
+                  <span class="sjf-summary-item">${this._escapeHtml(item.name)}</span>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+
+          ${this._selectedItems.length > 1 ? `
+            <div class="sjf-summary-card">
+              <div class="sjf-summary-icon">
+                <i class="ph ph-intersect"></i>
+              </div>
+              <div class="sjf-summary-content">
+                <label>Join Type</label>
+                <span class="sjf-summary-value">${this._joinConfig.type.toUpperCase()}</span>
+                ${this._joinConfig.conditions.length > 0 ? `
+                  <span class="sjf-summary-detail">${this._joinConfig.conditions.length} condition(s)</span>
+                ` : ''}
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="sjf-summary-card">
+            <div class="sjf-summary-icon">
+              <i class="ph ph-funnel"></i>
+            </div>
+            <div class="sjf-summary-content">
+              <label>Filters</label>
+              <span class="sjf-summary-value">${this._getFilterConditionCount()} condition(s)</span>
+            </div>
+          </div>
+
+          <div class="sjf-summary-card highlight">
+            <div class="sjf-summary-icon">
+              <i class="ph ph-table"></i>
+            </div>
+            <div class="sjf-summary-content">
+              <label>Result</label>
+              <span class="sjf-summary-value">${combinedCount} records</span>
+              <span class="sjf-summary-detail">${fieldCount} fields</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sjf-review-preview">
+          <h4>Data Preview</h4>
+          <div class="sjf-final-preview" id="sjf-final-preview">
+            ${this._renderDataPreview()}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderDataPreview() {
+    const records = this._getFilteredRecords();
+    const fields = this._getCombinedFields();
+    const displayFields = fields.slice(0, 6);
+    const displayRecords = records.slice(0, 5);
+
+    if (displayRecords.length === 0) {
+      return `
+        <div class="sjf-preview-empty">
+          <i class="ph ph-empty"></i>
+          <p>No records to preview</p>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="sjf-preview-table-wrap">
+        <table class="sjf-preview-table">
+          <thead>
+            <tr>
+              ${displayFields.map(f => `<th>${this._escapeHtml(f.name)}</th>`).join('')}
+              ${fields.length > 6 ? `<th class="more">+${fields.length - 6} more</th>` : ''}
+            </tr>
+          </thead>
+          <tbody>
+            ${displayRecords.map(record => `
+              <tr>
+                ${displayFields.map(f => {
+                  const val = record.values?.[f.name] ?? record[f.name] ?? '';
+                  return `<td>${this._escapeHtml(String(val).substring(0, 50))}</td>`;
+                }).join('')}
+                ${fields.length > 6 ? '<td class="more">...</td>' : ''}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${records.length > 5 ? `
+        <div class="sjf-preview-more">Showing 5 of ${records.length} records</div>
+      ` : ''}
+    `;
+  }
+
+  _renderFooterButtons() {
+    const canProceed = this._canProceedToNextStep();
+
+    return `
+      <div class="sjf-footer-left">
+        ${this._step > 1 ? `
+          <button class="sjf-btn secondary" id="sjf-back-btn">
+            <i class="ph ph-arrow-left"></i> Back
+          </button>
+        ` : ''}
+      </div>
+      <div class="sjf-footer-right">
+        <button class="sjf-btn secondary" id="sjf-cancel-btn">Cancel</button>
+        ${this._step < 4 ? `
+          <button class="sjf-btn primary" id="sjf-next-btn" ${!canProceed ? 'disabled' : ''}>
+            ${this._step === 1 && this._selectedItems.length === 1 ? 'Skip Join' : 'Next'}
+            <i class="ph ph-arrow-right"></i>
+          </button>
+        ` : `
+          <button class="sjf-btn success" id="sjf-create-btn">
+            <i class="ph ph-plus-circle"></i> Create Set
+          </button>
+        `}
+      </div>
+    `;
+  }
+
+  _canProceedToNextStep() {
+    switch (this._step) {
+      case 1: return this._selectedItems.length > 0;
+      case 2: return true; // Join is optional
+      case 3: return true; // Filter is optional
+      case 4: return true;
+      default: return false;
+    }
+  }
+
+  _attachEventListeners() {
+    // Close button
+    this.container.querySelector('#sjf-close-btn')?.addEventListener('click', () => {
+      this.hide();
+      this._onCancel?.();
+    });
+
+    // Cancel button
+    this.container.querySelector('#sjf-cancel-btn')?.addEventListener('click', () => {
+      this.hide();
+      this._onCancel?.();
+    });
+
+    // Overlay click to close
+    this.container.querySelector('.sjf-overlay')?.addEventListener('click', (e) => {
+      if (e.target.classList.contains('sjf-overlay')) {
+        this.hide();
+        this._onCancel?.();
+      }
+    });
+
+    // Navigation buttons
+    this.container.querySelector('#sjf-back-btn')?.addEventListener('click', () => {
+      this._step = Math.max(1, this._step - 1);
+      this._render();
+      this._attachEventListeners();
+    });
+
+    this.container.querySelector('#sjf-next-btn')?.addEventListener('click', () => {
+      // Skip join step if only one source
+      if (this._step === 1 && this._selectedItems.length === 1) {
+        this._step = 3;
+      } else {
+        this._step = Math.min(4, this._step + 1);
+      }
+      this._render();
+      this._attachEventListeners();
+      this._attachStepSpecificListeners();
+    });
+
+    this.container.querySelector('#sjf-create-btn')?.addEventListener('click', () => {
+      this._createSet();
+    });
+
+    this._attachStepSpecificListeners();
+  }
+
+  _attachStepSpecificListeners() {
+    switch (this._step) {
+      case 1:
+        this._attachSelectStepListeners();
+        break;
+      case 2:
+        this._attachJoinStepListeners();
+        break;
+      case 3:
+        this._attachFilterStepListeners();
+        break;
+    }
+  }
+
+  _attachSelectStepListeners() {
+    // Set name input
+    const nameInput = this.container.querySelector('#sjf-set-name');
+    nameInput?.addEventListener('input', (e) => {
+      this._setName = e.target.value;
+    });
+
+    // Search input
+    const searchInput = this.container.querySelector('#sjf-search');
+    searchInput?.addEventListener('input', (e) => {
+      this._searchQuery = e.target.value;
+      this._renderItemsList();
+    });
+
+    // Clear selection
+    this.container.querySelector('#sjf-clear-selection')?.addEventListener('click', () => {
+      this._selectedItems = [];
+      this._renderItemsList();
+      this._updateSelectedCount();
+      this._updateFooterButtons();
+    });
+
+    // Item selection
+    this._attachItemSelectionListeners();
+  }
+
+  _attachItemSelectionListeners() {
+    this.container.querySelectorAll('.sjf-select-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const type = item.dataset.type;
+        const id = item.dataset.id;
+
+        const existingIndex = this._selectedItems.findIndex(s => s.type === type && s.id === id);
+
+        if (existingIndex >= 0) {
+          // Deselect
+          this._selectedItems.splice(existingIndex, 1);
+        } else {
+          // Select
+          const allItems = this._getAvailableItems();
+          const selectedItem = allItems.find(i => i.type === type && i.id === id);
+          if (selectedItem) {
+            this._selectedItems.push(selectedItem);
+          }
+        }
+
+        this._renderItemsList();
+        this._updateSelectedCount();
+        this._updateFooterButtons();
+      });
+    });
+  }
+
+  _renderItemsList() {
+    const listEl = this.container.querySelector('#sjf-items-list');
+    if (!listEl) return;
+
+    const items = this._getAvailableItems();
+    const filteredItems = this._searchQuery
+      ? items.filter(item => item.name.toLowerCase().includes(this._searchQuery.toLowerCase()))
+      : items;
+
+    const sources = filteredItems.filter(i => i.type === 'source');
+    const sets = filteredItems.filter(i => i.type === 'set');
+
+    listEl.innerHTML = `
+      ${sources.length > 0 ? `
+        <div class="sjf-items-group">
+          <div class="sjf-group-header">
+            <i class="ph ph-file"></i> Sources (${sources.length})
+          </div>
+          ${sources.map(item => this._renderSelectItem(item)).join('')}
+        </div>
+      ` : ''}
+
+      ${sets.length > 0 ? `
+        <div class="sjf-items-group">
+          <div class="sjf-group-header">
+            <i class="ph ph-table"></i> Sets (${sets.length})
+          </div>
+          ${sets.map(item => this._renderSelectItem(item)).join('')}
+        </div>
+      ` : ''}
+
+      ${filteredItems.length === 0 ? `
+        <div class="sjf-empty-state">
+          <i class="ph ph-file-dashed"></i>
+          <p>No data sources found</p>
+        </div>
+      ` : ''}
+    `;
+
+    this._attachItemSelectionListeners();
+  }
+
+  _updateSelectedCount() {
+    const countEl = this.container.querySelector('.sjf-selected-count');
+    if (countEl) {
+      countEl.textContent = `${this._selectedItems.length} selected`;
+    }
+  }
+
+  _updateFooterButtons() {
+    const nextBtn = this.container.querySelector('#sjf-next-btn');
+    if (nextBtn) {
+      nextBtn.disabled = !this._canProceedToNextStep();
+      if (this._step === 1 && this._selectedItems.length === 1) {
+        nextBtn.innerHTML = 'Skip Join <i class="ph ph-arrow-right"></i>';
+      }
+    }
+  }
+
+  _attachJoinStepListeners() {
+    // Join type buttons
+    this.container.querySelectorAll('.sjf-join-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._joinConfig.type = btn.dataset.type;
+        this._render();
+        this._attachEventListeners();
+      });
+    });
+
+    // Add condition button
+    this.container.querySelector('#sjf-add-condition')?.addEventListener('click', () => {
+      this._joinConfig.conditions.push({
+        leftItemIndex: 0,
+        leftField: '',
+        rightItemIndex: 1,
+        rightField: '',
+        operator: 'eq'
+      });
+      this._renderConditionsList();
+    });
+
+    // Condition changes
+    this._attachConditionListeners();
+  }
+
+  _attachConditionListeners() {
+    this.container.querySelectorAll('.sjf-join-condition').forEach(condEl => {
+      const index = parseInt(condEl.dataset.index);
+      const condition = this._joinConfig.conditions[index];
+      if (!condition) return;
+
+      // Source selects
+      condEl.querySelectorAll('.sjf-source-select').forEach(select => {
+        select.addEventListener('change', (e) => {
+          const side = select.dataset.side;
+          const itemIndex = parseInt(e.target.value);
+
+          if (side === 'left') {
+            condition.leftItemIndex = itemIndex;
+            condition.leftField = '';
+          } else {
+            condition.rightItemIndex = itemIndex;
+            condition.rightField = '';
+          }
+          this._renderConditionsList();
+        });
+      });
+
+      // Field selects
+      condEl.querySelectorAll('.sjf-field-select').forEach(select => {
+        select.addEventListener('change', (e) => {
+          const side = select.dataset.side;
+          if (side === 'left') {
+            condition.leftField = e.target.value;
+          } else {
+            condition.rightField = e.target.value;
+          }
+        });
+      });
+
+      // Operator select
+      condEl.querySelector('.sjf-operator-select')?.addEventListener('change', (e) => {
+        condition.operator = e.target.value;
+      });
+
+      // Remove button
+      condEl.querySelector('.sjf-remove-condition')?.addEventListener('click', () => {
+        this._joinConfig.conditions.splice(index, 1);
+        this._renderConditionsList();
+      });
+    });
+  }
+
+  _renderConditionsList() {
+    const listEl = this.container.querySelector('#sjf-conditions-list');
+    if (!listEl) return;
+
+    if (this._joinConfig.conditions.length === 0) {
+      listEl.innerHTML = `
+        <div class="sjf-empty-conditions">
+          <i class="ph ph-link"></i>
+          <p>No join conditions defined</p>
+          <span>Add a condition to link records between sources</span>
+        </div>
+      `;
+    } else {
+      listEl.innerHTML = this._joinConfig.conditions.map((cond, i) =>
+        this._renderJoinCondition(cond, i)
+      ).join('');
+    }
+
+    this._attachConditionListeners();
+  }
+
+  _attachFilterStepListeners() {
+    // Render filter builder
+    const filterContainer = this.container.querySelector('#sjf-filter-builder');
+    if (filterContainer && this._filterBuilder) {
+      this._filterBuilder.render(filterContainer);
+    }
+
+    // Preview button
+    this.container.querySelector('#sjf-preview-filter')?.addEventListener('click', () => {
+      this._showFilterPreview();
+    });
+  }
+
+  _showFilterPreview() {
+    const resultsEl = this.container.querySelector('#sjf-preview-results');
+    if (!resultsEl) return;
+
+    const records = this._getFilteredRecords();
+    const fields = this._getCombinedFields().slice(0, 5);
+
+    resultsEl.innerHTML = `
+      <div class="sjf-preview-stats">
+        <span><strong>${records.length}</strong> records match</span>
+      </div>
+      <div class="sjf-preview-table-wrap">
+        <table class="sjf-preview-table">
+          <thead>
+            <tr>
+              ${fields.map(f => `<th>${this._escapeHtml(f.name)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${records.slice(0, 10).map(record => `
+              <tr>
+                ${fields.map(f => {
+                  const val = record.values?.[f.name] ?? record[f.name] ?? '';
+                  return `<td>${this._escapeHtml(String(val).substring(0, 40))}</td>`;
+                }).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      ${records.length > 10 ? `
+        <div class="sjf-preview-more">Showing 10 of ${records.length} records</div>
+      ` : ''}
+    `;
+  }
+
+  _getCombinedSource() {
+    // Create a virtual source from selected items for filter builder
+    const fields = this._getCombinedFields();
+    const records = this._getJoinedRecords();
+
+    return {
+      id: 'combined',
+      name: 'Combined Data',
+      recordCount: records.length,
+      records: records,
+      schema: { fields }
+    };
+  }
+
+  _getCombinedFields() {
+    const fieldMap = new Map();
+
+    for (const item of this._selectedItems) {
+      for (const field of item.fields || []) {
+        if (!fieldMap.has(field.name)) {
+          fieldMap.set(field.name, { ...field });
+        }
+      }
+    }
+
+    return Array.from(fieldMap.values());
+  }
+
+  _getJoinedRecords() {
+    if (this._selectedItems.length === 0) return [];
+    if (this._selectedItems.length === 1) {
+      return this._selectedItems[0].records.map(r => r.values || r);
+    }
+
+    // Multi-source join
+    const joinType = this._joinConfig.type;
+
+    if (joinType === 'union') {
+      // Union: stack all records
+      return this._selectedItems.flatMap(item =>
+        item.records.map(r => r.values || r)
+      );
+    }
+
+    // For joins, use the JoinBuilder approach
+    const leftRecords = this._selectedItems[0].records.map(r => r.values || r);
+    let result = [...leftRecords];
+
+    for (let i = 1; i < this._selectedItems.length; i++) {
+      const rightRecords = this._selectedItems[i].records.map(r => r.values || r);
+      result = this._executeJoin(result, rightRecords, i);
+    }
+
+    return result;
+  }
+
+  _executeJoin(leftRecords, rightRecords, rightIndex) {
+    const joinType = this._joinConfig.type;
+    const conditions = this._joinConfig.conditions.filter(c =>
+      c.rightItemIndex === rightIndex && c.leftField && c.rightField
+    );
+
+    if (conditions.length === 0) {
+      // No conditions: cross join (limited)
+      if (joinType === 'inner') return [];
+      return leftRecords;
+    }
+
+    const result = [];
+    const matchedRight = new Set();
+
+    for (const leftRec of leftRecords) {
+      let hasMatch = false;
+
+      for (let ri = 0; ri < rightRecords.length; ri++) {
+        const rightRec = rightRecords[ri];
+
+        // Check all conditions
+        const matches = conditions.every(cond => {
+          const leftVal = leftRec[cond.leftField];
+          const rightVal = rightRec[cond.rightField];
+
+          switch (cond.operator) {
+            case 'eq': return leftVal === rightVal;
+            case 'contains': return String(leftVal).includes(String(rightVal));
+            case 'starts': return String(leftVal).startsWith(String(rightVal));
+            case 'ends': return String(leftVal).endsWith(String(rightVal));
+            default: return leftVal === rightVal;
+          }
+        });
+
+        if (matches) {
+          hasMatch = true;
+          matchedRight.add(ri);
+          result.push({ ...leftRec, ...rightRec });
+        }
+      }
+
+      // Left/Full join: include unmatched left records
+      if (!hasMatch && (joinType === 'left' || joinType === 'full')) {
+        result.push({ ...leftRec });
+      }
+    }
+
+    // Right/Full join: include unmatched right records
+    if (joinType === 'right' || joinType === 'full') {
+      for (let ri = 0; ri < rightRecords.length; ri++) {
+        if (!matchedRight.has(ri)) {
+          result.push({ ...rightRecords[ri] });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  _getFilteredRecords() {
+    const records = this._getJoinedRecords();
+
+    if (!this._filterBuilder) return records;
+
+    const filterGroup = this._filterBuilder.getFilters();
+    const source = this._getCombinedSource();
+
+    return records.filter(record =>
+      AdvancedFilterBuilder.evaluateRecord(record, filterGroup, source)
+    );
+  }
+
+  _getFilteredCount() {
+    return this._getFilteredRecords().length;
+  }
+
+  _getFilterConditionCount() {
+    if (!this._filterBuilder) return 0;
+    const filters = this._filterBuilder.getFilters();
+    return this._countConditions(filters);
+  }
+
+  _countConditions(group) {
+    let count = group.conditions?.length || 0;
+    for (const subgroup of group.groups || []) {
+      count += this._countConditions(subgroup);
+    }
+    return count;
+  }
+
+  _updatePreview() {
+    const countEl = this.container.querySelector('#sjf-filter-count');
+    if (countEl) {
+      countEl.textContent = `${this._getFilteredCount()} records match`;
+    }
+  }
+
+  _createSet() {
+    const name = this._setName.trim() || 'Untitled Set';
+    const fields = this._getCombinedFields();
+    const records = this._getFilteredRecords();
+
+    // Build derivation info
+    const derivation = {
+      strategy: this._selectedItems.length > 1 ? 'con' : 'seg',
+      sourceItems: this._selectedItems.map(item => ({
+        type: item.type,
+        id: item.id,
+        name: item.name
+      })),
+      joinConfig: this._selectedItems.length > 1 ? this._joinConfig : null,
+      filters: this._filterBuilder?.getFilters() || null,
+      derivedAt: new Date().toISOString()
+    };
+
+    const result = {
+      name,
+      fields,
+      records: records.map((rec, i) => ({
+        id: `rec_${Date.now().toString(36)}_${i}`,
+        values: rec
+      })),
+      derivation
+    };
+
+    this.hide();
+    this._onComplete?.(result);
+  }
+
+  _escapeHtml(text) {
+    if (typeof text !== 'string') return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+}
+
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -5079,6 +6200,7 @@ if (typeof window !== 'undefined') {
   window.SetFromSourceUI = SetFromSourceUI;
   window.FolderStore = FolderStore;
   window.AdvancedFilterBuilder = AdvancedFilterBuilder;
+  window.SetJoinFilterCreator = SetJoinFilterCreator;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -5089,6 +6211,7 @@ if (typeof module !== 'undefined' && module.exports) {
     JoinBuilderUI,
     SetFromSourceUI,
     FolderStore,
-    AdvancedFilterBuilder
+    AdvancedFilterBuilder,
+    SetJoinFilterCreator
   };
 }

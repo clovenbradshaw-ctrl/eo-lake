@@ -1994,6 +1994,7 @@ class EODataWorkbench {
    */
   _showOperatorFirstCreationModal() {
     const intents = [
+      { id: 'CREATE', icon: 'ph-magic-wand', label: 'Create (Wizard)', operator: 'NEW', description: 'Visual wizard to select, join, and filter data' },
       { id: 'SQL', icon: 'ph-terminal', label: 'Query with SQL', operator: 'SQL', description: 'Write SQL to select, filter, and transform data' },
       { id: 'FILTER', icon: 'ph-funnel', label: 'Filter existing data', operator: 'SEG', description: 'Create a subset by filtering records' },
       { id: 'RELATE', icon: 'ph-link', label: 'Relate things', operator: 'CON', description: 'Join records from multiple sets' },
@@ -2045,6 +2046,9 @@ class EODataWorkbench {
    */
   _handleCreationIntent(intent) {
     switch (intent) {
+      case 'CREATE':
+        this._showSetJoinFilterCreator();
+        break;
       case 'SQL':
         this._showSQLQueryModal();
         break;
@@ -2067,6 +2071,110 @@ class EODataWorkbench {
         this._createEmptySetWithWarning();
         break;
     }
+  }
+
+  /**
+   * Show the SetJoinFilterCreator wizard for no-code set creation
+   * Allows selecting multiple sources/sets, configuring joins, and filtering
+   */
+  _showSetJoinFilterCreator() {
+    // Initialize source store if needed
+    if (!this.sourceStore) {
+      this._initSourceStore();
+    }
+
+    // Sync sources to sourceStore
+    for (const source of (this.sources || [])) {
+      if (!this.sourceStore.get(source.id)) {
+        this.sourceStore.sources.set(source.id, source);
+      }
+    }
+
+    // Create container for the wizard
+    let container = document.getElementById('sjf-creator-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'sjf-creator-container';
+      document.body.appendChild(container);
+    }
+
+    // Create and show the wizard
+    const creator = new SetJoinFilterCreator({
+      sourceStore: this.sourceStore,
+      sets: this.sets
+    });
+
+    creator.show(container, {
+      onComplete: (result) => {
+        // Create the set from the wizard result
+        this._createSetFromWizardResult(result);
+      },
+      onCancel: () => {
+        // Nothing to do on cancel
+      }
+    });
+  }
+
+  /**
+   * Create a set from the SetJoinFilterCreator wizard result
+   */
+  _createSetFromWizardResult(result) {
+    const timestamp = new Date().toISOString();
+    const setId = `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+
+    // Create fields with proper structure
+    const fields = (result.fields || []).map(f => ({
+      id: `fld_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+      name: f.name,
+      type: f.type || 'TEXT',
+      width: f.width || 150
+    }));
+
+    // Create records with proper structure
+    const records = (result.records || []).map((rec, i) => ({
+      id: rec.id || `rec_${Date.now().toString(36)}_${i}_${Math.random().toString(36).substring(2, 6)}`,
+      setId: setId,
+      values: rec.values || rec,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    }));
+
+    // Create the set
+    const newSet = {
+      id: setId,
+      name: result.name || 'Untitled Set',
+      icon: 'ph-table',
+      fields: fields,
+      records: records,
+      views: [{
+        id: `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+        name: 'All Records',
+        type: 'table',
+        config: {}
+      }],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      derivation: result.derivation || null,
+      datasetProvenance: {
+        createdVia: 'SetJoinFilterCreator',
+        sourceItems: result.derivation?.sourceItems || [],
+        joinConfig: result.derivation?.joinConfig || null,
+        filters: result.derivation?.filters || null
+      }
+    };
+
+    // Add to sets
+    this.sets.push(newSet);
+    this.currentSetId = newSet.id;
+    this.currentViewId = newSet.views[0]?.id;
+    this.lastViewPerSet[newSet.id] = this.currentViewId;
+
+    // Save and render
+    this._saveData();
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._showToast(`Created set "${newSet.name}" with ${records.length} records`, 'success');
   }
 
   /**
