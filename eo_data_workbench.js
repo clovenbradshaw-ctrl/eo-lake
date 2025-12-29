@@ -13020,28 +13020,258 @@ class EODataWorkbench {
   }
 
   _showNewSetModal() {
+    // Get active sources for selection
+    const activeSources = (this.sources || []).filter(s => s.status !== 'archived');
+    const sortedSources = activeSources.sort((a, b) => {
+      if (!a.importedAt) return 1;
+      if (!b.importedAt) return -1;
+      return new Date(b.importedAt) - new Date(a.importedAt);
+    });
+
+    const sourcesListHtml = sortedSources.length > 0 ? `
+      <div class="form-group">
+        <label class="form-label">Select Sources (Optional)</label>
+        <div class="source-selection-hint">
+          <i class="ph ph-info"></i>
+          <span>Select one or more imported sources to include data in your new set, or leave empty to create a blank set.</span>
+        </div>
+        <div class="source-selection-list" id="source-selection-list">
+          ${sortedSources.map(source => {
+            const icon = this._getSourceIcon(source.name);
+            const recordCount = source.recordCount || source.records?.length || 0;
+            const fieldCount = source.schema?.fields?.length || 0;
+            const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : 'Unknown';
+            return `
+              <label class="source-selection-item" data-source-id="${source.id}">
+                <input type="checkbox" class="source-checkbox" value="${source.id}">
+                <div class="source-selection-icon">
+                  <i class="ph ${icon}"></i>
+                </div>
+                <div class="source-selection-info">
+                  <div class="source-selection-name">${source.name}</div>
+                  <div class="source-selection-meta">
+                    ${recordCount} records · ${fieldCount} fields · Imported ${importDate}
+                  </div>
+                </div>
+              </label>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    ` : `
+      <div class="form-group">
+        <div class="source-selection-empty">
+          <i class="ph ph-file-dashed"></i>
+          <span>No imported sources available. You can import data after creating the set.</span>
+        </div>
+      </div>
+    `;
+
     this._showModal('Create New Set', `
       <div class="form-group">
         <label class="form-label">Set Name</label>
         <input type="text" class="form-input" id="new-set-name" placeholder="My Data" autofocus>
       </div>
+      ${sourcesListHtml}
+      <style>
+        .source-selection-hint {
+          display: flex;
+          gap: 8px;
+          padding: 8px 12px;
+          background: var(--color-bg-secondary, #f5f5f5);
+          border-radius: 6px;
+          margin-bottom: 12px;
+          font-size: 12px;
+          color: var(--color-text-secondary, #666);
+        }
+        .source-selection-hint i {
+          color: var(--color-primary, #0066cc);
+          flex-shrink: 0;
+        }
+        .source-selection-list {
+          max-height: 250px;
+          overflow-y: auto;
+          border: 1px solid var(--color-border, #ddd);
+          border-radius: 8px;
+        }
+        .source-selection-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px;
+          cursor: pointer;
+          border-bottom: 1px solid var(--color-border, #eee);
+          transition: background 0.15s;
+        }
+        .source-selection-item:last-child {
+          border-bottom: none;
+        }
+        .source-selection-item:hover {
+          background: var(--color-bg-hover, #f8f8f8);
+        }
+        .source-selection-item input[type="checkbox"] {
+          width: 18px;
+          height: 18px;
+          cursor: pointer;
+        }
+        .source-selection-item input[type="checkbox"]:checked + .source-selection-icon {
+          color: var(--color-primary, #0066cc);
+        }
+        .source-selection-icon {
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: var(--color-bg-secondary, #f0f0f0);
+          border-radius: 6px;
+          font-size: 16px;
+          color: var(--color-text-secondary, #666);
+        }
+        .source-selection-info {
+          flex: 1;
+          min-width: 0;
+        }
+        .source-selection-name {
+          font-weight: 500;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .source-selection-meta {
+          font-size: 11px;
+          color: var(--color-text-tertiary, #999);
+          margin-top: 2px;
+        }
+        .source-selection-empty {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 8px;
+          padding: 24px;
+          text-align: center;
+          color: var(--color-text-tertiary, #999);
+        }
+        .source-selection-empty i {
+          font-size: 32px;
+        }
+      </style>
     `, () => {
       const name = document.getElementById('new-set-name')?.value || 'Untitled Set';
-      const set = createSet(name);
-      this.sets.push(set);
-      this.currentSetId = set.id;
-      this.currentViewId = set.views[0]?.id;
 
-      this._saveData();
-      this._renderSidebar();
-      this._renderView();
-      this._updateBreadcrumb();
+      // Get selected sources
+      const selectedSourceIds = [];
+      document.querySelectorAll('#source-selection-list .source-checkbox:checked').forEach(cb => {
+        selectedSourceIds.push(cb.value);
+      });
+
+      if (selectedSourceIds.length === 0) {
+        // No sources selected - create empty set
+        const set = createSet(name);
+        this.sets.push(set);
+        this.currentSetId = set.id;
+        this.currentViewId = set.views[0]?.id;
+        this._saveData();
+        this._renderSidebar();
+        this._renderView();
+        this._updateBreadcrumb();
+      } else if (selectedSourceIds.length === 1) {
+        // Single source selected - use SetFromSourceUI for field selection
+        this._closeModal();
+        this._showSetFromSourceUI(selectedSourceIds[0]);
+      } else {
+        // Multiple sources selected - create set with combined data
+        this._createSetFromMultipleSources(name, selectedSourceIds);
+      }
     });
 
     // Focus input
     setTimeout(() => {
       document.getElementById('new-set-name')?.focus();
     }, 100);
+  }
+
+  /**
+   * Create a set from multiple selected sources
+   * Combines records from all sources with a unified schema
+   */
+  _createSetFromMultipleSources(name, sourceIds) {
+    const sources = sourceIds.map(id => this.sources?.find(s => s.id === id)).filter(Boolean);
+
+    if (sources.length === 0) {
+      this._showToast('No valid sources found', 'error');
+      return;
+    }
+
+    // Collect all unique fields from all sources
+    const fieldMap = new Map();
+    sources.forEach(source => {
+      const fields = source.schema?.fields || [];
+      fields.forEach(field => {
+        const fieldName = field.name.toLowerCase();
+        if (!fieldMap.has(fieldName)) {
+          fieldMap.set(fieldName, {
+            id: `fld_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+            name: field.name,
+            type: field.type || 'TEXT',
+            width: field.width || 150
+          });
+        }
+      });
+    });
+
+    const combinedFields = Array.from(fieldMap.values());
+
+    // Combine all records
+    const allRecords = [];
+    sources.forEach(source => {
+      const records = source.records || [];
+      records.forEach(record => {
+        allRecords.push({
+          id: `rec_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+          setId: null, // Will be set after set creation
+          values: { ...record },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          _sourceId: source.id // Track which source this came from
+        });
+      });
+    });
+
+    // Create the set
+    const timestamp = new Date().toISOString();
+    const setId = `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+
+    const newSet = {
+      id: setId,
+      name: name,
+      icon: 'ph-table',
+      fields: combinedFields,
+      records: allRecords.map(r => ({ ...r, setId })),
+      views: [{
+        id: `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+        name: 'Main View',
+        type: 'table',
+        config: {}
+      }],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      derivation: {
+        strategy: 'combined',
+        sourceIds: sourceIds,
+        derivedAt: timestamp
+      }
+    };
+
+    this.sets.push(newSet);
+    this.currentSetId = newSet.id;
+    this.currentViewId = newSet.views[0]?.id;
+
+    this._saveData();
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._showToast(`Set "${name}" created with ${allRecords.length} records from ${sources.length} sources`, 'success');
   }
 
   _showNewViewModal() {
