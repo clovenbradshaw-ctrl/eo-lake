@@ -3211,6 +3211,9 @@ class EODataWorkbench {
                         <button class="sources-table-action-btn" data-action="export" title="Export source">
                           <i class="ph ph-export"></i>
                         </button>
+                        <button class="sources-table-action-btn sources-table-delete-btn" data-action="delete" title="Delete source">
+                          <i class="ph ph-trash"></i>
+                        </button>
                       </td>
                     </tr>
                   `;
@@ -3325,6 +3328,9 @@ class EODataWorkbench {
             break;
           case 'export':
             this._exportSource(sourceId);
+            break;
+          case 'delete':
+            this._deleteSource(sourceId);
             break;
         }
       });
@@ -3907,6 +3913,117 @@ class EODataWorkbench {
     }
   }
 
+  /**
+   * Delete a source permanently
+   */
+  _deleteSource(sourceId) {
+    // Find source from this.sources
+    const source = this.sources?.find(s => s.id === sourceId);
+    const sourceName = source?.name || 'this source';
+
+    // Check for derived sets
+    const derivedSets = this.sets.filter(set => {
+      const prov = set.datasetProvenance;
+      return prov?.sourceId === sourceId ||
+             prov?.originalFilename?.toLowerCase() === source?.name?.toLowerCase();
+    });
+
+    // Build confirmation message
+    let confirmMessage = `Are you sure you want to delete "${sourceName}"?`;
+    if (derivedSets.length > 0) {
+      confirmMessage += `\n\nWarning: ${derivedSets.length} set(s) were created from this source. The sets will remain but will lose their source reference.`;
+    }
+    confirmMessage += '\n\nThis action cannot be undone.';
+
+    // Show confirmation dialog
+    this._showConfirmDialog({
+      title: 'Delete Source',
+      message: confirmMessage,
+      confirmText: 'Delete',
+      confirmClass: 'btn-danger',
+      onConfirm: () => {
+        // Remove from this.sources array
+        if (this.sources) {
+          const index = this.sources.findIndex(s => s.id === sourceId);
+          if (index !== -1) {
+            this.sources.splice(index, 1);
+          }
+        }
+
+        // Also remove from sourceStore if present
+        if (this.sourceStore) {
+          this.sourceStore.sources.delete(sourceId);
+        }
+
+        // Save changes
+        this._saveData();
+
+        // Update UI
+        if (this.fileExplorerMode) {
+          this.fileExplorerSelectedSource = null;
+          this._renderFileExplorer();
+        } else if (this.currentSourceId === sourceId || this.currentSourceId === 'sources-table') {
+          this._showSourcesTableView();
+        }
+
+        // Update sidebar
+        this._renderSidebar();
+
+        this._showToast(`Source "${sourceName}" deleted`, 'success');
+      }
+    });
+  }
+
+  /**
+   * Show a confirmation dialog
+   */
+  _showConfirmDialog({ title, message, confirmText = 'Confirm', confirmClass = 'btn-primary', onConfirm }) {
+    // Remove any existing dialog
+    document.querySelector('.confirm-dialog-overlay')?.remove();
+
+    const overlay = document.createElement('div');
+    overlay.className = 'confirm-dialog-overlay';
+    overlay.innerHTML = `
+      <div class="confirm-dialog">
+        <div class="confirm-dialog-header">
+          <h3>${this._escapeHtml(title)}</h3>
+        </div>
+        <div class="confirm-dialog-body">
+          <p>${this._escapeHtml(message).replace(/\n/g, '<br>')}</p>
+        </div>
+        <div class="confirm-dialog-footer">
+          <button class="btn-secondary" id="confirm-dialog-cancel">Cancel</button>
+          <button class="${confirmClass}" id="confirm-dialog-confirm">${this._escapeHtml(confirmText)}</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // Event handlers
+    const close = () => overlay.remove();
+
+    overlay.querySelector('#confirm-dialog-cancel').addEventListener('click', close);
+    overlay.querySelector('#confirm-dialog-confirm').addEventListener('click', () => {
+      close();
+      onConfirm();
+    });
+
+    // Close on overlay click
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) close();
+    });
+
+    // Close on escape
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        close();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
+
   // ==========================================================================
   // File Explorer - Full-featured source file browser
   // ==========================================================================
@@ -4108,32 +4225,56 @@ class EODataWorkbench {
    */
   _getFileExplorerSources() {
     const sources = [];
+    const seenIds = new Set();
 
-    // Get from SourceStore
+    // PRIORITY 1: Get from main this.sources array (primary storage)
+    const activeSources = (this.sources || []).filter(s => s.status !== 'archived');
+    for (const source of activeSources) {
+      seenIds.add(source.id);
+      sources.push({
+        id: source.id,
+        name: source.name,
+        recordCount: source.recordCount || source.records?.length || 0,
+        importedAt: source.importedAt,
+        folderId: source.folderId || null,
+        tags: source.tags || [],
+        isFavorite: source.isFavorite || false,
+        fileType: this._getFileType(source.name),
+        schema: source.schema,
+        provenance: source.provenance,
+        fileIdentity: source.fileIdentity,
+        isPrimary: true
+      });
+    }
+
+    // PRIORITY 2: Get from SourceStore (for any sources not in main array)
     if (this.sourceStore) {
       const storedSources = this.sourceStore.getByStatus('active');
       for (const source of storedSources) {
-        sources.push({
-          id: source.id,
-          name: source.name,
-          recordCount: source.recordCount,
-          importedAt: source.importedAt,
-          folderId: source.folderId || null,
-          tags: source.tags || [],
-          isFavorite: source.isFavorite || false,
-          fileType: this._getFileType(source.name),
-          schema: source.schema,
-          provenance: source.provenance,
-          fileIdentity: source.fileIdentity,
-          isSourceStore: true
-        });
+        if (!seenIds.has(source.id)) {
+          seenIds.add(source.id);
+          sources.push({
+            id: source.id,
+            name: source.name,
+            recordCount: source.recordCount,
+            importedAt: source.importedAt,
+            folderId: source.folderId || null,
+            tags: source.tags || [],
+            isFavorite: source.isFavorite || false,
+            fileType: this._getFileType(source.name),
+            schema: source.schema,
+            provenance: source.provenance,
+            fileIdentity: source.fileIdentity,
+            isSourceStore: true
+          });
+        }
       }
     }
 
-    // Get legacy sources from sets
+    // PRIORITY 3: Get legacy sources from sets
     const registry = this._getSourceRegistry();
     for (const source of registry.values()) {
-      if (!sources.find(s => s.name.toLowerCase() === source.name.toLowerCase())) {
+      if (!seenIds.has(source.id) && !sources.find(s => s.name.toLowerCase() === source.name.toLowerCase())) {
         sources.push({
           id: source.id,
           name: source.name,
@@ -5132,7 +5273,9 @@ class EODataWorkbench {
       { icon: 'ph-folder', label: 'Move to Folder...', action: () => this._showMoveToFolderModal(sourceId) },
       { icon: 'ph-tag', label: 'Add Tags...', action: () => { this._selectFileExplorerSource(sourceId); this._showAddTagToSourceModal(); } },
       { divider: true },
-      { icon: 'ph-export', label: 'Export Source Data', action: () => this._exportSource(sourceId) }
+      { icon: 'ph-export', label: 'Export Source Data', action: () => this._exportSource(sourceId) },
+      { divider: true },
+      { icon: 'ph-trash', label: 'Delete Source', action: () => this._deleteSource(sourceId), class: 'danger' }
     ];
 
     this._showContextMenu(e.pageX, e.pageY, menu);
@@ -5524,7 +5667,9 @@ class EODataWorkbench {
       { icon: 'ph-table', label: 'Create Set from Source...', action: () => this._showSetFromSourceUI(sourceId) },
       { icon: 'ph-intersect', label: 'Join with Another Source...', action: () => this._showJoinBuilderUI(sourceId) },
       { divider: true },
-      { icon: 'ph-export', label: 'Export Source Data', action: () => this._exportSource(sourceId) }
+      { icon: 'ph-export', label: 'Export Source Data', action: () => this._exportSource(sourceId) },
+      { divider: true },
+      { icon: 'ph-trash', label: 'Delete Source', action: () => this._deleteSource(sourceId), class: 'danger' }
     ];
 
     this._showContextMenu(e.pageX, e.pageY, menu);
@@ -11861,6 +12006,71 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
   // Context Menus
   // --------------------------------------------------------------------------
+
+  /**
+   * Show a context menu at the given position with the specified items
+   * @param {number} x - X position
+   * @param {number} y - Y position
+   * @param {Array} items - Menu items: { icon, label, action, divider?, class? }
+   */
+  _showContextMenu(x, y, items) {
+    const menu = this.elements.contextMenu;
+    if (!menu) return;
+
+    // Build menu HTML
+    menu.innerHTML = items.map(item => {
+      if (item.divider) {
+        return '<div class="context-menu-divider"></div>';
+      }
+      const dangerClass = (item.class === 'danger' || item.danger) ? ' danger' : '';
+      return `
+        <div class="context-menu-item${dangerClass}">
+          <i class="ph ${item.icon}"></i>
+          <span>${this._escapeHtml(item.label)}</span>
+        </div>
+      `;
+    }).join('');
+
+    // Calculate position with viewport boundary checking
+    const menuWidth = 200;
+    const menuHeight = 300;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    let left = x;
+    let top = y;
+
+    if (left + menuWidth > viewportWidth - 10) {
+      left = viewportWidth - menuWidth - 10;
+    }
+    if (left < 10) left = 10;
+    if (top + menuHeight > viewportHeight - 10) {
+      top = viewportHeight - menuHeight - 10;
+    }
+    if (top < 10) top = 10;
+
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    menu.classList.add('active');
+
+    // Attach click handlers
+    const menuItems = menu.querySelectorAll('.context-menu-item');
+    let itemIndex = 0;
+    items.forEach((item, idx) => {
+      if (!item.divider && item.action) {
+        const menuItem = menuItems[itemIndex];
+        if (menuItem) {
+          menuItem.addEventListener('click', () => {
+            menu.classList.remove('active');
+            item.action();
+          });
+        }
+        itemIndex++;
+      } else if (!item.divider) {
+        itemIndex++;
+      }
+    });
+  }
 
   _showRecordContextMenu(e, recordId) {
     const menu = this.elements.contextMenu;
