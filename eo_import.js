@@ -2553,45 +2553,109 @@ function showImportModal() {
           </div>
         </div>
 
-        <!-- Provenance Section -->
+        <!-- Provenance Section - All 9 EO Categories -->
         <div class="import-provenance-section">
           <div class="import-provenance-title">
             <i class="ph ph-fingerprint"></i>
             Provenance (optional)
           </div>
           <div class="import-provenance-subtitle">
-            Help track where this data comes from
+            Track where this data comes from and what it means. All 9 categories help establish trustworthiness.
           </div>
-          <div class="import-provenance-grid">
-            <div class="import-provenance-field">
-              <label class="import-provenance-label">Who provided this?</label>
-              <input type="text" class="import-provenance-input" id="prov-agent"
-                     placeholder="Person, organization, or system...">
+
+          <!-- Epistemic Triad: How was this produced? -->
+          <div class="import-provenance-triad">
+            <div class="import-provenance-triad-header">
+              <i class="ph ph-brain"></i>
+              <span class="triad-name">Epistemic</span>
+              <span class="triad-question">How was this produced?</span>
             </div>
-            <div class="import-provenance-field">
-              <label class="import-provenance-label">How was it produced?</label>
-              <input type="text" class="import-provenance-input" id="prov-method"
-                     placeholder="Export, FOIA, scrape, manual entry...">
+            <div class="import-provenance-grid">
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-user"></i> Agent
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-agent"
+                       placeholder="Person, organization, or system...">
+              </div>
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-flask"></i> Method
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-method"
+                       placeholder="Export, FOIA, scrape, manual entry...">
+              </div>
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-file-text"></i> Source
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-source"
+                       placeholder="Database name, document, URL...">
+              </div>
             </div>
-            <div class="import-provenance-field full-width">
-              <label class="import-provenance-label">Original source or publication?</label>
-              <input type="text" class="import-provenance-input" id="prov-source"
-                     placeholder="Database name, document, URL...">
+          </div>
+
+          <!-- Semantic Triad: What does it mean? -->
+          <div class="import-provenance-triad">
+            <div class="import-provenance-triad-header">
+              <i class="ph ph-book-open"></i>
+              <span class="triad-name">Semantic</span>
+              <span class="triad-question">What does it mean?</span>
             </div>
-            <div class="import-provenance-field">
-              <label class="import-provenance-label">Jurisdiction/scope</label>
-              <input type="text" class="import-provenance-input" id="prov-jurisdiction"
-                     placeholder="City of Riverside, US Federal...">
+            <div class="import-provenance-grid">
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-bookmark"></i> Term
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-term"
+                       placeholder="Key concept, entity type...">
+              </div>
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-book-open"></i> Definition
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-definition"
+                       placeholder="What this term means here...">
+              </div>
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-map-pin"></i> Jurisdiction
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-jurisdiction"
+                       placeholder="City of Riverside, US Federal...">
+              </div>
             </div>
-            <div class="import-provenance-field">
-              <label class="import-provenance-label">Time period covered</label>
-              <input type="text" class="import-provenance-input" id="prov-timeframe"
-                     placeholder="2019-2024, as of March 2024...">
+          </div>
+
+          <!-- Situational Triad: When/where does it hold? -->
+          <div class="import-provenance-triad">
+            <div class="import-provenance-triad-header">
+              <i class="ph ph-compass"></i>
+              <span class="triad-name">Situational</span>
+              <span class="triad-question">When/where does it hold?</span>
             </div>
-            <div class="import-provenance-field full-width">
-              <label class="import-provenance-label">Any important context?</label>
-              <input type="text" class="import-provenance-input" id="prov-background"
-                     placeholder="During investigation, post-COVID, etc...">
+            <div class="import-provenance-grid">
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-arrows-out"></i> Scale
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-scale"
+                       placeholder="Individual, department, citywide...">
+              </div>
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-calendar"></i> Timeframe
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-timeframe"
+                       placeholder="2019-2024, as of March 2024...">
+              </div>
+              <div class="import-provenance-field">
+                <label class="import-provenance-label">
+                  <i class="ph ph-info"></i> Background
+                </label>
+                <input type="text" class="import-provenance-input" id="prov-background"
+                       placeholder="During investigation, post-COVID...">
+              </div>
             </div>
           </div>
         </div>
@@ -2759,17 +2823,20 @@ function initImportHandlers() {
     const setName = document.getElementById('import-set-name')?.value ||
                     currentFile.name.replace(/\.(csv|json|xlsx|xls)$/i, '');
 
-    // Collect provenance
+    // Collect all 9 provenance fields
     const provenance = {
+      // Epistemic triad
       agent: document.getElementById('prov-agent')?.value || null,
       method: document.getElementById('prov-method')?.value || null,
       source: document.getElementById('prov-source')?.value || null,
+      // Semantic triad
+      term: document.getElementById('prov-term')?.value || null,
+      definition: document.getElementById('prov-definition')?.value || null,
       jurisdiction: document.getElementById('prov-jurisdiction')?.value || null,
+      // Situational triad
+      scale: document.getElementById('prov-scale')?.value || null,
       timeframe: document.getElementById('prov-timeframe')?.value || null,
-      background: document.getElementById('prov-background')?.value || null,
-      term: null,
-      definition: null,
-      scale: null
+      background: document.getElementById('prov-background')?.value || null
     };
 
     // Check if we should create views by type
@@ -3723,6 +3790,61 @@ importStyles.textContent = `
 
   .import-provenance-input::placeholder {
     color: var(--text-muted);
+  }
+
+  /* Import Provenance Triads */
+  .import-provenance-triad {
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .import-provenance-triad:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .import-provenance-triad-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .import-provenance-triad-header > i {
+    color: var(--primary);
+    font-size: 16px;
+  }
+
+  .import-provenance-triad-header .triad-name {
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .import-provenance-triad-header .triad-question {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-left: auto;
+  }
+
+  .import-provenance-label > i {
+    margin-right: 4px;
+    color: var(--text-muted);
+  }
+
+  /* Make provenance grid 3 columns for triads */
+  .import-provenance-triad .import-provenance-grid {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  @media (max-width: 768px) {
+    .import-provenance-triad .import-provenance-grid {
+      grid-template-columns: 1fr;
+    }
   }
 `;
 document.head.appendChild(importStyles);

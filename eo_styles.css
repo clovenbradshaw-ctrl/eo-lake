@@ -12005,6 +12005,138 @@ body.has-picked-up .browser-tab:hover {
   font-style: italic;
 }
 
+/* Source Provenance Status Indicator */
+.source-prov-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.source-prov-status.complete {
+  color: var(--success-500);
+}
+
+.source-prov-status.partial {
+  color: var(--warning-500);
+}
+
+.source-prov-status.none {
+  color: var(--text-muted);
+}
+
+.source-prov-indicator {
+  font-size: 14px;
+}
+
+.source-prov-status-text {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Source Provenance Triads */
+.source-prov-triad {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.source-prov-triad:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.source-prov-triad.empty {
+  opacity: 0.6;
+}
+
+.source-prov-triad-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.source-prov-triad-header > i {
+  color: var(--primary-500);
+  font-size: 16px;
+}
+
+.source-prov-triad-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.source-prov-triad-subtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Source File Metadata Section */
+.source-file-metadata {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.source-file-metadata-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.source-file-metadata-header > i {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.source-file-metadata-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.source-file-metadata-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.source-file-metadata-item > i {
+  color: var(--text-muted);
+  font-size: 14px;
+  width: 20px;
+  flex-shrink: 0;
+}
+
+.source-file-metadata-item .label {
+  color: var(--text-muted);
+  min-width: 120px;
+}
+
+.source-file-metadata-item .value {
+  color: var(--text-primary);
+  flex: 1;
+  word-break: break-word;
+}
+
 /* ============================================================================
    Source Edit History Styles
    ============================================================================ */
@@ -15247,6 +15379,170 @@ body.has-picked-up .browser-tab:hover {
 .fe-preview-provenance strong {
   color: var(--text-muted);
   font-weight: 500;
+}
+
+/* Enhanced Provenance Display - File Explorer Preview */
+.fe-preview-provenance-full {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fe-prov-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.fe-prov-status.complete {
+  color: var(--success-500);
+}
+
+.fe-prov-status.partial {
+  color: var(--warning-500);
+}
+
+.fe-prov-status.none {
+  color: var(--text-muted);
+}
+
+.fe-prov-indicator {
+  font-size: 12px;
+}
+
+.fe-prov-triad {
+  padding: 10px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+}
+
+.fe-prov-triad.empty {
+  opacity: 0.6;
+}
+
+.fe-prov-triad-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.fe-prov-triad-header > i {
+  color: var(--primary-500);
+  font-size: 14px;
+}
+
+.fe-prov-triad-name {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.fe-prov-triad-subtitle {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.fe-prov-triad-elements {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fe-prov-element {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.fe-prov-element > i {
+  color: var(--text-muted);
+  font-size: 12px;
+  width: 16px;
+}
+
+.fe-prov-element.filled > i {
+  color: var(--primary-500);
+}
+
+.fe-prov-label {
+  color: var(--text-muted);
+  min-width: 70px;
+}
+
+.fe-prov-value {
+  color: var(--text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fe-prov-element.empty .fe-prov-value {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* File Metadata Display */
+.fe-preview-metadata {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fe-metadata-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 4px 0;
+}
+
+.fe-metadata-item > i {
+  color: var(--text-muted);
+  font-size: 12px;
+  width: 16px;
+}
+
+.fe-metadata-label {
+  color: var(--text-muted);
+  min-width: 110px;
+}
+
+.fe-metadata-value {
+  color: var(--text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fe-metadata-empty {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.fe-preview-edit-prov-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  margin-left: auto;
+  transition: color 0.15s ease;
+}
+
+.fe-preview-edit-prov-btn:hover {
+  color: var(--primary-500);
 }
 
 .fe-preview-actions {

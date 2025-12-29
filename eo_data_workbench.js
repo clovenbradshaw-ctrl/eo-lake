@@ -2992,6 +2992,7 @@ class EODataWorkbench {
               </div>
             </div>
           ` : ''}
+          ${this._renderSourceFileMetadata(source)}
           <div class="source-immutable-notice">
             <i class="ph ph-lock"></i>
             <p><strong>Read-only source data.</strong> Records are immutable. Metadata (name, provenance) can be edited with full history tracking.</p>
@@ -3369,36 +3370,177 @@ class EODataWorkbench {
 
   /**
    * Render source provenance items for display
-   * Shows all 9 provenance elements with values or placeholders
+   * Shows all 9 provenance elements grouped by triad with values or placeholders
    */
   _renderSourceProvenanceItems(source) {
-    const provenanceFields = [
-      { key: 'agent', label: 'Agent', icon: 'ph-user', description: 'Who provided this data' },
-      { key: 'method', label: 'Method', icon: 'ph-gear', description: 'How it was produced' },
-      { key: 'source', label: 'Origin', icon: 'ph-link', description: 'Where it came from' },
-      { key: 'term', label: 'Term', icon: 'ph-tag', description: 'Key concept' },
-      { key: 'definition', label: 'Definition', icon: 'ph-book-open', description: 'What the term means' },
-      { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-globe', description: 'Scope or authority' },
-      { key: 'scale', label: 'Scale', icon: 'ph-chart-line', description: 'Operational level' },
-      { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', description: 'Observation period' },
-      { key: 'background', label: 'Background', icon: 'ph-info', description: 'Enabling conditions' }
+    const prov = source.provenance || {};
+
+    // Define the 9 provenance elements grouped by triad
+    const triads = [
+      {
+        name: 'Epistemic',
+        subtitle: 'How was this produced?',
+        icon: 'ph-brain',
+        elements: [
+          { key: 'agent', label: 'Agent', icon: 'ph-user', description: 'Who provided this data' },
+          { key: 'method', label: 'Method', icon: 'ph-flask', description: 'How it was produced' },
+          { key: 'source', label: 'Source', icon: 'ph-file-text', description: 'Where it came from' }
+        ]
+      },
+      {
+        name: 'Semantic',
+        subtitle: 'What does it mean?',
+        icon: 'ph-book-open',
+        elements: [
+          { key: 'term', label: 'Term', icon: 'ph-bookmark', description: 'Key concept' },
+          { key: 'definition', label: 'Definition', icon: 'ph-book-open', description: 'What it means here' },
+          { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-map-pin', description: 'Scope or authority' }
+        ]
+      },
+      {
+        name: 'Situational',
+        subtitle: 'When/where does it hold?',
+        icon: 'ph-compass',
+        elements: [
+          { key: 'scale', label: 'Scale', icon: 'ph-arrows-out', description: 'Operational level' },
+          { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', description: 'Observation period' },
+          { key: 'background', label: 'Background', icon: 'ph-info', description: 'Enabling conditions' }
+        ]
+      }
     ];
 
-    return provenanceFields.map(field => {
-      const value = this._getProvenanceValue(source.provenance?.[field.key]);
-      const displayValue = value || '(not set)';
-      const isEmpty = !value;
+    // Count filled elements for status
+    const allKeys = ['agent', 'method', 'source', 'term', 'definition', 'jurisdiction', 'scale', 'timeframe', 'background'];
+    const filledCount = allKeys.filter(k => this._getProvenanceValue(prov[k])).length;
+    const statusClass = filledCount === 9 ? 'complete' : filledCount > 0 ? 'partial' : 'none';
+    const statusText = filledCount === 9 ? 'Complete' : filledCount > 0 ? `${filledCount}/9 filled` : 'Not set';
 
-      return `
-        <div class="source-provenance-item ${isEmpty ? 'empty' : ''}">
-          <i class="ph ${field.icon}"></i>
-          <div>
-            <span class="label">${field.label}</span>
-            <span class="value ${isEmpty ? 'placeholder' : ''}" title="${field.description}">${this._escapeHtml(displayValue)}</span>
+    return `
+      <div class="source-prov-status ${statusClass}">
+        <span class="source-prov-indicator">${filledCount === 9 ? '◉' : filledCount > 0 ? '◐' : '○'}</span>
+        <span class="source-prov-status-text">${statusText}</span>
+      </div>
+      ${triads.map(triad => {
+        const hasAnyValue = triad.elements.some(el => this._getProvenanceValue(prov[el.key]));
+        return `
+          <div class="source-prov-triad ${hasAnyValue ? '' : 'empty'}">
+            <div class="source-prov-triad-header">
+              <i class="ph ${triad.icon}"></i>
+              <span class="source-prov-triad-name">${triad.name}</span>
+              <span class="source-prov-triad-subtitle">${triad.subtitle}</span>
+            </div>
+            ${triad.elements.map(el => {
+              const value = this._getProvenanceValue(prov[el.key]);
+              const isEmpty = !value;
+              return `
+                <div class="source-provenance-item ${isEmpty ? 'empty' : ''}">
+                  <i class="ph ${el.icon}"></i>
+                  <div>
+                    <span class="label">${el.label}</span>
+                    <span class="value ${isEmpty ? 'placeholder' : ''}" title="${el.description}">${this._escapeHtml(value || '(not set)')}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
           </div>
+        `;
+      }).join('')}
+    `;
+  }
+
+  /**
+   * Render file metadata section for source detail view
+   * Shows extracted file identity and parsing decisions
+   */
+  _renderSourceFileMetadata(source) {
+    const fileId = source.fileIdentity || {};
+    const parsing = source.parsingDecisions || {};
+    const schema = source.schema || {};
+
+    const metadataItems = [];
+
+    // File identity metadata
+    if (fileId.originalFilename) {
+      metadataItems.push({ label: 'Original Filename', value: fileId.originalFilename, icon: 'ph-file' });
+    }
+    if (fileId.rawSize) {
+      const sizeStr = this._formatFileSize(fileId.rawSize);
+      metadataItems.push({ label: 'File Size', value: sizeStr, icon: 'ph-hard-drive' });
+    }
+    if (fileId.mimeType) {
+      metadataItems.push({ label: 'MIME Type', value: fileId.mimeType, icon: 'ph-file-code' });
+    }
+    if (fileId.encoding) {
+      metadataItems.push({ label: 'Encoding', value: fileId.encoding, icon: 'ph-text-aa' });
+    }
+    if (fileId.contentHash) {
+      const shortHash = fileId.contentHash.substring(0, 16) + '...';
+      metadataItems.push({ label: 'SHA-256 Hash', value: shortHash, icon: 'ph-fingerprint', fullValue: fileId.contentHash });
+    }
+    if (fileId.lastModified) {
+      metadataItems.push({ label: 'File Modified', value: new Date(fileId.lastModified).toLocaleString(), icon: 'ph-clock' });
+    }
+
+    // Parsing decisions metadata
+    if (parsing.delimiterDetected || parsing.delimiter) {
+      const delim = parsing.delimiterDetected || parsing.delimiter;
+      const delimDisplay = delim === ',' ? 'comma (,)' : delim === '\t' ? 'tab' : delim === ';' ? 'semicolon (;)' : delim === '|' ? 'pipe (|)' : `"${delim}"`;
+      metadataItems.push({ label: 'Delimiter', value: delimDisplay, icon: 'ph-split-horizontal' });
+    }
+    if (parsing.delimiterConfidence) {
+      metadataItems.push({ label: 'Delimiter Confidence', value: `${(parsing.delimiterConfidence * 100).toFixed(0)}%`, icon: 'ph-chart-bar' });
+    }
+    if (typeof parsing.headerDetected === 'boolean' || typeof parsing.hasHeaders === 'boolean') {
+      const hasHeaders = parsing.headerDetected ?? parsing.hasHeaders;
+      metadataItems.push({ label: 'Headers Detected', value: hasHeaders ? 'Yes' : 'No', icon: 'ph-rows' });
+    }
+    if (parsing.headerConfidence) {
+      metadataItems.push({ label: 'Header Confidence', value: `${(parsing.headerConfidence * 100).toFixed(0)}%`, icon: 'ph-chart-bar' });
+    }
+    if (parsing.quotedFieldsFound) {
+      metadataItems.push({ label: 'Quoted Fields', value: 'Yes', icon: 'ph-quotes' });
+    }
+    if (parsing.lineEndingNormalized) {
+      const endingType = parsing.originalLineEnding === '\r\n' ? 'CRLF (Windows)' : parsing.originalLineEnding === '\r' ? 'CR (Mac)' : 'LF (Unix)';
+      metadataItems.push({ label: 'Line Ending', value: endingType, icon: 'ph-arrow-line-down' });
+    }
+    if (parsing.processingTimeMs) {
+      metadataItems.push({ label: 'Parse Time', value: `${parsing.processingTimeMs}ms`, icon: 'ph-timer' });
+    }
+
+    // Schema inference metadata
+    if (schema.inferenceDecisions) {
+      const inf = schema.inferenceDecisions;
+      if (inf.fieldsInferred) {
+        metadataItems.push({ label: 'Fields Inferred', value: inf.fieldsInferred, icon: 'ph-columns' });
+      }
+      if (inf.typesInferred) {
+        const typeList = Object.entries(inf.typesInferred).map(([t, c]) => `${t}: ${c}`).join(', ');
+        metadataItems.push({ label: 'Types Detected', value: typeList, icon: 'ph-code' });
+      }
+    }
+
+    if (metadataItems.length === 0) {
+      return '';
+    }
+
+    return `
+      <div class="source-file-metadata">
+        <div class="source-file-metadata-header">
+          <i class="ph ph-file-magnifying-glass"></i>
+          <span>File Metadata</span>
         </div>
-      `;
-    }).join('');
+        <div class="source-file-metadata-items">
+          ${metadataItems.map(item => `
+            <div class="source-file-metadata-item" ${item.fullValue ? `title="${this._escapeHtml(item.fullValue)}"` : ''}>
+              <i class="ph ${item.icon}"></i>
+              <span class="label">${item.label}</span>
+              <span class="value">${this._escapeHtml(String(item.value))}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
   }
 
   /**
@@ -4484,17 +4626,24 @@ class EODataWorkbench {
           </div>
         </div>
 
-        ${source.provenance ? `
+        <div class="fe-preview-section">
+          <div class="fe-preview-section-header">
+            <i class="ph ph-fingerprint"></i>
+            <span>Provenance</span>
+            <button class="fe-preview-edit-prov-btn" id="fe-preview-edit-prov" title="Edit provenance">
+              <i class="ph ph-pencil-simple"></i>
+            </button>
+          </div>
+          ${this._renderFileExplorerProvenance(source)}
+        </div>
+
+        ${source.fileIdentity || source.parsingDecisions ? `
           <div class="fe-preview-section">
             <div class="fe-preview-section-header">
-              <i class="ph ph-fingerprint"></i>
-              <span>Provenance</span>
+              <i class="ph ph-file-magnifying-glass"></i>
+              <span>File Metadata</span>
             </div>
-            <div class="fe-preview-provenance">
-              ${source.provenance.agent ? `<div><strong>Agent:</strong> ${this._escapeHtml(source.provenance.agent)}</div>` : ''}
-              ${source.provenance.method ? `<div><strong>Method:</strong> ${this._escapeHtml(source.provenance.method)}</div>` : ''}
-              ${source.provenance.source ? `<div><strong>Source:</strong> ${this._escapeHtml(source.provenance.source)}</div>` : ''}
-            </div>
+            ${this._renderFileExplorerMetadata(source)}
           </div>
         ` : ''}
 
@@ -4543,6 +4692,187 @@ class EODataWorkbench {
     const baseName = name.slice(0, name.length - ext.length);
     const truncLen = maxLen - ext.length - 3;
     return truncLen > 0 ? baseName.slice(0, truncLen) + '...' + ext : name.slice(0, maxLen - 3) + '...';
+  }
+
+  /**
+   * Render comprehensive provenance display for file explorer preview
+   * Shows all 9 EO provenance categories grouped by triad
+   */
+  _renderFileExplorerProvenance(source) {
+    const prov = source.provenance || {};
+
+    // Define the 9 provenance elements grouped by triad
+    const triads = [
+      {
+        name: 'Epistemic',
+        subtitle: 'How was this produced?',
+        icon: 'ph-brain',
+        elements: [
+          { key: 'agent', label: 'Agent', icon: 'ph-user', hint: 'Who provided this' },
+          { key: 'method', label: 'Method', icon: 'ph-flask', hint: 'How it was produced' },
+          { key: 'source', label: 'Source', icon: 'ph-file-text', hint: 'Where it came from' }
+        ]
+      },
+      {
+        name: 'Semantic',
+        subtitle: 'What does it mean?',
+        icon: 'ph-book-open',
+        elements: [
+          { key: 'term', label: 'Term', icon: 'ph-bookmark', hint: 'Key concept' },
+          { key: 'definition', label: 'Definition', icon: 'ph-book-open', hint: 'What it means here' },
+          { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-map-pin', hint: 'Where it applies' }
+        ]
+      },
+      {
+        name: 'Situational',
+        subtitle: 'When/where does it hold?',
+        icon: 'ph-compass',
+        elements: [
+          { key: 'scale', label: 'Scale', icon: 'ph-arrows-out', hint: 'Operational level' },
+          { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', hint: 'Time period' },
+          { key: 'background', label: 'Background', icon: 'ph-info', hint: 'Context/conditions' }
+        ]
+      }
+    ];
+
+    // Count filled elements
+    const allKeys = ['agent', 'method', 'source', 'term', 'definition', 'jurisdiction', 'scale', 'timeframe', 'background'];
+    const filledCount = allKeys.filter(k => this._getProvenanceValue(prov[k])).length;
+    const statusClass = filledCount === 9 ? 'complete' : filledCount > 0 ? 'partial' : 'none';
+    const statusText = filledCount === 9 ? 'Complete' : filledCount > 0 ? `${filledCount}/9` : 'Not set';
+
+    return `
+      <div class="fe-preview-provenance-full">
+        <div class="fe-prov-status ${statusClass}">
+          <span class="fe-prov-indicator">${filledCount === 9 ? '◉' : filledCount > 0 ? '◐' : '○'}</span>
+          <span class="fe-prov-status-text">${statusText}</span>
+        </div>
+        ${triads.map(triad => {
+          const hasAnyValue = triad.elements.some(el => this._getProvenanceValue(prov[el.key]));
+          return `
+            <div class="fe-prov-triad ${hasAnyValue ? '' : 'empty'}">
+              <div class="fe-prov-triad-header">
+                <i class="ph ${triad.icon}"></i>
+                <span class="fe-prov-triad-name">${triad.name}</span>
+                <span class="fe-prov-triad-subtitle">${triad.subtitle}</span>
+              </div>
+              <div class="fe-prov-triad-elements">
+                ${triad.elements.map(el => {
+                  const value = this._getProvenanceValue(prov[el.key]);
+                  const hasValue = !!value;
+                  return `
+                    <div class="fe-prov-element ${hasValue ? 'filled' : 'empty'}" title="${el.hint}">
+                      <i class="ph ${el.icon}"></i>
+                      <span class="fe-prov-label">${el.label}</span>
+                      <span class="fe-prov-value">${hasValue ? this._escapeHtml(String(value)) : '—'}</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * Render file metadata section for file explorer preview
+   * Shows extracted file identity and parsing decisions
+   */
+  _renderFileExplorerMetadata(source) {
+    const fileId = source.fileIdentity || {};
+    const parsing = source.parsingDecisions || {};
+    const schema = source.schema || {};
+
+    const metadataItems = [];
+
+    // File identity metadata
+    if (fileId.originalFilename) {
+      metadataItems.push({ label: 'Original Filename', value: fileId.originalFilename, icon: 'ph-file' });
+    }
+    if (fileId.rawSize) {
+      const sizeStr = this._formatFileSize(fileId.rawSize);
+      metadataItems.push({ label: 'File Size', value: sizeStr, icon: 'ph-hard-drive' });
+    }
+    if (fileId.mimeType) {
+      metadataItems.push({ label: 'MIME Type', value: fileId.mimeType, icon: 'ph-file-code' });
+    }
+    if (fileId.encoding) {
+      metadataItems.push({ label: 'Encoding', value: fileId.encoding, icon: 'ph-text-aa' });
+    }
+    if (fileId.contentHash) {
+      const shortHash = fileId.contentHash.substring(0, 12) + '...';
+      metadataItems.push({ label: 'Content Hash', value: shortHash, icon: 'ph-fingerprint', fullValue: fileId.contentHash });
+    }
+    if (fileId.lastModified) {
+      metadataItems.push({ label: 'Last Modified', value: new Date(fileId.lastModified).toLocaleString(), icon: 'ph-clock' });
+    }
+
+    // Parsing decisions metadata
+    if (parsing.delimiterDetected || parsing.delimiter) {
+      const delim = parsing.delimiterDetected || parsing.delimiter;
+      const delimDisplay = delim === ',' ? 'comma (,)' : delim === '\t' ? 'tab' : delim === ';' ? 'semicolon (;)' : delim === '|' ? 'pipe (|)' : `"${delim}"`;
+      metadataItems.push({ label: 'Delimiter', value: delimDisplay, icon: 'ph-split-horizontal' });
+    }
+    if (parsing.delimiterConfidence) {
+      metadataItems.push({ label: 'Delimiter Confidence', value: `${(parsing.delimiterConfidence * 100).toFixed(0)}%`, icon: 'ph-chart-bar' });
+    }
+    if (typeof parsing.headerDetected === 'boolean' || typeof parsing.hasHeaders === 'boolean') {
+      const hasHeaders = parsing.headerDetected ?? parsing.hasHeaders;
+      metadataItems.push({ label: 'Headers Detected', value: hasHeaders ? 'Yes' : 'No', icon: 'ph-rows' });
+    }
+    if (parsing.headerConfidence) {
+      metadataItems.push({ label: 'Header Confidence', value: `${(parsing.headerConfidence * 100).toFixed(0)}%`, icon: 'ph-chart-bar' });
+    }
+    if (parsing.quotedFieldsFound) {
+      metadataItems.push({ label: 'Quoted Fields', value: 'Yes', icon: 'ph-quotes' });
+    }
+    if (parsing.lineEndingNormalized) {
+      const endingType = parsing.originalLineEnding === '\r\n' ? 'CRLF (Windows)' : parsing.originalLineEnding === '\r' ? 'CR (Mac)' : 'LF (Unix)';
+      metadataItems.push({ label: 'Line Ending', value: endingType, icon: 'ph-arrow-line-down' });
+    }
+    if (parsing.processingTimeMs) {
+      metadataItems.push({ label: 'Processing Time', value: `${parsing.processingTimeMs}ms`, icon: 'ph-timer' });
+    }
+
+    // Schema inference metadata
+    if (schema.inferenceDecisions) {
+      const inf = schema.inferenceDecisions;
+      if (inf.fieldsInferred) {
+        metadataItems.push({ label: 'Fields Inferred', value: inf.fieldsInferred, icon: 'ph-columns' });
+      }
+      if (inf.typesInferred) {
+        const typeList = Object.entries(inf.typesInferred).map(([t, c]) => `${t}: ${c}`).join(', ');
+        metadataItems.push({ label: 'Types Detected', value: typeList, icon: 'ph-code' });
+      }
+    }
+
+    if (metadataItems.length === 0) {
+      return '<div class="fe-metadata-empty">No file metadata available</div>';
+    }
+
+    return `
+      <div class="fe-preview-metadata">
+        ${metadataItems.map(item => `
+          <div class="fe-metadata-item" ${item.fullValue ? `title="${this._escapeHtml(item.fullValue)}"` : ''}>
+            <i class="ph ${item.icon}"></i>
+            <span class="fe-metadata-label">${item.label}</span>
+            <span class="fe-metadata-value">${this._escapeHtml(String(item.value))}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * Format file size for display
+   */
+  _formatFileSize(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return parseFloat((bytes / Math.pow(1024, i)).toFixed(1)) + ' ' + units[i];
   }
 
   /**
@@ -4714,6 +5044,14 @@ class EODataWorkbench {
       const sourceId = this.fileExplorerSelectedSource?.id;
       if (sourceId) {
         this._exportSource(sourceId);
+      }
+    });
+
+    // Edit provenance button in preview
+    container.querySelector('#fe-preview-edit-prov')?.addEventListener('click', () => {
+      const sourceId = this.fileExplorerSelectedSource?.id;
+      if (sourceId) {
+        this._editSourceProvenance(sourceId);
       }
     });
 
