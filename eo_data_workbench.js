@@ -8414,20 +8414,21 @@ class EODataWorkbench {
   }
 
   _renderCell(record, field, searchTerm = '') {
-    const value = record.values[field.id];
-    const cellClass = `cell-${field.type} cell-editable`;
+    try {
+      const value = record.values[field.id];
+      const cellClass = `cell-${field.type} cell-editable`;
 
-    // Debug: Log if field ID doesn't match any keys in record.values
-    if (value === undefined && Object.keys(record.values).length > 0) {
-      console.warn('[Debug] Field ID mismatch:', {
-        fieldId: field.id,
-        fieldName: field.name,
-        recordValueKeys: Object.keys(record.values),
-        recordId: record.id
-      });
-    }
+      // Debug: Log if field ID doesn't match any keys in record.values
+      if (value === undefined && Object.keys(record.values).length > 0) {
+        console.warn('[Debug] Field ID mismatch:', {
+          fieldId: field.id,
+          fieldName: field.name,
+          recordValueKeys: Object.keys(record.values),
+          recordId: record.id
+        });
+      }
 
-    let content = '';
+      let content = '';
 
     switch (field.type) {
       case FieldTypes.TEXT:
@@ -8501,7 +8502,7 @@ class EODataWorkbench {
           content = '<div class="cell-link">';
           value.forEach(linkedId => {
             // Find linked record name
-            const linkedSet = this.sets.find(s => s.id === field.options.linkedSetId);
+            const linkedSet = this.sets.find(s => s.id === field.options?.linkedSetId);
             const linkedRecord = linkedSet?.records.find(r => r.id === linkedId);
             const primaryField = linkedSet?.fields.find(f => f.isPrimary);
             const name = linkedRecord?.values[primaryField?.id] || linkedId;
@@ -8514,7 +8515,7 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.FORMULA:
-        const result = this._evaluateFormula(field.options.formula, record);
+        const result = this._evaluateFormula(field.options?.formula, record);
         content = `<span class="cell-formula">${result}</span>`;
         break;
 
@@ -8553,7 +8554,11 @@ class EODataWorkbench {
         }
     }
 
-    return `<td class="${cellClass}" data-field-id="${field.id}">${content}</td>`;
+      return `<td class="${cellClass}" data-field-id="${field.id}">${content}</td>`;
+    } catch (error) {
+      console.error('[RenderCell Error]', { fieldId: field?.id, fieldName: field?.name, fieldType: field?.type, recordId: record?.id, error });
+      return `<td class="cell-${field?.type || 'unknown'} cell-editable cell-error" data-field-id="${field?.id || 'unknown'}"><span class="cell-empty cell-render-error" title="Error rendering field">Error</span></td>`;
+    }
   }
 
   _formatNumber(value, field) {
@@ -18079,7 +18084,7 @@ class EODataWorkbench {
     html += '</tbody></table>';
 
     // Add expand button for full view
-    html += `<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(JSON.stringify(arr)))})"><i class="ph ph-arrows-out-simple"></i></button>`;
+    html += `<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(arr))})"><i class="ph ph-arrows-out-simple"></i></button>`;
     html += '</div>';
 
     return html;
@@ -18120,7 +18125,7 @@ class EODataWorkbench {
     html += '</div>';
 
     // Add expand button
-    html += `<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(JSON.stringify(obj)))})"><i class="ph ph-arrows-out-simple"></i></button>`;
+    html += `<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(obj))})"><i class="ph ph-arrows-out-simple"></i></button>`;
     html += '</div>';
 
     return html;
@@ -18191,7 +18196,7 @@ class EODataWorkbench {
 
     // Add expand button for larger objects
     if (keys.length > 2) {
-      html = `<div class="json-kv-wrapper">${html}<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(JSON.stringify(data)))})"><i class="ph ph-arrows-out-simple"></i></button></div>`;
+      html = `<div class="json-kv-wrapper">${html}<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(data))})"><i class="ph ph-arrows-out-simple"></i></button></div>`;
     }
 
     return html;
