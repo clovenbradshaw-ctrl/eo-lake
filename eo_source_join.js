@@ -3216,6 +3216,762 @@ class SetFromSourceUI {
 
 
 // ============================================================================
+// Query Builder UI - Dual-mode interface for creating Sets
+// ============================================================================
+
+/**
+ * QueryBuilderUI - Visual query builder with wizard and code modes
+ *
+ * Two paths to create Sets:
+ * - Wizard Mode: Point-and-click filtering (easy)
+ * - Query Mode: SQL or EOQL code editor (power)
+ *
+ * Both modes produce the same output: a SetDefinition with operator chain
+ */
+class QueryBuilderUI {
+  constructor(setCreator, container) {
+    this.setCreator = setCreator;
+    this.container = typeof container === 'string'
+      ? document.getElementById(container)
+      : container;
+    this._onComplete = null;
+    this._onCancel = null;
+    this._source = null;
+    this._sources = []; // For multi-source queries (joins)
+    this._mode = 'wizard'; // 'wizard' or 'query'
+    this._language = 'sql'; // 'sql' or 'eoql'
+    this._queryText = '';
+    this._parseResult = null;
+    this._operatorChain = null;
+    this._previewData = null;
+    this._filterBuilder = null;
+    this._selectedFields = [];
+    this._setName = '';
+  }
+
+  /**
+   * Show the query builder for a source
+   */
+  show(sourceId, options = {}) {
+    this._onComplete = options.onComplete;
+    this._onCancel = options.onCancel;
+    this._source = this.setCreator.sourceStore.get(sourceId);
+    this._sources = options.sources || [this._source];
+
+    if (!this._source) {
+      throw new Error(`Source not found: ${sourceId}`);
+    }
+
+    // Initialize state
+    this._mode = options.mode || 'wizard';
+    this._language = options.language || 'sql';
+    this._setName = `${this._source.name}_filtered`;
+    this._selectedFields = this._source.schema.fields.map(f => ({
+      name: f.name,
+      type: f.type,
+      rename: null,
+      include: true
+    }));
+
+    // Initialize filter builder for wizard mode
+    this._filterBuilder = new AdvancedFilterBuilder({
+      source: this._source,
+      provenanceEnabled: true,
+      onChange: () => this._onWizardChange()
+    });
+
+    // Generate initial query text
+    this._generateQueryFromWizard();
+
+    this._render();
+    this._attachEventListeners();
+  }
+
+  hide() {
+    if (this.container) {
+      this.container.innerHTML = '';
+      this.container.style.display = 'none';
+    }
+    this._filterBuilder = null;
+    this._parseResult = null;
+    this._operatorChain = null;
+  }
+
+  /**
+   * Switch between wizard and query modes
+   */
+  setMode(mode) {
+    if (mode === this._mode) return;
+
+    if (mode === 'query') {
+      // Generate query from current wizard state
+      this._generateQueryFromWizard();
+    } else if (mode === 'wizard') {
+      // Parse current query back to wizard (if possible)
+      this._parseQueryToWizard();
+    }
+
+    this._mode = mode;
+    this._updateModeUI();
+  }
+
+  /**
+   * Switch query language
+   */
+  setLanguage(lang) {
+    if (lang === this._language) return;
+    this._language = lang;
+    this._generateQueryFromWizard();
+    this._updateLanguageUI();
+  }
+
+  /**
+   * Generate SQL/EOQL from wizard state
+   */
+  _generateQueryFromWizard() {
+    const filters = this._filterBuilder ? this._filterBuilder.getFilters() : null;
+    const fields = this._selectedFields.filter(f => f.include);
+    const fieldNames = fields.map(f => f.rename || f.name);
+
+    if (this._language === 'eoql') {
+      this._queryText = this._generateEOQL(fieldNames, filters);
+    } else {
+      this._queryText = this._generateSQL(fieldNames, filters);
+    }
+
+    this._parseQuery();
+  }
+
+  _generateEOQL(fields, filters) {
+    let query = `FROM "${this._source.name}" AS s`;
+
+    // Add filter if present
+    if (filters && filters.conditions && filters.conditions.length > 0) {
+      const filterExpr = this._filterGroupToEOQL(filters);
+      if (filterExpr) {
+        query += `\n|> SEG ${filterExpr}`;
+      }
+    }
+
+    // Temporal context (required)
+    query += `\n|> ALT NOW`;
+
+    // Name the result
+    query += `\n|> DES '${this._setName}'`;
+
+    return query;
+  }
+
+  _generateSQL(fields, filters) {
+    const fieldList = fields.length > 0 ? fields.join(', ') : '*';
+    let query = `SELECT ${fieldList}\nFROM "${this._source.name}"`;
+
+    // Add WHERE if filters present
+    if (filters && filters.conditions && filters.conditions.length > 0) {
+      const whereClause = this._filterGroupToSQL(filters);
+      if (whereClause) {
+        query += `\nWHERE ${whereClause}`;
+      }
+    }
+
+    // EO extensions
+    query += `\nAS OF NOW`;
+    query += `\nAS SET '${this._setName}'`;
+
+    return query;
+  }
+
+  _filterGroupToEOQL(group) {
+    if (!group || !group.conditions || group.conditions.length === 0) return '';
+
+    const parts = group.conditions.map(cond => {
+      if (cond.type === 'group') {
+        return `(${this._filterGroupToEOQL(cond)})`;
+      }
+      return this._conditionToEOQL(cond);
+    }).filter(Boolean);
+
+    const connector = group.logic === 'OR' ? ' OR ' : ' AND ';
+    return parts.join(connector);
+  }
+
+  _conditionToEOQL(cond) {
+    const field = cond.field;
+    const value = typeof cond.value === 'string' ? `'${cond.value}'` : cond.value;
+
+    switch (cond.operator) {
+      case 'eq': return `${field} = ${value}`;
+      case 'neq': return `${field} != ${value}`;
+      case 'gt': return `${field} > ${value}`;
+      case 'gte': return `${field} >= ${value}`;
+      case 'lt': return `${field} < ${value}`;
+      case 'lte': return `${field} <= ${value}`;
+      case 'contains': return `${field} CONTAINS ${value}`;
+      case 'starts': return `${field} STARTS WITH ${value}`;
+      case 'ends': return `${field} ENDS WITH ${value}`;
+      case 'null': return `${field} IS NULL`;
+      case 'notnull': return `${field} IS NOT NULL`;
+      default: return `${field} = ${value}`;
+    }
+  }
+
+  _filterGroupToSQL(group) {
+    if (!group || !group.conditions || group.conditions.length === 0) return '';
+
+    const parts = group.conditions.map(cond => {
+      if (cond.type === 'group') {
+        return `(${this._filterGroupToSQL(cond)})`;
+      }
+      return this._conditionToSQL(cond);
+    }).filter(Boolean);
+
+    const connector = group.logic === 'OR' ? ' OR ' : ' AND ';
+    return parts.join(connector);
+  }
+
+  _conditionToSQL(cond) {
+    const field = cond.field;
+    const value = typeof cond.value === 'string' ? `'${cond.value}'` : cond.value;
+
+    switch (cond.operator) {
+      case 'eq': return `${field} = ${value}`;
+      case 'neq': return `${field} <> ${value}`;
+      case 'gt': return `${field} > ${value}`;
+      case 'gte': return `${field} >= ${value}`;
+      case 'lt': return `${field} < ${value}`;
+      case 'lte': return `${field} <= ${value}`;
+      case 'contains': return `${field} LIKE '%${cond.value}%'`;
+      case 'starts': return `${field} LIKE '${cond.value}%'`;
+      case 'ends': return `${field} LIKE '%${cond.value}'`;
+      case 'null': return `${field} IS NULL`;
+      case 'notnull': return `${field} IS NOT NULL`;
+      default: return `${field} = ${value}`;
+    }
+  }
+
+  /**
+   * Parse current query text
+   */
+  _parseQuery() {
+    if (!window.EOQueryLanguage) {
+      this._parseResult = { success: false, error: 'Query parser not loaded' };
+      return;
+    }
+
+    try {
+      const result = window.EOQueryLanguage.QueryParser.parse(this._queryText, {
+        language: this._language
+      });
+
+      this._parseResult = result;
+
+      if (result.success) {
+        // Convert to OperatorChain if EOQueryBuilder is available
+        if (window.EOQueryBuilder) {
+          this._operatorChain = window.EOQueryLanguage.QueryParser.toOperatorChain(result);
+        }
+        this._updatePreview();
+      }
+    } catch (e) {
+      this._parseResult = { success: false, error: e.message };
+    }
+
+    this._updateValidationUI();
+  }
+
+  /**
+   * Try to parse query back into wizard state
+   */
+  _parseQueryToWizard() {
+    // This is a best-effort reverse parse
+    // Complex queries may not fully translate back
+    if (!this._parseResult || !this._parseResult.success) return;
+
+    const pipeline = this._parseResult.pipeline;
+
+    // Find SEG operator for filters
+    const segOp = pipeline.find(op => op.op === 'SEG');
+    if (segOp && segOp.params && segOp.params.predicate) {
+      // Convert predicate back to filter builder format
+      // This is simplified - full implementation would recursively convert
+      this._filterBuilder.clear();
+      // TODO: Convert predicate to filter conditions
+    }
+
+    // Find DES operator for name
+    const desOp = pipeline.find(op => op.op === 'DES');
+    if (desOp && desOp.params && desOp.params.designation) {
+      this._setName = desOp.params.designation;
+    }
+  }
+
+  /**
+   * Update preview data
+   */
+  _updatePreview() {
+    if (!this._operatorChain) {
+      this._previewData = null;
+      return;
+    }
+
+    try {
+      // Build the SetDefinition
+      const setDef = this._operatorChain.build();
+
+      // Execute preview using ChainExecutor
+      if (window.EOQueryBuilder) {
+        const executor = new window.EOQueryBuilder.ChainExecutor(this.setCreator.sourceStore);
+        const result = executor.preview(setDef, { limit: 10 });
+        this._previewData = {
+          totalCount: result.totalCount,
+          rows: result.rows,
+          operators: setDef.operators
+        };
+      } else {
+        // Fallback: just count matching records using wizard filters
+        const filters = this._filterBuilder ? this._filterBuilder.getFilters() : null;
+        let count = 0;
+        const rows = [];
+
+        for (const record of this._source.records) {
+          if (!filters || AdvancedFilterBuilder.evaluateRecord(record, filters, this._source)) {
+            if (rows.length < 10) rows.push(record);
+            count++;
+          }
+        }
+
+        this._previewData = { totalCount: count, rows };
+      }
+    } catch (e) {
+      this._previewData = { error: e.message };
+    }
+
+    this._updatePreviewUI();
+  }
+
+  _onWizardChange() {
+    // Debounce
+    if (this._wizardDebounce) clearTimeout(this._wizardDebounce);
+    this._wizardDebounce = setTimeout(() => {
+      this._generateQueryFromWizard();
+      this._updatePreview();
+    }, 300);
+  }
+
+  /**
+   * Create the set
+   */
+  _createSet() {
+    if (!this._operatorChain) {
+      alert('Please fix query errors before creating set');
+      return;
+    }
+
+    try {
+      const setDef = this._operatorChain.build();
+
+      // Use SetCreator.createSetFromChain
+      const result = this.setCreator.createSetFromChain(setDef, {
+        actor: 'user',
+        grounding: {
+          reason: `Created via Query Builder from ${this._source.name}`,
+          sourceId: this._source.id
+        }
+      });
+
+      if (this._onComplete) {
+        this._onComplete(result);
+      }
+
+      this.hide();
+    } catch (e) {
+      alert(`Error creating set: ${e.message}`);
+    }
+  }
+
+  _render() {
+    this.container.style.display = 'block';
+    this.container.innerHTML = `
+      <div class="query-builder-overlay">
+        <div class="query-builder-modal">
+          <div class="query-builder-header">
+            <div class="qb-header-title">
+              <h2><i class="ph ph-code"></i> Query Builder</h2>
+              <p class="qb-subtitle">
+                <span class="source-badge"><i class="ph ph-file"></i> ${this._escapeHtml(this._source.name)}</span>
+                <span class="record-count">${this._source.recordCount} records</span>
+              </p>
+            </div>
+            <button class="qb-close-btn" id="qb-close-btn">
+              <i class="ph ph-x"></i>
+            </button>
+          </div>
+
+          <div class="qb-mode-tabs">
+            <button class="qb-mode-tab ${this._mode === 'wizard' ? 'active' : ''}" data-mode="wizard">
+              <i class="ph ph-magic-wand"></i>
+              <span>Wizard</span>
+              <span class="mode-badge easy">Easy</span>
+            </button>
+            <button class="qb-mode-tab ${this._mode === 'query' ? 'active' : ''}" data-mode="query">
+              <i class="ph ph-code"></i>
+              <span>Query</span>
+              <span class="mode-badge power">Power</span>
+            </button>
+          </div>
+
+          <div class="qb-body">
+            ${this._mode === 'wizard' ? this._renderWizardMode() : this._renderQueryMode()}
+          </div>
+
+          <div class="qb-operator-chain" id="qb-operator-chain">
+            ${this._renderOperatorChain()}
+          </div>
+
+          <div class="qb-preview">
+            <div class="preview-header">
+              <span class="preview-title">
+                <i class="ph ph-eye"></i> Preview
+              </span>
+              <span class="preview-count" id="qb-preview-count">
+                ${this._previewData ? `${this._previewData.totalCount} records` : 'Calculating...'}
+              </span>
+            </div>
+            <div class="preview-table-container" id="qb-preview-table">
+              ${this._renderPreviewTable()}
+            </div>
+          </div>
+
+          <div class="qb-footer">
+            <button class="btn btn-secondary" id="qb-cancel-btn">Cancel</button>
+            <button class="btn btn-success" id="qb-create-btn" ${!this._parseResult?.success ? 'disabled' : ''}>
+              <i class="ph ph-plus-circle"></i>
+              Create Set
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderWizardMode() {
+    return `
+      <div class="wizard-mode">
+        <div class="wizard-step">
+          <div class="step-header">
+            <span class="step-num">1</span>
+            <span class="step-label">Name your new Set</span>
+          </div>
+          <input type="text" class="qb-input" id="qb-set-name"
+                 value="${this._escapeHtml(this._setName)}"
+                 placeholder="e.g., Filtered Records">
+        </div>
+
+        <div class="wizard-step">
+          <div class="step-header">
+            <span class="step-num">2</span>
+            <span class="step-label">Filter records</span>
+          </div>
+          <div id="qb-filter-builder"></div>
+        </div>
+
+        <div class="wizard-step">
+          <div class="step-header">
+            <span class="step-num">3</span>
+            <span class="step-label">Select columns</span>
+          </div>
+          <div class="column-chips" id="qb-column-chips">
+            ${this._selectedFields.map((f, i) => `
+              <span class="column-chip ${f.include ? 'selected' : ''}" data-index="${i}">
+                <i class="ph ${f.include ? 'ph-check' : 'ph-plus'}"></i>
+                ${this._escapeHtml(f.name)}
+              </span>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderQueryMode() {
+    return `
+      <div class="query-mode">
+        <div class="lang-tabs">
+          <button class="lang-tab ${this._language === 'sql' ? 'active' : ''}" data-lang="sql">
+            <i class="ph ph-database"></i> SQL
+          </button>
+          <button class="lang-tab ${this._language === 'eoql' ? 'active' : ''}" data-lang="eoql">
+            <i class="ph ph-flow-arrow"></i> EOQL
+          </button>
+        </div>
+
+        <div class="query-editor-container">
+          <textarea class="query-editor" id="qb-query-editor"
+                    placeholder="Write your query here...">${this._escapeHtml(this._queryText)}</textarea>
+          <div class="query-toolbar">
+            <div class="query-hints">
+              <span class="hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> Run</span>
+              <span class="hint"><kbd>Tab</kbd> Format</span>
+            </div>
+            <button class="btn btn-sm btn-primary" id="qb-run-query">
+              <i class="ph ph-play"></i> Run
+            </button>
+          </div>
+        </div>
+
+        <div class="query-validation" id="qb-validation">
+          ${this._renderValidation()}
+        </div>
+      </div>
+    `;
+  }
+
+  _renderOperatorChain() {
+    if (!this._parseResult || !this._parseResult.success || !this._parseResult.pipeline) {
+      return '<div class="chain-empty">Build a query to see operator chain</div>';
+    }
+
+    const operators = this._parseResult.pipeline;
+    const opIcons = {
+      'INS': { icon: 'ph-plus-circle', color: 'given', symbol: '⊕' },
+      'SEG': { icon: 'ph-funnel', color: 'seg', symbol: '⊘' },
+      'CON': { icon: 'ph-intersect', color: 'con', symbol: '⊗' },
+      'ALT': { icon: 'ph-clock', color: 'alt', symbol: 'Δ' },
+      'DES': { icon: 'ph-tag', color: 'des', symbol: '⊙' },
+      'SYN': { icon: 'ph-equals', color: 'syn', symbol: '≡' },
+      'SUP': { icon: 'ph-stack', color: 'sup', symbol: '∥' },
+      'NUL': { icon: 'ph-prohibit', color: 'nul', symbol: '∅' },
+      'AGG': { icon: 'ph-chart-bar', color: 'agg', symbol: 'Σ' }
+    };
+
+    return `
+      <div class="chain-label"><i class="ph ph-flow-arrow"></i> Operator Chain</div>
+      <div class="chain-operators">
+        ${operators.map((op, i) => {
+          const config = opIcons[op.op] || { icon: 'ph-question', color: 'default', symbol: '?' };
+          return `
+            <div class="chain-op op-${config.color}" title="${op.op}">
+              <span class="op-symbol">${config.symbol}</span>
+              <span class="op-name">${op.op}</span>
+            </div>
+            ${i < operators.length - 1 ? '<span class="chain-arrow">→</span>' : ''}
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  _renderValidation() {
+    if (!this._parseResult) {
+      return '<span class="validation-pending"><i class="ph ph-hourglass"></i> Enter a query</span>';
+    }
+
+    if (this._parseResult.success) {
+      return `<span class="validation-success"><i class="ph ph-check-circle"></i> Valid ${this._language.toUpperCase()}</span>`;
+    }
+
+    return `<span class="validation-error"><i class="ph ph-warning-circle"></i> ${this._escapeHtml(this._parseResult.error)}</span>`;
+  }
+
+  _renderPreviewTable() {
+    if (!this._previewData) {
+      return '<div class="preview-empty">Run query to see preview</div>';
+    }
+
+    if (this._previewData.error) {
+      return `<div class="preview-error">${this._escapeHtml(this._previewData.error)}</div>`;
+    }
+
+    const rows = this._previewData.rows || [];
+    if (rows.length === 0) {
+      return '<div class="preview-empty">No matching records</div>';
+    }
+
+    const fields = this._selectedFields.filter(f => f.include);
+    const columns = fields.length > 0 ? fields.map(f => f.name) : Object.keys(rows[0]);
+
+    return `
+      <table class="preview-table">
+        <thead>
+          <tr>${columns.map(c => `<th>${this._escapeHtml(c)}</th>`).join('')}</tr>
+        </thead>
+        <tbody>
+          ${rows.slice(0, 5).map(row => `
+            <tr>${columns.map(c => `<td>${this._escapeHtml(String(row[c] ?? ''))}</td>`).join('')}</tr>
+          `).join('')}
+          ${this._previewData.totalCount > 5 ? `
+            <tr><td colspan="${columns.length}" class="preview-more">... and ${this._previewData.totalCount - 5} more</td></tr>
+          ` : ''}
+        </tbody>
+      </table>
+    `;
+  }
+
+  _updateModeUI() {
+    const body = this.container.querySelector('.qb-body');
+    if (body) {
+      body.innerHTML = this._mode === 'wizard' ? this._renderWizardMode() : this._renderQueryMode();
+      this._attachModeEventListeners();
+    }
+
+    // Update tabs
+    this.container.querySelectorAll('.qb-mode-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.mode === this._mode);
+    });
+  }
+
+  _updateLanguageUI() {
+    const editor = this.container.querySelector('#qb-query-editor');
+    if (editor) {
+      editor.value = this._queryText;
+    }
+
+    this.container.querySelectorAll('.lang-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.lang === this._language);
+    });
+
+    this._updateValidationUI();
+  }
+
+  _updateValidationUI() {
+    const validation = this.container.querySelector('#qb-validation');
+    if (validation) {
+      validation.innerHTML = this._renderValidation();
+    }
+
+    const chain = this.container.querySelector('#qb-operator-chain');
+    if (chain) {
+      chain.innerHTML = this._renderOperatorChain();
+    }
+
+    const createBtn = this.container.querySelector('#qb-create-btn');
+    if (createBtn) {
+      createBtn.disabled = !this._parseResult?.success;
+    }
+  }
+
+  _updatePreviewUI() {
+    const count = this.container.querySelector('#qb-preview-count');
+    if (count && this._previewData) {
+      count.textContent = this._previewData.error
+        ? 'Error'
+        : `${this._previewData.totalCount} records`;
+    }
+
+    const table = this.container.querySelector('#qb-preview-table');
+    if (table) {
+      table.innerHTML = this._renderPreviewTable();
+    }
+  }
+
+  _attachEventListeners() {
+    // Close button
+    this.container.querySelector('#qb-close-btn')?.addEventListener('click', () => {
+      if (this._onCancel) this._onCancel();
+      this.hide();
+    });
+
+    // Cancel button
+    this.container.querySelector('#qb-cancel-btn')?.addEventListener('click', () => {
+      if (this._onCancel) this._onCancel();
+      this.hide();
+    });
+
+    // Create button
+    this.container.querySelector('#qb-create-btn')?.addEventListener('click', () => {
+      this._createSet();
+    });
+
+    // Mode tabs
+    this.container.querySelectorAll('.qb-mode-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        this.setMode(tab.dataset.mode);
+      });
+    });
+
+    // Overlay click to close
+    this.container.querySelector('.query-builder-overlay')?.addEventListener('click', (e) => {
+      if (e.target.classList.contains('query-builder-overlay')) {
+        if (this._onCancel) this._onCancel();
+        this.hide();
+      }
+    });
+
+    this._attachModeEventListeners();
+  }
+
+  _attachModeEventListeners() {
+    if (this._mode === 'wizard') {
+      // Set name input
+      const nameInput = this.container.querySelector('#qb-set-name');
+      if (nameInput) {
+        nameInput.addEventListener('input', (e) => {
+          this._setName = e.target.value;
+          this._onWizardChange();
+        });
+      }
+
+      // Filter builder
+      const filterContainer = this.container.querySelector('#qb-filter-builder');
+      if (filterContainer && this._filterBuilder) {
+        this._filterBuilder.render(filterContainer);
+      }
+
+      // Column chips
+      this.container.querySelectorAll('.column-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          const index = parseInt(chip.dataset.index);
+          this._selectedFields[index].include = !this._selectedFields[index].include;
+          chip.classList.toggle('selected');
+          chip.querySelector('i').className = this._selectedFields[index].include ? 'ph ph-check' : 'ph ph-plus';
+          this._onWizardChange();
+        });
+      });
+    } else {
+      // Language tabs
+      this.container.querySelectorAll('.lang-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          this.setLanguage(tab.dataset.lang);
+        });
+      });
+
+      // Query editor
+      const editor = this.container.querySelector('#qb-query-editor');
+      if (editor) {
+        editor.addEventListener('input', (e) => {
+          this._queryText = e.target.value;
+          // Debounce parsing
+          if (this._parseDebounce) clearTimeout(this._parseDebounce);
+          this._parseDebounce = setTimeout(() => {
+            this._parseQuery();
+          }, 500);
+        });
+
+        // Ctrl+Enter to run
+        editor.addEventListener('keydown', (e) => {
+          if (e.ctrlKey && e.key === 'Enter') {
+            this._parseQuery();
+          }
+        });
+      }
+
+      // Run button
+      this.container.querySelector('#qb-run-query')?.addEventListener('click', () => {
+        this._parseQuery();
+      });
+    }
+  }
+
+  _escapeHtml(text) {
+    if (text == null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
+  }
+}
+
+
+// ============================================================================
 // Folder Store - Manages folder hierarchy for sources
 // ============================================================================
 

@@ -4788,6 +4788,7 @@ class EODataWorkbench {
     const menu = [
       { icon: 'ph-info', label: 'View Details', action: () => { this._closeFileExplorer(); this._showSourceDetail(sourceId); } },
       { icon: 'ph-table', label: 'Create Set from Source...', action: () => { this._closeFileExplorer(); this._showSetFromSourceUI(sourceId); } },
+      { icon: 'ph-code', label: 'Query Builder...', action: () => { this._closeFileExplorer(); this._showQueryBuilderUI(sourceId); } },
       { icon: 'ph-intersect', label: 'Join with Another Source...', action: () => { this._closeFileExplorer(); this._showJoinBuilderUI(sourceId); } },
       { divider: true },
       { icon: source.isFavorite ? 'ph-star' : 'ph-star-fill', label: source.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', action: () => this._toggleSourceFavorite(sourceId) },
@@ -5184,6 +5185,7 @@ class EODataWorkbench {
       { icon: 'ph-fingerprint', label: 'Edit Provenance...', action: () => this._editSourceProvenance(sourceId) },
       { divider: true },
       { icon: 'ph-table', label: 'Create Set from Source...', action: () => this._showSetFromSourceUI(sourceId) },
+      { icon: 'ph-code', label: 'Query Builder...', action: () => this._showQueryBuilderUI(sourceId) },
       { icon: 'ph-intersect', label: 'Join with Another Source...', action: () => this._showJoinBuilderUI(sourceId) },
       { divider: true },
       { icon: 'ph-export', label: 'Export Source Data', action: () => this._exportSource(sourceId) }
@@ -5230,6 +5232,57 @@ class EODataWorkbench {
 
     // Create and show the UI
     const ui = new SetFromSourceUI(this._setCreator, container);
+    ui.show(sourceId, {
+      onComplete: (result) => {
+        // Add the new set to our sets array
+        this.sets.push(result.set);
+        this._saveData();
+        this._renderSidebar();
+        this._selectSet(result.set.id);
+        this._showToast(`Set "${result.set.name}" created with ${result.set.records.length} records`, 'success');
+      },
+      onCancel: () => {
+        // Nothing to do on cancel
+      }
+    });
+  }
+
+  /**
+   * Show the QueryBuilderUI modal for creating Sets with SQL/EOQL
+   */
+  _showQueryBuilderUI(sourceId) {
+    // Find the source from this.sources
+    const source = this.sources?.find(s => s.id === sourceId);
+
+    if (!source) {
+      this._showToast('Source not found. Please re-import the file.', 'error');
+      return;
+    }
+
+    // Ensure sourceStore has this source
+    if (!this.sourceStore) {
+      this._initSourceStore();
+    }
+
+    if (!this.sourceStore.get(sourceId)) {
+      this.sourceStore.sources.set(sourceId, source);
+    }
+
+    // Get or create the SetCreator
+    if (!this._setCreator) {
+      this._setCreator = new SetCreator(this.sourceStore, this.eoApp?.eventStore);
+    }
+
+    // Create container for the modal if it doesn't exist
+    let container = document.getElementById('query-builder-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'query-builder-container';
+      document.body.appendChild(container);
+    }
+
+    // Create and show the UI
+    const ui = new QueryBuilderUI(this._setCreator, container);
     ui.show(sourceId, {
       onComplete: (result) => {
         // Add the new set to our sets array
