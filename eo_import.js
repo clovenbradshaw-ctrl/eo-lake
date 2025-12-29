@@ -1495,6 +1495,12 @@ class ImportOrchestrator {
       return { headers: [], rows: [], hasHeaders: true };
     }
 
+    // Handle arrays of primitives (strings, numbers, etc.)
+    // If the first record is not an object, wrap all records in objects with a "value" field
+    if (records.length > 0 && (typeof records[0] !== 'object' || records[0] === null)) {
+      records = records.map(item => ({ value: item }));
+    }
+
     // Extract headers from ALL records to capture fields that may be missing in some records
     // Preserve order from first record, then add any additional fields found in other records
     const headerSet = new Set();
@@ -2813,6 +2819,13 @@ function initImportHandlers() {
         // Refresh workbench sidebar to show new source
         if (workbench?._renderSidebar) {
           workbench._renderSidebar();
+        }
+
+        // Navigate to the newly imported source after modal closes
+        if (workbench?._showSourceDetail && result.source?.id) {
+          setTimeout(() => {
+            workbench._showSourceDetail(result.source.id);
+          }, 1900); // After modal close delay (1800ms)
         }
 
       } else {
