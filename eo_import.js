@@ -1288,6 +1288,251 @@ class ImportOrchestrator {
   }
 
   /**
+   * Import a file and split into multiple Sources based on a type field.
+   * Use when data contains records with different schemas (e.g., images, documents, videos).
+   *
+   * @param {File} file - The file to import
+   * @param {Object} options - Import options
+   * @param {Object} options.schemaDivergence - Schema divergence analysis from ImportAnalyzer
+   * @param {Object} options.provenance - EO 9-element provenance
+   * @returns {Promise<{success: boolean, sources: Array, parentSourceId: string}>}
+   */
+  async importToSources(file, options = {}) {
+    const startTime = Date.now();
+    const importedAt = new Date().toISOString();
+    const schemaDivergence = options.schemaDivergence;
+
+    if (!schemaDivergence || !schemaDivergence.typeField) {
+      // Fall back to single source import
+      return this.importToSource(file, options);
+    }
+
+    this._emitProgress('started', {
+      fileName: file.name,
+      fileSize: file.size,
+      phase: 'reading',
+      mode: 'split_sources'
+    });
+
+    try {
+      // Step 1: Read and parse the file
+      const text = await this._readFile(file);
+
+      this._emitProgress('progress', {
+        phase: 'parsing',
+        percentage: 10
+      });
+
+      const fileName = file.name.toLowerCase();
+      const isICS = fileName.endsWith('.ics') || file.type === 'text/calendar';
+      const isCSV = fileName.endsWith('.csv') ||
+                    file.type === 'text/csv' ||
+                    (!isICS && !this._isJSON(text));
+
+      const mimeType = file.type || (isICS ? 'text/calendar' :
+                       isCSV ? 'text/csv' : 'application/json');
+
+      let parseResult;
+      if (isICS) {
+        parseResult = this.icsParser.parse(text);
+      } else if (isCSV) {
+        parseResult = this.csvParser.parse(text, options);
+      } else {
+        parseResult = this._parseJSON(text);
+      }
+
+      // Step 2: Compute content hash for parent reference
+      let contentHash = null;
+      if (typeof crypto !== 'undefined' && crypto.subtle) {
+        try {
+          const encoder = new TextEncoder();
+          const data = encoder.encode(text);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (e) {
+          // Hash computation is optional
+        }
+      }
+
+      // Step 3: Group records by type
+      const typeField = schemaDivergence.typeField;
+      const { headers, rows } = parseResult;
+
+      const rowsByType = {};
+      for (const row of rows) {
+        const typeValue = row[typeField] || '_untyped';
+        if (!rowsByType[typeValue]) {
+          rowsByType[typeValue] = [];
+        }
+        rowsByType[typeValue].push(row);
+      }
+
+      const typeValues = Object.keys(rowsByType);
+
+      this._emitProgress('progress', {
+        phase: 'splitting',
+        percentage: 30,
+        typeCount: typeValues.length
+      });
+
+      // Step 4: Create a source for each type
+      const createdSources = [];
+      const baseFileName = file.name.replace(/\.(csv|json|xlsx|xls|ics)$/i, '');
+      let processed = 0;
+
+      for (const typeValue of typeValues) {
+        const typeRows = rowsByType[typeValue];
+        const typeName = this._formatViewName(typeValue);
+        const sourceName = `${baseFileName} - ${typeName}`;
+
+        // Find headers that are actually used by this type
+        const usedHeaders = headers.filter(header => {
+          if (header === typeField) return false; // Skip type field itself
+          return typeRows.some(row => {
+            const val = row[header];
+            return val !== null && val !== undefined && val !== '';
+          });
+        });
+
+        // Infer schema for this type's data
+        const typeSchema = this.schemaInferrer.inferSchema(usedHeaders, typeRows);
+
+        // Create the source
+        const sourceId = 'src_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 8);
+
+        const source = {
+          id: sourceId,
+          name: sourceName,
+          type: 'source',
+
+          // Records for this type only
+          records: typeRows,
+          recordCount: typeRows.length,
+
+          // Type-specific schema
+          schema: {
+            fields: typeSchema.fields || usedHeaders.map(h => ({
+              name: h,
+              type: 'text',
+              sourceColumn: h
+            })),
+            inferenceDecisions: typeSchema.inferenceDecisions || null
+          },
+
+          // File metadata (shared reference to original file)
+          fileIdentity: {
+            originalFilename: file.name,
+            splitSourceName: sourceName,
+            contentHash: contentHash,
+            rawSize: file.size,
+            encoding: 'utf-8',
+            mimeType: mimeType,
+            lastModified: file.lastModified ? new Date(file.lastModified).toISOString() : null
+          },
+
+          // Provenance
+          provenance: {
+            agent: options.provenance?.agent || null,
+            method: options.provenance?.method || `${isICS ? 'ICS' : isCSV ? 'CSV' : 'JSON'} import (split by ${typeField})`,
+            source: options.provenance?.source || file.name,
+            term: options.provenance?.term || null,
+            definition: options.provenance?.definition || null,
+            jurisdiction: options.provenance?.jurisdiction || null,
+            scale: options.provenance?.scale || null,
+            timeframe: options.provenance?.timeframe || null,
+            background: options.provenance?.background || null
+          },
+
+          // Split metadata
+          splitInfo: {
+            typeField: typeField,
+            typeValue: typeValue,
+            originalFileName: file.name,
+            siblingTypes: typeValues.filter(t => t !== typeValue)
+          },
+
+          // Parsing decisions
+          parsingDecisions: parseResult.parsingDecisions || {
+            delimiter: parseResult.delimiter,
+            hasHeaders: parseResult.hasHeaders
+          },
+
+          // Timestamps
+          importedAt: importedAt,
+          createdAt: importedAt,
+
+          // Derived sets tracking
+          derivedSetIds: [],
+
+          // Status
+          status: 'active'
+        };
+
+        // Add to workbench
+        if (this.workbench) {
+          if (!Array.isArray(this.workbench.sources)) {
+            this.workbench.sources = [];
+          }
+          this.workbench.sources.push(source);
+        }
+
+        createdSources.push({
+          sourceId: source.id,
+          name: sourceName,
+          type: typeValue,
+          recordCount: source.recordCount,
+          fieldCount: source.schema.fields.length
+        });
+
+        processed++;
+
+        this._emitProgress('progress', {
+          phase: 'creating_sources',
+          percentage: 30 + Math.round((processed / typeValues.length) * 60),
+          currentType: typeName,
+          typesProcessed: processed,
+          totalTypes: typeValues.length
+        });
+
+        // Yield to prevent UI blocking
+        await new Promise(r => setTimeout(r, 0));
+      }
+
+      // Step 5: Save data
+      if (this.workbench && typeof this.workbench._saveData === 'function') {
+        this.workbench._saveData();
+        console.log('ImportOrchestrator: Split sources saved to localStorage', {
+          sourcesCreated: createdSources.length,
+          totalRecords: rows.length
+        });
+      }
+
+      this._emitProgress('completed', {
+        fileName: file.name,
+        sourcesCreated: createdSources.length,
+        recordCount: rows.length,
+        duration: Date.now() - startTime,
+        mode: 'split_sources'
+      });
+
+      return {
+        success: true,
+        sources: createdSources,
+        totalRecordCount: rows.length,
+        typeField: typeField
+      };
+
+    } catch (error) {
+      this._emitProgress('failed', {
+        fileName: file.name,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Get the SourceStore instance
    * Returns workbench.sourceStore if available, otherwise creates one
    */
@@ -2307,6 +2552,9 @@ class ImportAnalyzer {
       // View split candidates (fields with low cardinality)
       viewSplitCandidates: [],
 
+      // Schema divergence detection (for split by type)
+      schemaDivergence: null,
+
       // Embedded provenance detection
       hasEmbeddedProvenance: false,
       provenanceFields: [],
@@ -2326,12 +2574,128 @@ class ImportAnalyzer {
     // Find view split candidates
     analysis.viewSplitCandidates = this._findViewSplitCandidates(parseResult);
 
+    // Analyze schema divergence by type field
+    if (analysis.viewSplitCandidates.length > 0) {
+      analysis.schemaDivergence = this._analyzeSchemaByType(parseResult, analysis.viewSplitCandidates);
+    }
+
     // Detect embedded provenance
     const provAnalysis = this._detectEmbeddedProvenance(parseResult);
     analysis.hasEmbeddedProvenance = provAnalysis.found;
     analysis.provenanceFields = provAnalysis.fields;
 
     return analysis;
+  }
+
+  /**
+   * Analyze schema differences across type values
+   * Returns divergence info if different types have significantly different fields
+   */
+  _analyzeSchemaByType(parseResult, viewSplitCandidates) {
+    const rows = parseResult.rows || [];
+    const headers = parseResult.headers || [];
+
+    if (rows.length < 2 || headers.length < 2) return null;
+
+    // Use the best split candidate (usually 'type' field or first candidate)
+    const typeCandidate = viewSplitCandidates.find(c =>
+      c.field.toLowerCase() === 'type' ||
+      c.field.toLowerCase() === 'filetype' ||
+      c.field.toLowerCase() === '_type'
+    ) || viewSplitCandidates[0];
+
+    if (!typeCandidate || typeCandidate.uniqueCount < 2) return null;
+
+    const typeField = typeCandidate.field;
+
+    // Group rows by type and track which fields have values
+    const typeSchemas = {};
+
+    for (const row of rows) {
+      const typeValue = row[typeField] || '_untyped';
+
+      if (!typeSchemas[typeValue]) {
+        typeSchemas[typeValue] = {
+          count: 0,
+          fieldsWithValues: new Set(),
+          sampleRecord: row
+        };
+      }
+
+      typeSchemas[typeValue].count++;
+
+      // Track which fields have non-empty values
+      for (const header of headers) {
+        const val = row[header];
+        if (val !== null && val !== undefined && val !== '') {
+          typeSchemas[typeValue].fieldsWithValues.add(header);
+        }
+      }
+    }
+
+    // Calculate overlap between type schemas
+    const types = Object.keys(typeSchemas);
+    if (types.length < 2) return null;
+
+    // Get all unique fields across all types (excluding type field itself)
+    const allFields = new Set();
+    for (const type of types) {
+      for (const field of typeSchemas[type].fieldsWithValues) {
+        if (field !== typeField) allFields.add(field);
+      }
+    }
+
+    // Find fields that are common to ALL types vs type-specific
+    const commonFields = new Set();
+    const typeSpecificFields = {};
+
+    for (const field of allFields) {
+      const typesWithField = types.filter(t => typeSchemas[t].fieldsWithValues.has(field));
+      if (typesWithField.length === types.length) {
+        commonFields.add(field);
+      } else {
+        // Track which types have this field
+        for (const t of typesWithField) {
+          if (!typeSpecificFields[t]) typeSpecificFields[t] = new Set();
+          typeSpecificFields[t].add(field);
+        }
+      }
+    }
+
+    // Calculate divergence score (0 = all same, 1 = completely different)
+    const totalFields = allFields.size;
+    const commonFieldCount = commonFields.size;
+    const divergenceScore = totalFields > 0 ? 1 - (commonFieldCount / totalFields) : 0;
+
+    // Build type info for UI
+    const typeInfo = types.map(type => {
+      const schema = typeSchemas[type];
+      const specificFields = typeSpecificFields[type] || new Set();
+      return {
+        type,
+        count: schema.count,
+        totalFields: schema.fieldsWithValues.size - 1, // -1 for type field itself
+        specificFields: [...specificFields],
+        specificFieldCount: specificFields.size
+      };
+    }).sort((a, b) => b.count - a.count);
+
+    // Recommend split if divergence is significant (>30% type-specific fields)
+    const shouldSplit = divergenceScore > 0.3 ||
+                        typeInfo.some(t => t.specificFieldCount >= 2);
+
+    return {
+      typeField,
+      divergenceScore,
+      shouldSplit,
+      commonFields: [...commonFields],
+      commonFieldCount,
+      totalFieldCount: totalFields,
+      types: typeInfo,
+      summary: shouldSplit
+        ? `${types.length} types with ${Math.round(divergenceScore * 100)}% field divergence`
+        : null
+    };
   }
 
   /**
@@ -2716,6 +3080,27 @@ function showImportModal() {
           </div>
         </div>
 
+        <!-- Schema Divergence Banner (for split sources) -->
+        <div class="import-split-detected" id="import-split-detected" style="display: none;">
+          <div class="split-detected-header">
+            <div class="split-detected-icon">
+              <i class="ph ph-git-branch"></i>
+            </div>
+            <div class="split-detected-content">
+              <strong>Different Record Types Detected</strong>
+              <p id="split-detected-info">Records have different fields based on type</p>
+            </div>
+          </div>
+          <div class="split-type-chips" id="split-type-chips"></div>
+          <div class="split-options">
+            <label class="checkbox-label split-option-label">
+              <input type="checkbox" id="import-split-sources" checked>
+              <span>Split into separate sources by type</span>
+            </label>
+            <p class="option-hint">Each type becomes its own source with only its relevant fields</p>
+          </div>
+        </div>
+
         <div class="preview-stats">
           <div class="stat-item">
             <span class="stat-value" id="preview-rows">0</span>
@@ -3087,45 +3472,97 @@ function initImportHandlers() {
 
       // Check import mode
       if (importMode === 'source') {
-        // Import as Source only (recommended)
-        result = await orchestrator.importToSource(currentFile, {
-          provenance,
-          originalSource: rawFileContent
-        });
+        // Check if split sources is enabled
+        const splitSourcesEnabled = document.getElementById('import-split-sources')?.checked;
+        const shouldSplitSources = splitSourcesEnabled && analysisData?.schemaDivergence?.shouldSplit;
 
-        window.removeEventListener('eo-import-progress', progressHandler);
+        if (shouldSplitSources) {
+          // Import as multiple Sources split by type
+          result = await orchestrator.importToSources(currentFile, {
+            provenance,
+            originalSource: rawFileContent,
+            schemaDivergence: analysisData.schemaDivergence
+          });
 
-        // Show success for source import
-        progressSection.style.display = 'none';
-        successSection.style.display = 'flex';
+          window.removeEventListener('eo-import-progress', progressHandler);
 
-        document.getElementById('success-message').textContent =
-          `Successfully imported ${result.recordCount} records as Source`;
+          // Show success for split sources import
+          progressSection.style.display = 'none';
+          successSection.style.display = 'flex';
 
-        // Show next steps info
-        document.getElementById('success-views-created').innerHTML = `
-          <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
-            <p style="margin: 0 0 8px 0; font-weight: 500;">
-              <i class="ph ph-info"></i> Next Steps
-            </p>
-            <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
-              Click on the source in the sidebar to view data, then use
-              <strong>"Create Set"</strong> to select fields and create a Set,
-              or <strong>"Join"</strong> to combine with other sources.
-            </p>
-          </div>
-        `;
+          document.getElementById('success-message').textContent =
+            `Successfully imported ${result.totalRecordCount} records into ${result.sources.length} Sources`;
 
-        // Refresh workbench sidebar to show new source
-        if (workbench?._renderSidebar) {
-          workbench._renderSidebar();
-        }
+          // Show created sources info
+          const sourcesList = result.sources.map(s =>
+            `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: var(--bg-tertiary); border-radius: 4px;">
+              ${s.name} (${s.recordCount})
+            </span>`
+          ).join('');
+          document.getElementById('success-views-created').innerHTML = `
+            <div style="margin-top: 8px;"><i class="ph ph-git-branch"></i> Split by <strong>${result.typeField}</strong>:</div>
+            <div style="margin-top: 6px;">${sourcesList}</div>
+            <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
+              <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
+                Each source has its own schema with only relevant fields.
+                Click on a source in the sidebar to view and create Sets.
+              </p>
+            </div>
+          `;
 
-        // Navigate to the newly imported source after modal closes
-        if (workbench?._showSourceDetail && result.source?.id) {
-          setTimeout(() => {
-            workbench._showSourceDetail(result.source.id);
-          }, 1900); // After modal close delay (1800ms)
+          // Refresh workbench sidebar to show new sources
+          if (workbench?._renderSidebar) {
+            workbench._renderSidebar();
+          }
+
+          // Navigate to the first created source after modal closes
+          if (workbench?._showSourceDetail && result.sources?.[0]?.sourceId) {
+            setTimeout(() => {
+              workbench._showSourceDetail(result.sources[0].sourceId);
+            }, 1900);
+          }
+
+        } else {
+          // Import as single Source (default)
+          result = await orchestrator.importToSource(currentFile, {
+            provenance,
+            originalSource: rawFileContent
+          });
+
+          window.removeEventListener('eo-import-progress', progressHandler);
+
+          // Show success for source import
+          progressSection.style.display = 'none';
+          successSection.style.display = 'flex';
+
+          document.getElementById('success-message').textContent =
+            `Successfully imported ${result.recordCount} records as Source`;
+
+          // Show next steps info
+          document.getElementById('success-views-created').innerHTML = `
+            <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
+              <p style="margin: 0 0 8px 0; font-weight: 500;">
+                <i class="ph ph-info"></i> Next Steps
+              </p>
+              <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
+                Click on the source in the sidebar to view data, then use
+                <strong>"Create Set"</strong> to select fields and create a Set,
+                or <strong>"Join"</strong> to combine with other sources.
+              </p>
+            </div>
+          `;
+
+          // Refresh workbench sidebar to show new source
+          if (workbench?._renderSidebar) {
+            workbench._renderSidebar();
+          }
+
+          // Navigate to the newly imported source after modal closes
+          if (workbench?._showSourceDetail && result.source?.id) {
+            setTimeout(() => {
+              workbench._showSourceDetail(result.source.id);
+            }, 1900); // After modal close delay (1800ms)
+          }
         }
 
       } else {
@@ -3312,6 +3749,29 @@ function initImportHandlers() {
           (graphInfo.edgeCount > 0 ? ` and ${graphInfo.edgeCount} edges` : '');
       } else {
         graphBanner.style.display = 'none';
+      }
+
+      // Show schema divergence banner (for source mode split)
+      const splitBanner = document.getElementById('import-split-detected');
+      const splitChips = document.getElementById('split-type-chips');
+      if (analysisData.schemaDivergence?.shouldSplit && !analysisData.isGraphData) {
+        splitBanner.style.display = 'block';
+        const divergence = analysisData.schemaDivergence;
+
+        // Update info text
+        document.getElementById('split-detected-info').textContent =
+          `${divergence.types.length} types with ${Math.round(divergence.divergenceScore * 100)}% field divergence`;
+
+        // Build type chips
+        splitChips.innerHTML = divergence.types.slice(0, 6).map(t => `
+          <span class="split-type-chip">
+            <span class="chip-name">${escapeHtml(t.type)}</span>
+            <span class="chip-count">(${t.count})</span>
+            ${t.specificFieldCount > 0 ? `<span class="chip-fields">+${t.specificFieldCount} fields</span>` : ''}
+          </span>
+        `).join('') + (divergence.types.length > 6 ? '<span class="split-type-chip">...</span>' : '');
+      } else {
+        splitBanner.style.display = 'none';
       }
 
       // Show type distribution
@@ -3856,6 +4316,89 @@ importStyles.textContent = `
     font-size: 13px;
     color: var(--text-secondary);
     margin: 0;
+  }
+
+  /* Schema Split Detection Banner */
+  .import-split-detected {
+    padding: 12px 16px;
+    background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(16, 185, 129, 0.1));
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+  }
+
+  .split-detected-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+
+  .split-detected-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #22c55e;
+    border-radius: 8px;
+    color: white;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  .split-detected-content strong {
+    display: block;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+
+  .split-detected-content p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin: 0;
+  }
+
+  .split-type-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding-left: 52px;
+  }
+
+  .split-type-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--text-primary);
+  }
+
+  .split-type-chip .chip-count {
+    color: var(--text-secondary);
+    font-size: 11px;
+  }
+
+  .split-type-chip .chip-fields {
+    color: var(--text-tertiary);
+    font-size: 10px;
+  }
+
+  .split-options {
+    padding-left: 52px;
+  }
+
+  .split-option-label {
+    font-weight: 500;
+  }
+
+  .split-options .option-hint {
+    margin-left: 24px;
+    margin-top: 2px;
   }
 
   /* Type Distribution */
