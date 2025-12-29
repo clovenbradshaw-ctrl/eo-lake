@@ -1648,7 +1648,7 @@ class ImportOrchestrator {
         originalFileSize: options.originalFileSize,
         mimeType: options.mimeType || options.originalFileType,
         contentHash: options.contentHash,
-        schemaInference: schema.inferenceDecisions ? { fieldInferences: schema.inferenceDecisions.fieldInferences } : null,
+        schemaInference: schema.inferenceDecisions || null,
         sheetCount: options.sheetCount,
         sourceUrl: options.sourceUrl,
         fileModifiedAt: options.fileModifiedAt,
