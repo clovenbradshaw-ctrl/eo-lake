@@ -112,13 +112,58 @@ const ProvenanceLabels = Object.freeze({
 
 /**
  * Upload context nested under 'agent' - who/what initiated the upload
+ *
+ * If no options provided, attempts to use the current agent session.
  */
 function createUploadContext(options = {}) {
+  // If agent session is available and no explicit options, use it
+  if (Object.keys(options).length === 0 && typeof window !== 'undefined' && window.getAgentSession) {
+    const session = window.getAgentSession();
+    if (session) {
+      return session.toUploadContext();
+    }
+  }
+
   return {
     userId: options.userId || null,
     sessionId: options.sessionId || null,
     userAgent: options.userAgent || null,
     ipAddress: options.ipAddress || null  // For audit, not stored client-side
+  };
+}
+
+/**
+ * Create agent provenance from the current session
+ *
+ * This populates the 'agent' element of the 9-element provenance schema
+ * with identity information from the agent session.
+ *
+ * Returns an object with:
+ * - value: Display string for the agent (name or session ID)
+ * - agentSession: Full session metadata for auditing
+ * - uploadContext: Upload context for compatibility
+ */
+function createAgentProvenance(options = {}) {
+  // Get session from options or current session
+  let session = options.session;
+
+  if (!session && typeof window !== 'undefined' && window.getAgentSession) {
+    session = window.getAgentSession();
+  }
+
+  if (!session) {
+    // No session available - return minimal provenance
+    return {
+      value: options.agentName || options.agent || null,
+      uploadContext: createUploadContext(options)
+    };
+  }
+
+  // Build the agent provenance from session
+  return {
+    value: session.getDisplayName(),
+    agentSession: session.toAgentProvenance(),
+    uploadContext: session.toUploadContext()
   };
 }
 
@@ -409,10 +454,23 @@ function getProvenanceIndicator(status) {
 function createDatasetProvenance(options = {}) {
   const now = new Date().toISOString();
 
+  // Get agent provenance from session if available
+  const agentProv = options.agentProvenance || createAgentProvenance({
+    agent: options.agent,
+    agentName: options.agentName,
+    session: options.session
+  });
+
+  // Determine importedBy from agent session or options
+  let importedBy = options.importedBy;
+  if (!importedBy && agentProv.value) {
+    importedBy = agentProv.value;
+  }
+
   return {
     // Top-level import metadata (backwards compatible)
     importedAt: now,
-    importedBy: options.importedBy || null,
+    importedBy: importedBy,
     originalFilename: options.originalFilename || null,
     originalFileSize: options.originalFileSize || null,
     originalFileType: options.originalFileType || null,
@@ -422,8 +480,9 @@ function createDatasetProvenance(options = {}) {
     provenance: {
       // EPISTEMIC TRIAD
       agent: {
-        value: options.agent || null,
-        uploadContext: options.uploadContext || createUploadContext()
+        value: agentProv.value,
+        agentSession: agentProv.agentSession || null,
+        uploadContext: agentProv.uploadContext || options.uploadContext || createUploadContext()
       },
       method: {
         value: options.method || null,
@@ -1441,6 +1500,9 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeProvenance,
     flattenProvenance,
 
+    // Agent provenance (integrates with agent session)
+    createAgentProvenance,
+
     // Upload metadata factories
     createUploadContext,
     createTransformationStep,
@@ -1501,6 +1563,9 @@ if (typeof window !== 'undefined') {
     setProvenanceValue,
     normalizeProvenance,
     flattenProvenance,
+
+    // Agent provenance (integrates with agent session)
+    createAgentProvenance,
 
     // Upload metadata factories
     createUploadContext,

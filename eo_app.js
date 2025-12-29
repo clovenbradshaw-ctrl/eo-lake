@@ -33,10 +33,12 @@ class EOApp {
     this.syncEngine = null;
     this.complianceChecker = null;
 
+    // Agent session
+    this.agentSession = null;
+
     // Current context
     this.currentWorkspace = APP_CONFIG.defaultWorkspace;
     this.currentHorizon = null;
-    this.currentActor = null;
 
     // UI references
     this.ui = null;
@@ -91,8 +93,15 @@ class EOApp {
     this.complianceChecker = initComplianceChecker(this.eventStore, this.horizonLattice);
     console.log('EOApp: Compliance checker initialized');
 
-    // Set current actor
-    this.currentActor = options.actor || this._generateActorId();
+    // Initialize agent session
+    if (typeof initAgentSession !== 'undefined') {
+      this.agentSession = initAgentSession({
+        agentId: options.actor,
+        agentName: options.agentName,
+        agentType: options.agentType
+      });
+      console.log('EOApp: Agent session initialized', this.agentSession.sessionId);
+    }
 
     // Start compliance checking interval
     if (options.complianceChecking !== false) {
@@ -108,10 +117,63 @@ class EOApp {
   }
 
   /**
-   * Generate a random actor ID
+   * Get the current actor from agent session
+   */
+  get currentActor() {
+    if (this.agentSession) {
+      return this.agentSession.getActor();
+    }
+    // Fallback to generated ID
+    return this._fallbackActor || (this._fallbackActor = this._generateActorId());
+  }
+
+  /**
+   * Generate a random actor ID (fallback when no session)
    */
   _generateActorId() {
     return 'user_' + Math.random().toString(36).substr(2, 9);
+  }
+
+  /**
+   * Declare agent identity
+   */
+  declareAgent(identity) {
+    if (!this.agentSession) {
+      if (typeof initAgentSession !== 'undefined') {
+        this.agentSession = initAgentSession(identity);
+      } else {
+        console.warn('EOApp: Agent session not available');
+        return null;
+      }
+    } else {
+      this.agentSession.declare(identity);
+    }
+
+    this._emit('agent_declared', this.agentSession.toIdentity());
+    console.log('EOApp: Agent declared', this.agentSession.getDisplayName());
+
+    return this.agentSession;
+  }
+
+  /**
+   * Get agent session info
+   */
+  getAgentInfo() {
+    if (!this.agentSession) {
+      return {
+        actor: this.currentActor,
+        isDeclared: false,
+        sessionId: null
+      };
+    }
+
+    return {
+      actor: this.currentActor,
+      isDeclared: this.agentSession.isDeclared(),
+      sessionId: this.agentSession.sessionId,
+      displayName: this.agentSession.getDisplayName(),
+      identity: this.agentSession.toIdentity()
+    };
   }
 
   /**
@@ -408,7 +470,7 @@ class EOApp {
       version: APP_CONFIG.version,
       workspace: this.currentWorkspace,
       horizon: this.currentHorizon,
-      actor: this.currentActor,
+      agent: this.getAgentInfo(),
       events: {
         total: events.length,
         given: givenCount,
