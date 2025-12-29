@@ -65,6 +65,58 @@
         </div>
       </div>
 
+      <!-- Consolidated New Action Button -->
+      <div class="sidebar-new-action" id="sidebar-new-action">
+        <button class="new-action-btn" id="btn-new-action" title="Create new... (Ctrl+Shift+N)">
+          <i class="ph ph-plus-circle"></i>
+          <span>New</span>
+          <i class="ph ph-caret-down new-action-caret"></i>
+        </button>
+        <div class="new-action-dropdown" id="new-action-dropdown" style="display: none;">
+          <button class="new-action-item" id="new-action-source" data-action="source">
+            <i class="ph ph-download-simple"></i>
+            <div class="new-action-item-content">
+              <span class="new-action-item-label">Import Source</span>
+              <span class="new-action-item-hint">CSV, JSON, Excel, ICS</span>
+            </div>
+            <span class="new-action-shortcut">Ctrl+I</span>
+          </button>
+          <button class="new-action-item" id="new-action-set" data-action="set">
+            <i class="ph ph-database"></i>
+            <div class="new-action-item-content">
+              <span class="new-action-item-label">New Set</span>
+              <span class="new-action-item-hint">Create a new data collection</span>
+            </div>
+            <span class="new-action-shortcut">Ctrl+Shift+S</span>
+          </button>
+          <button class="new-action-item" id="new-action-view" data-action="view">
+            <i class="ph ph-eye"></i>
+            <div class="new-action-item-content">
+              <span class="new-action-item-label">New View</span>
+              <span class="new-action-item-hint">Table, Cards, Kanban, Calendar, Graph</span>
+            </div>
+            <span class="new-action-shortcut">Ctrl+Shift+V</span>
+          </button>
+          <div class="new-action-divider"></div>
+          <button class="new-action-item" id="new-action-record" data-action="record">
+            <i class="ph ph-rows"></i>
+            <div class="new-action-item-content">
+              <span class="new-action-item-label">New Record</span>
+              <span class="new-action-item-hint">Add a record to current set</span>
+            </div>
+            <span class="new-action-shortcut">Ctrl+N</span>
+          </button>
+          <button class="new-action-item" id="new-action-field" data-action="field">
+            <i class="ph ph-columns-plus-right"></i>
+            <div class="new-action-item-content">
+              <span class="new-action-item-label">New Field</span>
+              <span class="new-action-item-hint">Add a column to current set</span>
+            </div>
+            <span class="new-action-shortcut">Ctrl+Shift+F</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Three-Panel Navigation: Sources (GIVEN) / Sets (Schema) / Views (MEANT) -->
       <nav class="sidebar-nav" id="sidebar-nav">
         <!-- Panel 1: SOURCES (Given - Physical Origins) -->
@@ -87,8 +139,9 @@
               <button class="nav-panel-action" id="btn-file-explorer" title="Open File Explorer">
                 <i class="ph ph-folder-open"></i>
               </button>
-              <button class="nav-panel-action" id="btn-import-data" title="Import data (CSV, JSON, ICS)">
+              <button class="nav-panel-action-labeled" id="btn-import-data" title="Import data (CSV, JSON, Excel, ICS) - Ctrl+I">
                 <i class="ph ph-plus"></i>
+                <span class="nav-panel-action-label">Import</span>
               </button>
             </div>
           </div>
@@ -105,8 +158,9 @@
               <span>Sets & Views</span>
               <span class="nav-panel-badge schema-badge">SCHEMA</span>
             </div>
-            <button class="nav-panel-action" id="btn-new-set" title="Create new set">
+            <button class="nav-panel-action-labeled" id="btn-new-set" title="Create new set - Ctrl+Shift+S">
               <i class="ph ph-plus"></i>
+              <span class="nav-panel-action-label">New Set</span>
             </button>
           </div>
           <div class="nav-panel-content" id="sets-nav">
@@ -291,6 +345,12 @@
       <div class="content-area" id="content-area">
         <!-- Workbench rendered here -->
       </div>
+
+      <!-- Floating Add-Field Button (visible in table views) -->
+      <button class="add-field-fab" id="add-field-fab" title="Add a new field (Ctrl+Shift+F)" style="display: none;">
+        <i class="ph ph-columns-plus-right"></i>
+        <span>Add Field</span>
+      </button>
 
       <!-- Status Bar -->
       <footer class="status-bar">
@@ -667,6 +727,29 @@
           <div class="shortcut-item">
             <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>/</kbd></span>
             <span class="shortcut-desc">Focus search</span>
+          </div>
+        </div>
+        <div class="shortcuts-section">
+          <h4>Create</h4>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd></span>
+            <span class="shortcut-desc">Open "New" menu</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>I</kbd></span>
+            <span class="shortcut-desc">Import new source</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></span>
+            <span class="shortcut-desc">Create new set</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd></span>
+            <span class="shortcut-desc">Create new view</span>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-keys"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F</kbd></span>
+            <span class="shortcut-desc">Add new field</span>
           </div>
         </div>
         <div class="shortcuts-section">

@@ -626,6 +626,9 @@ class EODataWorkbench {
       this._showImportModal();
     });
 
+    // Consolidated "New" action button and dropdown
+    this._initNewActionDropdown();
+
     // File Explorer button
     document.getElementById('btn-file-explorer')?.addEventListener('click', () => {
       this._showFileExplorer();
@@ -689,6 +692,11 @@ class EODataWorkbench {
       if (!e.target.closest('.field-type-picker') && !e.target.closest('.col-add') && !e.target.closest('.context-menu')) {
         this.elements.fieldTypePicker?.classList.remove('active');
       }
+      // Close New action dropdown when clicking outside
+      if (!e.target.closest('.sidebar-new-action')) {
+        const dropdown = document.getElementById('new-action-dropdown');
+        if (dropdown) dropdown.style.display = 'none';
+      }
     });
 
     // Mobile menu
@@ -729,6 +737,11 @@ class EODataWorkbench {
     document.getElementById('tossed-panel-close')?.addEventListener('click', () => this._hideTossedPanel());
     document.getElementById('tossed-panel-done')?.addEventListener('click', () => this._hideTossedPanel());
     document.getElementById('tossed-clear-all')?.addEventListener('click', () => this._clearAllTossedItems());
+
+    // Floating Add-Field button
+    document.getElementById('add-field-fab')?.addEventListener('click', (e) => {
+      this._showAddFieldMenu(e.target.closest('button'));
+    });
 
     // Sync panel
     document.getElementById('nav-sync')?.addEventListener('click', () => this._showSyncPanel());
@@ -7870,6 +7883,14 @@ class EODataWorkbench {
    * Actually perform the view rendering (called after loading indicator is shown)
    */
   _doRenderView(view) {
+    // Show/hide the floating Add-Field button based on view type
+    // Only show FAB for table views where adding fields makes sense
+    const addFieldFab = document.getElementById('add-field-fab');
+    if (addFieldFab) {
+      const isTableView = view.type === 'table' || !view.type;
+      addFieldFab.style.display = isTableView ? 'flex' : 'none';
+    }
+
     switch (view.type) {
       case 'table':
         this._renderTableView();
@@ -13197,6 +13218,71 @@ class EODataWorkbench {
   }
 
   /**
+   * Initialize the consolidated "New" action dropdown in the sidebar
+   * Provides a single, consistent location for all creation actions
+   */
+  _initNewActionDropdown() {
+    const btn = document.getElementById('btn-new-action');
+    const dropdown = document.getElementById('new-action-dropdown');
+
+    if (!btn || !dropdown) return;
+
+    // Toggle dropdown on button click
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isVisible = dropdown.style.display !== 'none';
+      dropdown.style.display = isVisible ? 'none' : 'block';
+    });
+
+    // Handle action item clicks
+    dropdown.addEventListener('click', (e) => {
+      const item = e.target.closest('.new-action-item');
+      if (!item) return;
+
+      const action = item.dataset.action;
+      dropdown.style.display = 'none';
+
+      switch (action) {
+        case 'source':
+          this._showImportModal();
+          break;
+        case 'set':
+          this._showNewSetModal();
+          break;
+        case 'view':
+          this._showNewViewForCurrentSet();
+          break;
+        case 'record':
+          this.addRecord();
+          break;
+        case 'field':
+          this._showAddFieldMenu(btn);
+          break;
+      }
+    });
+  }
+
+  /**
+   * Show view type picker for current set
+   * Used by the consolidated "New" menu
+   */
+  _showNewViewForCurrentSet() {
+    const set = this.getCurrentSet();
+    if (!set) {
+      this._showToast('Please select or create a set first', 'warning');
+      return;
+    }
+    // Show view type picker - reuse existing method if available
+    if (typeof this._showViewTypePicker === 'function') {
+      // Create a temporary button element to position the picker
+      const btn = document.getElementById('btn-new-action');
+      this._showViewTypePicker({ target: btn }, set.id);
+    } else {
+      this._showNewViewModal();
+    }
+  }
+
+  /**
    * Create a set from multiple selected sources
    * Combines records from all sources with a unified schema
    */
@@ -15223,10 +15309,46 @@ class EODataWorkbench {
       }
     }
 
+    // ========== CREATE SHORTCUTS ==========
+
+    // Ctrl + Shift + N to open "New" menu
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'N' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      const dropdown = document.getElementById('new-action-dropdown');
+      if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+
+    // Ctrl + I for import source
+    if ((e.metaKey || e.ctrlKey) && e.key === 'i' && !e.shiftKey && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._showImportModal();
+    }
+
+    // Ctrl + Shift + S for new set (different from Ctrl + S which is export)
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'S' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._showNewSetModal();
+    }
+
+    // Ctrl + Shift + V for new view
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'V' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      this._showNewViewForCurrentSet();
+    }
+
+    // Ctrl + Shift + F for new field (note: Ctrl+F is filter)
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'F' && !e.target.closest('input, textarea')) {
+      e.preventDefault();
+      const btn = document.getElementById('btn-new-action');
+      this._showAddFieldMenu(btn);
+    }
+
     // ========== RECORD SHORTCUTS ==========
 
     // Cmd/Ctrl + N for new record
-    if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !e.target.closest('input, textarea')) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !e.shiftKey && !e.target.closest('input, textarea')) {
       e.preventDefault();
       this.addRecord();
     }
