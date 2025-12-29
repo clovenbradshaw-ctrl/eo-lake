@@ -489,6 +489,7 @@ class EODataWorkbench {
     this.fileExplorerSearchTerm = ''; // Search filter
     this.fileExplorerActiveFilter = 'smart_all'; // Active smart folder or tag filter
     this.fileExplorerExpandedFolders = new Set(); // Track expanded folders in tree view
+    this.fileExplorerSelectedSources = new Set(); // Track multi-selected sources for batch operations
   }
 
   // --------------------------------------------------------------------------
@@ -4852,6 +4853,32 @@ class EODataWorkbench {
           </div>
         </div>
 
+        <!-- Selection Toolbar (shown when sources are selected) -->
+        ${this.fileExplorerSelectedSources.size > 0 ? `
+          <div class="file-explorer-selection-bar">
+            <div class="fe-selection-info">
+              <button class="fe-selection-clear" id="fe-clear-selection" title="Clear selection">
+                <i class="ph ph-x"></i>
+              </button>
+              <span class="fe-selection-count">${this.fileExplorerSelectedSources.size} source${this.fileExplorerSelectedSources.size !== 1 ? 's' : ''} selected</span>
+            </div>
+            <div class="fe-selection-actions">
+              <button class="fe-selection-action" id="fe-create-set-from-selection">
+                <i class="ph ph-table"></i>
+                <span>Create Set</span>
+              </button>
+              <button class="fe-selection-action secondary" id="fe-export-selected">
+                <i class="ph ph-export"></i>
+                <span>Export</span>
+              </button>
+              <button class="fe-selection-action danger" id="fe-delete-selected">
+                <i class="ph ph-trash"></i>
+                <span>Delete</span>
+              </button>
+            </div>
+          </div>
+        ` : ''}
+
         <!-- Main Content -->
         <div class="file-explorer-main">
           <!-- Sidebar -->
@@ -5262,9 +5289,17 @@ class EODataWorkbench {
    * Render list view
    */
   _renderFileExplorerListView(sources) {
+    const allSelected = sources.length > 0 && sources.every(s => this.fileExplorerSelectedSources.has(s.id));
+    const someSelected = sources.some(s => this.fileExplorerSelectedSources.has(s.id));
+
     return `
       <div class="fe-list-view">
         <div class="fe-list-header">
+          <div class="fe-list-col fe-list-col-checkbox">
+            <input type="checkbox" class="fe-select-all-checkbox" id="fe-select-all"
+                   ${allSelected ? 'checked' : ''}
+                   ${someSelected && !allSelected ? 'data-indeterminate="true"' : ''}>
+          </div>
           <div class="fe-list-col fe-list-col-name">Name</div>
           <div class="fe-list-col fe-list-col-type">Type</div>
           <div class="fe-list-col fe-list-col-rows">Rows</div>
@@ -5284,14 +5319,19 @@ class EODataWorkbench {
    */
   _renderFileExplorerListRow(source) {
     const isSelected = this.fileExplorerSelectedSource?.id === source.id;
+    const isChecked = this.fileExplorerSelectedSources.has(source.id);
     const icon = this._getSourceIcon(source.name);
     const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : 'Unknown';
     const fileType = source.fileType?.toUpperCase() || 'FILE';
     const tags = source.tags || [];
 
     return `
-      <div class="fe-list-row ${isSelected ? 'selected' : ''}"
+      <div class="fe-list-row ${isSelected ? 'selected' : ''} ${isChecked ? 'checked' : ''}"
            data-source-id="${source.id}" draggable="true">
+        <div class="fe-list-col fe-list-col-checkbox">
+          <input type="checkbox" class="fe-source-checkbox" data-source-id="${source.id}"
+                 ${isChecked ? 'checked' : ''}>
+        </div>
         <div class="fe-list-col fe-list-col-name">
           <i class="ph ${icon}"></i>
           <span class="fe-list-source-name">${this._escapeHtml(source.name)}</span>
@@ -5337,6 +5377,7 @@ class EODataWorkbench {
    */
   _renderFileExplorerGridCard(source) {
     const isSelected = this.fileExplorerSelectedSource?.id === source.id;
+    const isChecked = this.fileExplorerSelectedSources.has(source.id);
     const icon = this._getSourceIcon(source.name);
     const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : 'Unknown';
     const tags = source.tags || [];
@@ -5345,9 +5386,11 @@ class EODataWorkbench {
     const fieldCount = source.schema?.fields?.length || 0;
 
     return `
-      <div class="fe-grid-card ${isSelected ? 'selected' : ''}"
+      <div class="fe-grid-card ${isSelected ? 'selected' : ''} ${isChecked ? 'checked' : ''}"
            data-source-id="${source.id}" draggable="true">
         <div class="fe-grid-card-header">
+          <input type="checkbox" class="fe-source-checkbox fe-grid-checkbox" data-source-id="${source.id}"
+                 ${isChecked ? 'checked' : ''}>
           ${source.isFavorite ? '<i class="ph ph-star-fill fe-grid-favorite"></i>' : ''}
           <button class="fe-grid-menu-btn" data-action="menu">
             <i class="ph ph-dots-three"></i>
@@ -5946,6 +5989,59 @@ class EODataWorkbench {
       });
     });
 
+    // Multi-select checkbox handling
+    container.querySelectorAll('.fe-source-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sourceId = checkbox.dataset.sourceId;
+        this._toggleFileExplorerSourceSelection(sourceId);
+      });
+    });
+
+    // Select all checkbox
+    const selectAllCheckbox = container.querySelector('#fe-select-all');
+    if (selectAllCheckbox) {
+      // Set indeterminate state via JS (can't be set via HTML attribute)
+      if (selectAllCheckbox.dataset.indeterminate === 'true') {
+        selectAllCheckbox.indeterminate = true;
+      }
+      selectAllCheckbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const allSources = this._getFileExplorerSources();
+        const filteredSources = this._filterFileExplorerSources(allSources);
+
+        if (selectAllCheckbox.checked) {
+          // Select all filtered sources
+          filteredSources.forEach(s => this.fileExplorerSelectedSources.add(s.id));
+        } else {
+          // Deselect all
+          this.fileExplorerSelectedSources.clear();
+        }
+        this._renderFileExplorer();
+      });
+    }
+
+    // Clear selection button
+    container.querySelector('#fe-clear-selection')?.addEventListener('click', () => {
+      this.fileExplorerSelectedSources.clear();
+      this._renderFileExplorer();
+    });
+
+    // Create Set from selection button
+    container.querySelector('#fe-create-set-from-selection')?.addEventListener('click', () => {
+      this._createSetFromSelectedSources();
+    });
+
+    // Export selected button
+    container.querySelector('#fe-export-selected')?.addEventListener('click', () => {
+      this._exportSelectedSources();
+    });
+
+    // Delete selected button
+    container.querySelector('#fe-delete-selected')?.addEventListener('click', () => {
+      this._deleteSelectedSources();
+    });
+
     // Drag and drop for organizing
     this._attachFileExplorerDragDrop(container);
   }
@@ -5972,6 +6068,104 @@ class EODataWorkbench {
     const sources = this._getFileExplorerSources();
     this.fileExplorerSelectedSource = sources.find(s => s.id === sourceId) || null;
     this._renderFileExplorer();
+  }
+
+  /**
+   * Toggle multi-selection of a source (checkbox selection)
+   */
+  _toggleFileExplorerSourceSelection(sourceId) {
+    if (this.fileExplorerSelectedSources.has(sourceId)) {
+      this.fileExplorerSelectedSources.delete(sourceId);
+    } else {
+      this.fileExplorerSelectedSources.add(sourceId);
+    }
+    this._renderFileExplorer();
+  }
+
+  /**
+   * Create a set from the currently selected sources
+   */
+  _createSetFromSelectedSources() {
+    const selectedIds = Array.from(this.fileExplorerSelectedSources);
+    if (selectedIds.length === 0) {
+      this._showToast('No sources selected', 'warning');
+      return;
+    }
+
+    // Close file explorer and proceed with set creation
+    this._closeFileExplorer();
+
+    if (selectedIds.length === 1) {
+      // Single source - use SetFromSourceUI for field selection
+      this._showSetFromSourceUI(selectedIds[0]);
+    } else {
+      // Multiple sources - show merge options modal
+      // Generate a default name from source names
+      const sources = selectedIds.map(id => this.sources?.find(s => s.id === id)).filter(Boolean);
+      const defaultName = sources.length <= 2
+        ? sources.map(s => s.name.replace(/\.[^/.]+$/, '')).join(' + ')
+        : `Combined (${sources.length} sources)`;
+      this._showMergeOptionsModal(defaultName, selectedIds);
+    }
+
+    // Clear selection after creating set
+    this.fileExplorerSelectedSources.clear();
+  }
+
+  /**
+   * Export multiple selected sources
+   */
+  _exportSelectedSources() {
+    const selectedIds = Array.from(this.fileExplorerSelectedSources);
+    if (selectedIds.length === 0) {
+      this._showToast('No sources selected', 'warning');
+      return;
+    }
+
+    // Export each source
+    selectedIds.forEach(id => this._exportSource(id));
+    this._showToast(`Exporting ${selectedIds.length} source${selectedIds.length !== 1 ? 's' : ''}`, 'success');
+  }
+
+  /**
+   * Delete multiple selected sources with confirmation
+   */
+  _deleteSelectedSources() {
+    const selectedIds = Array.from(this.fileExplorerSelectedSources);
+    if (selectedIds.length === 0) {
+      this._showToast('No sources selected', 'warning');
+      return;
+    }
+
+    const sources = selectedIds.map(id => this.sources?.find(s => s.id === id)).filter(Boolean);
+    const sourceNames = sources.slice(0, 3).map(s => s.name).join(', ');
+    const moreText = sources.length > 3 ? ` and ${sources.length - 3} more` : '';
+
+    this._showConfirmModal(
+      'Delete Selected Sources',
+      `Are you sure you want to delete ${selectedIds.length} source${selectedIds.length !== 1 ? 's' : ''}?\n\n${sourceNames}${moreText}\n\nThis action cannot be undone.`,
+      () => {
+        selectedIds.forEach(id => {
+          // Remove from sources array
+          const index = this.sources?.findIndex(s => s.id === id);
+          if (index !== undefined && index >= 0) {
+            this.sources.splice(index, 1);
+          }
+          // Also remove from source store if available
+          if (this.sourceStore) {
+            this.sourceStore.delete(id);
+          }
+        });
+
+        this.fileExplorerSelectedSources.clear();
+        this.fileExplorerSelectedSource = null;
+        this._saveData();
+        this._renderFileExplorer();
+        this._showToast(`Deleted ${selectedIds.length} source${selectedIds.length !== 1 ? 's' : ''}`, 'success');
+      },
+      'Delete',
+      'danger'
+    );
   }
 
   /**
