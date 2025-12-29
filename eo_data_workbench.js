@@ -1498,11 +1498,14 @@ class EODataWorkbench {
       'filesystem': 'ph-folder-open'
     };
 
+    // Don't show any set as active when viewing a source
+    const isViewingSource = !!this.currentSourceId;
+
     container.innerHTML = filteredSets.map(set => {
       const recordCount = set.records?.length || 0;
       const fieldCount = set.fields?.length || 0;
       const isExpanded = this.expandedSets[set.id] || set.id === this.currentSetId;
-      const isActiveSet = set.id === this.currentSetId;
+      const isActiveSet = !isViewingSource && set.id === this.currentSetId;
       const views = set.views || [];
 
       // Determine derivation strategy for operator badge
@@ -2941,10 +2944,13 @@ class EODataWorkbench {
       item.classList.toggle('active', item.dataset.sourceId === sourceId);
     });
 
-    // Clear set selection
-    document.querySelectorAll('.set-item').forEach(item => {
+    // Clear set selection in sidebar (both .set-item and .set-item-header)
+    document.querySelectorAll('.set-item, .set-item-header').forEach(item => {
       item.classList.remove('active');
     });
+
+    // Update tab bar to deselect any active set tab
+    this._renderTabBar();
 
     // Render source data view in main content area
     this._renderSourceDataView(source);
@@ -6311,10 +6317,14 @@ class EODataWorkbench {
       return;
     }
 
+    // Don't show any set as active when viewing a source
+    const isViewingSource = !!this.currentSourceId;
+
     container.innerHTML = this.sets.map(set => {
       const recordCount = set.records?.length || 0;
+      const isActive = !isViewingSource && set.id === this.currentSetId;
       return `
-        <div class="browser-tab ${set.id === this.currentSetId ? 'active' : ''}"
+        <div class="browser-tab ${isActive ? 'active' : ''}"
              data-set-id="${set.id}"
              draggable="true">
           <div class="tab-icon">
@@ -6322,7 +6332,7 @@ class EODataWorkbench {
           </div>
           <span class="tab-title">${this._escapeHtml(set.name)}</span>
           <span class="tab-count">${recordCount}</span>
-          ${set.id === this.currentSetId ? '<div class="tab-curve-right"></div>' : ''}
+          ${isActive ? '<div class="tab-curve-right"></div>' : ''}
         </div>
       `;
     }).join('');
@@ -7537,6 +7547,9 @@ class EODataWorkbench {
 
   _selectSet(setId) {
     this.currentSetId = setId;
+
+    // Clear source selection when switching to a set
+    this.currentSourceId = null;
 
     // Clear search when switching sets
     this.viewSearchTerm = '';
