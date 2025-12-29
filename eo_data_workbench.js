@@ -8540,10 +8540,28 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.SELECT:
+        // Debug: Log SELECT field rendering details
+        console.log('[Debug] SELECT cell render:', {
+          fieldName: field.name,
+          fieldId: field.id,
+          value: value,
+          valueType: typeof value,
+          choicesCount: field.options.choices?.length,
+          choiceIds: field.options.choices?.map(c => c.id)
+        });
         if (value) {
           const choice = field.options.choices?.find(c => c.id === value);
           if (choice) {
             content = `<span class="select-tag color-${choice.color || 'gray'}">${this._highlightText(choice.name, searchTerm)}</span>`;
+          } else {
+            // Debug: Value exists but no matching choice found
+            console.warn('[Debug] SELECT value has no matching choice:', {
+              fieldName: field.name,
+              value: value,
+              availableChoiceIds: field.options.choices?.map(c => c.id)
+            });
+            // Show the raw value for debugging
+            content = `<span class="cell-empty" title="No matching choice">${this._escapeHtml(String(value))}</span>`;
           }
         } else {
           content = '<span class="cell-empty">-</span>';
@@ -8566,6 +8584,14 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.DATE:
+        // Debug: Log DATE field rendering details
+        console.log('[Debug] DATE cell render:', {
+          fieldName: field.name,
+          fieldId: field.id,
+          value: value,
+          valueType: typeof value,
+          hasValue: !!value
+        });
         content = value ? `<span class="cell-date">${this._formatDate(value, field)}</span>` : '<span class="cell-empty">-</span>';
         break;
 
@@ -18598,8 +18624,73 @@ function getDataWorkbench() {
   return _workbench;
 }
 
+// Debug helper function to reset demo data
+function resetDemoData() {
+  console.log('[Debug] Clearing localStorage and reloading...');
+  localStorage.removeItem('eo_lake_data');
+  console.log('[Debug] LocalStorage cleared. Refreshing page to recreate demo data...');
+  window.location.reload();
+}
+
+// Debug helper function to diagnose demo data issues
+function debugDemoData() {
+  const data = localStorage.getItem('eo_lake_data');
+  if (!data) {
+    console.log('[Debug] No data in localStorage');
+    return;
+  }
+
+  const parsed = JSON.parse(data);
+  const myDataSet = parsed.sets?.find(s => s.name === 'My Data');
+
+  if (!myDataSet) {
+    console.log('[Debug] No "My Data" set found');
+    return;
+  }
+
+  console.log('[Debug] === DEMO DATA STRUCTURE ===');
+  console.log('[Debug] Fields:');
+  myDataSet.fields.forEach((f, i) => {
+    console.log(`  [${i}] id: ${f.id}, name: ${f.name}, type: ${f.type}`);
+    if (f.options?.choices) {
+      console.log(`      choices: ${f.options.choices.map(c => `${c.name}(${c.id})`).join(', ')}`);
+    }
+  });
+
+  console.log('[Debug] Records (first 2):');
+  myDataSet.records.slice(0, 2).forEach((r, i) => {
+    console.log(`  Record ${i + 1}:`);
+    Object.entries(r.values).forEach(([fieldId, value]) => {
+      const field = myDataSet.fields.find(f => f.id === fieldId);
+      console.log(`    ${field?.name || 'UNKNOWN'} (${fieldId}): ${JSON.stringify(value)}`);
+    });
+  });
+
+  // Check for field ID mismatches
+  console.log('[Debug] Field ID consistency check:');
+  const fieldIds = new Set(myDataSet.fields.map(f => f.id));
+  const recordKeys = new Set();
+  myDataSet.records.forEach(r => {
+    Object.keys(r.values).forEach(k => recordKeys.add(k));
+  });
+
+  const unmatchedFieldIds = [...fieldIds].filter(id => !recordKeys.has(id));
+  const unmatchedRecordKeys = [...recordKeys].filter(id => !fieldIds.has(id));
+
+  if (unmatchedFieldIds.length > 0) {
+    console.warn('[Debug] Field IDs with no record values:', unmatchedFieldIds);
+  }
+  if (unmatchedRecordKeys.length > 0) {
+    console.warn('[Debug] Record keys with no matching field:', unmatchedRecordKeys);
+  }
+
+  return { set: myDataSet, fieldIds, recordKeys, unmatchedFieldIds, unmatchedRecordKeys };
+}
+
 // Global exports
 if (typeof window !== 'undefined') {
+  window.debugDemoData = debugDemoData;
+  window.resetDemoData = resetDemoData;
   window.FieldTypes = FieldTypes;
   window.createSet = createSet;
   window.createField = createField;
