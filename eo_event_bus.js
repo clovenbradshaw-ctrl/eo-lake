@@ -55,7 +55,15 @@ const BusEventType = Object.freeze({
   FIELD_UPDATED: 'field_updated',
   ROW_SELECTED: 'row_selected',
   FILTER_CHANGED: 'filter_changed',
-  SORT_CHANGED: 'sort_changed'
+  SORT_CHANGED: 'sort_changed',
+
+  // Ghost events
+  ENTITY_GHOSTED: 'entity_ghosted',
+  ENTITY_RESURRECTED: 'entity_resurrected',
+  HAUNT_DETECTED: 'haunt_detected',
+  HAUNT_RESOLVED: 'haunt_resolved',
+  GHOST_DORMANT: 'ghost_dormant',
+  GHOST_EXPIRED: 'ghost_expired'
 });
 
 /**

@@ -25,6 +25,54 @@ class DerivedEntity {
     this.version = 0;
     this.lastModified = null;
     this.tombstoned = false;
+
+    // Ghost/haunt tracking
+    this._hauntedBy = [];      // Ghosts that haunt this entity
+    this._hauntWarnings = [];  // Warnings about ghost influences
+  }
+
+  /**
+   * Check if this entity is haunted by ghosts
+   */
+  get isHaunted() {
+    return this._hauntedBy.length > 0;
+  }
+
+  /**
+   * Get haunt info for UI display
+   */
+  getHauntInfo() {
+    if (!this.isHaunted) return null;
+    return {
+      isHaunted: true,
+      ghostCount: this._hauntedBy.length,
+      ghosts: this._hauntedBy.slice(),
+      warnings: this._hauntWarnings.slice()
+    };
+  }
+
+  /**
+   * Add a ghost reference (called when ghost influence detected)
+   */
+  addHaunt(ghostInfo) {
+    if (!this._hauntedBy.find(h => h.ghostId === ghostInfo.ghostId)) {
+      this._hauntedBy.push(ghostInfo);
+    }
+  }
+
+  /**
+   * Clear a specific haunt (called when ghost is resurrected)
+   */
+  clearHaunt(ghostId) {
+    this._hauntedBy = this._hauntedBy.filter(h => h.ghostId !== ghostId);
+  }
+
+  /**
+   * Clear all haunts
+   */
+  clearAllHaunts() {
+    this._hauntedBy = [];
+    this._hauntWarnings = [];
   }
 
   /**

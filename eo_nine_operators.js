@@ -246,6 +246,17 @@ const TechnicalOperatorDictionary = Object.freeze({
   'supersedes': { canonical: 'NUL', note: 'Assert absence of prior (tombstone)' },
 
   // ─────────────────────────────────────────────────────────────────────────
+  // GHOST class → NUL/INS/CON
+  // Ghost data operations - deleted entities that continue to influence
+  // ─────────────────────────────────────────────────────────────────────────
+  'ghost': { canonical: 'NUL', note: 'Soft delete - entity becomes ghost' },
+  'tombstone': { canonical: 'NUL', note: 'Mark entity as deleted (ghost)' },
+  'resurrect': { canonical: 'INS', note: 'Restore ghost to active entity' },
+  'haunt': { canonical: 'CON', note: 'Ghost influences active entity' },
+  'resolve_haunt': { canonical: 'NUL', note: 'Clear ghost influence' },
+  'detect_haunt': { canonical: 'REC', note: 'Record ghost reference detection' },
+
+  // ─────────────────────────────────────────────────────────────────────────
   // EPISTEMIC class → SUP
   // ─────────────────────────────────────────────────────────────────────────
   'assess_confidence': { canonical: 'SUP', note: 'Superpose confidence levels' }
@@ -337,6 +348,12 @@ const UIActionDictionary = Object.freeze({
   'Remove': 'NUL',
   'Toss': 'NUL',
   'Expect': 'NUL',
+  'Ghost': 'NUL',         // Soft delete - entity becomes ghost
+
+  // Ghost operations
+  'Resurrect': 'INS',     // Restore ghost to active entity
+  'Haunt': 'CON',         // Ghost influences active entity
+  'Resolve Haunt': 'NUL', // Clear ghost influence
   'Missing': 'NUL'
 });
 
