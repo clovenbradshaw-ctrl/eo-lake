@@ -11539,6 +11539,231 @@ body.has-picked-up .browser-tab:hover {
 }
 
 /* ============================================================================
+   Source Name Edit Button
+   ============================================================================ */
+
+.source-name-edit-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  margin-left: 8px;
+  opacity: 0;
+  transition: all 0.15s ease;
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.source-viewer-info h2:hover .source-name-edit-btn {
+  opacity: 0.7;
+}
+
+.source-name-edit-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--primary-500);
+  opacity: 1 !important;
+}
+
+/* ============================================================================
+   Source Provenance Edit Styles
+   ============================================================================ */
+
+.source-provenance-header {
+  position: relative;
+}
+
+.source-prov-edit-all-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  margin-left: auto;
+  opacity: 0.5;
+  transition: all 0.15s ease;
+  font-size: 12px;
+}
+
+.source-prov-edit-all-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--primary-500);
+  opacity: 1;
+}
+
+/* Empty provenance items */
+.source-provenance-item.empty {
+  opacity: 0.6;
+}
+
+.source-provenance-item .value.placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ============================================================================
+   Source Edit History Styles
+   ============================================================================ */
+
+.source-edit-history {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.source-edit-history-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 8px;
+  margin: -8px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.source-edit-history-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.source-edit-history-header i {
+  font-size: 14px;
+}
+
+.source-edit-history-header i:last-child {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.source-edit-history-items {
+  margin-top: 12px;
+}
+
+.source-edit-history-item {
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.source-edit-history-item .edit-timestamp {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 4px;
+}
+
+.source-edit-history-item .edit-details {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.source-edit-history-item .edit-field {
+  color: var(--primary-500);
+  font-weight: 500;
+}
+
+.source-edit-history-item .edit-old {
+  color: var(--danger-500);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.source-edit-history-item .edit-new {
+  color: var(--success-500);
+  font-weight: 500;
+}
+
+/* ============================================================================
+   Provenance Edit Modal Styles
+   ============================================================================ */
+
+.source-provenance-edit-modal {
+  padding: 8px 0;
+}
+
+.source-provenance-edit-modal h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.source-provenance-edit-modal h3 i {
+  color: var(--given-color, #f0883e);
+}
+
+.source-provenance-edit-modal .modal-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 20px 0;
+}
+
+.provenance-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.provenance-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.provenance-edit-field label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.provenance-edit-field label i {
+  width: 20px;
+  height: 20px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--given-color, #f0883e);
+  font-size: 11px;
+}
+
+.provenance-edit-field input {
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: all 0.15s ease;
+}
+
+.provenance-edit-field input:focus {
+  outline: none;
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.provenance-edit-field input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ============================================================================
    Join Builder UI Styles
    ============================================================================ */
 
