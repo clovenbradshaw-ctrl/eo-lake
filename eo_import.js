@@ -678,6 +678,7 @@ class SchemaInferrer {
       fieldInferences: {},  // { fieldName: { type, confidence, candidates, sampleSize } }
       ambiguities: [],      // Fields where type was unclear
       dateFormatsDetected: [],
+      temporalExtent: null, // { minDate, maxDate, fields[] } - date range across all date columns
       nullRates: {},        // { fieldName: rate }
       processingTimeMs: null
     };
@@ -713,11 +714,13 @@ class SchemaInferrer {
         }
       }
 
-      // Track date formats
+      // Track date formats and temporal extent
       if (typeInfo.type === 'date' && typeInfo.dateFormat) {
         inferenceDecisions.dateFormatsDetected.push({
           field: header,
-          format: typeInfo.dateFormat
+          format: typeInfo.dateFormat,
+          minDate: typeInfo.minDate,
+          maxDate: typeInfo.maxDate
         });
       }
 
@@ -730,6 +733,24 @@ class SchemaInferrer {
         samples: values.slice(0, 3)
       };
     });
+
+    // Aggregate temporal extent across all date columns
+    if (inferenceDecisions.dateFormatsDetected.length > 0) {
+      const allDates = inferenceDecisions.dateFormatsDetected
+        .filter(d => d.minDate && d.maxDate)
+        .flatMap(d => [new Date(d.minDate), new Date(d.maxDate)]);
+
+      if (allDates.length > 0) {
+        allDates.sort((a, b) => a - b);
+        inferenceDecisions.temporalExtent = {
+          minDate: allDates[0].toISOString(),
+          maxDate: allDates[allDates.length - 1].toISOString(),
+          fields: inferenceDecisions.dateFormatsDetected
+            .filter(d => d.minDate && d.maxDate)
+            .map(d => d.field)
+        };
+      }
+    }
 
     inferenceDecisions.processingTimeMs = Math.round(performance.now() - startTime);
 
@@ -757,6 +778,7 @@ class SchemaInferrer {
 
     const uniqueValues = new Set();
     let dateFormat = null;
+    const parsedDates = []; // Track parsed dates for temporal extent
 
     for (const value of values) {
       const strValue = String(value).trim();
@@ -771,9 +793,13 @@ class SchemaInferrer {
       } else if (this.patterns.date.test(strValue)) {
         typeCounts.date++;
         dateFormat = 'ISO';
+        const parsed = new Date(strValue);
+        if (!isNaN(parsed.getTime())) parsedDates.push(parsed);
       } else if (this.patterns.dateAlt.test(strValue)) {
         typeCounts.date++;
         dateFormat = strValue.includes('/') ? 'MM/DD/YYYY' : 'DD-MM-YYYY';
+        const parsed = this._parseAltDate(strValue, dateFormat);
+        if (parsed && !isNaN(parsed.getTime())) parsedDates.push(parsed);
       } else if (this.patterns.number.test(strValue)) {
         typeCounts.number++;
       } else if (this.patterns.boolean.test(strValue)) {
@@ -820,7 +846,14 @@ class SchemaInferrer {
       return { type: 'url', confidence: typeCounts.url / total, candidates, uniqueCount };
     }
     if (typeCounts.date / total > threshold) {
-      return { type: 'date', confidence: typeCounts.date / total, candidates, uniqueCount, dateFormat };
+      const result = { type: 'date', confidence: typeCounts.date / total, candidates, uniqueCount, dateFormat };
+      // Add temporal extent if we have parsed dates
+      if (parsedDates.length > 0) {
+        parsedDates.sort((a, b) => a - b);
+        result.minDate = parsedDates[0].toISOString();
+        result.maxDate = parsedDates[parsedDates.length - 1].toISOString();
+      }
+      return result;
     }
     if (typeCounts.number / total > threshold) {
       return { type: 'number', confidence: typeCounts.number / total, candidates, uniqueCount };
@@ -849,6 +882,32 @@ class SchemaInferrer {
       confidence: result.confidence,
       options: result.options
     };
+  }
+
+  /**
+   * Parse alternative date formats (MM/DD/YYYY or DD-MM-YYYY)
+   */
+  _parseAltDate(strValue, format) {
+    try {
+      const parts = strValue.split(/[\/\-]/);
+      if (parts.length !== 3) return null;
+
+      let year, month, day;
+      if (format === 'MM/DD/YYYY') {
+        [month, day, year] = parts;
+      } else {
+        [day, month, year] = parts;
+      }
+
+      // Handle 2-digit years
+      if (year.length === 2) {
+        year = parseInt(year) > 50 ? '19' + year : '20' + year;
+      }
+
+      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    } catch {
+      return null;
+    }
   }
 }
 

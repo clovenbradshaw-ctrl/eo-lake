@@ -13766,119 +13766,204 @@ class EODataWorkbench {
     const record = set.records.find(r => r.id === recordId);
     if (!record) return;
 
-    // Get current value
-    const currentValue = record.provenance?.[provKey] || '';
-    const isRef = currentValue && typeof currentValue === 'object' && '$ref' in currentValue;
+    // Get current value - normalize to array for editing
+    const rawValue = record.provenance?.[provKey];
+    let entries = [];
+    if (Array.isArray(rawValue)) {
+      entries = [...rawValue];
+    } else if (rawValue !== null && rawValue !== undefined && rawValue !== '') {
+      entries = [rawValue];
+    }
 
     el.classList.add('editing');
 
-    // Create editor with toggle for text vs. reference
-    el.innerHTML = `
-      <div class="prov-editor" style="display: flex; flex-direction: column; gap: 6px;">
-        <div class="prov-editor-tabs" style="display: flex; gap: 4px; margin-bottom: 4px;">
-          <button class="prov-tab ${!isRef ? 'active' : ''}" data-mode="text"
-                  style="padding: 2px 8px; font-size: 10px; border-radius: 3px; border: 1px solid var(--border-primary); background: ${!isRef ? 'var(--primary-500)' : 'transparent'}; color: ${!isRef ? 'white' : 'var(--text-muted)'}; cursor: pointer;">
-            Text
-          </button>
-          <button class="prov-tab ${isRef ? 'active' : ''}" data-mode="ref"
-                  style="padding: 2px 8px; font-size: 10px; border-radius: 3px; border: 1px solid var(--border-primary); background: ${isRef ? 'var(--primary-500)' : 'transparent'}; color: ${isRef ? 'white' : 'var(--text-muted)'}; cursor: pointer;">
-            Link Record
-          </button>
+    const renderEditor = () => {
+      el.innerHTML = `
+        <div class="prov-editor" style="display: flex; flex-direction: column; gap: 6px;">
+          ${entries.length > 0 ? `
+            <div class="prov-entries" style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px;">
+              ${entries.map((entry, idx) => {
+                const isRef = entry && typeof entry === 'object' && '$ref' in entry;
+                const displayText = isRef
+                  ? (this._findRecordById(entry.$ref)
+                      ? this._getRecordPrimaryValue(this._findRecordById(entry.$ref))
+                      : entry.$ref.substring(0, 8))
+                  : this._escapeHtml(String(entry));
+                return `
+                  <span class="prov-entry-pill" data-index="${idx}"
+                        style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; background: var(--bg-tertiary); border-radius: 4px; font-size: 11px;">
+                    ${isRef ? '<i class="ph ph-arrow-right" style="font-size: 10px;"></i>' : ''}
+                    <span>${displayText}</span>
+                    <button class="prov-remove-entry" data-index="${idx}"
+                            style="border: none; background: none; padding: 0; cursor: pointer; color: var(--text-muted); font-size: 12px; line-height: 1;">
+                      <i class="ph ph-x"></i>
+                    </button>
+                  </span>
+                `;
+              }).join('')}
+            </div>
+          ` : ''}
+          <div class="prov-editor-tabs" style="display: flex; gap: 4px; margin-bottom: 4px;">
+            <button class="prov-tab active" data-mode="text"
+                    style="padding: 2px 8px; font-size: 10px; border-radius: 3px; border: 1px solid var(--border-primary); background: var(--primary-500); color: white; cursor: pointer;">
+              Text
+            </button>
+            <button class="prov-tab" data-mode="ref"
+                    style="padding: 2px 8px; font-size: 10px; border-radius: 3px; border: 1px solid var(--border-primary); background: transparent; color: var(--text-muted); cursor: pointer;">
+              Link Record
+            </button>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <input type="text" class="prov-input"
+                   placeholder="Enter value..."
+                   style="flex: 1; padding: 4px 8px; font-size: 12px; border: 1px solid var(--border-primary); border-radius: 4px;">
+            <button class="prov-add" title="Add entry"
+                    style="padding: 4px 8px; font-size: 11px; border-radius: 3px; border: 1px solid var(--border-primary); background: transparent; cursor: pointer;">
+              <i class="ph ph-plus"></i>
+            </button>
+          </div>
+          <div class="prov-editor-actions" style="display: flex; gap: 4px; justify-content: flex-end;">
+            <button class="prov-cancel" style="padding: 2px 8px; font-size: 11px; border-radius: 3px; border: 1px solid var(--border-primary); background: transparent; cursor: pointer;">
+              Cancel
+            </button>
+            <button class="prov-save" style="padding: 2px 8px; font-size: 11px; border-radius: 3px; border: none; background: var(--primary-500); color: white; cursor: pointer;">
+              Save
+            </button>
+          </div>
         </div>
-        <input type="text" class="prov-input"
-               placeholder="${isRef ? 'Search records...' : 'Enter value...'}"
-               value="${isRef ? '' : this._escapeHtml(String(currentValue))}"
-               style="padding: 4px 8px; font-size: 12px; border: 1px solid var(--border-primary); border-radius: 4px; width: 100%;">
-        <div class="prov-editor-actions" style="display: flex; gap: 4px; justify-content: flex-end;">
-          <button class="prov-cancel" style="padding: 2px 8px; font-size: 11px; border-radius: 3px; border: 1px solid var(--border-primary); background: transparent; cursor: pointer;">
-            Cancel
-          </button>
-          <button class="prov-save" style="padding: 2px 8px; font-size: 11px; border-radius: 3px; border: none; background: var(--primary-500); color: white; cursor: pointer;">
-            Save
-          </button>
-        </div>
-      </div>
-    `;
+      `;
 
-    const input = el.querySelector('.prov-input');
-    let currentMode = isRef ? 'ref' : 'text';
+      attachHandlers();
+    };
 
-    input.focus();
-    input.select();
+    let currentMode = 'text';
 
-    // Tab switching
-    el.querySelectorAll('.prov-tab').forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        e.stopPropagation();
-        currentMode = tab.dataset.mode;
-        el.querySelectorAll('.prov-tab').forEach(t => {
-          const isActive = t.dataset.mode === currentMode;
-          t.style.background = isActive ? 'var(--primary-500)' : 'transparent';
-          t.style.color = isActive ? 'white' : 'var(--text-muted)';
-          t.classList.toggle('active', isActive);
+    const attachHandlers = () => {
+      const input = el.querySelector('.prov-input');
+
+      // Remove entry buttons
+      el.querySelectorAll('.prov-remove-entry').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idx = parseInt(btn.dataset.index);
+          entries.splice(idx, 1);
+          renderEditor();
         });
-        input.placeholder = currentMode === 'ref' ? 'Search records...' : 'Enter value...';
-        input.value = '';
-        input.focus();
       });
-    });
 
-    // Save handler
-    const saveValue = () => {
-      const inputValue = input.value.trim();
-      let newValue = null;
+      // Tab switching
+      el.querySelectorAll('.prov-tab').forEach(tab => {
+        tab.addEventListener('click', (e) => {
+          e.stopPropagation();
+          currentMode = tab.dataset.mode;
+          el.querySelectorAll('.prov-tab').forEach(t => {
+            const isActive = t.dataset.mode === currentMode;
+            t.style.background = isActive ? 'var(--primary-500)' : 'transparent';
+            t.style.color = isActive ? 'white' : 'var(--text-muted)';
+            t.classList.toggle('active', isActive);
+          });
+          input.placeholder = currentMode === 'ref' ? 'Search records...' : 'Enter value...';
+          input.focus();
+        });
+      });
 
-      if (inputValue) {
+      // Add entry handler
+      const addEntry = () => {
+        const inputValue = input.value.trim();
+        if (!inputValue) return;
+
         if (currentMode === 'ref') {
-          // Try to find a matching record
           const matchedRecord = this._findRecordBySearch(inputValue);
           if (matchedRecord) {
-            newValue = { $ref: matchedRecord.id };
+            entries.push({ $ref: matchedRecord.id });
+            input.value = '';
+            renderEditor();
           } else {
             this._showToast('No matching record found', 'error');
-            return;
           }
         } else {
-          newValue = inputValue;
+          entries.push(inputValue);
+          input.value = '';
+          renderEditor();
         }
-      }
+      };
 
-      // Update record provenance
-      if (!record.provenance) {
-        record.provenance = {};
-      }
-      record.provenance[provKey] = newValue;
+      el.querySelector('.prov-add')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        addEntry();
+      });
 
-      record.updatedAt = new Date().toISOString();
-      this._saveData();
-      this._showRecordDetail(recordId);
-      this._renderView();
-    };
+      // Save handler
+      const saveValue = () => {
+        // Also add any pending input
+        const inputValue = input.value.trim();
+        if (inputValue) {
+          if (currentMode === 'ref') {
+            const matchedRecord = this._findRecordBySearch(inputValue);
+            if (matchedRecord) {
+              entries.push({ $ref: matchedRecord.id });
+            } else if (entries.length === 0) {
+              this._showToast('No matching record found', 'error');
+              return;
+            }
+          } else {
+            entries.push(inputValue);
+          }
+        }
 
-    // Cancel handler
-    const cancelEdit = () => {
-      this._showRecordDetail(recordId);
-    };
+        // Normalize: single value stays single, multiple becomes array
+        let finalValue = null;
+        if (entries.length === 1) {
+          finalValue = entries[0];
+        } else if (entries.length > 1) {
+          finalValue = entries;
+        }
 
-    el.querySelector('.prov-save')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      saveValue();
-    });
+        // Update record provenance
+        if (!record.provenance) {
+          record.provenance = {};
+        }
+        record.provenance[provKey] = finalValue;
 
-    el.querySelector('.prov-cancel')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      cancelEdit();
-    });
+        record.updatedAt = new Date().toISOString();
+        this._saveData();
+        this._showRecordDetail(recordId);
+        this._renderView();
+      };
 
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
+      // Cancel handler
+      const cancelEdit = () => {
+        this._showRecordDetail(recordId);
+      };
+
+      el.querySelector('.prov-save')?.addEventListener('click', (e) => {
+        e.stopPropagation();
         saveValue();
-      }
-      if (e.key === 'Escape') {
+      });
+
+      el.querySelector('.prov-cancel')?.addEventListener('click', (e) => {
+        e.stopPropagation();
         cancelEdit();
-      }
-    });
+      });
+
+      input?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (e.shiftKey || entries.length > 0) {
+            addEntry();
+          } else {
+            saveValue();
+          }
+        }
+        if (e.key === 'Escape') {
+          cancelEdit();
+        }
+      });
+
+      input?.focus();
+    };
+
+    renderEditor();
   }
 
   /**
@@ -16884,27 +16969,41 @@ class EODataWorkbench {
   }
 
   /**
-   * Check if a provenance value has actual content (handles nested format)
+   * Check if a provenance value has actual content (handles nested format and arrays)
    */
   _hasProvenanceValue(value) {
     if (value === null || value === undefined) {
       return false;
     }
+    // Handle arrays
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
     // Extract from nested format
     if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
-      return value.value !== null && value.value !== undefined;
+      const actualValue = value.value;
+      if (Array.isArray(actualValue)) return actualValue.length > 0;
+      return actualValue !== null && actualValue !== undefined;
     }
     return true;
   }
 
   /**
-   * Check if provenance value is a record reference (handles nested format)
+   * Check if provenance value is a record reference (handles nested format and arrays)
+   * Returns true if ANY entry is a reference
    */
   _isProvenanceRef(value) {
     if (!value) return false;
+    // Handle arrays - check if any entry is a ref
+    if (Array.isArray(value)) {
+      return value.some(v => v && typeof v === 'object' && '$ref' in v);
+    }
     // Check nested format first
     if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
       const actualValue = value.value;
+      if (Array.isArray(actualValue)) {
+        return actualValue.some(v => v && typeof v === 'object' && '$ref' in v);
+      }
       return actualValue && typeof actualValue === 'object' && '$ref' in actualValue;
     }
     // Direct reference check
@@ -16922,7 +17021,7 @@ class EODataWorkbench {
     // Extract actual value from nested format (handles both old flat and new nested format)
     // Nested format: { value: "actual_value", uploadContext: {...}, ... }
     let actualValue = value;
-    if (typeof value === 'object' && 'value' in value && !('$ref' in value)) {
+    if (typeof value === 'object' && 'value' in value && !('$ref' in value) && !Array.isArray(value)) {
       actualValue = value.value;
     }
 
@@ -16935,21 +17034,43 @@ class EODataWorkbench {
       return '';
     }
 
+    // Handle arrays (multiple entries)
+    if (Array.isArray(actualValue)) {
+      if (actualValue.length === 0) return '';
+      return `<div class="prov-multi-entries" style="display: flex; flex-wrap: wrap; gap: 4px;">
+        ${actualValue.map((entry, idx) => {
+          const formatted = this._formatSingleProvenanceEntry(entry);
+          return `<span class="prov-entry" data-index="${idx}" style="display: inline-flex; align-items: center; gap: 2px; padding: 2px 6px; background: var(--bg-tertiary); border-radius: 4px; font-size: 11px;">${formatted}</span>`;
+        }).join('')}
+      </div>`;
+    }
+
+    return this._formatSingleProvenanceEntry(actualValue);
+  }
+
+  /**
+   * Format a single provenance entry (used for both single values and array items)
+   */
+  _formatSingleProvenanceEntry(entry) {
+    if (entry === null || entry === undefined) {
+      return '';
+    }
+
     // Record reference
-    if (typeof actualValue === 'object' && '$ref' in actualValue) {
-      const refId = actualValue.$ref;
+    if (typeof entry === 'object' && '$ref' in entry) {
+      const refId = entry.$ref;
       // Try to find the referenced record's name
       const refRecord = this._findRecordById(refId);
       const refName = refRecord ? this._getRecordPrimaryValue(refRecord) : refId.substring(0, 8);
       return `<span class="prov-ref"><i class="ph ph-arrow-right"></i> ${this._escapeHtml(refName)}</span>`;
     }
 
-    // Handle objects and arrays with proper JSON rendering
-    if (typeof actualValue === 'object') {
-      return this._renderJsonKeyValue(actualValue);
+    // Handle objects with proper JSON rendering
+    if (typeof entry === 'object') {
+      return this._renderJsonKeyValue(entry);
     }
 
-    return this._escapeHtml(String(actualValue));
+    return this._escapeHtml(String(entry));
   }
 
   /**

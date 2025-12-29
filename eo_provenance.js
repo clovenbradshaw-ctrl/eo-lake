@@ -1201,19 +1201,57 @@ class MetadataParser {
   }
 
   /**
-   * Enrich the Timeframe field with import timing
+   * Enrich the Timeframe field with data temporal extent and import timing
    */
   static _enrichTimeframe(ctx) {
+    const parts = [];
+
+    // Primary: Data temporal extent (earliest to latest date in the data)
+    const temporalExtent = ctx.schemaInference?.temporalExtent;
+    if (temporalExtent?.minDate && temporalExtent?.maxDate) {
+      try {
+        const minDate = new Date(temporalExtent.minDate);
+        const maxDate = new Date(temporalExtent.maxDate);
+
+        // Format the date range
+        const formatOptions = { year: 'numeric', month: 'short', day: 'numeric' };
+        const minStr = minDate.toLocaleDateString('en-US', formatOptions);
+        const maxStr = maxDate.toLocaleDateString('en-US', formatOptions);
+
+        // Check if same day
+        if (minDate.toDateString() === maxDate.toDateString()) {
+          parts.push(`Data from ${minStr}`);
+        } else {
+          // Check if same year - use shorter format
+          const minYear = minDate.getFullYear();
+          const maxYear = maxDate.getFullYear();
+          if (minYear === maxYear) {
+            const minShort = minDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            parts.push(`Data: ${minShort} – ${maxStr}`);
+          } else {
+            parts.push(`Data: ${minStr} – ${maxStr}`);
+          }
+        }
+
+        // Add field names if multiple date columns
+        if (temporalExtent.fields?.length > 1) {
+          parts.push(`(from ${temporalExtent.fields.join(', ')})`);
+        }
+      } catch {
+        // Ignore invalid dates
+      }
+    }
+
+    // Secondary: Import timestamp
     const now = new Date();
-    const dateStr = now.toLocaleDateString('en-US', {
+    const importDateStr = now.toLocaleDateString('en-US', {
       year: 'numeric',
-      month: 'long',
+      month: 'short',
       day: 'numeric'
     });
+    parts.push(`Imported ${importDateStr}`);
 
-    const parts = [`Imported ${dateStr}`];
-
-    // Add file modification date if available
+    // Tertiary: File modification date if available
     if (ctx.fileModifiedAt) {
       try {
         const modDate = new Date(ctx.fileModifiedAt);
