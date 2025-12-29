@@ -952,12 +952,23 @@ class ImportOrchestrator {
         fileModifiedAt: file.lastModified ? new Date(file.lastModified).toISOString() : null
       };
 
-      // Create the set and import records
-      const result = await this._createSetWithRecords(setName, schema, parseResult, enhancedOptions);
+      // Check if we should create separate sets by type
+      const typeField = options.viewSplitField || 'type';
+      const hasTypeField = parseResult.headers.includes(typeField);
+
+      let result;
+      if (options.separateSetsByType && hasTypeField) {
+        // Create separate sets for each type value
+        result = await this._createSeparateSetsPerType(setName, parseResult, enhancedOptions);
+      } else {
+        // Create single set (original behavior)
+        result = await this._createSetWithRecords(setName, schema, parseResult, enhancedOptions);
+      }
 
       this._emitProgress('completed', {
         fileName: file.name,
         setId: result.setId,
+        setIds: result.setIds,
         recordCount: result.recordCount,
         fieldCount: schema.fields.length,
         duration: Date.now() - startTime
@@ -1958,6 +1969,160 @@ class ImportOrchestrator {
   }
 
   /**
+   * Create separate sets for each type value in the data.
+   * This is ideal for graph data where different node types have different fields.
+   */
+  async _createSeparateSetsPerType(baseName, parseResult, options = {}) {
+    const typeFieldName = options.viewSplitField || 'type';
+    const { headers, rows } = parseResult;
+    const now = new Date().toISOString();
+
+    // Group rows by type
+    const rowsByType = {};
+    for (const row of rows) {
+      const typeValue = row[typeFieldName] || '_untyped';
+      if (!rowsByType[typeValue]) {
+        rowsByType[typeValue] = [];
+      }
+      rowsByType[typeValue].push(row);
+    }
+
+    const typeValues = Object.keys(rowsByType);
+    const createdSets = [];
+    let totalRecords = 0;
+    let processed = 0;
+
+    this._emitProgress('progress', {
+      phase: 'splitting_by_type',
+      percentage: 55,
+      typeCount: typeValues.length
+    });
+
+    // Create a set for each type
+    for (const typeValue of typeValues) {
+      const typeRows = rowsByType[typeValue];
+      const typeName = this._formatViewName(typeValue);
+      const setName = typeValues.length > 1 ? `${baseName} - ${typeName}` : baseName;
+
+      // Find headers that are actually used by this type (have non-empty values)
+      const usedHeaders = headers.filter(header => {
+        // Skip the type field itself for cleaner schemas
+        if (header === typeFieldName && typeValues.length > 1) return false;
+        // Check if any row of this type has a value for this header
+        return typeRows.some(row => {
+          const val = row[header];
+          return val !== null && val !== undefined && val !== '';
+        });
+      });
+
+      // Infer schema from just this type's rows
+      const typeSchema = this.schemaInferrer.inferSchema(usedHeaders, typeRows);
+
+      // Create the set
+      const set = createSet(setName);
+
+      // Set appropriate icon based on type
+      set.icon = this._getIconForType(typeValue);
+
+      // Add metadata about the original type
+      set.metadata = {
+        ...set.metadata,
+        originalType: typeValue,
+        sourceFile: options.originalFilename || baseName,
+        importedAt: now
+      };
+
+      // Create fields from inferred schema
+      set.fields = typeSchema.fields.map((field, index) => {
+        return createField(field.name, field.type, {
+          isPrimary: index === 0,
+          ...field.options
+        });
+      });
+
+      // Add records
+      for (const row of typeRows) {
+        const values = {};
+        set.fields.forEach((field) => {
+          const header = field.name;
+          let value = row[header];
+          value = this._convertValue(value, field.type, field.options);
+          values[field.id] = value;
+        });
+        set.records.push(createRecord(set.id, values));
+      }
+
+      this.workbench.sets.push(set);
+      createdSets.push({
+        setId: set.id,
+        name: setName,
+        type: typeValue,
+        recordCount: set.records.length,
+        fieldCount: set.fields.length
+      });
+
+      totalRecords += set.records.length;
+      processed++;
+
+      this._emitProgress('progress', {
+        phase: 'creating_type_sets',
+        percentage: 55 + Math.round((processed / typeValues.length) * 35),
+        currentType: typeName,
+        typesProcessed: processed,
+        totalTypes: typeValues.length
+      });
+
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    // Import edges if present
+    if (options.includeEdges && options.graphInfo?.edges) {
+      await this._importEdgesAsSet(baseName, options.graphInfo);
+    }
+
+    // Save data
+    this.workbench._saveData();
+
+    return {
+      success: true,
+      setId: createdSets[0]?.setId,
+      setIds: createdSets.map(s => s.setId),
+      recordCount: totalRecords,
+      setsCreated: createdSets,
+      edgesImported: options.includeEdges ? (options.graphInfo?.edges?.length || 0) : 0
+    };
+  }
+
+  /**
+   * Get an appropriate icon for a node type
+   */
+  _getIconForType(typeValue) {
+    const iconMap = {
+      'person': 'ph-user',
+      'people': 'ph-users',
+      'user': 'ph-user',
+      'org': 'ph-buildings',
+      'organization': 'ph-buildings',
+      'company': 'ph-building-office',
+      'government': 'ph-bank',
+      'nonprofit': 'ph-heart',
+      'contract': 'ph-file-text',
+      'document': 'ph-file-doc',
+      'property': 'ph-house',
+      'real_estate': 'ph-house-line',
+      'funding': 'ph-money',
+      'payment': 'ph-credit-card',
+      'transaction': 'ph-arrows-left-right',
+      'bank_account': 'ph-bank',
+      'event': 'ph-calendar',
+      'meeting': 'ph-calendar-check',
+      'complaint': 'ph-warning',
+      'violation': 'ph-shield-warning'
+    };
+    return iconMap[typeValue.toLowerCase()] || 'ph-database';
+  }
+
+  /**
    * Import edges as a separate dataset (for graph data)
    */
   async _importEdgesAsSet(baseSetName, graphInfo) {
@@ -2517,10 +2682,17 @@ function showImportModal() {
         <div class="import-view-options" id="import-view-options" style="display: none;">
           <div class="view-option">
             <label class="checkbox-label">
-              <input type="checkbox" id="import-create-views" checked>
+              <input type="radio" name="import-type-handling" id="import-create-views" value="views">
               <span>Create views by type</span>
             </label>
-            <p class="option-hint">Create separate filtered views for each type</p>
+            <p class="option-hint">All records in one dataset with filtered views for each type</p>
+          </div>
+          <div class="view-option">
+            <label class="checkbox-label">
+              <input type="radio" name="import-type-handling" id="import-separate-sets" value="sets" checked>
+              <span>Create separate datasets per type</span>
+            </label>
+            <p class="option-hint">Recommended for graph data - each type gets its own dataset with relevant fields only</p>
           </div>
         </div>
 
@@ -2839,8 +3011,10 @@ function initImportHandlers() {
       background: document.getElementById('prov-background')?.value || null
     };
 
-    // Check if we should create views by type
-    const createViewsByType = document.getElementById('import-create-views')?.checked || false;
+    // Check import type handling mode (views vs separate sets)
+    const typeHandlingMode = document.querySelector('input[name="import-type-handling"]:checked')?.value || 'sets';
+    const createViewsByType = typeHandlingMode === 'views';
+    const separateSetsByType = typeHandlingMode === 'sets';
     const includeEdges = document.getElementById('import-include-edges')?.checked || false;
 
     try {
@@ -2902,6 +3076,7 @@ function initImportHandlers() {
           provenance,
           originalSource: rawFileContent,
           createViewsByType,
+          separateSetsByType,
           viewSplitField: analysisData?.viewSplitCandidates?.[0]?.field || 'type',
           graphInfo: analysisData?.graphInfo,
           includeEdges
@@ -2913,17 +3088,38 @@ function initImportHandlers() {
         progressSection.style.display = 'none';
         successSection.style.display = 'flex';
 
-        // Build success message including edges if imported
-        let successMsg = `Successfully imported ${result.recordCount} records with ${result.fieldCount} fields`;
-        if (result.edgesImported > 0) {
-          successMsg += ` and ${result.edgesImported} relationships`;
-        }
-        document.getElementById('success-message').textContent = successMsg;
+        // Build success message
+        let successMsg;
+        if (result.setsCreated && result.setsCreated.length > 1) {
+          // Multiple sets were created (separated by type)
+          successMsg = `Successfully imported ${result.recordCount} records into ${result.setsCreated.length} datasets`;
+          if (result.edgesImported > 0) {
+            successMsg += ` and ${result.edgesImported} relationships`;
+          }
+          document.getElementById('success-message').textContent = successMsg;
 
-        // Show created views info
-        if (result.viewsCreated && result.viewsCreated.length > 0) {
+          // Show created sets info
+          const setsList = result.setsCreated.map(s =>
+            `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: var(--bg-tertiary); border-radius: 4px;">
+              ${s.name} (${s.recordCount})
+            </span>`
+          ).join('');
           document.getElementById('success-views-created').innerHTML =
-            `<i class="ph ph-eye"></i> Created ${result.viewsCreated.length} views: ${result.viewsCreated.join(', ')}`;
+            `<div style="margin-top: 8px;"><i class="ph ph-database"></i> Created datasets:</div>
+             <div style="margin-top: 6px;">${setsList}</div>`;
+        } else {
+          // Single set was created (views mode)
+          successMsg = `Successfully imported ${result.recordCount} records with ${result.fieldCount} fields`;
+          if (result.edgesImported > 0) {
+            successMsg += ` and ${result.edgesImported} relationships`;
+          }
+          document.getElementById('success-message').textContent = successMsg;
+
+          // Show created views info
+          if (result.viewsCreated && result.viewsCreated.length > 0) {
+            document.getElementById('success-views-created').innerHTML =
+              `<i class="ph ph-eye"></i> Created ${result.viewsCreated.length} views: ${result.viewsCreated.join(', ')}`;
+          }
         }
 
         // Show edges info if imported
@@ -2931,7 +3127,7 @@ function initImportHandlers() {
           const edgesInfo = document.getElementById('success-edges-created') || document.createElement('div');
           edgesInfo.id = 'success-edges-created';
           edgesInfo.style.cssText = 'margin-top: 8px; font-size: 13px; color: var(--text-secondary);';
-          edgesInfo.innerHTML = `<i class="ph ph-arrows-left-right"></i> ${result.edgesImported} edges available in Graph view`;
+          edgesInfo.innerHTML = `<i class="ph ph-arrows-left-right"></i> ${result.edgesImported} edges available in Relationships dataset`;
           const successViewsEl = document.getElementById('success-views-created');
           if (successViewsEl && !document.getElementById('success-edges-created')) {
             successViewsEl.parentNode.insertBefore(edgesInfo, successViewsEl.nextSibling);
@@ -3195,6 +3391,14 @@ function initImportHandlers() {
       case 'importing':
         progressText.textContent = 'Importing records...';
         progressDetail.textContent = `${data.recordsProcessed} of ${data.totalRecords}`;
+        break;
+      case 'splitting_by_type':
+        progressText.textContent = 'Splitting by record type...';
+        progressDetail.textContent = `Found ${data.typeCount} types`;
+        break;
+      case 'creating_type_sets':
+        progressText.textContent = `Creating dataset: ${data.currentType}`;
+        progressDetail.textContent = `${data.typesProcessed} of ${data.totalTypes} types`;
         break;
     }
   }
