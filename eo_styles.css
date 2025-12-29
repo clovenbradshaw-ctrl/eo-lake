@@ -10821,6 +10821,32 @@ body.has-picked-up .browser-tab:hover {
   color: var(--purple-300);
 }
 
+/* SQL Autocomplete */
+.sql-autocomplete-dropdown {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
+
+.sql-autocomplete-item {
+  transition: background 0.1s ease;
+}
+
+.sql-autocomplete-item:hover,
+.sql-autocomplete-item.selected {
+  background: var(--primary-500) !important;
+  color: white !important;
+}
+
+.sql-autocomplete-item.selected span,
+.sql-autocomplete-item:hover span {
+  color: inherit !important;
+}
+
+.sql-autocomplete-item.selected i,
+.sql-autocomplete-item:hover i {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
 /* ===== Field History Button & Popover ===== */
 
 .field-history-btn {

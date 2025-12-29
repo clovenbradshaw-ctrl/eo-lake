@@ -2231,7 +2231,7 @@ class EODataWorkbench {
 
     this._showModal('Create Set from SQL Query', html, () => {
       this._executeSQLAndCreateSet();
-    });
+    }, { confirmText: '<i class="ph ph-database"></i> Create Set' });
 
     // Setup event handlers after modal is shown
     setTimeout(() => {
@@ -2248,9 +2248,152 @@ class EODataWorkbench {
         this._previewSQLQuery();
       });
 
+      // Setup SQL autocomplete
+      this._setupSQLAutocomplete(sources);
+
       // Focus the editor
       document.getElementById('sql-query-input')?.focus();
     }, 100);
+  }
+
+  /**
+   * Setup SQL autocomplete for the query input
+   */
+  _setupSQLAutocomplete(sources) {
+    const input = document.getElementById('sql-query-input');
+    if (!input) return;
+
+    // SQL keywords for autocomplete
+    const sqlKeywords = [
+      'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'NOT', 'IN', 'LIKE', 'BETWEEN',
+      'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'OFFSET', 'JOIN', 'LEFT JOIN',
+      'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN', 'ON', 'AS', 'DISTINCT', 'COUNT',
+      'SUM', 'AVG', 'MIN', 'MAX', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END', 'NULL',
+      'IS NULL', 'IS NOT NULL', 'ASC', 'DESC', 'UNION', 'EXCEPT', 'INTERSECT'
+    ];
+
+    // Build table and field suggestions
+    const tableSuggestions = sources.map(s => s.name);
+    const fieldSuggestions = [...new Set(sources.flatMap(s => s.fields))];
+    const allSuggestions = [...sqlKeywords, ...tableSuggestions, ...fieldSuggestions];
+
+    // Create autocomplete dropdown
+    const dropdown = document.createElement('div');
+    dropdown.className = 'sql-autocomplete-dropdown';
+    dropdown.style.cssText = 'display:none;position:absolute;background:var(--surface-secondary);border:1px solid var(--border-primary);border-radius:6px;max-height:200px;overflow-y:auto;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,0.3);min-width:180px;';
+    input.parentNode.style.position = 'relative';
+    input.parentNode.appendChild(dropdown);
+
+    let selectedIndex = -1;
+
+    const showSuggestions = (suggestions, rect) => {
+      if (suggestions.length === 0) {
+        dropdown.style.display = 'none';
+        return;
+      }
+
+      dropdown.innerHTML = suggestions.map((s, i) => {
+        const isKeyword = sqlKeywords.includes(s);
+        const isTable = tableSuggestions.includes(s);
+        const icon = isKeyword ? 'ph-code' : (isTable ? 'ph-table' : 'ph-columns');
+        const type = isKeyword ? 'keyword' : (isTable ? 'table' : 'field');
+        return `<div class="sql-autocomplete-item${i === selectedIndex ? ' selected' : ''}" data-value="${s}" data-index="${i}" style="padding:6px 10px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:12px;">
+          <i class="ph ${icon}" style="color:var(--text-muted);font-size:14px;"></i>
+          <span style="flex:1;">${s}</span>
+          <span style="color:var(--text-muted);font-size:10px;">${type}</span>
+        </div>`;
+      }).join('');
+      dropdown.style.display = 'block';
+      dropdown.style.top = `${input.offsetHeight + 4}px`;
+      dropdown.style.left = '0';
+    };
+
+    const hideSuggestions = () => {
+      dropdown.style.display = 'none';
+      selectedIndex = -1;
+    };
+
+    const getCurrentWord = () => {
+      const cursorPos = input.selectionStart;
+      const text = input.value.substring(0, cursorPos);
+      const match = text.match(/[\w.]+$/);
+      return match ? match[0] : '';
+    };
+
+    const replaceCurrentWord = (replacement) => {
+      const cursorPos = input.selectionStart;
+      const text = input.value;
+      const beforeCursor = text.substring(0, cursorPos);
+      const afterCursor = text.substring(cursorPos);
+      const match = beforeCursor.match(/[\w.]+$/);
+      const wordStart = match ? cursorPos - match[0].length : cursorPos;
+      input.value = text.substring(0, wordStart) + replacement + afterCursor;
+      const newPos = wordStart + replacement.length;
+      input.setSelectionRange(newPos, newPos);
+      input.focus();
+    };
+
+    input.addEventListener('input', () => {
+      const word = getCurrentWord();
+      if (word.length >= 1) {
+        const filtered = allSuggestions.filter(s =>
+          s.toLowerCase().startsWith(word.toLowerCase())
+        ).slice(0, 10);
+        selectedIndex = -1;
+        showSuggestions(filtered);
+      } else {
+        hideSuggestions();
+      }
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (dropdown.style.display === 'none') return;
+
+      const items = dropdown.querySelectorAll('.sql-autocomplete-item');
+      if (items.length === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+        items.forEach((item, i) => item.classList.toggle('selected', i === selectedIndex));
+        items[selectedIndex]?.scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedIndex = Math.max(selectedIndex - 1, 0);
+        items.forEach((item, i) => item.classList.toggle('selected', i === selectedIndex));
+        items[selectedIndex]?.scrollIntoView({ block: 'nearest' });
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (selectedIndex >= 0 && items[selectedIndex]) {
+          e.preventDefault();
+          replaceCurrentWord(items[selectedIndex].dataset.value);
+          hideSuggestions();
+        }
+      } else if (e.key === 'Escape') {
+        hideSuggestions();
+      }
+    });
+
+    dropdown.addEventListener('click', (e) => {
+      const item = e.target.closest('.sql-autocomplete-item');
+      if (item) {
+        replaceCurrentWord(item.dataset.value);
+        hideSuggestions();
+      }
+    });
+
+    dropdown.addEventListener('mouseenter', (e) => {
+      const item = e.target.closest('.sql-autocomplete-item');
+      if (item) {
+        const items = dropdown.querySelectorAll('.sql-autocomplete-item');
+        items.forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+        selectedIndex = parseInt(item.dataset.index);
+      }
+    }, true);
+
+    input.addEventListener('blur', () => {
+      setTimeout(hideSuggestions, 150);
+    });
   }
 
   /**
@@ -12988,7 +13131,7 @@ class EODataWorkbench {
     // Reset confirm button text when showing a new modal
     const confirmBtn = document.getElementById('modal-confirm');
     if (confirmBtn && !options.hideFooter) {
-      confirmBtn.innerHTML = 'Save';
+      confirmBtn.innerHTML = options.confirmText || 'Save';
       confirmBtn.disabled = false;
     }
 
