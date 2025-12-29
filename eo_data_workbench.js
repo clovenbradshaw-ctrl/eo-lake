@@ -84,6 +84,12 @@ const SelectColors = ['blue', 'green', 'yellow', 'red', 'purple', 'pink', 'orang
 //         - Always set explicit widths on th elements
 //         - All borders come from CSS, never inline styles
 //
+// RULE 5: Field IDs MUST be consistent between set.fields and record.values
+//         - Every key in record.values must exist as a field.id in set.fields
+//         - When merging/copying sets, ALWAYS remap record values to new field IDs
+//         - Use _mergeSetsWithIdRemapping() for set merges, not _mergeSchemas() alone
+//         - Use validateFieldIdConsistency() to check for mismatches
+//
 // ============================================================================
 
 // Field default/minimum values
@@ -147,6 +153,136 @@ function ensureRecordValues(record, fields) {
   return {
     ...record,
     values
+  };
+}
+
+/**
+ * Validate that field IDs in set.fields match keys in record.values (TABLE RULE 5).
+ *
+ * This function checks for consistency between field definitions and record values.
+ * Call this to diagnose column alignment issues.
+ *
+ * @param {Object} set - The set to validate
+ * @returns {{ isValid: boolean, issues: Array }} - Validation result with list of issues
+ */
+function validateFieldIdConsistency(set) {
+  const issues = [];
+
+  if (!set || !set.fields || !set.records) {
+    return { isValid: true, issues };
+  }
+
+  const fieldIds = new Set(set.fields.map(f => f.id));
+  const fieldNameById = new Map(set.fields.map(f => [f.id, f.name]));
+
+  for (const record of set.records) {
+    if (!record.values) continue;
+
+    const recordValueKeys = Object.keys(record.values);
+
+    // Check for record keys that don't match any field ID
+    for (const key of recordValueKeys) {
+      if (!fieldIds.has(key)) {
+        issues.push({
+          type: 'orphaned_value',
+          recordId: record.id,
+          fieldKey: key,
+          value: record.values[key],
+          message: `Record ${record.id} has value for field ID "${key}" which doesn't exist in set.fields`
+        });
+      }
+    }
+
+    // Check for fields that have no value in this record (warning, not error)
+    for (const fieldId of fieldIds) {
+      if (!(fieldId in record.values)) {
+        // This is less severe - just means the record doesn't have a value for this field
+        // The ensureRecordValues function should handle this at render time
+      }
+    }
+  }
+
+  // Log issues for debugging
+  if (issues.length > 0) {
+    console.warn(`[RULE 5 VIOLATION] Set "${set.name}" has ${issues.length} field ID consistency issues:`, issues);
+  }
+
+  return {
+    isValid: issues.length === 0,
+    issues
+  };
+}
+
+/**
+ * Attempt to repair field ID consistency issues in a set.
+ *
+ * This function tries to match orphaned record values to fields by name similarity
+ * or position. Use with caution - data could be lost if matching fails.
+ *
+ * @param {Object} set - The set to repair
+ * @returns {{ repaired: boolean, changes: Array }} - Repair result
+ */
+function repairFieldIdConsistency(set) {
+  const changes = [];
+
+  if (!set || !set.fields || !set.records) {
+    return { repaired: false, changes };
+  }
+
+  const fieldIds = new Set(set.fields.map(f => f.id));
+  const fieldByName = new Map(set.fields.map(f => [f.name.toLowerCase(), f]));
+
+  for (const record of set.records) {
+    if (!record.values) continue;
+
+    const newValues = {};
+    let hasChanges = false;
+
+    for (const [key, value] of Object.entries(record.values)) {
+      if (fieldIds.has(key)) {
+        // Key is valid, keep it
+        newValues[key] = value;
+      } else {
+        // Key doesn't match any field ID - try to find matching field by name
+        // This handles cases where the key IS the field name (common mistake)
+        const matchingField = fieldByName.get(key.toLowerCase());
+        if (matchingField) {
+          newValues[matchingField.id] = value;
+          changes.push({
+            recordId: record.id,
+            oldKey: key,
+            newKey: matchingField.id,
+            fieldName: matchingField.name,
+            value
+          });
+          hasChanges = true;
+        } else {
+          // No match found - drop the value (or could keep it with warning)
+          changes.push({
+            recordId: record.id,
+            oldKey: key,
+            newKey: null,
+            fieldName: null,
+            value,
+            dropped: true
+          });
+          hasChanges = true;
+        }
+      }
+    }
+
+    if (hasChanges) {
+      record.values = newValues;
+    }
+  }
+
+  if (changes.length > 0) {
+    console.log(`[RULE 5 REPAIR] Repaired ${changes.length} field ID issues in set "${set.name}":`, changes);
+  }
+
+  return {
+    repaired: changes.length > 0,
+    changes
   };
 }
 
@@ -562,13 +698,6 @@ class EODataWorkbench {
       createField('Notes', FieldTypes.LONG_TEXT)
     );
 
-    // Debug: Log field structure after creation
-    console.log('[Debug] _createDefaultSet - Fields after creation:', set.fields.map(f => ({
-      id: f.id,
-      name: f.name,
-      type: f.type
-    })));
-
     // Add some sample records
     for (let i = 1; i <= 5; i++) {
       const recordValues = {
@@ -576,15 +705,6 @@ class EODataWorkbench {
         [set.fields[1].id]: set.fields[1].options.choices[i % 3].id,
         [set.fields[2].id]: new Date(Date.now() + i * 86400000).toISOString().split('T')[0]
       };
-
-      // Debug: Log record values being created
-      console.log('[Debug] _createDefaultSet - Creating record:', {
-        i,
-        nameFieldId: set.fields[0].id,
-        statusFieldId: set.fields[1].id,
-        dueDateFieldId: set.fields[2].id,
-        values: recordValues
-      });
 
       set.records.push(createRecord(set.id, recordValues));
     }
@@ -923,33 +1043,23 @@ class EODataWorkbench {
           this._loadSetRecords(this.currentSetId);
         }
 
-        // Migration: Validate all fields to ensure proper rendering (TABLE RULES 1 & 3)
+        // Migration: Validate all fields to ensure proper rendering (TABLE RULES 1, 3 & 5)
         // This fixes any legacy data that might have missing width, type, or other properties
         this.sets.forEach(set => {
+          // TABLE RULES 1 & 3: Ensure valid field properties
           if (set.fields) {
-            // Debug: Log fields before validation
-            console.log('[Debug] _loadData - Fields BEFORE ensureValidField:', set.name, set.fields.map(f => ({
-              id: f.id,
-              name: f.name,
-              type: f.type
-            })));
-
             set.fields = set.fields.map(field => ensureValidField(field));
-
-            // Debug: Log fields after validation
-            console.log('[Debug] _loadData - Fields AFTER ensureValidField:', set.name, set.fields.map(f => ({
-              id: f.id,
-              name: f.name,
-              type: f.type
-            })));
           }
 
-          // Debug: Log record values
-          if (set.records?.length > 0) {
-            console.log('[Debug] _loadData - First record values:', set.name, {
-              keys: Object.keys(set.records[0].values || {}),
-              values: set.records[0].values
-            });
+          // TABLE RULE 5: Validate and auto-repair field ID consistency
+          // This catches issues from legacy data or corrupted imports
+          const validation = validateFieldIdConsistency(set);
+          if (!validation.isValid) {
+            console.warn(`[RULE 5] Set "${set.name}" has field ID mismatches. Attempting auto-repair...`);
+            const repair = repairFieldIdConsistency(set);
+            if (repair.repaired) {
+              console.log(`[RULE 5] Auto-repaired ${repair.changes.length} field ID issues in set "${set.name}"`);
+            }
           }
         });
       }
@@ -2091,10 +2201,11 @@ class EODataWorkbench {
         derivedAt: new Date().toISOString()
       };
 
-      // Merge schemas and records
+      // Merge schemas and records with proper field ID remapping
       const sourceSets = setIds.map(id => this.sets.find(s => s.id === id)).filter(Boolean);
-      set.fields = this._mergeSchemas(sourceSets);
-      set.records = sourceSets.flatMap(s => s.records || []);
+      const { fields, records } = this._mergeSetsWithIdRemapping(sourceSets);
+      set.fields = fields;
+      set.records = records;
 
       this.sets.push(set);
       this._saveData();
@@ -2107,6 +2218,9 @@ class EODataWorkbench {
   /**
    * Merge schemas from multiple sets
    * Uses ensureValidField to guarantee all merged fields have proper width (TABLE RULE 1)
+   *
+   * IMPORTANT: This function only merges field schemas. If you need to merge records too,
+   * use _mergeSetsWithIdRemapping() instead to ensure field IDs stay consistent with record values.
    */
   _mergeSchemas(sets) {
     const fieldMap = new Map();
@@ -2114,11 +2228,81 @@ class EODataWorkbench {
       for (const field of set.fields || []) {
         if (!fieldMap.has(field.name)) {
           // Ensure merged field has valid width and properties
-          fieldMap.set(field.name, ensureValidField({ ...field, id: generateId() }));
+          // KEEP the original field ID to maintain consistency with record values
+          fieldMap.set(field.name, ensureValidField({ ...field }));
         }
       }
     }
     return Array.from(fieldMap.values());
+  }
+
+  /**
+   * Merge multiple sets with proper field ID remapping.
+   *
+   * TABLE RULE 5: Field IDs must be consistent between set.fields and record.values.
+   * When merging sets, records from different sources may use different field IDs
+   * for fields with the same name. This function creates a unified schema and
+   * remaps all record values to use the new consistent field IDs.
+   *
+   * @param {Array} sets - Array of sets to merge
+   * @returns {{ fields: Array, records: Array }} - Merged fields and remapped records
+   */
+  _mergeSetsWithIdRemapping(sets) {
+    // Step 1: Create unified field schema with new IDs
+    // Map: field.name -> new unified field object
+    const unifiedFieldMap = new Map();
+
+    for (const set of sets) {
+      for (const field of set.fields || []) {
+        if (!unifiedFieldMap.has(field.name)) {
+          // Create a new field with a fresh ID for the merged set
+          unifiedFieldMap.set(field.name, ensureValidField({
+            ...field,
+            id: generateId()
+          }));
+        }
+      }
+    }
+
+    const mergedFields = Array.from(unifiedFieldMap.values());
+
+    // Step 2: Create mapping from source field IDs to unified field IDs
+    // Map: old field ID -> new unified field ID
+    const fieldIdRemapping = new Map();
+
+    for (const set of sets) {
+      for (const field of set.fields || []) {
+        const unifiedField = unifiedFieldMap.get(field.name);
+        if (unifiedField) {
+          fieldIdRemapping.set(field.id, unifiedField.id);
+        }
+      }
+    }
+
+    // Step 3: Remap all records to use unified field IDs
+    const mergedRecords = [];
+
+    for (const set of sets) {
+      for (const record of set.records || []) {
+        // Create new record with remapped field IDs
+        const newValues = {};
+        for (const [oldFieldId, value] of Object.entries(record.values || {})) {
+          const newFieldId = fieldIdRemapping.get(oldFieldId);
+          if (newFieldId) {
+            newValues[newFieldId] = value;
+          }
+          // Note: values for fields not in the merged schema are dropped
+        }
+
+        mergedRecords.push({
+          ...record,
+          id: generateId(), // New ID for merged record
+          values: newValues
+        });
+      }
+    }
+
+    return { fields: mergedFields, records: mergedRecords };
   }
 
   /**
@@ -8156,18 +8340,6 @@ class EODataWorkbench {
     // TABLE RULE 2: Ensure all records have values for all fields
     allRecords = allRecords.map(record => ensureRecordValues(record, fields));
 
-    // Debug: Log render state to help diagnose empty cell issues
-    console.log('[Debug] _renderTableView:', {
-      setId: set?.id,
-      setName: set?.name,
-      recordCount: allRecords.length,
-      fieldCount: fields.length,
-      fieldIds: fields.map(f => f.id),
-      fieldWidths: fields.map(f => f.width),
-      sampleRecordKeys: allRecords[0] ? Object.keys(allRecords[0].values) : [],
-      searchTerm: searchTerm
-    });
-
     // Always show provenance column for data with sources
     const hasProvenance = set?.datasetProvenance?.originalFilename || allRecords.some(r => r.provenance);
     const showProvenance = view?.config.showProvenance !== false && hasProvenance;
@@ -8486,28 +8658,6 @@ class EODataWorkbench {
       const value = record.values[field.id];
       const cellClass = `cell-${field.type} cell-editable`;
 
-      // Debug: Log detailed cell rendering info for diagnosing column issues
-      console.log('[Debug] _renderCell:', {
-        fieldId: field.id,
-        fieldName: field.name,
-        fieldType: field.type,
-        value: value,
-        valueType: typeof value,
-        recordId: record.id,
-        allRecordKeys: Object.keys(record.values),
-        allRecordValues: record.values
-      });
-
-      // Debug: Log if field ID doesn't match any keys in record.values
-      if (value === undefined && Object.keys(record.values).length > 0) {
-        console.warn('[Debug] Field ID mismatch:', {
-          fieldId: field.id,
-          fieldName: field.name,
-          recordValueKeys: Object.keys(record.values),
-          recordId: record.id
-        });
-      }
-
       let content = '';
 
     switch (field.type) {
@@ -8540,27 +8690,12 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.SELECT:
-        // Debug: Log SELECT field rendering details
-        console.log('[Debug] SELECT cell render:', {
-          fieldName: field.name,
-          fieldId: field.id,
-          value: value,
-          valueType: typeof value,
-          choicesCount: field.options.choices?.length,
-          choiceIds: field.options.choices?.map(c => c.id)
-        });
         if (value) {
           const choice = field.options.choices?.find(c => c.id === value);
           if (choice) {
             content = `<span class="select-tag color-${choice.color || 'gray'}">${this._highlightText(choice.name, searchTerm)}</span>`;
           } else {
-            // Debug: Value exists but no matching choice found
-            console.warn('[Debug] SELECT value has no matching choice:', {
-              fieldName: field.name,
-              value: value,
-              availableChoiceIds: field.options.choices?.map(c => c.id)
-            });
-            // Show the raw value for debugging
+            // Value exists but no matching choice - show raw value with visual indicator
             content = `<span class="cell-empty" title="No matching choice">${this._escapeHtml(String(value))}</span>`;
           }
         } else {
@@ -8584,14 +8719,6 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.DATE:
-        // Debug: Log DATE field rendering details
-        console.log('[Debug] DATE cell render:', {
-          fieldName: field.name,
-          fieldId: field.id,
-          value: value,
-          valueType: typeof value,
-          hasValue: !!value
-        });
         content = value ? `<span class="cell-date">${this._formatDate(value, field)}</span>` : '<span class="cell-empty">-</span>';
         break;
 
@@ -18700,6 +18827,9 @@ if (typeof window !== 'undefined') {
   window.ensureValidField = ensureValidField;
   window.ensureValidFields = ensureValidFields;
   window.ensureRecordValues = ensureRecordValues;
+  // TABLE RULE 5: Field ID consistency validation and repair
+  window.validateFieldIdConsistency = validateFieldIdConsistency;
+  window.repairFieldIdConsistency = repairFieldIdConsistency;
   window.FIELD_MIN_WIDTH = FIELD_MIN_WIDTH;
   window.FIELD_DEFAULT_WIDTH = FIELD_DEFAULT_WIDTH;
   window.EODataWorkbench = EODataWorkbench;
