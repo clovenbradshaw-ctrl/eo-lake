@@ -6374,9 +6374,6 @@ class EODataWorkbench {
         focusBreadcrumb.style.display = 'none';
       }
     }
-
-    // Update horizon transparency panel
-    this._updateHorizonPanel(workspace, set, view, focus, totalRecords, visibleRecords);
   }
 
   /**
@@ -6536,34 +6533,6 @@ class EODataWorkbench {
       }
     };
     setTimeout(() => document.addEventListener('click', closeHandler), 0);
-  }
-
-  /**
-   * Update horizon transparency panel (Rule 4: Perspectivality)
-   */
-  _updateHorizonPanel(workspace, set, view, focus, totalRecords, visibleRecords) {
-    let panel = document.getElementById('horizon-transparency-panel');
-    if (!panel) {
-      // Create panel if it doesn't exist
-      panel = document.createElement('div');
-      panel.id = 'horizon-transparency-panel';
-      panel.className = 'horizon-panel';
-      document.querySelector('.header-left')?.appendChild(panel);
-    }
-
-    const horizonType = focus ? 'FOCUS' : (view ? 'LENS' : (set ? 'SET' : 'WORKSPACE'));
-    const restrictionPercent = totalRecords > 0 ? Math.round((visibleRecords / totalRecords) * 100) : 100;
-
-    panel.innerHTML = `
-      <div class="horizon-indicator" title="Current Horizon (Rule 4: No view from nowhere)">
-        <i class="ph ph-eye"></i>
-        <span class="horizon-level">${horizonType}</span>
-        <span class="horizon-scope">${visibleRecords}/${totalRecords}</span>
-        <div class="horizon-bar">
-          <div class="horizon-bar-fill" style="width: ${restrictionPercent}%"></div>
-        </div>
-      </div>
-    `;
   }
 
   /**
