@@ -208,6 +208,7 @@ class EODataWorkbench {
 
     // Legacy State (for backward compatibility)
     this.sets = [];
+    this.sources = []; // CRITICAL: Initialize sources array for imports
     this.currentSetId = null;
     this.currentViewId = null;
     this.currentSourceId = null; // Track when viewing a source (GIVEN data)
@@ -2630,13 +2631,18 @@ class EODataWorkbench {
     const container = document.getElementById('sources-nav');
     if (!container) return;
 
-    // Ensure sources array exists
+    // Ensure sources array exists (should always be initialized in constructor)
     if (!Array.isArray(this.sources)) {
+      console.warn('_renderSourcesNav: sources was not an array, initializing to empty');
       this.sources = [];
     }
 
     // Get all active sources from the sources array
     const activeSources = this.sources.filter(s => s.status !== 'archived');
+    console.log('_renderSourcesNav: Rendering sources', {
+      totalSources: this.sources.length,
+      activeSources: activeSources.length
+    });
 
     // Sort sources by import date (newest first)
     const sortedSources = activeSources.sort((a, b) => {
@@ -2704,14 +2710,27 @@ class EODataWorkbench {
    * Displays source data in main content area as read-only table.
    */
   _showSourceDetail(sourceId) {
+    console.log('_showSourceDetail called', {
+      sourceId,
+      availableSources: this.sources?.length || 0,
+      sourceIds: this.sources?.map(s => s.id)
+    });
+
     // Find the source from the sources array (single source of truth)
     const source = this.sources?.find(s => s.id === sourceId);
 
     if (!source) {
-      console.warn('Source not found:', sourceId);
+      console.error('Source not found:', sourceId, 'Available sources:', this.sources);
       this._showNotification('Source not found', 'error');
       return;
     }
+
+    console.log('_showSourceDetail: Found source', {
+      id: source.id,
+      name: source.name,
+      recordCount: source.recordCount,
+      hasRecords: !!(source.records && source.records.length > 0)
+    });
 
     // Set current source and clear set selection
     this.currentSourceId = sourceId;
@@ -2745,6 +2764,12 @@ class EODataWorkbench {
 
     // Get records directly from source - this is the raw imported data
     const rawRecords = source.records || [];
+    console.log('_renderSourceDataView: Rendering source data', {
+      sourceName: source.name,
+      rawRecordCount: rawRecords.length,
+      hasSchema: !!source.schema,
+      schemaFieldCount: source.schema?.fields?.length || 0
+    });
 
     // Build fields from schema
     let fields = [];

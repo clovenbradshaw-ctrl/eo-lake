@@ -1164,11 +1164,18 @@ class ImportOrchestrator {
       if (this.workbench) {
         // Initialize sources array if needed
         if (!Array.isArray(this.workbench.sources)) {
+          console.warn('ImportOrchestrator: workbench.sources was not an array, initializing');
           this.workbench.sources = [];
         }
 
         // Add source to workbench
         this.workbench.sources.push(source);
+        console.log('ImportOrchestrator: Source added to workbench.sources', {
+          sourceId: source.id,
+          sourceName: source.name,
+          recordCount: source.recordCount,
+          totalSources: this.workbench.sources.length
+        });
 
         // Also add to sourceStore if it exists (for compatibility)
         if (this.workbench.sourceStore?.sources) {
@@ -1178,9 +1185,10 @@ class ImportOrchestrator {
         // Persist the data
         if (typeof this.workbench._saveData === 'function') {
           this.workbench._saveData();
+          console.log('ImportOrchestrator: Data saved to localStorage');
         }
       } else {
-        console.warn('ImportOrchestrator: No workbench - source will not persist');
+        console.error('ImportOrchestrator: No workbench reference - source will NOT be visible!');
       }
 
       this._emitProgress('completed', {
