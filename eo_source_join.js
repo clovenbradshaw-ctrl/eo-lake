@@ -2059,6 +2059,434 @@ class SetFromSourceUI {
 
 
 // ============================================================================
+// Folder Store - Manages folder hierarchy for sources
+// ============================================================================
+
+/**
+ * FolderStore - Storage for organizing sources into folders
+ *
+ * Folders are organizational metadata - they don't affect the source data
+ * which remains immutable in the GIVEN layer.
+ */
+class FolderStore {
+  constructor() {
+    this.folders = new Map();
+    this.tags = new Map(); // Global tag definitions with colors
+    this._listeners = [];
+    this._loadFromStorage();
+  }
+
+  /**
+   * Create a new folder
+   */
+  createFolder(config) {
+    const { name, parentId = null, color = null, icon = 'ph-folder' } = config;
+
+    const folderId = this._generateFolderId();
+    const timestamp = new Date().toISOString();
+
+    const folder = {
+      id: folderId,
+      name,
+      parentId,
+      color,
+      icon,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+
+    this.folders.set(folderId, folder);
+    this._save();
+    this._notify('folder_created', folder);
+
+    return folder;
+  }
+
+  /**
+   * Get a folder by ID
+   */
+  get(folderId) {
+    return this.folders.get(folderId);
+  }
+
+  /**
+   * Get all folders
+   */
+  getAll() {
+    return Array.from(this.folders.values());
+  }
+
+  /**
+   * Get root folders (no parent)
+   */
+  getRootFolders() {
+    return this.getAll().filter(f => !f.parentId);
+  }
+
+  /**
+   * Get children of a folder
+   */
+  getChildren(folderId) {
+    return this.getAll().filter(f => f.parentId === folderId);
+  }
+
+  /**
+   * Get folder path (array of folder names from root to folder)
+   */
+  getPath(folderId) {
+    const path = [];
+    let current = this.get(folderId);
+
+    while (current) {
+      path.unshift(current);
+      current = current.parentId ? this.get(current.parentId) : null;
+    }
+
+    return path;
+  }
+
+  /**
+   * Update a folder
+   */
+  updateFolder(folderId, updates) {
+    const folder = this.folders.get(folderId);
+    if (!folder) return null;
+
+    const updated = {
+      ...folder,
+      ...updates,
+      id: folderId, // Prevent ID change
+      updatedAt: new Date().toISOString()
+    };
+
+    this.folders.set(folderId, updated);
+    this._save();
+    this._notify('folder_updated', updated);
+
+    return updated;
+  }
+
+  /**
+   * Delete a folder (moves contents to parent or root)
+   */
+  deleteFolder(folderId) {
+    const folder = this.folders.get(folderId);
+    if (!folder) return false;
+
+    // Move children to parent
+    const children = this.getChildren(folderId);
+    for (const child of children) {
+      this.updateFolder(child.id, { parentId: folder.parentId });
+    }
+
+    this.folders.delete(folderId);
+    this._save();
+    this._notify('folder_deleted', { id: folderId, parentId: folder.parentId });
+
+    return true;
+  }
+
+  // --------------------------------------------------------------------------
+  // Tag Management
+  // --------------------------------------------------------------------------
+
+  /**
+   * Create or update a tag definition
+   */
+  createTag(name, color = null) {
+    const tagId = name.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const tag = {
+      id: tagId,
+      name,
+      color: color || this._getNextTagColor(),
+      usageCount: 0,
+      createdAt: new Date().toISOString()
+    };
+
+    this.tags.set(tagId, tag);
+    this._save();
+    this._notify('tag_created', tag);
+
+    return tag;
+  }
+
+  /**
+   * Get all tags
+   */
+  getAllTags() {
+    return Array.from(this.tags.values());
+  }
+
+  /**
+   * Get tag by ID
+   */
+  getTag(tagId) {
+    return this.tags.get(tagId);
+  }
+
+  /**
+   * Update tag usage count
+   */
+  updateTagUsage(tagId, delta) {
+    const tag = this.tags.get(tagId);
+    if (tag) {
+      tag.usageCount = Math.max(0, (tag.usageCount || 0) + delta);
+      this._save();
+    }
+  }
+
+  /**
+   * Delete a tag
+   */
+  deleteTag(tagId) {
+    const deleted = this.tags.delete(tagId);
+    if (deleted) {
+      this._save();
+      this._notify('tag_deleted', { id: tagId });
+    }
+    return deleted;
+  }
+
+  // --------------------------------------------------------------------------
+  // Smart Folders
+  // --------------------------------------------------------------------------
+
+  /**
+   * Get smart folder definitions
+   */
+  getSmartFolders() {
+    return [
+      {
+        id: 'smart_all',
+        name: 'All Sources',
+        icon: 'ph-files',
+        type: 'smart',
+        filter: () => true
+      },
+      {
+        id: 'smart_recent',
+        name: 'Recent',
+        icon: 'ph-clock',
+        type: 'smart',
+        filter: (source) => {
+          const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+          return new Date(source.importedAt).getTime() > weekAgo;
+        }
+      },
+      {
+        id: 'smart_favorites',
+        name: 'Favorites',
+        icon: 'ph-star',
+        type: 'smart',
+        filter: (source) => source.isFavorite === true
+      },
+      {
+        id: 'smart_large',
+        name: 'Large Files',
+        icon: 'ph-file-magnifying-glass',
+        type: 'smart',
+        filter: (source) => (source.recordCount || 0) > 1000
+      },
+      {
+        id: 'smart_csv',
+        name: 'CSV Files',
+        icon: 'ph-file-csv',
+        type: 'smart',
+        filter: (source) => source.name?.toLowerCase().endsWith('.csv')
+      },
+      {
+        id: 'smart_json',
+        name: 'JSON Files',
+        icon: 'ph-brackets-curly',
+        type: 'smart',
+        filter: (source) => source.name?.toLowerCase().endsWith('.json')
+      },
+      {
+        id: 'smart_excel',
+        name: 'Excel Files',
+        icon: 'ph-file-xls',
+        type: 'smart',
+        filter: (source) => {
+          const name = source.name?.toLowerCase() || '';
+          return name.endsWith('.xlsx') || name.endsWith('.xls');
+        }
+      }
+    ];
+  }
+
+  // --------------------------------------------------------------------------
+  // Persistence
+  // --------------------------------------------------------------------------
+
+  _loadFromStorage() {
+    try {
+      const data = localStorage.getItem('eo_lake_folders');
+      if (data) {
+        const parsed = JSON.parse(data);
+
+        // Load folders
+        if (parsed.folders) {
+          for (const folder of parsed.folders) {
+            this.folders.set(folder.id, folder);
+          }
+        }
+
+        // Load tags
+        if (parsed.tags) {
+          for (const tag of parsed.tags) {
+            this.tags.set(tag.id, tag);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load folder data:', e);
+    }
+  }
+
+  _save() {
+    try {
+      localStorage.setItem('eo_lake_folders', JSON.stringify({
+        folders: Array.from(this.folders.values()),
+        tags: Array.from(this.tags.values())
+      }));
+    } catch (e) {
+      console.warn('Failed to save folder data:', e);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Private Methods
+  // --------------------------------------------------------------------------
+
+  _generateFolderId() {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8);
+    return `folder_${timestamp}_${random}`;
+  }
+
+  _getNextTagColor() {
+    const colors = ['blue', 'green', 'yellow', 'red', 'purple', 'pink', 'orange', 'cyan', 'indigo', 'teal'];
+    const usedColors = Array.from(this.tags.values()).map(t => t.color);
+    return colors.find(c => !usedColors.includes(c)) || colors[this.tags.size % colors.length];
+  }
+
+  subscribe(listener) {
+    this._listeners.push(listener);
+    return () => {
+      this._listeners = this._listeners.filter(l => l !== listener);
+    };
+  }
+
+  _notify(eventType, data) {
+    for (const listener of this._listeners) {
+      try {
+        listener(eventType, data);
+      } catch (e) {
+        console.warn('Folder listener error:', e);
+      }
+    }
+  }
+
+  toJSON() {
+    return {
+      folders: Array.from(this.folders.values()),
+      tags: Array.from(this.tags.values())
+    };
+  }
+}
+
+
+// ============================================================================
+// Source Store Extensions for File Explorer
+// ============================================================================
+
+/**
+ * Extend SourceStore prototype with folder and tag methods
+ */
+SourceStore.prototype.updateSourceFolder = function(sourceId, folderId) {
+  const source = this.sources.get(sourceId);
+  if (!source) return null;
+
+  // Create updated source with new folder assignment
+  const updated = {
+    ...source,
+    folderId: folderId,
+    updatedAt: new Date().toISOString()
+  };
+
+  // Note: We're breaking immutability here for organizational metadata
+  // This is acceptable because folder assignment is not part of GIVEN data
+  this.sources.set(sourceId, updated);
+  this._notify('source_folder_changed', { sourceId, folderId });
+
+  return updated;
+};
+
+SourceStore.prototype.updateSourceTags = function(sourceId, tags) {
+  const source = this.sources.get(sourceId);
+  if (!source) return null;
+
+  const updated = {
+    ...source,
+    tags: [...new Set(tags)], // Dedupe
+    updatedAt: new Date().toISOString()
+  };
+
+  this.sources.set(sourceId, updated);
+  this._notify('source_tags_changed', { sourceId, tags });
+
+  return updated;
+};
+
+SourceStore.prototype.addSourceTag = function(sourceId, tag) {
+  const source = this.sources.get(sourceId);
+  if (!source) return null;
+
+  const currentTags = source.tags || [];
+  if (!currentTags.includes(tag)) {
+    return this.updateSourceTags(sourceId, [...currentTags, tag]);
+  }
+  return source;
+};
+
+SourceStore.prototype.removeSourceTag = function(sourceId, tag) {
+  const source = this.sources.get(sourceId);
+  if (!source) return null;
+
+  const currentTags = source.tags || [];
+  return this.updateSourceTags(sourceId, currentTags.filter(t => t !== tag));
+};
+
+SourceStore.prototype.toggleFavorite = function(sourceId) {
+  const source = this.sources.get(sourceId);
+  if (!source) return null;
+
+  const updated = {
+    ...source,
+    isFavorite: !source.isFavorite,
+    updatedAt: new Date().toISOString()
+  };
+
+  this.sources.set(sourceId, updated);
+  this._notify('source_favorite_changed', { sourceId, isFavorite: updated.isFavorite });
+
+  return updated;
+};
+
+SourceStore.prototype.getByFolder = function(folderId) {
+  return this.getAll().filter(s => s.folderId === folderId && s.status === 'active');
+};
+
+SourceStore.prototype.getByTag = function(tag) {
+  return this.getAll().filter(s => (s.tags || []).includes(tag) && s.status === 'active');
+};
+
+SourceStore.prototype.getUnorganized = function() {
+  return this.getAll().filter(s => !s.folderId && s.status === 'active');
+};
+
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -2068,6 +2496,7 @@ if (typeof window !== 'undefined') {
   window.JoinBuilder = JoinBuilder;
   window.JoinBuilderUI = JoinBuilderUI;
   window.SetFromSourceUI = SetFromSourceUI;
+  window.FolderStore = FolderStore;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -2076,6 +2505,7 @@ if (typeof module !== 'undefined' && module.exports) {
     SetCreator,
     JoinBuilder,
     JoinBuilderUI,
-    SetFromSourceUI
+    SetFromSourceUI,
+    FolderStore
   };
 }

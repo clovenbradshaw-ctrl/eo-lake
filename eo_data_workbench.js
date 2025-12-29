@@ -253,6 +253,15 @@ class EODataWorkbench {
 
     // Calendar navigation state
     this.calendarDate = new Date();
+
+    // File Explorer state
+    this.fileExplorerMode = false; // Whether file explorer is active
+    this.fileExplorerViewMode = 'list'; // 'tree', 'list', 'grid'
+    this.fileExplorerCurrentFolder = null; // Current folder ID (null = root)
+    this.fileExplorerSelectedSource = null; // Currently selected source for preview
+    this.fileExplorerSearchTerm = ''; // Search filter
+    this.fileExplorerActiveFilter = 'smart_all'; // Active smart folder or tag filter
+    this.fileExplorerExpandedFolders = new Set(); // Track expanded folders in tree view
   }
 
   // --------------------------------------------------------------------------
@@ -519,6 +528,11 @@ class EODataWorkbench {
     // Import data button
     document.getElementById('btn-import-data')?.addEventListener('click', () => {
       this._showImportModal();
+    });
+
+    // File Explorer button
+    document.getElementById('btn-file-explorer')?.addEventListener('click', () => {
+      this._showFileExplorer();
     });
 
     // New view button
@@ -3246,6 +3260,1389 @@ class EODataWorkbench {
     }
   }
 
+  // ==========================================================================
+  // File Explorer - Full-featured source file browser
+  // ==========================================================================
+
+  /**
+   * Show the File Explorer in the main content area
+   */
+  _showFileExplorer() {
+    // Initialize stores if needed
+    if (!this.sourceStore) {
+      this._initSourceStore();
+    }
+    if (!this.folderStore && typeof FolderStore !== 'undefined') {
+      this.folderStore = new FolderStore();
+    }
+
+    this.fileExplorerMode = true;
+    this.currentSourceId = null;
+    this.currentSetId = null;
+
+    // Update breadcrumb
+    this._updateBreadcrumb('File Explorer', 'ph-folder-open');
+
+    // Render the file explorer
+    this._renderFileExplorer();
+  }
+
+  /**
+   * Close file explorer and return to normal view
+   */
+  _closeFileExplorer() {
+    this.fileExplorerMode = false;
+    this._renderSidebar();
+    this._renderView();
+  }
+
+  /**
+   * Main File Explorer renderer
+   */
+  _renderFileExplorer() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    // Get all active sources
+    const allSources = this._getFileExplorerSources();
+    const filteredSources = this._filterFileExplorerSources(allSources);
+    const folders = this.folderStore?.getAll() || [];
+    const tags = this.folderStore?.getAllTags() || [];
+    const smartFolders = this.folderStore?.getSmartFolders() || [];
+
+    contentArea.innerHTML = `
+      <div class="file-explorer">
+        <!-- Toolbar -->
+        <div class="file-explorer-toolbar">
+          <div class="file-explorer-toolbar-left">
+            <button class="file-explorer-close-btn" id="fe-close-btn" title="Close File Explorer">
+              <i class="ph ph-x"></i>
+            </button>
+            <div class="file-explorer-title">
+              <i class="ph ph-folder-open"></i>
+              <span>File Explorer</span>
+              <span class="file-explorer-badge">SOURCES</span>
+            </div>
+          </div>
+          <div class="file-explorer-toolbar-center">
+            <div class="file-explorer-search">
+              <i class="ph ph-magnifying-glass"></i>
+              <input type="text" id="fe-search" placeholder="Search sources..."
+                     value="${this._escapeHtml(this.fileExplorerSearchTerm)}">
+              ${this.fileExplorerSearchTerm ? '<button class="fe-search-clear" id="fe-search-clear"><i class="ph ph-x"></i></button>' : ''}
+            </div>
+          </div>
+          <div class="file-explorer-toolbar-right">
+            <div class="file-explorer-view-toggle">
+              <button class="fe-view-btn ${this.fileExplorerViewMode === 'tree' ? 'active' : ''}"
+                      data-view="tree" title="Tree View">
+                <i class="ph ph-tree-structure"></i>
+              </button>
+              <button class="fe-view-btn ${this.fileExplorerViewMode === 'list' ? 'active' : ''}"
+                      data-view="list" title="List View">
+                <i class="ph ph-list"></i>
+              </button>
+              <button class="fe-view-btn ${this.fileExplorerViewMode === 'grid' ? 'active' : ''}"
+                      data-view="grid" title="Grid View">
+                <i class="ph ph-squares-four"></i>
+              </button>
+            </div>
+            <button class="file-explorer-import-btn" id="fe-import-btn">
+              <i class="ph ph-plus"></i>
+              <span>Import</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="file-explorer-main">
+          <!-- Sidebar -->
+          <div class="file-explorer-sidebar">
+            <!-- Quick Access -->
+            <div class="fe-sidebar-section">
+              <div class="fe-sidebar-section-header">
+                <span>Quick Access</span>
+              </div>
+              <div class="fe-sidebar-items">
+                ${smartFolders.map(sf => {
+                  const count = allSources.filter(sf.filter).length;
+                  const isActive = this.fileExplorerActiveFilter === sf.id;
+                  return `
+                    <div class="fe-sidebar-item ${isActive ? 'active' : ''}"
+                         data-filter-type="smart" data-filter-id="${sf.id}">
+                      <i class="ph ${sf.icon}"></i>
+                      <span class="fe-sidebar-item-name">${sf.name}</span>
+                      <span class="fe-sidebar-item-count">${count}</span>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+
+            <!-- Folders -->
+            <div class="fe-sidebar-section">
+              <div class="fe-sidebar-section-header">
+                <span>Folders</span>
+                <button class="fe-sidebar-add-btn" id="fe-add-folder-btn" title="New Folder">
+                  <i class="ph ph-plus"></i>
+                </button>
+              </div>
+              <div class="fe-sidebar-items" id="fe-folder-list">
+                ${this._renderFileExplorerFolderTree(folders, null)}
+                ${folders.length === 0 ? `
+                  <div class="fe-sidebar-empty">
+                    <span>No folders yet</span>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+
+            <!-- Tags -->
+            <div class="fe-sidebar-section">
+              <div class="fe-sidebar-section-header">
+                <span>Tags</span>
+                <button class="fe-sidebar-add-btn" id="fe-add-tag-btn" title="New Tag">
+                  <i class="ph ph-plus"></i>
+                </button>
+              </div>
+              <div class="fe-sidebar-items" id="fe-tag-list">
+                ${tags.map(tag => {
+                  const count = allSources.filter(s => (s.tags || []).includes(tag.id)).length;
+                  const isActive = this.fileExplorerActiveFilter === `tag_${tag.id}`;
+                  return `
+                    <div class="fe-sidebar-item ${isActive ? 'active' : ''}"
+                         data-filter-type="tag" data-filter-id="${tag.id}">
+                      <span class="fe-tag-dot" style="background: var(--tag-${tag.color}, var(--accent))"></span>
+                      <span class="fe-sidebar-item-name">${this._escapeHtml(tag.name)}</span>
+                      <span class="fe-sidebar-item-count">${count}</span>
+                    </div>
+                  `;
+                }).join('')}
+                ${tags.length === 0 ? `
+                  <div class="fe-sidebar-empty">
+                    <span>No tags yet</span>
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+
+          <!-- Content Area -->
+          <div class="file-explorer-content">
+            <!-- Breadcrumb -->
+            <div class="fe-content-breadcrumb">
+              ${this._renderFileExplorerBreadcrumb()}
+            </div>
+
+            <!-- Sources Display -->
+            <div class="fe-content-sources" id="fe-sources-container">
+              ${this._renderFileExplorerContent(filteredSources, folders)}
+            </div>
+          </div>
+
+          <!-- Preview Panel -->
+          <div class="file-explorer-preview ${this.fileExplorerSelectedSource ? 'visible' : ''}" id="fe-preview-panel">
+            ${this.fileExplorerSelectedSource ? this._renderFileExplorerPreview(this.fileExplorerSelectedSource) : `
+              <div class="fe-preview-empty">
+                <i class="ph ph-file-magnifying-glass"></i>
+                <span>Select a source to preview</span>
+              </div>
+            `}
+          </div>
+        </div>
+      </div>
+    `;
+
+    this._attachFileExplorerEventHandlers();
+  }
+
+  /**
+   * Get sources for file explorer
+   */
+  _getFileExplorerSources() {
+    const sources = [];
+
+    // Get from SourceStore
+    if (this.sourceStore) {
+      const storedSources = this.sourceStore.getByStatus('active');
+      for (const source of storedSources) {
+        sources.push({
+          id: source.id,
+          name: source.name,
+          recordCount: source.recordCount,
+          importedAt: source.importedAt,
+          folderId: source.folderId || null,
+          tags: source.tags || [],
+          isFavorite: source.isFavorite || false,
+          fileType: this._getFileType(source.name),
+          schema: source.schema,
+          provenance: source.provenance,
+          fileIdentity: source.fileIdentity,
+          isSourceStore: true
+        });
+      }
+    }
+
+    // Get legacy sources from sets
+    const registry = this._getSourceRegistry();
+    for (const source of registry.values()) {
+      if (!sources.find(s => s.name.toLowerCase() === source.name.toLowerCase())) {
+        sources.push({
+          id: source.id,
+          name: source.name,
+          recordCount: source.recordCount,
+          importedAt: source.importedAt,
+          folderId: null,
+          tags: [],
+          isFavorite: false,
+          fileType: this._getFileType(source.name),
+          provenance: source.provenance,
+          isLegacy: true
+        });
+      }
+    }
+
+    // Sort by import date (newest first)
+    return sources.sort((a, b) => {
+      if (!a.importedAt) return 1;
+      if (!b.importedAt) return -1;
+      return new Date(b.importedAt) - new Date(a.importedAt);
+    });
+  }
+
+  /**
+   * Filter sources based on current filter
+   */
+  _filterFileExplorerSources(sources) {
+    let filtered = sources;
+
+    // Apply smart folder or tag filter
+    if (this.fileExplorerActiveFilter) {
+      if (this.fileExplorerActiveFilter.startsWith('tag_')) {
+        const tagId = this.fileExplorerActiveFilter.replace('tag_', '');
+        filtered = sources.filter(s => (s.tags || []).includes(tagId));
+      } else if (this.fileExplorerActiveFilter.startsWith('folder_')) {
+        const folderId = this.fileExplorerActiveFilter.replace('folder_', '');
+        filtered = sources.filter(s => s.folderId === folderId);
+      } else {
+        // Smart folder filter
+        const smartFolder = this.folderStore?.getSmartFolders().find(sf => sf.id === this.fileExplorerActiveFilter);
+        if (smartFolder) {
+          filtered = sources.filter(smartFolder.filter);
+        }
+      }
+    }
+
+    // Apply search filter
+    if (this.fileExplorerSearchTerm) {
+      const term = this.fileExplorerSearchTerm.toLowerCase();
+      filtered = filtered.filter(s =>
+        s.name.toLowerCase().includes(term) ||
+        (s.tags || []).some(t => t.toLowerCase().includes(term))
+      );
+    }
+
+    // Apply current folder filter
+    if (this.fileExplorerCurrentFolder) {
+      filtered = filtered.filter(s => s.folderId === this.fileExplorerCurrentFolder);
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Get file type from filename
+   */
+  _getFileType(filename) {
+    if (!filename) return 'unknown';
+    const ext = filename.toLowerCase().split('.').pop();
+    const typeMap = {
+      csv: 'csv',
+      json: 'json',
+      xlsx: 'excel',
+      xls: 'excel',
+      ics: 'calendar',
+      tsv: 'csv'
+    };
+    return typeMap[ext] || 'unknown';
+  }
+
+  /**
+   * Render folder tree in sidebar
+   */
+  _renderFileExplorerFolderTree(folders, parentId, depth = 0) {
+    const children = folders.filter(f => f.parentId === parentId);
+    if (children.length === 0) return '';
+
+    return children.map(folder => {
+      const isExpanded = this.fileExplorerExpandedFolders.has(folder.id);
+      const isActive = this.fileExplorerActiveFilter === `folder_${folder.id}`;
+      const hasChildren = folders.some(f => f.parentId === folder.id);
+      const sourceCount = this._getFileExplorerSources().filter(s => s.folderId === folder.id).length;
+
+      return `
+        <div class="fe-folder-item ${isActive ? 'active' : ''}"
+             data-folder-id="${folder.id}" style="padding-left: ${depth * 16 + 8}px">
+          ${hasChildren ? `
+            <button class="fe-folder-toggle ${isExpanded ? 'expanded' : ''}" data-folder-id="${folder.id}">
+              <i class="ph ph-caret-right"></i>
+            </button>
+          ` : '<span class="fe-folder-toggle-spacer"></span>'}
+          <i class="ph ${folder.icon || 'ph-folder'}" style="${folder.color ? `color: var(--folder-${folder.color})` : ''}"></i>
+          <span class="fe-sidebar-item-name">${this._escapeHtml(folder.name)}</span>
+          <span class="fe-sidebar-item-count">${sourceCount}</span>
+        </div>
+        ${isExpanded ? this._renderFileExplorerFolderTree(folders, folder.id, depth + 1) : ''}
+      `;
+    }).join('');
+  }
+
+  /**
+   * Render breadcrumb navigation
+   */
+  _renderFileExplorerBreadcrumb() {
+    const parts = ['<span class="fe-breadcrumb-item root" data-folder-id="">All Sources</span>'];
+
+    if (this.fileExplorerCurrentFolder && this.folderStore) {
+      const path = this.folderStore.getPath(this.fileExplorerCurrentFolder);
+      for (const folder of path) {
+        parts.push(`
+          <i class="ph ph-caret-right"></i>
+          <span class="fe-breadcrumb-item" data-folder-id="${folder.id}">
+            ${this._escapeHtml(folder.name)}
+          </span>
+        `);
+      }
+    }
+
+    // Show active filter
+    if (this.fileExplorerActiveFilter && !this.fileExplorerActiveFilter.startsWith('folder_')) {
+      let filterName = '';
+      if (this.fileExplorerActiveFilter.startsWith('tag_')) {
+        const tagId = this.fileExplorerActiveFilter.replace('tag_', '');
+        const tag = this.folderStore?.getTag(tagId);
+        filterName = tag?.name || tagId;
+      } else {
+        const smartFolder = this.folderStore?.getSmartFolders().find(sf => sf.id === this.fileExplorerActiveFilter);
+        filterName = smartFolder?.name || 'All Sources';
+      }
+      if (filterName && this.fileExplorerActiveFilter !== 'smart_all') {
+        parts.push(`
+          <i class="ph ph-caret-right"></i>
+          <span class="fe-breadcrumb-item active">${this._escapeHtml(filterName)}</span>
+        `);
+      }
+    }
+
+    return parts.join('');
+  }
+
+  /**
+   * Render main content area based on view mode
+   */
+  _renderFileExplorerContent(sources, folders) {
+    if (sources.length === 0) {
+      return `
+        <div class="fe-empty-state">
+          <i class="ph ph-folder-open"></i>
+          <h3>No Sources Found</h3>
+          <p>${this.fileExplorerSearchTerm ? 'Try a different search term' : 'Import data to get started'}</p>
+          <button class="btn btn-primary" id="fe-empty-import-btn">
+            <i class="ph ph-plus"></i> Import Data
+          </button>
+        </div>
+      `;
+    }
+
+    switch (this.fileExplorerViewMode) {
+      case 'tree':
+        return this._renderFileExplorerTreeView(sources, folders);
+      case 'grid':
+        return this._renderFileExplorerGridView(sources);
+      default:
+        return this._renderFileExplorerListView(sources);
+    }
+  }
+
+  /**
+   * Render tree view
+   */
+  _renderFileExplorerTreeView(sources, folders) {
+    const rootFolders = folders.filter(f => !f.parentId);
+    const unorganizedSources = sources.filter(s => !s.folderId);
+
+    let html = '<div class="fe-tree-view">';
+
+    // Render folders first
+    for (const folder of rootFolders) {
+      html += this._renderFileExplorerTreeFolder(folder, sources, folders);
+    }
+
+    // Render unorganized sources
+    if (unorganizedSources.length > 0) {
+      html += '<div class="fe-tree-section">';
+      for (const source of unorganizedSources) {
+        html += this._renderFileExplorerTreeSource(source);
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Render a folder in tree view
+   */
+  _renderFileExplorerTreeFolder(folder, sources, folders) {
+    const isExpanded = this.fileExplorerExpandedFolders.has(folder.id);
+    const folderSources = sources.filter(s => s.folderId === folder.id);
+    const childFolders = folders.filter(f => f.parentId === folder.id);
+
+    return `
+      <div class="fe-tree-folder ${isExpanded ? 'expanded' : ''}">
+        <div class="fe-tree-folder-header" data-folder-id="${folder.id}">
+          <button class="fe-tree-toggle">
+            <i class="ph ph-caret-right"></i>
+          </button>
+          <i class="ph ${isExpanded ? 'ph-folder-open' : 'ph-folder'}"></i>
+          <span class="fe-tree-folder-name">${this._escapeHtml(folder.name)}</span>
+          <span class="fe-tree-folder-count">${folderSources.length}</span>
+        </div>
+        <div class="fe-tree-folder-content" style="${isExpanded ? '' : 'display: none'}">
+          ${childFolders.map(cf => this._renderFileExplorerTreeFolder(cf, sources, folders)).join('')}
+          ${folderSources.map(s => this._renderFileExplorerTreeSource(s)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render a source in tree view
+   */
+  _renderFileExplorerTreeSource(source) {
+    const isSelected = this.fileExplorerSelectedSource?.id === source.id;
+    const icon = this._getSourceIcon(source.name);
+    const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : '';
+
+    return `
+      <div class="fe-tree-source ${isSelected ? 'selected' : ''}"
+           data-source-id="${source.id}" draggable="true">
+        <i class="ph ${icon}"></i>
+        <span class="fe-tree-source-name">${this._escapeHtml(source.name)}</span>
+        <span class="fe-tree-source-meta">${source.recordCount} rows</span>
+        ${source.isFavorite ? '<i class="ph ph-star-fill fe-favorite-icon"></i>' : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * Render list view
+   */
+  _renderFileExplorerListView(sources) {
+    return `
+      <div class="fe-list-view">
+        <div class="fe-list-header">
+          <div class="fe-list-col fe-list-col-name">Name</div>
+          <div class="fe-list-col fe-list-col-type">Type</div>
+          <div class="fe-list-col fe-list-col-rows">Rows</div>
+          <div class="fe-list-col fe-list-col-date">Imported</div>
+          <div class="fe-list-col fe-list-col-tags">Tags</div>
+          <div class="fe-list-col fe-list-col-actions"></div>
+        </div>
+        <div class="fe-list-body">
+          ${sources.map(source => this._renderFileExplorerListRow(source)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render a source row in list view
+   */
+  _renderFileExplorerListRow(source) {
+    const isSelected = this.fileExplorerSelectedSource?.id === source.id;
+    const icon = this._getSourceIcon(source.name);
+    const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : 'Unknown';
+    const fileType = source.fileType?.toUpperCase() || 'FILE';
+    const tags = source.tags || [];
+
+    return `
+      <div class="fe-list-row ${isSelected ? 'selected' : ''}"
+           data-source-id="${source.id}" draggable="true">
+        <div class="fe-list-col fe-list-col-name">
+          <i class="ph ${icon}"></i>
+          <span class="fe-list-source-name">${this._escapeHtml(source.name)}</span>
+          ${source.isFavorite ? '<i class="ph ph-star-fill fe-favorite-icon"></i>' : ''}
+        </div>
+        <div class="fe-list-col fe-list-col-type">
+          <span class="fe-type-badge fe-type-${source.fileType}">${fileType}</span>
+        </div>
+        <div class="fe-list-col fe-list-col-rows">${source.recordCount.toLocaleString()}</div>
+        <div class="fe-list-col fe-list-col-date">${importDate}</div>
+        <div class="fe-list-col fe-list-col-tags">
+          ${tags.slice(0, 3).map(tagId => {
+            const tag = this.folderStore?.getTag(tagId);
+            return tag ? `<span class="fe-tag-mini" style="background: var(--tag-${tag.color})">${this._escapeHtml(tag.name)}</span>` : '';
+          }).join('')}
+          ${tags.length > 3 ? `<span class="fe-tag-more">+${tags.length - 3}</span>` : ''}
+        </div>
+        <div class="fe-list-col fe-list-col-actions">
+          <button class="fe-row-action" data-action="favorite" title="${source.isFavorite ? 'Remove from favorites' : 'Add to favorites'}">
+            <i class="ph ${source.isFavorite ? 'ph-star-fill' : 'ph-star'}"></i>
+          </button>
+          <button class="fe-row-action" data-action="menu" title="More actions">
+            <i class="ph ph-dots-three"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render grid view
+   */
+  _renderFileExplorerGridView(sources) {
+    return `
+      <div class="fe-grid-view">
+        ${sources.map(source => this._renderFileExplorerGridCard(source)).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * Render a source card in grid view
+   */
+  _renderFileExplorerGridCard(source) {
+    const isSelected = this.fileExplorerSelectedSource?.id === source.id;
+    const icon = this._getSourceIcon(source.name);
+    const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : 'Unknown';
+    const tags = source.tags || [];
+
+    // Generate data preview visualization
+    const fieldCount = source.schema?.fields?.length || 0;
+
+    return `
+      <div class="fe-grid-card ${isSelected ? 'selected' : ''}"
+           data-source-id="${source.id}" draggable="true">
+        <div class="fe-grid-card-header">
+          ${source.isFavorite ? '<i class="ph ph-star-fill fe-grid-favorite"></i>' : ''}
+          <button class="fe-grid-menu-btn" data-action="menu">
+            <i class="ph ph-dots-three"></i>
+          </button>
+        </div>
+        <div class="fe-grid-card-preview">
+          <div class="fe-grid-preview-visual">
+            ${this._renderGridPreviewVisualization(source)}
+          </div>
+        </div>
+        <div class="fe-grid-card-info">
+          <div class="fe-grid-card-icon">
+            <i class="ph ${icon}"></i>
+          </div>
+          <div class="fe-grid-card-name" title="${this._escapeHtml(source.name)}">
+            ${this._escapeHtml(this._truncateName(source.name, 25))}
+          </div>
+          <div class="fe-grid-card-meta">
+            <span>${source.recordCount.toLocaleString()} rows</span>
+            <span class="fe-grid-sep">•</span>
+            <span>${fieldCount} fields</span>
+          </div>
+          <div class="fe-grid-card-date">${importDate}</div>
+          ${tags.length > 0 ? `
+            <div class="fe-grid-card-tags">
+              ${tags.slice(0, 2).map(tagId => {
+                const tag = this.folderStore?.getTag(tagId);
+                return tag ? `<span class="fe-tag-mini" style="background: var(--tag-${tag.color})">${this._escapeHtml(tag.name)}</span>` : '';
+              }).join('')}
+              ${tags.length > 2 ? `<span class="fe-tag-more">+${tags.length - 2}</span>` : ''}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render preview visualization for grid cards
+   */
+  _renderGridPreviewVisualization(source) {
+    const fields = source.schema?.fields || [];
+    const cols = Math.min(fields.length, 6);
+    const rows = 4;
+
+    if (cols === 0) {
+      return `<i class="ph ph-file"></i>`;
+    }
+
+    let html = '<div class="fe-preview-table">';
+    for (let r = 0; r < rows; r++) {
+      html += '<div class="fe-preview-row">';
+      for (let c = 0; c < cols; c++) {
+        const filled = Math.random() > 0.2;
+        html += `<div class="fe-preview-cell ${filled ? 'filled' : ''}"></div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Render preview panel for selected source
+   */
+  _renderFileExplorerPreview(source) {
+    const icon = this._getSourceIcon(source.name);
+    const importDate = source.importedAt ? new Date(source.importedAt).toLocaleString() : 'Unknown';
+    const fields = source.schema?.fields || [];
+    const tags = source.tags || [];
+    const allTags = this.folderStore?.getAllTags() || [];
+
+    return `
+      <div class="fe-preview-content">
+        <div class="fe-preview-header">
+          <div class="fe-preview-icon">
+            <i class="ph ${icon}"></i>
+          </div>
+          <div class="fe-preview-title">
+            <h3>${this._escapeHtml(source.name)}</h3>
+            <span class="fe-preview-badge">GIVEN</span>
+          </div>
+          <button class="fe-preview-close" id="fe-preview-close">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+
+        <div class="fe-preview-stats">
+          <div class="fe-preview-stat">
+            <span class="fe-preview-stat-value">${source.recordCount.toLocaleString()}</span>
+            <span class="fe-preview-stat-label">Records</span>
+          </div>
+          <div class="fe-preview-stat">
+            <span class="fe-preview-stat-value">${fields.length}</span>
+            <span class="fe-preview-stat-label">Fields</span>
+          </div>
+          <div class="fe-preview-stat">
+            <span class="fe-preview-stat-value">${source.fileType?.toUpperCase() || 'FILE'}</span>
+            <span class="fe-preview-stat-label">Type</span>
+          </div>
+        </div>
+
+        <div class="fe-preview-section">
+          <div class="fe-preview-section-header">
+            <i class="ph ph-clock"></i>
+            <span>Imported</span>
+          </div>
+          <div class="fe-preview-section-content">
+            ${importDate}
+          </div>
+        </div>
+
+        ${fields.length > 0 ? `
+          <div class="fe-preview-section">
+            <div class="fe-preview-section-header">
+              <i class="ph ph-columns"></i>
+              <span>Fields (${fields.length})</span>
+            </div>
+            <div class="fe-preview-fields">
+              ${fields.slice(0, 10).map(f => `
+                <div class="fe-preview-field">
+                  <i class="ph ${this._getFieldTypeIcon(f.type)}"></i>
+                  <span>${this._escapeHtml(f.name)}</span>
+                  <span class="fe-preview-field-type">${f.type}</span>
+                </div>
+              `).join('')}
+              ${fields.length > 10 ? `<div class="fe-preview-more">+${fields.length - 10} more fields</div>` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="fe-preview-section">
+          <div class="fe-preview-section-header">
+            <i class="ph ph-tag"></i>
+            <span>Tags</span>
+            <button class="fe-preview-add-tag-btn" id="fe-add-source-tag">
+              <i class="ph ph-plus"></i>
+            </button>
+          </div>
+          <div class="fe-preview-tags">
+            ${tags.map(tagId => {
+              const tag = this.folderStore?.getTag(tagId);
+              return tag ? `
+                <span class="fe-preview-tag" style="background: var(--tag-${tag.color})" data-tag-id="${tagId}">
+                  ${this._escapeHtml(tag.name)}
+                  <button class="fe-tag-remove" data-tag-id="${tagId}"><i class="ph ph-x"></i></button>
+                </span>
+              ` : '';
+            }).join('')}
+            ${tags.length === 0 ? '<span class="fe-preview-no-tags">No tags</span>' : ''}
+          </div>
+        </div>
+
+        ${source.provenance ? `
+          <div class="fe-preview-section">
+            <div class="fe-preview-section-header">
+              <i class="ph ph-fingerprint"></i>
+              <span>Provenance</span>
+            </div>
+            <div class="fe-preview-provenance">
+              ${source.provenance.agent ? `<div><strong>Agent:</strong> ${this._escapeHtml(source.provenance.agent)}</div>` : ''}
+              ${source.provenance.method ? `<div><strong>Method:</strong> ${this._escapeHtml(source.provenance.method)}</div>` : ''}
+              ${source.provenance.source ? `<div><strong>Source:</strong> ${this._escapeHtml(source.provenance.source)}</div>` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="fe-preview-actions">
+          <button class="btn btn-primary fe-preview-action" id="fe-preview-view-data">
+            <i class="ph ph-table"></i>
+            <span>View Data</span>
+          </button>
+          <button class="btn btn-secondary fe-preview-action" id="fe-preview-create-set">
+            <i class="ph ph-plus-circle"></i>
+            <span>Create Set</span>
+          </button>
+          <button class="btn btn-secondary fe-preview-action" id="fe-preview-export">
+            <i class="ph ph-export"></i>
+            <span>Export</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Get field type icon
+   */
+  _getFieldTypeIcon(type) {
+    const icons = {
+      text: 'ph-text-aa',
+      number: 'ph-hash',
+      integer: 'ph-hash',
+      date: 'ph-calendar',
+      boolean: 'ph-check-square',
+      email: 'ph-envelope',
+      url: 'ph-globe',
+      phone: 'ph-phone',
+      json: 'ph-brackets-curly'
+    };
+    return icons[type] || 'ph-text-aa';
+  }
+
+  /**
+   * Truncate name for display
+   */
+  _truncateName(name, maxLen = 30) {
+    if (!name || name.length <= maxLen) return name;
+    const ext = name.includes('.') ? '.' + name.split('.').pop() : '';
+    const baseName = name.slice(0, name.length - ext.length);
+    const truncLen = maxLen - ext.length - 3;
+    return truncLen > 0 ? baseName.slice(0, truncLen) + '...' + ext : name.slice(0, maxLen - 3) + '...';
+  }
+
+  /**
+   * Attach File Explorer event handlers
+   */
+  _attachFileExplorerEventHandlers() {
+    const container = document.querySelector('.file-explorer');
+    if (!container) return;
+
+    // Close button
+    container.querySelector('#fe-close-btn')?.addEventListener('click', () => {
+      this._closeFileExplorer();
+    });
+
+    // Import button
+    container.querySelectorAll('#fe-import-btn, #fe-empty-import-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._showImportModal();
+      });
+    });
+
+    // View mode toggle
+    container.querySelectorAll('.fe-view-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.fileExplorerViewMode = btn.dataset.view;
+        this._renderFileExplorer();
+      });
+    });
+
+    // Search
+    const searchInput = container.querySelector('#fe-search');
+    searchInput?.addEventListener('input', (e) => {
+      this.fileExplorerSearchTerm = e.target.value;
+      this._updateFileExplorerContent();
+    });
+
+    container.querySelector('#fe-search-clear')?.addEventListener('click', () => {
+      this.fileExplorerSearchTerm = '';
+      this._renderFileExplorer();
+    });
+
+    // Sidebar filters (smart folders and tags)
+    container.querySelectorAll('.fe-sidebar-item[data-filter-type]').forEach(item => {
+      item.addEventListener('click', () => {
+        const type = item.dataset.filterType;
+        const id = item.dataset.filterId;
+        this.fileExplorerActiveFilter = type === 'tag' ? `tag_${id}` : id;
+        this.fileExplorerCurrentFolder = null;
+        this._renderFileExplorer();
+      });
+    });
+
+    // Folder clicks
+    container.querySelectorAll('.fe-folder-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.fe-folder-toggle')) return;
+        const folderId = item.dataset.folderId;
+        this.fileExplorerActiveFilter = `folder_${folderId}`;
+        this.fileExplorerCurrentFolder = folderId;
+        this._renderFileExplorer();
+      });
+    });
+
+    // Folder toggles
+    container.querySelectorAll('.fe-folder-toggle').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const folderId = btn.dataset.folderId;
+        if (this.fileExplorerExpandedFolders.has(folderId)) {
+          this.fileExplorerExpandedFolders.delete(folderId);
+        } else {
+          this.fileExplorerExpandedFolders.add(folderId);
+        }
+        this._renderFileExplorer();
+      });
+    });
+
+    // Add folder button
+    container.querySelector('#fe-add-folder-btn')?.addEventListener('click', () => {
+      this._showCreateFolderModal();
+    });
+
+    // Add tag button
+    container.querySelector('#fe-add-tag-btn')?.addEventListener('click', () => {
+      this._showCreateTagModal();
+    });
+
+    // Breadcrumb navigation
+    container.querySelectorAll('.fe-breadcrumb-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const folderId = item.dataset.folderId;
+        this.fileExplorerCurrentFolder = folderId || null;
+        if (!folderId) {
+          this.fileExplorerActiveFilter = 'smart_all';
+        } else {
+          this.fileExplorerActiveFilter = `folder_${folderId}`;
+        }
+        this._renderFileExplorer();
+      });
+    });
+
+    // Source selection
+    container.querySelectorAll('.fe-tree-source, .fe-list-row, .fe-grid-card').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.fe-row-action, .fe-grid-menu-btn')) return;
+        const sourceId = item.dataset.sourceId;
+        this._selectFileExplorerSource(sourceId);
+      });
+
+      item.addEventListener('dblclick', (e) => {
+        const sourceId = item.dataset.sourceId;
+        this._closeFileExplorer();
+        this._showSourceDetail(sourceId);
+      });
+    });
+
+    // Row actions
+    container.querySelectorAll('.fe-row-action, .fe-grid-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        const row = btn.closest('[data-source-id]');
+        const sourceId = row?.dataset.sourceId;
+
+        if (action === 'favorite') {
+          this._toggleSourceFavorite(sourceId);
+        } else if (action === 'menu') {
+          this._showFileExplorerSourceMenu(e, sourceId);
+        }
+      });
+    });
+
+    // Tree view folder expansion
+    container.querySelectorAll('.fe-tree-folder-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const folderId = header.dataset.folderId;
+        if (this.fileExplorerExpandedFolders.has(folderId)) {
+          this.fileExplorerExpandedFolders.delete(folderId);
+        } else {
+          this.fileExplorerExpandedFolders.add(folderId);
+        }
+        this._updateFileExplorerContent();
+      });
+    });
+
+    // Preview panel actions
+    container.querySelector('#fe-preview-close')?.addEventListener('click', () => {
+      this.fileExplorerSelectedSource = null;
+      this._renderFileExplorer();
+    });
+
+    container.querySelector('#fe-preview-view-data')?.addEventListener('click', () => {
+      const sourceId = this.fileExplorerSelectedSource?.id;
+      if (sourceId) {
+        this._closeFileExplorer();
+        this._showSourceDetail(sourceId);
+      }
+    });
+
+    container.querySelector('#fe-preview-create-set')?.addEventListener('click', () => {
+      const sourceId = this.fileExplorerSelectedSource?.id;
+      if (sourceId) {
+        this._closeFileExplorer();
+        this._showSetFromSourceUI(sourceId);
+      }
+    });
+
+    container.querySelector('#fe-preview-export')?.addEventListener('click', () => {
+      const sourceId = this.fileExplorerSelectedSource?.id;
+      if (sourceId) {
+        this._exportSource(sourceId);
+      }
+    });
+
+    // Tag management in preview
+    container.querySelector('#fe-add-source-tag')?.addEventListener('click', () => {
+      this._showAddTagToSourceModal();
+    });
+
+    container.querySelectorAll('.fe-tag-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const tagId = btn.dataset.tagId;
+        if (this.fileExplorerSelectedSource && this.sourceStore) {
+          this.sourceStore.removeSourceTag(this.fileExplorerSelectedSource.id, tagId);
+          this._selectFileExplorerSource(this.fileExplorerSelectedSource.id);
+        }
+      });
+    });
+
+    // Drag and drop for organizing
+    this._attachFileExplorerDragDrop(container);
+  }
+
+  /**
+   * Update content area without full re-render
+   */
+  _updateFileExplorerContent() {
+    const container = document.getElementById('fe-sources-container');
+    if (!container) return;
+
+    const allSources = this._getFileExplorerSources();
+    const filteredSources = this._filterFileExplorerSources(allSources);
+    const folders = this.folderStore?.getAll() || [];
+
+    container.innerHTML = this._renderFileExplorerContent(filteredSources, folders);
+    this._attachFileExplorerEventHandlers();
+  }
+
+  /**
+   * Select a source in file explorer
+   */
+  _selectFileExplorerSource(sourceId) {
+    const sources = this._getFileExplorerSources();
+    this.fileExplorerSelectedSource = sources.find(s => s.id === sourceId) || null;
+    this._renderFileExplorer();
+  }
+
+  /**
+   * Toggle favorite status for a source
+   */
+  _toggleSourceFavorite(sourceId) {
+    if (!this.sourceStore) return;
+
+    this.sourceStore.toggleFavorite(sourceId);
+
+    // Refresh the selected source if it's the one we just toggled
+    if (this.fileExplorerSelectedSource?.id === sourceId) {
+      const sources = this._getFileExplorerSources();
+      this.fileExplorerSelectedSource = sources.find(s => s.id === sourceId) || null;
+    }
+
+    this._renderFileExplorer();
+  }
+
+  /**
+   * Show context menu for a source
+   */
+  _showFileExplorerSourceMenu(e, sourceId) {
+    const source = this._getFileExplorerSources().find(s => s.id === sourceId);
+    if (!source) return;
+
+    const menu = [
+      { icon: 'ph-info', label: 'View Details', action: () => { this._closeFileExplorer(); this._showSourceDetail(sourceId); } },
+      { icon: 'ph-table', label: 'Create Set from Source...', action: () => { this._closeFileExplorer(); this._showSetFromSourceUI(sourceId); } },
+      { icon: 'ph-intersect', label: 'Join with Another Source...', action: () => { this._closeFileExplorer(); this._showJoinBuilderUI(sourceId); } },
+      { divider: true },
+      { icon: source.isFavorite ? 'ph-star' : 'ph-star-fill', label: source.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', action: () => this._toggleSourceFavorite(sourceId) },
+      { icon: 'ph-folder', label: 'Move to Folder...', action: () => this._showMoveToFolderModal(sourceId) },
+      { icon: 'ph-tag', label: 'Add Tags...', action: () => { this._selectFileExplorerSource(sourceId); this._showAddTagToSourceModal(); } },
+      { divider: true },
+      { icon: 'ph-export', label: 'Export Source Data', action: () => this._exportSource(sourceId) }
+    ];
+
+    this._showContextMenu(e.pageX, e.pageY, menu);
+  }
+
+  /**
+   * Attach drag and drop handlers
+   */
+  _attachFileExplorerDragDrop(container) {
+    let draggedSourceId = null;
+
+    // Source drag start
+    container.querySelectorAll('[draggable="true"]').forEach(item => {
+      item.addEventListener('dragstart', (e) => {
+        draggedSourceId = item.dataset.sourceId;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', draggedSourceId);
+        item.classList.add('dragging');
+      });
+
+      item.addEventListener('dragend', () => {
+        draggedSourceId = null;
+        item.classList.remove('dragging');
+        container.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+      });
+    });
+
+    // Folder drop targets
+    container.querySelectorAll('.fe-folder-item, .fe-tree-folder-header').forEach(folder => {
+      folder.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        folder.classList.add('drop-target');
+      });
+
+      folder.addEventListener('dragleave', () => {
+        folder.classList.remove('drop-target');
+      });
+
+      folder.addEventListener('drop', (e) => {
+        e.preventDefault();
+        folder.classList.remove('drop-target');
+        const folderId = folder.dataset.folderId;
+        if (draggedSourceId && folderId && this.sourceStore) {
+          this.sourceStore.updateSourceFolder(draggedSourceId, folderId);
+          this._renderFileExplorer();
+          this._showToast('Source moved to folder', 'success');
+        }
+      });
+    });
+
+    // Root drop target (remove from folder)
+    const breadcrumbRoot = container.querySelector('.fe-breadcrumb-item.root');
+    if (breadcrumbRoot) {
+      breadcrumbRoot.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        breadcrumbRoot.classList.add('drop-target');
+      });
+
+      breadcrumbRoot.addEventListener('dragleave', () => {
+        breadcrumbRoot.classList.remove('drop-target');
+      });
+
+      breadcrumbRoot.addEventListener('drop', (e) => {
+        e.preventDefault();
+        breadcrumbRoot.classList.remove('drop-target');
+        if (draggedSourceId && this.sourceStore) {
+          this.sourceStore.updateSourceFolder(draggedSourceId, null);
+          this._renderFileExplorer();
+          this._showToast('Source moved to root', 'success');
+        }
+      });
+    }
+  }
+
+  /**
+   * Show modal to create a new folder
+   */
+  _showCreateFolderModal() {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h3><i class="ph ph-folder-plus"></i> New Folder</h3>
+          <button class="modal-close"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Folder Name</label>
+            <input type="text" id="new-folder-name" placeholder="Enter folder name" autofocus>
+          </div>
+          <div class="form-group">
+            <label>Parent Folder (optional)</label>
+            <select id="new-folder-parent">
+              <option value="">Root</option>
+              ${(this.folderStore?.getAll() || []).map(f =>
+                `<option value="${f.id}">${this._escapeHtml(f.name)}</option>`
+              ).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="create-folder-btn">Create Folder</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+
+    modal.querySelector('.modal-close').addEventListener('click', closeModal);
+    modal.querySelector('.modal-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    modal.querySelector('#create-folder-btn').addEventListener('click', () => {
+      const name = modal.querySelector('#new-folder-name').value.trim();
+      const parentId = modal.querySelector('#new-folder-parent').value || null;
+
+      if (name && this.folderStore) {
+        this.folderStore.createFolder({ name, parentId });
+        closeModal();
+        this._renderFileExplorer();
+        this._showToast('Folder created', 'success');
+      }
+    });
+
+    modal.querySelector('#new-folder-name').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') modal.querySelector('#create-folder-btn').click();
+    });
+  }
+
+  /**
+   * Show modal to create a new tag
+   */
+  _showCreateTagModal() {
+    const colors = ['blue', 'green', 'yellow', 'red', 'purple', 'pink', 'orange', 'cyan', 'indigo', 'teal'];
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h3><i class="ph ph-tag"></i> New Tag</h3>
+          <button class="modal-close"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Tag Name</label>
+            <input type="text" id="new-tag-name" placeholder="Enter tag name" autofocus>
+          </div>
+          <div class="form-group">
+            <label>Color</label>
+            <div class="color-picker">
+              ${colors.map((c, i) => `
+                <button class="color-option ${i === 0 ? 'selected' : ''}"
+                        data-color="${c}"
+                        style="background: var(--tag-${c})"></button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="create-tag-btn">Create Tag</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    let selectedColor = colors[0];
+
+    modal.querySelectorAll('.color-option').forEach(btn => {
+      btn.addEventListener('click', () => {
+        modal.querySelectorAll('.color-option').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        selectedColor = btn.dataset.color;
+      });
+    });
+
+    const closeModal = () => modal.remove();
+
+    modal.querySelector('.modal-close').addEventListener('click', closeModal);
+    modal.querySelector('.modal-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    modal.querySelector('#create-tag-btn').addEventListener('click', () => {
+      const name = modal.querySelector('#new-tag-name').value.trim();
+
+      if (name && this.folderStore) {
+        this.folderStore.createTag(name, selectedColor);
+        closeModal();
+        this._renderFileExplorer();
+        this._showToast('Tag created', 'success');
+      }
+    });
+
+    modal.querySelector('#new-tag-name').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') modal.querySelector('#create-tag-btn').click();
+    });
+  }
+
+  /**
+   * Show modal to add tags to a source
+   */
+  _showAddTagToSourceModal() {
+    if (!this.fileExplorerSelectedSource) return;
+
+    const source = this.fileExplorerSelectedSource;
+    const currentTags = source.tags || [];
+    const allTags = this.folderStore?.getAllTags() || [];
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h3><i class="ph ph-tag"></i> Add Tags</h3>
+          <button class="modal-close"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+          ${allTags.length > 0 ? `
+            <div class="tag-selection">
+              ${allTags.map(tag => `
+                <label class="tag-checkbox">
+                  <input type="checkbox" value="${tag.id}" ${currentTags.includes(tag.id) ? 'checked' : ''}>
+                  <span class="tag-label" style="background: var(--tag-${tag.color})">${this._escapeHtml(tag.name)}</span>
+                </label>
+              `).join('')}
+            </div>
+          ` : '<p>No tags available. Create a tag first.</p>'}
+          <div class="form-group" style="margin-top: 16px;">
+            <input type="text" id="quick-add-tag" placeholder="Quick add new tag...">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="save-tags-btn">Save</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+
+    modal.querySelector('.modal-close').addEventListener('click', closeModal);
+    modal.querySelector('.modal-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    modal.querySelector('#save-tags-btn').addEventListener('click', () => {
+      const selectedTags = Array.from(modal.querySelectorAll('.tag-checkbox input:checked'))
+        .map(cb => cb.value);
+
+      // Quick add new tag
+      const quickAddInput = modal.querySelector('#quick-add-tag');
+      const newTagName = quickAddInput?.value.trim();
+      if (newTagName && this.folderStore) {
+        const newTag = this.folderStore.createTag(newTagName);
+        selectedTags.push(newTag.id);
+      }
+
+      if (this.sourceStore) {
+        this.sourceStore.updateSourceTags(source.id, selectedTags);
+      }
+
+      closeModal();
+      this._selectFileExplorerSource(source.id);
+      this._showToast('Tags updated', 'success');
+    });
+  }
+
+  /**
+   * Show modal to move source to folder
+   */
+  _showMoveToFolderModal(sourceId) {
+    const source = this._getFileExplorerSources().find(s => s.id === sourceId);
+    if (!source) return;
+
+    const folders = this.folderStore?.getAll() || [];
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal modal-sm">
+        <div class="modal-header">
+          <h3><i class="ph ph-folder"></i> Move to Folder</h3>
+          <button class="modal-close"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <p>Move "${this._escapeHtml(source.name)}" to:</p>
+          <div class="folder-selection">
+            <label class="folder-radio">
+              <input type="radio" name="folder" value="" ${!source.folderId ? 'checked' : ''}>
+              <span><i class="ph ph-house"></i> Root (No folder)</span>
+            </label>
+            ${folders.map(f => `
+              <label class="folder-radio">
+                <input type="radio" name="folder" value="${f.id}" ${source.folderId === f.id ? 'checked' : ''}>
+                <span><i class="ph ph-folder"></i> ${this._escapeHtml(f.name)}</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary modal-cancel">Cancel</button>
+          <button class="btn btn-primary" id="move-source-btn">Move</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const closeModal = () => modal.remove();
+
+    modal.querySelector('.modal-close').addEventListener('click', closeModal);
+    modal.querySelector('.modal-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    modal.querySelector('#move-source-btn').addEventListener('click', () => {
+      const selectedFolder = modal.querySelector('input[name="folder"]:checked')?.value || null;
+
+      if (this.sourceStore) {
+        this.sourceStore.updateSourceFolder(sourceId, selectedFolder);
+      }
+
+      closeModal();
+      this._renderFileExplorer();
+      this._showToast('Source moved', 'success');
+    });
+  }
+
+  /**
+   * Update breadcrumb for file explorer
+   */
+  _updateBreadcrumb(name, icon) {
+    const setName = document.getElementById('current-set-name');
+    const viewName = document.getElementById('current-view-name');
+
+    if (setName) {
+      setName.innerHTML = `<i class="ph ${icon}"></i> ${this._escapeHtml(name)}`;
+    }
+    if (viewName) {
+      viewName.style.display = 'none';
+    }
+  }
+
+  // ==========================================================================
+  // End File Explorer
+  // ==========================================================================
+
   /**
    * Get source registry from sets
    */
@@ -3429,6 +4826,11 @@ class EODataWorkbench {
     // Create new SourceStore
     const eventStore = this.eoApp?.eventStore || null;
     this.sourceStore = new SourceStore(eventStore);
+
+    // Create FolderStore for file organization
+    if (typeof FolderStore !== 'undefined' && !this.folderStore) {
+      this.folderStore = new FolderStore();
+    }
 
     // Migrate existing sources from legacy format
     this._migrateLegacySourcesToStore();
