@@ -14636,6 +14636,94 @@ body.has-picked-up .browser-tab:hover {
   filter: brightness(1.1);
 }
 
+/* Selection Bar */
+.file-explorer-selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(139, 92, 246, 0.1));
+  border-bottom: 1px solid var(--accent);
+  gap: 16px;
+}
+
+.fe-selection-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fe-selection-clear {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fe-selection-clear:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.fe-selection-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.fe-selection-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fe-selection-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fe-selection-action:hover {
+  filter: brightness(1.1);
+}
+
+.fe-selection-action.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.fe-selection-action.secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.fe-selection-action.danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+.fe-selection-action.danger:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.fe-selection-action i {
+  font-size: 14px;
+}
+
 /* Main Layout */
 .file-explorer-main {
   display: flex;
@@ -14962,8 +15050,40 @@ body.has-picked-up .browser-tab:hover {
   background: var(--bg-active);
 }
 
+.fe-list-row.checked {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.fe-list-row.checked:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
 .fe-list-row.dragging {
   opacity: 0.5;
+}
+
+/* Checkbox column */
+.fe-list-col-checkbox {
+  width: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fe-source-checkbox,
+.fe-select-all-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.fe-grid-checkbox {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
 }
 
 .fe-list-source-name {
@@ -15080,6 +15200,15 @@ body.has-picked-up .browser-tab:hover {
   box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
 }
 
+.fe-grid-card.checked {
+  border-color: var(--accent);
+  background: rgba(59, 130, 246, 0.05);
+}
+
+.fe-grid-card.checked:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
 .fe-grid-card.dragging {
   opacity: 0.5;
 }
@@ -15089,6 +15218,7 @@ body.has-picked-up .browser-tab:hover {
   justify-content: space-between;
   padding: 8px 10px;
   min-height: 28px;
+  position: relative;
 }
 
 .fe-grid-favorite {
