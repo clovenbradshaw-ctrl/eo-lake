@@ -2846,7 +2846,10 @@ class EODataWorkbench {
             </div>
             <div class="source-viewer-info">
               <h2>
-                ${this._escapeHtml(source.name)}
+                <span id="source-name-display">${this._escapeHtml(source.name)}</span>
+                <button class="source-name-edit-btn" id="source-name-edit-btn" title="Rename source">
+                  <i class="ph ph-pencil-simple"></i>
+                </button>
                 <span class="given-badge">
                   <i class="ph ph-lock-simple"></i>
                   GIVEN
@@ -2933,39 +2936,37 @@ class EODataWorkbench {
           <div class="source-provenance-header">
             <i class="ph ph-fingerprint"></i>
             <span>Provenance</span>
+            <button class="source-prov-edit-all-btn" id="source-prov-edit-btn" title="Edit provenance metadata">
+              <i class="ph ph-pencil-simple"></i>
+            </button>
           </div>
-          <div class="source-provenance-items">
-            ${this._getProvenanceValue(source.provenance?.agent) ? `
-              <div class="source-provenance-item">
-                <i class="ph ph-user"></i>
-                <div>
-                  <span class="label">Agent</span>
-                  <span class="value">${this._escapeHtml(this._getProvenanceValue(source.provenance.agent))}</span>
-                </div>
-              </div>
-            ` : ''}
-            ${this._getProvenanceValue(source.provenance?.method) ? `
-              <div class="source-provenance-item">
-                <i class="ph ph-gear"></i>
-                <div>
-                  <span class="label">Method</span>
-                  <span class="value">${this._escapeHtml(this._getProvenanceValue(source.provenance.method))}</span>
-                </div>
-              </div>
-            ` : ''}
-            ${this._getProvenanceValue(source.provenance?.source) ? `
-              <div class="source-provenance-item">
-                <i class="ph ph-link"></i>
-                <div>
-                  <span class="label">Origin</span>
-                  <span class="value">${this._escapeHtml(this._getProvenanceValue(source.provenance.source))}</span>
-                </div>
-              </div>
-            ` : ''}
+          <div class="source-provenance-items" id="source-provenance-items">
+            ${this._renderSourceProvenanceItems(source)}
           </div>
+          ${source.editHistory && source.editHistory.length > 0 ? `
+            <div class="source-edit-history">
+              <div class="source-edit-history-header" id="source-edit-history-toggle">
+                <i class="ph ph-clock-counter-clockwise"></i>
+                <span>Edit History (${source.editHistory.length})</span>
+                <i class="ph ph-caret-down"></i>
+              </div>
+              <div class="source-edit-history-items" id="source-edit-history-items" style="display: none;">
+                ${source.editHistory.slice(0, 10).map(edit => `
+                  <div class="source-edit-history-item">
+                    <div class="edit-timestamp">${new Date(edit.timestamp).toLocaleString()}</div>
+                    <div class="edit-details">
+                      <span class="edit-field">${this._escapeHtml(edit.field)}</span>:
+                      <span class="edit-old">${this._escapeHtml(String(edit.oldValue || '(empty)'))}</span>
+                      → <span class="edit-new">${this._escapeHtml(String(edit.newValue || '(empty)'))}</span>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          ` : ''}
           <div class="source-immutable-notice">
             <i class="ph ph-lock"></i>
-            <p><strong>Read-only source.</strong> This data is immutable. To modify records, create a derived Set.</p>
+            <p><strong>Read-only source data.</strong> Records are immutable. Metadata (name, provenance) can be edited with full history tracking.</p>
           </div>
           ${derivedSets.length > 0 ? `
             <div class="source-derived-sets">
@@ -3017,6 +3018,262 @@ class EODataWorkbench {
         this.currentSourceId = null; // Clear source view
         this._selectSet(setId);
       });
+    });
+
+    // Name edit button
+    document.getElementById('source-name-edit-btn')?.addEventListener('click', () => {
+      this._renameSource(source.id);
+    });
+
+    // Provenance edit button
+    document.getElementById('source-prov-edit-btn')?.addEventListener('click', () => {
+      this._editSourceProvenance(source.id);
+    });
+
+    // Edit history toggle
+    document.getElementById('source-edit-history-toggle')?.addEventListener('click', () => {
+      const items = document.getElementById('source-edit-history-items');
+      const toggle = document.getElementById('source-edit-history-toggle');
+      if (items && toggle) {
+        const isHidden = items.style.display === 'none';
+        items.style.display = isHidden ? 'block' : 'none';
+        toggle.querySelector('.ph-caret-down, .ph-caret-up')?.classList.toggle('ph-caret-down', !isHidden);
+        toggle.querySelector('.ph-caret-down, .ph-caret-up')?.classList.toggle('ph-caret-up', isHidden);
+      }
+    });
+  }
+
+  /**
+   * Render source provenance items for display
+   * Shows all 9 provenance elements with values or placeholders
+   */
+  _renderSourceProvenanceItems(source) {
+    const provenanceFields = [
+      { key: 'agent', label: 'Agent', icon: 'ph-user', description: 'Who provided this data' },
+      { key: 'method', label: 'Method', icon: 'ph-gear', description: 'How it was produced' },
+      { key: 'source', label: 'Origin', icon: 'ph-link', description: 'Where it came from' },
+      { key: 'term', label: 'Term', icon: 'ph-tag', description: 'Key concept' },
+      { key: 'definition', label: 'Definition', icon: 'ph-book-open', description: 'What the term means' },
+      { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-globe', description: 'Scope or authority' },
+      { key: 'scale', label: 'Scale', icon: 'ph-chart-line', description: 'Operational level' },
+      { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', description: 'Observation period' },
+      { key: 'background', label: 'Background', icon: 'ph-info', description: 'Enabling conditions' }
+    ];
+
+    return provenanceFields.map(field => {
+      const value = this._getProvenanceValue(source.provenance?.[field.key]);
+      const displayValue = value || '(not set)';
+      const isEmpty = !value;
+
+      return `
+        <div class="source-provenance-item ${isEmpty ? 'empty' : ''}">
+          <i class="ph ${field.icon}"></i>
+          <div>
+            <span class="label">${field.label}</span>
+            <span class="value ${isEmpty ? 'placeholder' : ''}" title="${field.description}">${this._escapeHtml(displayValue)}</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  /**
+   * Rename a source - opens inline editor
+   */
+  _renameSource(sourceId) {
+    const source = this.sources?.find(s => s.id === sourceId);
+    if (!source) {
+      this._showToast('Source not found', 'error');
+      return;
+    }
+
+    const nameDisplay = document.getElementById('source-name-display');
+    if (!nameDisplay) {
+      // Fall back to prompt if not in source view
+      const newName = prompt('Rename source:', source.name);
+      if (newName && newName.trim() && newName !== source.name) {
+        this._updateSourceName(source, newName.trim());
+      }
+      return;
+    }
+
+    const oldName = source.name;
+    const rect = nameDisplay.getBoundingClientRect();
+
+    // Create inline editor
+    nameDisplay.innerHTML = `
+      <input type="text" class="source-name-input" id="source-name-input"
+             value="${this._escapeHtml(oldName)}"
+             style="font-size: inherit; font-weight: inherit; padding: 2px 8px;
+                    border: 2px solid var(--primary-500); border-radius: 4px;
+                    outline: none; min-width: 200px;">
+    `;
+
+    const input = document.getElementById('source-name-input');
+    input.focus();
+    input.select();
+
+    const saveEdit = () => {
+      const newName = input.value.trim();
+      if (newName && newName !== oldName) {
+        this._updateSourceName(source, newName);
+      } else {
+        nameDisplay.textContent = oldName;
+      }
+    };
+
+    input.addEventListener('blur', saveEdit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveEdit();
+      } else if (e.key === 'Escape') {
+        nameDisplay.textContent = oldName;
+      }
+    });
+  }
+
+  /**
+   * Update source name with history tracking
+   */
+  _updateSourceName(source, newName) {
+    const oldName = source.name;
+
+    // Initialize edit history if needed
+    if (!source.editHistory) {
+      source.editHistory = [];
+    }
+
+    // Record the edit
+    source.editHistory.unshift({
+      timestamp: new Date().toISOString(),
+      field: 'name',
+      oldValue: oldName,
+      newValue: newName,
+      actor: 'user' // Could be expanded to track actual user
+    });
+
+    // Update the name
+    source.name = newName;
+    source.updatedAt = new Date().toISOString();
+
+    // Save and refresh
+    this._saveData();
+    this._renderSidebar();
+    this._showSourceDetail(source.id);
+    this._showToast(`Source renamed to "${newName}"`, 'success');
+  }
+
+  /**
+   * Edit source provenance - opens modal with all 9 fields
+   */
+  _editSourceProvenance(sourceId) {
+    const source = this.sources?.find(s => s.id === sourceId);
+    if (!source) {
+      this._showToast('Source not found', 'error');
+      return;
+    }
+
+    const provenanceFields = [
+      { key: 'agent', label: 'Agent', icon: 'ph-user', description: 'Who provided this data' },
+      { key: 'method', label: 'Method', icon: 'ph-gear', description: 'How it was produced' },
+      { key: 'source', label: 'Origin', icon: 'ph-link', description: 'Where it came from' },
+      { key: 'term', label: 'Term', icon: 'ph-tag', description: 'Key concept' },
+      { key: 'definition', label: 'Definition', icon: 'ph-book-open', description: 'What the term means' },
+      { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-globe', description: 'Scope or authority' },
+      { key: 'scale', label: 'Scale', icon: 'ph-chart-line', description: 'Operational level' },
+      { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', description: 'Observation period' },
+      { key: 'background', label: 'Background', icon: 'ph-info', description: 'Enabling conditions' }
+    ];
+
+    const html = `
+      <div class="source-provenance-edit-modal">
+        <h3>
+          <i class="ph ph-fingerprint"></i>
+          Edit Provenance Metadata
+        </h3>
+        <p class="modal-subtitle">All changes are tracked in edit history.</p>
+
+        <div class="provenance-edit-grid">
+          ${provenanceFields.map(field => {
+            const currentValue = this._getProvenanceValue(source.provenance?.[field.key]) || '';
+            return `
+              <div class="provenance-edit-field">
+                <label for="prov-${field.key}">
+                  <i class="ph ${field.icon}"></i>
+                  ${field.label}
+                </label>
+                <input type="text"
+                       id="prov-${field.key}"
+                       name="${field.key}"
+                       value="${this._escapeHtml(currentValue)}"
+                       placeholder="${field.description}">
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+
+    this._showModal('Edit Provenance', html, [
+      { label: 'Cancel', action: 'close' },
+      { label: 'Save Changes', action: 'save', primary: true }
+    ], (action) => {
+      if (action === 'save') {
+        const changes = [];
+
+        // Ensure source.provenance exists and is not frozen
+        // Create a new provenance object since the original may be frozen
+        const newProvenance = { ...(source.provenance || {}) };
+
+        provenanceFields.forEach(field => {
+          const input = document.getElementById(`prov-${field.key}`);
+          if (input) {
+            const newValue = input.value.trim();
+            const oldValue = this._getProvenanceValue(source.provenance?.[field.key]) || '';
+
+            if (newValue !== oldValue) {
+              changes.push({
+                field: `provenance.${field.key}`,
+                oldValue,
+                newValue
+              });
+              newProvenance[field.key] = newValue || null;
+            }
+          }
+        });
+
+        if (changes.length > 0) {
+          // Replace provenance with new unfrozen object
+          source.provenance = newProvenance;
+
+          // Initialize edit history if needed
+          if (!source.editHistory) {
+            source.editHistory = [];
+          }
+
+          // Record all changes
+          const timestamp = new Date().toISOString();
+          changes.forEach(change => {
+            source.editHistory.unshift({
+              timestamp,
+              field: change.field,
+              oldValue: change.oldValue,
+              newValue: change.newValue,
+              actor: 'user'
+            });
+          });
+
+          source.updatedAt = timestamp;
+
+          // Save and refresh
+          this._saveData();
+          this._showSourceDetail(source.id);
+          this._showToast(`Updated ${changes.length} provenance field${changes.length > 1 ? 's' : ''}`, 'success');
+        } else {
+          this._showToast('No changes made', 'info');
+        }
+      }
     });
   }
 
@@ -4599,6 +4856,9 @@ class EODataWorkbench {
   _showSourceContextMenu(e, sourceId) {
     const menu = [
       { icon: 'ph-info', label: 'View Details', action: () => this._showSourceDetail(sourceId) },
+      { icon: 'ph-pencil', label: 'Rename Source...', action: () => this._renameSource(sourceId) },
+      { icon: 'ph-fingerprint', label: 'Edit Provenance...', action: () => this._editSourceProvenance(sourceId) },
+      { divider: true },
       { icon: 'ph-table', label: 'Create Set from Source...', action: () => this._showSetFromSourceUI(sourceId) },
       { icon: 'ph-intersect', label: 'Join with Another Source...', action: () => this._showJoinBuilderUI(sourceId) },
       { divider: true },
