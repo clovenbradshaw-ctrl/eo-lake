@@ -1857,14 +1857,21 @@ class EODataWorkbench {
 
     this._showModal('Create New Set', html, null, { hideFooter: true });
 
-    // Attach handlers
-    document.querySelectorAll('.creation-intent-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const intent = btn.dataset.intent;
-        this._closeModal();
-        this._handleCreationIntent(intent);
-      });
-    });
+    // Use event delegation on modal body for more reliable click handling
+    const modalBody = document.getElementById('modal-body');
+    if (modalBody) {
+      const handleIntentClick = (e) => {
+        const btn = e.target.closest('.creation-intent-btn');
+        if (btn) {
+          const intent = btn.dataset.intent;
+          // Remove the event listener before closing to prevent memory leaks
+          modalBody.removeEventListener('click', handleIntentClick);
+          this._closeModal();
+          this._handleCreationIntent(intent);
+        }
+      };
+      modalBody.addEventListener('click', handleIntentClick);
+    }
   }
 
   /**
@@ -12852,7 +12859,7 @@ class EODataWorkbench {
   // Modals
   // --------------------------------------------------------------------------
 
-  _showModal(title, content, onConfirm) {
+  _showModal(title, content, onConfirm, options = {}) {
     const overlay = this.elements.modal;
     const modal = overlay?.querySelector('.modal');
     if (!overlay || !modal) return;
@@ -12860,13 +12867,27 @@ class EODataWorkbench {
     modal.querySelector('.modal-title').textContent = title;
     modal.querySelector('.modal-body').innerHTML = content;
 
+    // Handle hideFooter option
+    const footer = document.getElementById('modal-footer');
+    if (footer) {
+      footer.style.display = options.hideFooter ? 'none' : '';
+    }
+
+    // Reset confirm button text when showing a new modal
+    const confirmBtn = document.getElementById('modal-confirm');
+    if (confirmBtn && !options.hideFooter) {
+      confirmBtn.innerHTML = 'Save';
+      confirmBtn.disabled = false;
+    }
+
     overlay.classList.add('active');
 
-    const confirmBtn = document.getElementById('modal-confirm');
-    confirmBtn.onclick = () => {
-      if (onConfirm) onConfirm();
-      this._closeModal();
-    };
+    if (confirmBtn) {
+      confirmBtn.onclick = () => {
+        if (onConfirm) onConfirm();
+        this._closeModal();
+      };
+    }
   }
 
   _closeModal() {
