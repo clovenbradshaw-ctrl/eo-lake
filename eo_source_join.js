@@ -384,7 +384,8 @@ class SetCreator {
       parentSourceId: sourceId,
       constraint: {
         selectedFields: selectedFields.map(f => f.name),
-        filters: filters
+        filters: filters,
+        advancedFilters: options.advancedFilters || null // Store full nested filter structure
       },
       derivedBy: options.actor || 'user',
       derivedAt: timestamp
@@ -1693,11 +1694,869 @@ class JoinBuilderUI {
 
 
 // ============================================================================
+// Advanced Filter Builder Component
+// ============================================================================
+
+/**
+ * AdvancedFilterBuilder - Complex nested filter groups with AND/OR logic
+ *
+ * Features:
+ * - Nested filter groups with configurable logic (AND/OR)
+ * - Auto-populated select options from actual data values
+ * - Filter by data fields AND provenance metadata
+ * - Support for joins/merges where provenance tracking is critical
+ */
+class AdvancedFilterBuilder {
+  constructor(options = {}) {
+    this.container = null;
+    this._source = options.source || null;
+    this._provenanceEnabled = options.provenanceEnabled !== false;
+    this._onChange = options.onChange || null;
+
+    // Root filter group
+    this._filterGroup = {
+      id: this._generateId(),
+      logic: 'and',
+      conditions: [],
+      groups: []
+    };
+
+    // Cache for unique values per field (for auto-fill)
+    this._fieldValuesCache = new Map();
+  }
+
+  /**
+   * Set the source to filter
+   */
+  setSource(source) {
+    this._source = source;
+    this._fieldValuesCache.clear();
+    this._cacheFieldValues();
+  }
+
+  /**
+   * Get all available fields (data + provenance)
+   */
+  getAvailableFields() {
+    const fields = [];
+
+    // Data fields from source schema
+    if (this._source?.schema?.fields) {
+      this._source.schema.fields.forEach(f => {
+        fields.push({
+          id: `data.${f.name}`,
+          name: f.name,
+          type: f.type,
+          category: 'data',
+          label: f.name,
+          icon: this._getFieldIcon(f.type)
+        });
+      });
+    }
+
+    // Provenance fields
+    if (this._provenanceEnabled && this._source?.provenance) {
+      const provenanceFields = [
+        { id: 'prov.agent', name: 'agent', label: 'Agent (Who)', icon: 'ph-user' },
+        { id: 'prov.method', name: 'method', label: 'Method (How)', icon: 'ph-gear' },
+        { id: 'prov.source', name: 'source', label: 'Source (Where)', icon: 'ph-link' },
+        { id: 'prov.term', name: 'term', label: 'Term', icon: 'ph-tag' },
+        { id: 'prov.definition', name: 'definition', label: 'Definition', icon: 'ph-book-open' },
+        { id: 'prov.jurisdiction', name: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-globe' },
+        { id: 'prov.scale', name: 'scale', label: 'Scale', icon: 'ph-chart-bar' },
+        { id: 'prov.timeframe', name: 'timeframe', label: 'Timeframe', icon: 'ph-calendar' },
+        { id: 'prov.background', name: 'background', label: 'Background', icon: 'ph-info' }
+      ];
+
+      provenanceFields.forEach(pf => {
+        fields.push({
+          ...pf,
+          type: 'text',
+          category: 'provenance'
+        });
+      });
+
+      // File identity fields
+      if (this._source?.fileIdentity) {
+        fields.push(
+          { id: 'file.originalFilename', name: 'originalFilename', label: 'Original Filename', type: 'text', category: 'file', icon: 'ph-file' },
+          { id: 'file.mimeType', name: 'mimeType', label: 'MIME Type', type: 'text', category: 'file', icon: 'ph-file-code' },
+          { id: 'file.encoding', name: 'encoding', label: 'Encoding', type: 'text', category: 'file', icon: 'ph-code' }
+        );
+      }
+    }
+
+    return fields;
+  }
+
+  /**
+   * Get operators based on field type
+   */
+  getOperatorsForType(fieldType) {
+    const textOps = [
+      { value: 'eq', label: 'equals' },
+      { value: 'neq', label: 'not equals' },
+      { value: 'contains', label: 'contains' },
+      { value: 'not_contains', label: 'does not contain' },
+      { value: 'starts', label: 'starts with' },
+      { value: 'ends', label: 'ends with' },
+      { value: 'regex', label: 'matches regex' },
+      { value: 'null', label: 'is empty' },
+      { value: 'notnull', label: 'is not empty' }
+    ];
+
+    const numericOps = [
+      { value: 'eq', label: '=' },
+      { value: 'neq', label: '≠' },
+      { value: 'gt', label: '>' },
+      { value: 'gte', label: '≥' },
+      { value: 'lt', label: '<' },
+      { value: 'lte', label: '≤' },
+      { value: 'between', label: 'between' },
+      { value: 'null', label: 'is empty' },
+      { value: 'notnull', label: 'is not empty' }
+    ];
+
+    const dateOps = [
+      { value: 'eq', label: 'is' },
+      { value: 'neq', label: 'is not' },
+      { value: 'gt', label: 'is after' },
+      { value: 'gte', label: 'is on or after' },
+      { value: 'lt', label: 'is before' },
+      { value: 'lte', label: 'is on or before' },
+      { value: 'between', label: 'is between' },
+      { value: 'null', label: 'is empty' },
+      { value: 'notnull', label: 'is not empty' }
+    ];
+
+    const booleanOps = [
+      { value: 'eq', label: 'is' },
+      { value: 'null', label: 'is empty' },
+      { value: 'notnull', label: 'is not empty' }
+    ];
+
+    const selectOps = [
+      { value: 'eq', label: 'is' },
+      { value: 'neq', label: 'is not' },
+      { value: 'in', label: 'is any of' },
+      { value: 'not_in', label: 'is none of' },
+      { value: 'null', label: 'is empty' },
+      { value: 'notnull', label: 'is not empty' }
+    ];
+
+    switch (fieldType) {
+      case 'number':
+      case 'integer':
+        return numericOps;
+      case 'date':
+        return dateOps;
+      case 'boolean':
+        return booleanOps;
+      case 'select':
+        return selectOps;
+      default:
+        return textOps;
+    }
+  }
+
+  /**
+   * Get unique values for a field (for auto-fill dropdowns)
+   */
+  getFieldValues(fieldId) {
+    if (this._fieldValuesCache.has(fieldId)) {
+      return this._fieldValuesCache.get(fieldId);
+    }
+    return [];
+  }
+
+  /**
+   * Cache unique values for all fields
+   */
+  _cacheFieldValues() {
+    if (!this._source?.records) return;
+
+    const records = this._source.records;
+    const sampleSize = Math.min(records.length, 1000);
+
+    // Cache data field values
+    if (this._source.schema?.fields) {
+      this._source.schema.fields.forEach(field => {
+        const fieldId = `data.${field.name}`;
+        const values = new Set();
+
+        for (let i = 0; i < sampleSize; i++) {
+          const val = records[i]?.[field.name];
+          if (val !== null && val !== undefined && val !== '') {
+            values.add(String(val));
+          }
+        }
+
+        // Sort and limit to reasonable size
+        const sorted = Array.from(values).sort((a, b) => a.localeCompare(b)).slice(0, 100);
+        this._fieldValuesCache.set(fieldId, sorted);
+      });
+    }
+
+    // Cache provenance field values
+    if (this._source.provenance) {
+      Object.entries(this._source.provenance).forEach(([key, value]) => {
+        if (value) {
+          this._fieldValuesCache.set(`prov.${key}`, [String(value)]);
+        }
+      });
+    }
+
+    // Cache file identity values
+    if (this._source.fileIdentity) {
+      Object.entries(this._source.fileIdentity).forEach(([key, value]) => {
+        if (value) {
+          this._fieldValuesCache.set(`file.${key}`, [String(value)]);
+        }
+      });
+    }
+  }
+
+  /**
+   * Get the current filter configuration
+   */
+  getFilters() {
+    return JSON.parse(JSON.stringify(this._filterGroup));
+  }
+
+  /**
+   * Set the filter configuration
+   */
+  setFilters(filterGroup) {
+    this._filterGroup = filterGroup || {
+      id: this._generateId(),
+      logic: 'and',
+      conditions: [],
+      groups: []
+    };
+    this._render();
+  }
+
+  /**
+   * Convert to flat filter array for backward compatibility
+   */
+  toFlatFilters() {
+    return this._flattenFilters(this._filterGroup);
+  }
+
+  /**
+   * Render the filter builder UI
+   */
+  render(container) {
+    this.container = typeof container === 'string'
+      ? document.getElementById(container)
+      : container;
+
+    if (!this.container) return;
+
+    this._cacheFieldValues();
+    this._render();
+  }
+
+  _render() {
+    if (!this.container) return;
+
+    const fields = this.getAvailableFields();
+    const hasFilters = this._filterGroup.conditions.length > 0 || this._filterGroup.groups.length > 0;
+
+    this.container.innerHTML = `
+      <div class="advanced-filter-builder">
+        <div class="filter-builder-header">
+          <span class="filter-builder-title">
+            <i class="ph ph-funnel"></i> Filters
+          </span>
+          <div class="filter-builder-actions">
+            <button class="filter-action-btn filter-add-condition" title="Add condition">
+              <i class="ph ph-plus"></i> Condition
+            </button>
+            <button class="filter-action-btn filter-add-group" title="Add group">
+              <i class="ph ph-brackets-curly"></i> Group
+            </button>
+          </div>
+        </div>
+
+        ${hasFilters ? this._renderFilterGroup(this._filterGroup, true) : `
+          <div class="filter-empty-state">
+            <i class="ph ph-funnel-simple"></i>
+            <span>No filters applied. Add conditions to filter records.</span>
+          </div>
+        `}
+
+        ${hasFilters ? `
+          <div class="filter-summary">
+            <i class="ph ph-info"></i>
+            <span class="filter-summary-text"></span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    this._attachEventListeners();
+    this._updateSummary();
+  }
+
+  _renderFilterGroup(group, isRoot = false) {
+    const hasContent = group.conditions.length > 0 || group.groups.length > 0;
+
+    return `
+      <div class="filter-group ${isRoot ? 'filter-group-root' : ''}" data-group-id="${group.id}">
+        <div class="filter-group-header">
+          <div class="filter-logic-toggle">
+            <button class="logic-btn ${group.logic === 'and' ? 'active' : ''}" data-logic="and">AND</button>
+            <button class="logic-btn ${group.logic === 'or' ? 'active' : ''}" data-logic="or">OR</button>
+          </div>
+          ${!isRoot ? `
+            <button class="filter-group-remove" title="Remove group">
+              <i class="ph ph-x"></i>
+            </button>
+          ` : ''}
+        </div>
+
+        <div class="filter-group-content">
+          ${group.conditions.map(c => this._renderCondition(c)).join('')}
+          ${group.groups.map(g => this._renderFilterGroup(g)).join('')}
+
+          ${!hasContent ? `
+            <div class="filter-group-empty">
+              <span>Empty group</span>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="filter-group-actions">
+          <button class="filter-group-add-condition">
+            <i class="ph ph-plus"></i> Add condition
+          </button>
+          <button class="filter-group-add-subgroup">
+            <i class="ph ph-brackets-curly"></i> Add nested group
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCondition(condition) {
+    const fields = this.getAvailableFields();
+    const selectedField = fields.find(f => f.id === condition.field);
+    const operators = selectedField ? this.getOperatorsForType(selectedField.type) : this.getOperatorsForType('text');
+    const fieldValues = condition.field ? this.getFieldValues(condition.field) : [];
+    const needsValue = !['null', 'notnull'].includes(condition.operator);
+    const needsSecondValue = condition.operator === 'between';
+
+    // Group fields by category
+    const dataFields = fields.filter(f => f.category === 'data');
+    const provenanceFields = fields.filter(f => f.category === 'provenance');
+    const fileFields = fields.filter(f => f.category === 'file');
+
+    return `
+      <div class="filter-condition" data-condition-id="${condition.id}">
+        <div class="filter-condition-field">
+          <select class="condition-field-select">
+            <option value="">Select field...</option>
+            ${dataFields.length > 0 ? `
+              <optgroup label="Data Fields">
+                ${dataFields.map(f => `
+                  <option value="${f.id}" ${condition.field === f.id ? 'selected' : ''}>
+                    ${this._escapeHtml(f.label)}
+                  </option>
+                `).join('')}
+              </optgroup>
+            ` : ''}
+            ${provenanceFields.length > 0 ? `
+              <optgroup label="Provenance">
+                ${provenanceFields.map(f => `
+                  <option value="${f.id}" ${condition.field === f.id ? 'selected' : ''}>
+                    ${this._escapeHtml(f.label)}
+                  </option>
+                `).join('')}
+              </optgroup>
+            ` : ''}
+            ${fileFields.length > 0 ? `
+              <optgroup label="File Info">
+                ${fileFields.map(f => `
+                  <option value="${f.id}" ${condition.field === f.id ? 'selected' : ''}>
+                    ${this._escapeHtml(f.label)}
+                  </option>
+                `).join('')}
+              </optgroup>
+            ` : ''}
+          </select>
+        </div>
+
+        <div class="filter-condition-operator">
+          <select class="condition-operator-select">
+            ${operators.map(op => `
+              <option value="${op.value}" ${condition.operator === op.value ? 'selected' : ''}>
+                ${op.label}
+              </option>
+            `).join('')}
+          </select>
+        </div>
+
+        <div class="filter-condition-value ${!needsValue ? 'hidden' : ''}">
+          ${fieldValues.length > 0 && fieldValues.length <= 50 ? `
+            <div class="condition-value-wrapper">
+              <input type="text"
+                     class="condition-value-input"
+                     placeholder="Enter value..."
+                     value="${this._escapeHtml(condition.value || '')}"
+                     list="values-${condition.id}">
+              <datalist id="values-${condition.id}">
+                ${fieldValues.map(v => `<option value="${this._escapeHtml(v)}">`).join('')}
+              </datalist>
+            </div>
+          ` : `
+            <input type="text"
+                   class="condition-value-input"
+                   placeholder="Enter value..."
+                   value="${this._escapeHtml(condition.value || '')}">
+          `}
+
+          ${needsSecondValue ? `
+            <span class="between-separator">and</span>
+            <input type="text"
+                   class="condition-value-input condition-value2-input"
+                   placeholder="End value..."
+                   value="${this._escapeHtml(condition.value2 || '')}">
+          ` : ''}
+        </div>
+
+        <button class="filter-condition-remove" title="Remove condition">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+    `;
+  }
+
+  _attachEventListeners() {
+    if (!this.container) return;
+
+    // Root add buttons
+    this.container.querySelector('.filter-add-condition')?.addEventListener('click', () => {
+      this._addCondition(this._filterGroup.id);
+    });
+
+    this.container.querySelector('.filter-add-group')?.addEventListener('click', () => {
+      this._addGroup(this._filterGroup.id);
+    });
+
+    // Group event handlers
+    this.container.querySelectorAll('.filter-group').forEach(groupEl => {
+      const groupId = groupEl.dataset.groupId;
+
+      // Logic toggle
+      groupEl.querySelectorAll(':scope > .filter-group-header .logic-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._setGroupLogic(groupId, btn.dataset.logic);
+        });
+      });
+
+      // Remove group
+      groupEl.querySelector(':scope > .filter-group-header .filter-group-remove')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._removeGroup(groupId);
+      });
+
+      // Add condition to group
+      groupEl.querySelector(':scope > .filter-group-actions .filter-group-add-condition')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._addCondition(groupId);
+      });
+
+      // Add subgroup
+      groupEl.querySelector(':scope > .filter-group-actions .filter-group-add-subgroup')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._addGroup(groupId);
+      });
+    });
+
+    // Condition event handlers
+    this.container.querySelectorAll('.filter-condition').forEach(condEl => {
+      const condId = condEl.dataset.conditionId;
+
+      // Field change
+      condEl.querySelector('.condition-field-select')?.addEventListener('change', (e) => {
+        this._updateConditionField(condId, e.target.value);
+      });
+
+      // Operator change
+      condEl.querySelector('.condition-operator-select')?.addEventListener('change', (e) => {
+        this._updateConditionOperator(condId, e.target.value);
+      });
+
+      // Value change
+      condEl.querySelector('.condition-value-input')?.addEventListener('input', (e) => {
+        this._updateConditionValue(condId, e.target.value);
+      });
+
+      // Second value change (for between)
+      condEl.querySelector('.condition-value2-input')?.addEventListener('input', (e) => {
+        this._updateConditionValue2(condId, e.target.value);
+      });
+
+      // Remove condition
+      condEl.querySelector('.filter-condition-remove')?.addEventListener('click', () => {
+        this._removeCondition(condId);
+      });
+    });
+  }
+
+  _addCondition(groupId) {
+    const group = this._findGroup(this._filterGroup, groupId);
+    if (!group) return;
+
+    group.conditions.push({
+      id: this._generateId(),
+      field: '',
+      operator: 'eq',
+      value: '',
+      value2: ''
+    });
+
+    this._render();
+    this._notifyChange();
+  }
+
+  _addGroup(parentGroupId) {
+    const parent = this._findGroup(this._filterGroup, parentGroupId);
+    if (!parent) return;
+
+    parent.groups.push({
+      id: this._generateId(),
+      logic: 'and',
+      conditions: [],
+      groups: []
+    });
+
+    this._render();
+    this._notifyChange();
+  }
+
+  _removeCondition(conditionId) {
+    this._removeConditionFromGroup(this._filterGroup, conditionId);
+    this._render();
+    this._notifyChange();
+  }
+
+  _removeConditionFromGroup(group, conditionId) {
+    const idx = group.conditions.findIndex(c => c.id === conditionId);
+    if (idx !== -1) {
+      group.conditions.splice(idx, 1);
+      return true;
+    }
+
+    for (const subgroup of group.groups) {
+      if (this._removeConditionFromGroup(subgroup, conditionId)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  _removeGroup(groupId) {
+    this._removeGroupFromParent(this._filterGroup, groupId);
+    this._render();
+    this._notifyChange();
+  }
+
+  _removeGroupFromParent(parent, groupId) {
+    const idx = parent.groups.findIndex(g => g.id === groupId);
+    if (idx !== -1) {
+      parent.groups.splice(idx, 1);
+      return true;
+    }
+
+    for (const subgroup of parent.groups) {
+      if (this._removeGroupFromParent(subgroup, groupId)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  _setGroupLogic(groupId, logic) {
+    const group = this._findGroup(this._filterGroup, groupId);
+    if (group) {
+      group.logic = logic;
+      this._render();
+      this._notifyChange();
+    }
+  }
+
+  _updateConditionField(conditionId, fieldId) {
+    const condition = this._findCondition(this._filterGroup, conditionId);
+    if (condition) {
+      condition.field = fieldId;
+      condition.value = '';
+      condition.value2 = '';
+
+      // Reset operator to appropriate default
+      const fields = this.getAvailableFields();
+      const field = fields.find(f => f.id === fieldId);
+      const operators = field ? this.getOperatorsForType(field.type) : [];
+      if (operators.length > 0 && !operators.find(op => op.value === condition.operator)) {
+        condition.operator = operators[0].value;
+      }
+
+      this._render();
+      this._notifyChange();
+    }
+  }
+
+  _updateConditionOperator(conditionId, operator) {
+    const condition = this._findCondition(this._filterGroup, conditionId);
+    if (condition) {
+      condition.operator = operator;
+      this._render();
+      this._notifyChange();
+    }
+  }
+
+  _updateConditionValue(conditionId, value) {
+    const condition = this._findCondition(this._filterGroup, conditionId);
+    if (condition) {
+      condition.value = value;
+      this._updateSummary();
+      this._notifyChange();
+    }
+  }
+
+  _updateConditionValue2(conditionId, value) {
+    const condition = this._findCondition(this._filterGroup, conditionId);
+    if (condition) {
+      condition.value2 = value;
+      this._updateSummary();
+      this._notifyChange();
+    }
+  }
+
+  _findGroup(root, groupId) {
+    if (root.id === groupId) return root;
+
+    for (const subgroup of root.groups) {
+      const found = this._findGroup(subgroup, groupId);
+      if (found) return found;
+    }
+
+    return null;
+  }
+
+  _findCondition(group, conditionId) {
+    const found = group.conditions.find(c => c.id === conditionId);
+    if (found) return found;
+
+    for (const subgroup of group.groups) {
+      const found = this._findCondition(subgroup, conditionId);
+      if (found) return found;
+    }
+
+    return null;
+  }
+
+  _flattenFilters(group) {
+    const filters = [];
+
+    // Add direct conditions (convert field format)
+    group.conditions.forEach(c => {
+      if (c.field) {
+        const fieldParts = c.field.split('.');
+        filters.push({
+          field: fieldParts.length > 1 ? fieldParts.slice(1).join('.') : c.field,
+          fieldCategory: fieldParts[0],
+          operator: c.operator,
+          value: c.value,
+          value2: c.value2
+        });
+      }
+    });
+
+    // Recursively flatten subgroups
+    group.groups.forEach(g => {
+      filters.push(...this._flattenFilters(g));
+    });
+
+    return filters;
+  }
+
+  _updateSummary() {
+    const summaryEl = this.container?.querySelector('.filter-summary-text');
+    if (!summaryEl) return;
+
+    const count = this._countConditions(this._filterGroup);
+    const groupCount = this._countGroups(this._filterGroup);
+
+    if (count === 0) {
+      summaryEl.textContent = 'No active conditions';
+    } else {
+      const parts = [];
+      parts.push(`${count} condition${count !== 1 ? 's' : ''}`);
+      if (groupCount > 0) {
+        parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`);
+      }
+      summaryEl.textContent = parts.join(', ');
+    }
+  }
+
+  _countConditions(group) {
+    let count = group.conditions.filter(c => c.field).length;
+    group.groups.forEach(g => {
+      count += this._countConditions(g);
+    });
+    return count;
+  }
+
+  _countGroups(group) {
+    let count = group.groups.length;
+    group.groups.forEach(g => {
+      count += this._countGroups(g);
+    });
+    return count;
+  }
+
+  _notifyChange() {
+    if (this._onChange) {
+      this._onChange(this.getFilters());
+    }
+  }
+
+  _generateId() {
+    return 'flt_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
+  }
+
+  _getFieldIcon(type) {
+    const icons = {
+      text: 'ph-text-aa',
+      number: 'ph-hash',
+      integer: 'ph-hash',
+      date: 'ph-calendar',
+      boolean: 'ph-check-square',
+      select: 'ph-list'
+    };
+    return icons[type] || 'ph-text-aa';
+  }
+
+  _escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  /**
+   * Evaluate if a record matches the filter group
+   */
+  static evaluateRecord(record, filterGroup, source = null) {
+    return AdvancedFilterBuilder._evaluateGroup(record, filterGroup, source);
+  }
+
+  static _evaluateGroup(record, group, source) {
+    const conditionResults = group.conditions.map(c =>
+      AdvancedFilterBuilder._evaluateCondition(record, c, source)
+    );
+    const groupResults = group.groups.map(g =>
+      AdvancedFilterBuilder._evaluateGroup(record, g, source)
+    );
+
+    const allResults = [...conditionResults, ...groupResults];
+
+    if (allResults.length === 0) return true;
+
+    if (group.logic === 'or') {
+      return allResults.some(r => r);
+    } else {
+      return allResults.every(r => r);
+    }
+  }
+
+  static _evaluateCondition(record, condition, source) {
+    if (!condition.field) return true;
+
+    let value;
+    const [category, ...fieldParts] = condition.field.split('.');
+    const fieldName = fieldParts.join('.');
+
+    switch (category) {
+      case 'data':
+        value = record[fieldName];
+        break;
+      case 'prov':
+        value = source?.provenance?.[fieldName];
+        break;
+      case 'file':
+        value = source?.fileIdentity?.[fieldName];
+        break;
+      default:
+        value = record[condition.field];
+    }
+
+    return AdvancedFilterBuilder._evaluateValue(value, condition.operator, condition.value, condition.value2);
+  }
+
+  static _evaluateValue(cellValue, operator, filterValue, filterValue2 = null) {
+    const cellStr = String(cellValue ?? '').toLowerCase();
+    const filterStr = String(filterValue ?? '').toLowerCase();
+    const filterStr2 = filterValue2 ? String(filterValue2).toLowerCase() : null;
+
+    switch (operator) {
+      case 'eq':
+        return cellStr === filterStr;
+      case 'neq':
+        return cellStr !== filterStr;
+      case 'contains':
+        return cellStr.includes(filterStr);
+      case 'not_contains':
+        return !cellStr.includes(filterStr);
+      case 'starts':
+        return cellStr.startsWith(filterStr);
+      case 'ends':
+        return cellStr.endsWith(filterStr);
+      case 'regex':
+        try {
+          return new RegExp(filterValue, 'i').test(String(cellValue ?? ''));
+        } catch {
+          return false;
+        }
+      case 'gt':
+        return parseFloat(cellValue) > parseFloat(filterValue);
+      case 'lt':
+        return parseFloat(cellValue) < parseFloat(filterValue);
+      case 'gte':
+        return parseFloat(cellValue) >= parseFloat(filterValue);
+      case 'lte':
+        return parseFloat(cellValue) <= parseFloat(filterValue);
+      case 'between':
+        const numVal = parseFloat(cellValue);
+        return numVal >= parseFloat(filterValue) && numVal <= parseFloat(filterValue2);
+      case 'in':
+        const inValues = filterValue.split(',').map(v => v.trim().toLowerCase());
+        return inValues.includes(cellStr);
+      case 'not_in':
+        const notInValues = filterValue.split(',').map(v => v.trim().toLowerCase());
+        return !notInValues.includes(cellStr);
+      case 'null':
+        return cellValue === null || cellValue === undefined || cellValue === '';
+      case 'notnull':
+        return cellValue !== null && cellValue !== undefined && cellValue !== '';
+      default:
+        return true;
+    }
+  }
+}
+
+
+// ============================================================================
 // Set From Source UI Component
 // ============================================================================
 
 /**
  * SetFromSourceUI - Visual interface for creating Sets from Sources
+ * Now with advanced nested filter groups and provenance filtering
  */
 class SetFromSourceUI {
   constructor(setCreator, container) {
@@ -1709,7 +2568,7 @@ class SetFromSourceUI {
     this._onCancel = null;
     this._source = null;
     this._selectedFields = [];
-    this._filters = [];
+    this._filterBuilder = null;
   }
 
   /**
@@ -1731,7 +2590,13 @@ class SetFromSourceUI {
       rename: null,
       include: true
     }));
-    this._filters = [];
+
+    // Initialize the advanced filter builder
+    this._filterBuilder = new AdvancedFilterBuilder({
+      source: this._source,
+      provenanceEnabled: true,
+      onChange: () => this._onFilterChange()
+    });
 
     this._render();
     this._attachEventListeners();
@@ -1742,13 +2607,41 @@ class SetFromSourceUI {
       this.container.innerHTML = '';
       this.container.style.display = 'none';
     }
+    this._filterBuilder = null;
+  }
+
+  _onFilterChange() {
+    // Auto-update preview when filters change (debounced)
+    if (this._previewDebounce) {
+      clearTimeout(this._previewDebounce);
+    }
+    this._previewDebounce = setTimeout(() => {
+      this._updateFilteredCount();
+    }, 300);
+  }
+
+  _updateFilteredCount() {
+    const countEl = this.container?.querySelector('.filter-result-count');
+    if (!countEl) return;
+
+    const filterGroup = this._filterBuilder.getFilters();
+    let filteredCount = 0;
+
+    for (const record of this._source.records) {
+      if (AdvancedFilterBuilder.evaluateRecord(record, filterGroup, this._source)) {
+        filteredCount++;
+      }
+    }
+
+    countEl.textContent = `${filteredCount} of ${this._source.recordCount} records match`;
+    countEl.classList.toggle('has-filters', filteredCount < this._source.recordCount);
   }
 
   _render() {
     this.container.style.display = 'block';
     this.container.innerHTML = `
       <div class="set-creator-overlay">
-        <div class="set-creator-modal">
+        <div class="set-creator-modal set-creator-modal-large">
           <div class="set-creator-header">
             <h2><i class="ph ph-table"></i> Create Set from Source</h2>
             <p class="set-creator-subtitle">
@@ -1788,26 +2681,23 @@ class SetFromSourceUI {
               </div>
             </div>
 
-            <!-- Filters -->
-            <div class="set-creator-filters-section">
-              <h3><i class="ph ph-funnel"></i> Initial Filters (Optional)</h3>
-              <p class="section-desc">Only include records that match these conditions</p>
-
-              <div class="filter-list" id="filter-list">
-                ${this._filters.length === 0 ? `
-                  <div class="filter-empty">No filters applied</div>
-                ` : this._filters.map((f, i) => this._renderFilter(f, i)).join('')}
+            <!-- Advanced Filters -->
+            <div class="set-creator-filters-section set-creator-advanced-filters">
+              <div class="filters-header">
+                <div>
+                  <h3><i class="ph ph-funnel"></i> Filters</h3>
+                  <p class="section-desc">Build complex filter conditions with AND/OR logic. Filter by data fields or provenance metadata.</p>
+                </div>
+                <span class="filter-result-count">${this._source.recordCount} of ${this._source.recordCount} records match</span>
               </div>
 
-              <button class="add-filter-btn" id="add-filter-btn">
-                <i class="ph ph-plus"></i> Add Filter
-              </button>
+              <div id="advanced-filter-container"></div>
             </div>
 
             <!-- Preview -->
             <div class="set-creator-preview-section">
               <button class="preview-btn" id="preview-set-btn">
-                <i class="ph ph-eye"></i> Preview
+                <i class="ph ph-eye"></i> Preview Results
               </button>
               <div class="preview-results" id="set-preview-results"></div>
             </div>
@@ -1822,6 +2712,12 @@ class SetFromSourceUI {
         </div>
       </div>
     `;
+
+    // Render the advanced filter builder
+    const filterContainer = this.container.querySelector('#advanced-filter-container');
+    if (filterContainer && this._filterBuilder) {
+      this._filterBuilder.render(filterContainer);
+    }
   }
 
   _renderFieldRow(field, index) {
@@ -1844,47 +2740,6 @@ class SetFromSourceUI {
     `;
   }
 
-  _renderFilter(filter, index) {
-    const operators = [
-      { value: 'eq', label: 'equals' },
-      { value: 'neq', label: 'not equals' },
-      { value: 'contains', label: 'contains' },
-      { value: 'gt', label: '>' },
-      { value: 'gte', label: '>=' },
-      { value: 'lt', label: '<' },
-      { value: 'lte', label: '<=' },
-      { value: 'null', label: 'is empty' },
-      { value: 'notnull', label: 'is not empty' }
-    ];
-
-    return `
-      <div class="filter-row" data-index="${index}">
-        <select class="filter-field">
-          <option value="">Select field...</option>
-          ${this._source.schema.fields.map(f => `
-            <option value="${f.name}" ${filter.field === f.name ? 'selected' : ''}>
-              ${this._escapeHtml(f.name)}
-            </option>
-          `).join('')}
-        </select>
-        <select class="filter-operator">
-          ${operators.map(op => `
-            <option value="${op.value}" ${filter.operator === op.value ? 'selected' : ''}>
-              ${op.label}
-            </option>
-          `).join('')}
-        </select>
-        <input type="text" class="filter-value"
-               placeholder="Value"
-               value="${this._escapeHtml(filter.value || '')}"
-               ${['null', 'notnull'].includes(filter.operator) ? 'disabled' : ''}>
-        <button class="filter-remove-btn" title="Remove filter">
-          <i class="ph ph-x"></i>
-        </button>
-      </div>
-    `;
-  }
-
   _attachEventListeners() {
     // Close/Cancel buttons
     this.container.querySelector('#set-creator-close-btn')?.addEventListener('click', () => {
@@ -1900,17 +2755,37 @@ class SetFromSourceUI {
     // Select/Deselect all
     this.container.querySelector('#select-all-fields')?.addEventListener('click', () => {
       this._selectedFields.forEach(f => f.include = true);
-      this._render();
-      this._attachEventListeners();
+      this._renderFieldList();
     });
 
     this.container.querySelector('#deselect-all-fields')?.addEventListener('click', () => {
       this._selectedFields.forEach(f => f.include = false);
-      this._render();
-      this._attachEventListeners();
+      this._renderFieldList();
     });
 
     // Field row changes
+    this._attachFieldRowListeners();
+
+    // Preview
+    this.container.querySelector('#preview-set-btn')?.addEventListener('click', () => {
+      this._showPreview();
+    });
+
+    // Create
+    this.container.querySelector('#set-creator-create-btn')?.addEventListener('click', () => {
+      this._createSet();
+    });
+  }
+
+  _renderFieldList() {
+    const listEl = this.container.querySelector('#field-select-list');
+    if (listEl) {
+      listEl.innerHTML = this._selectedFields.map((f, i) => this._renderFieldRow(f, i)).join('');
+      this._attachFieldRowListeners();
+    }
+  }
+
+  _attachFieldRowListeners() {
     this.container.querySelectorAll('.field-select-row').forEach(row => {
       const index = parseInt(row.dataset.index);
 
@@ -1927,48 +2802,6 @@ class SetFromSourceUI {
         this._selectedFields[index].rename = e.target.value || null;
       });
     });
-
-    // Add filter
-    this.container.querySelector('#add-filter-btn')?.addEventListener('click', () => {
-      this._filters.push({ field: '', operator: 'eq', value: '' });
-      this._render();
-      this._attachEventListeners();
-    });
-
-    // Filter changes
-    this.container.querySelectorAll('.filter-row').forEach(row => {
-      const index = parseInt(row.dataset.index);
-
-      row.querySelector('.filter-field')?.addEventListener('change', (e) => {
-        this._filters[index].field = e.target.value;
-      });
-
-      row.querySelector('.filter-operator')?.addEventListener('change', (e) => {
-        this._filters[index].operator = e.target.value;
-        const valueInput = row.querySelector('.filter-value');
-        valueInput.disabled = ['null', 'notnull'].includes(e.target.value);
-      });
-
-      row.querySelector('.filter-value')?.addEventListener('input', (e) => {
-        this._filters[index].value = e.target.value;
-      });
-
-      row.querySelector('.filter-remove-btn')?.addEventListener('click', () => {
-        this._filters.splice(index, 1);
-        this._render();
-        this._attachEventListeners();
-      });
-    });
-
-    // Preview
-    this.container.querySelector('#preview-set-btn')?.addEventListener('click', () => {
-      this._showPreview();
-    });
-
-    // Create
-    this.container.querySelector('#set-creator-create-btn')?.addEventListener('click', () => {
-      this._createSet();
-    });
   }
 
   _showPreview() {
@@ -1982,18 +2815,19 @@ class SetFromSourceUI {
     }
 
     try {
-      const result = this.setCreator.previewSetFromSource({
-        sourceId: this._source.id,
-        selectedFields,
-        filters: this._filters.filter(f => f.field)
-      });
+      // Apply advanced filters
+      const filterGroup = this._filterBuilder.getFilters();
+      const filteredRecords = this._source.records.filter(record =>
+        AdvancedFilterBuilder.evaluateRecord(record, filterGroup, this._source)
+      );
 
-      const headers = result.fields.map(f => f.name);
+      const sampleRecords = filteredRecords.slice(0, 10);
+      const headers = selectedFields.map(f => f.rename || f.name);
 
       previewEl.innerHTML = `
         <div class="preview-stats">
-          <span><strong>${result.filteredRecordCount}</strong> of ${result.sourceRecordCount} records</span>
-          <span>${result.fields.length} fields</span>
+          <span><strong>${filteredRecords.length}</strong> of ${this._source.recordCount} records</span>
+          <span>${selectedFields.length} fields</span>
         </div>
         <div class="preview-table-container">
           <table class="preview-table">
@@ -2003,16 +2837,16 @@ class SetFromSourceUI {
               </tr>
             </thead>
             <tbody>
-              ${result.sampleRecords.map(row => `
+              ${sampleRecords.map(row => `
                 <tr>
-                  ${result.fields.map(f => `<td>${this._escapeHtml(String(row[f.sourceColumn] ?? ''))}</td>`).join('')}
+                  ${selectedFields.map(f => `<td>${this._escapeHtml(String(row[f.name] ?? ''))}</td>`).join('')}
                 </tr>
               `).join('')}
             </tbody>
           </table>
         </div>
-        ${result.filteredRecordCount > 10 ? `
-          <div class="preview-more">Showing first 10 of ${result.filteredRecordCount} records</div>
+        ${filteredRecords.length > 10 ? `
+          <div class="preview-more">Showing first 10 of ${filteredRecords.length} records</div>
         ` : ''}
       `;
     } catch (error) {
@@ -2036,11 +2870,19 @@ class SetFromSourceUI {
     }
 
     try {
+      // Get the advanced filter configuration
+      const filterGroup = this._filterBuilder.getFilters();
+
+      // Convert to flat filters for backward compatibility with SetCreator
+      const flatFilters = this._filterBuilder.toFlatFilters();
+
+      // Also store the full filter group for provenance
       const result = this.setCreator.createSetFromSource({
         sourceId: this._source.id,
         setName,
         selectedFields,
-        filters: this._filters.filter(f => f.field)
+        filters: flatFilters,
+        advancedFilters: filterGroup // Store the full nested structure
       });
 
       this.hide();
@@ -2497,6 +3339,7 @@ if (typeof window !== 'undefined') {
   window.JoinBuilderUI = JoinBuilderUI;
   window.SetFromSourceUI = SetFromSourceUI;
   window.FolderStore = FolderStore;
+  window.AdvancedFilterBuilder = AdvancedFilterBuilder;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -2506,6 +3349,7 @@ if (typeof module !== 'undefined' && module.exports) {
     JoinBuilder,
     JoinBuilderUI,
     SetFromSourceUI,
-    FolderStore
+    FolderStore,
+    AdvancedFilterBuilder
   };
 }
