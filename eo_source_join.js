@@ -6325,8 +6325,16 @@ class DataPipelineUI {
     this._allSources = [];
 
     // Subtype detection state
-    this._detectedSubtypes = null;  // { fieldName, fieldId, values: [{name, count}], createViews: true }
+    // viewConfig structure: { viewType: 'table'|'cards'|'kanban', visibleFields: string[], fieldOrder: string[] }
+    this._detectedSubtypes = null;  // { fieldName, fieldId, values: [{name, count, createView, viewConfig}], createViews: true }
     this._subtypeFieldCandidates = ['type', '_type', 'recordType', 'record_type', 'kind', 'category', 'status', 'class', 'subtype'];
+
+    // Available view types for record type views
+    this._viewTypes = [
+      { id: 'table', name: 'Table', icon: 'ph-table' },
+      { id: 'cards', name: 'Cards', icon: 'ph-cards' },
+      { id: 'kanban', name: 'Kanban', icon: 'ph-kanban' }
+    ];
   }
 
   /**
@@ -6399,7 +6407,8 @@ class DataPipelineUI {
 
   /**
    * Detect if the source data has a subtype field (type, kind, category, etc.)
-   * and identify the distinct values to potentially create views for
+   * and identify the distinct values to potentially create views for.
+   * Also analyzes which fields have values for each record type.
    */
   _detectSubtypes() {
     this._detectedSubtypes = null;
@@ -6424,13 +6433,27 @@ class DataPipelineUI {
 
     if (!typeFieldName) return;
 
-    // Count values for the type field
+    // Count values and track which fields have data for each type
     const valueCounts = {};
+    const fieldsByType = {};  // { typeName: { fieldName: countOfNonEmpty } }
+
     for (const record of source.records) {
-      const val = record[typeFieldName];
-      if (val !== null && val !== undefined && val !== '') {
-        const strVal = String(val);
-        valueCounts[strVal] = (valueCounts[strVal] || 0) + 1;
+      const typeVal = record[typeFieldName];
+      if (typeVal === null || typeVal === undefined || typeVal === '') continue;
+
+      const strVal = String(typeVal);
+      valueCounts[strVal] = (valueCounts[strVal] || 0) + 1;
+
+      // Track which fields have values for this type
+      if (!fieldsByType[strVal]) {
+        fieldsByType[strVal] = {};
+      }
+
+      for (const field of this._selectedFields) {
+        const fieldValue = record[field.name];
+        if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+          fieldsByType[strVal][field.name] = (fieldsByType[strVal][field.name] || 0) + 1;
+        }
       }
     }
 
@@ -6439,14 +6462,37 @@ class DataPipelineUI {
     // Need at least 2 distinct values to be meaningful
     if (distinctValues.length < 2 || distinctValues.length > 20) return;
 
-    // Store detected subtypes
+    // Determine relevant fields for each type (fields with at least 10% population)
+    const allFieldNames = this._selectedFields.map(f => f.name);
+
+    // Store detected subtypes with view configuration
     this._detectedSubtypes = {
       fieldName: typeFieldName,
-      values: distinctValues.map(name => ({
-        name,
-        count: valueCounts[name],
-        createView: true  // Default to creating views
-      })).sort((a, b) => b.count - a.count),
+      values: distinctValues.map(name => {
+        const count = valueCounts[name];
+        const typeFields = fieldsByType[name] || {};
+
+        // Fields that have data for at least 10% of records of this type
+        const relevantFields = allFieldNames.filter(fieldName => {
+          if (fieldName === typeFieldName) return false;  // Exclude the type field itself
+          const fieldCount = typeFields[fieldName] || 0;
+          return fieldCount >= count * 0.1;
+        });
+
+        // Default visible fields: all relevant fields, or all if none detected
+        const visibleFields = relevantFields.length > 0 ? relevantFields : allFieldNames.filter(f => f !== typeFieldName);
+
+        return {
+          name,
+          count,
+          createView: true,
+          viewConfig: {
+            viewType: 'table',
+            visibleFields: visibleFields,
+            fieldOrder: visibleFields
+          }
+        };
+      }).sort((a, b) => b.count - a.count),
       createViews: true  // Master toggle
     };
   }
@@ -6476,20 +6522,38 @@ class DataPipelineUI {
           Found <strong>${values.length}</strong> types in <code>${this._escapeHtml(fieldName)}</code> field
         </div>
         <div class="subtypes-list ${!createViews ? 'disabled' : ''}" id="subtypes-list">
-          ${values.map((v, i) => `
-            <div class="subtype-item">
-              <input type="checkbox" id="subtype-${i}" data-index="${i}"
-                     ${v.createView ? 'checked' : ''} ${!createViews ? 'disabled' : ''}>
-              <label for="subtype-${i}">
-                <span class="subtype-name">${this._escapeHtml(v.name)}</span>
-                <span class="subtype-count">${v.count}</span>
-              </label>
+          ${values.map((v, i) => {
+            const viewType = this._viewTypes.find(vt => vt.id === v.viewConfig?.viewType) || this._viewTypes[0];
+            const fieldCount = v.viewConfig?.visibleFields?.length || 0;
+            return `
+            <div class="subtype-item ${v.createView ? 'enabled' : ''}" data-index="${i}">
+              <div class="subtype-main">
+                <input type="checkbox" id="subtype-${i}" data-index="${i}"
+                       ${v.createView ? 'checked' : ''} ${!createViews ? 'disabled' : ''}>
+                <label for="subtype-${i}">
+                  <i class="${this._getIconForSubtype(v.name)}"></i>
+                  <span class="subtype-name">${this._escapeHtml(this._formatSubtypeName(v.name))}</span>
+                  <span class="subtype-count">${v.count}</span>
+                </label>
+              </div>
+              ${v.createView && createViews ? `
+                <div class="subtype-config">
+                  <span class="subtype-view-type" title="View type">
+                    <i class="${viewType.icon}"></i>
+                    ${viewType.name}
+                  </span>
+                  <span class="subtype-field-count" title="Fields visible">${fieldCount} fields</span>
+                  <button class="subtype-configure-btn" data-index="${i}" title="Configure view">
+                    <i class="ph ph-gear"></i>
+                  </button>
+                </div>
+              ` : ''}
             </div>
-          `).join('')}
+          `;}).join('')}
         </div>
         <div class="subtypes-summary">
           ${createViews && viewCount > 0
-            ? `<i class="ph ph-check-circle"></i> Will create ${viewCount} filtered view${viewCount !== 1 ? 's' : ''}`
+            ? `<i class="ph ph-check-circle"></i> Will create ${viewCount} view${viewCount !== 1 ? 's' : ''} with custom field configurations`
             : `<i class="ph ph-info"></i> No views will be created`}
         </div>
       </div>
@@ -6845,15 +6909,20 @@ class DataPipelineUI {
         if (this._detectedSubtypes) {
           const index = parseInt(e.target.dataset.index);
           this._detectedSubtypes.values[index].createView = e.target.checked;
-          // Update summary without full re-render
-          const summary = this.container.querySelector('.subtypes-summary');
-          if (summary) {
-            const viewCount = this._detectedSubtypes.values.filter(v => v.createView).length;
-            summary.innerHTML = viewCount > 0
-              ? `<i class="ph ph-check-circle"></i> Will create ${viewCount} filtered view${viewCount !== 1 ? 's' : ''}`
-              : `<i class="ph ph-info"></i> No views will be created`;
-          }
+          // Re-render to show/hide configure button
+          this._render();
+          this._attachEventListeners();
         }
+      });
+    });
+
+    // Configure button for each record type view
+    this.container.querySelectorAll('.subtype-configure-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const index = parseInt(e.currentTarget.dataset.index);
+        this._showRecordTypeViewConfig(index);
       });
     });
   }
@@ -7151,6 +7220,183 @@ class DataPipelineUI {
     });
   }
 
+  /**
+   * Show configuration modal for a specific record type's view
+   * Allows setting view type and selecting which fields to show
+   */
+  _showRecordTypeViewConfig(subtypeIndex) {
+    if (!this._detectedSubtypes || subtypeIndex >= this._detectedSubtypes.values.length) {
+      return;
+    }
+
+    const subtype = this._detectedSubtypes.values[subtypeIndex];
+    const viewConfig = subtype.viewConfig || { viewType: 'table', visibleFields: [], fieldOrder: [] };
+    const allFields = this._selectedFields.filter(f => f.include && f.name !== this._detectedSubtypes.fieldName);
+
+    const modal = document.createElement('div');
+    modal.className = 'record-type-config-overlay';
+    modal.innerHTML = `
+      <div class="record-type-config-modal">
+        <div class="record-type-config-header">
+          <h3>
+            <i class="${this._getIconForSubtype(subtype.name)}"></i>
+            Configure "${this._formatSubtypeName(subtype.name)}" View
+          </h3>
+          <button class="record-type-config-close"><i class="ph ph-x"></i></button>
+        </div>
+
+        <div class="record-type-config-body">
+          <div class="config-section">
+            <label class="config-label">View Type</label>
+            <div class="view-type-options">
+              ${this._viewTypes.map(vt => `
+                <label class="view-type-option ${viewConfig.viewType === vt.id ? 'selected' : ''}">
+                  <input type="radio" name="view-type" value="${vt.id}"
+                         ${viewConfig.viewType === vt.id ? 'checked' : ''}>
+                  <i class="${vt.icon}"></i>
+                  <span>${vt.name}</span>
+                </label>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="config-section">
+            <div class="config-label-row">
+              <label class="config-label">Visible Fields</label>
+              <div class="field-actions">
+                <button class="btn btn-sm" id="select-all-type-fields">All</button>
+                <button class="btn btn-sm" id="select-none-type-fields">None</button>
+                <button class="btn btn-sm" id="select-relevant-type-fields" title="Select fields that have data for this record type">Relevant</button>
+              </div>
+            </div>
+            <div class="type-fields-list">
+              ${allFields.map((f, i) => {
+                const isVisible = viewConfig.visibleFields.includes(f.name);
+                return `
+                <div class="type-field-item" draggable="true" data-field="${this._escapeHtml(f.name)}">
+                  <i class="ph ph-dots-six-vertical drag-handle"></i>
+                  <input type="checkbox" id="type-field-${i}" data-field="${this._escapeHtml(f.name)}"
+                         ${isVisible ? 'checked' : ''}>
+                  <label for="type-field-${i}">
+                    <span class="field-name">${this._escapeHtml(f.rename || f.name)}</span>
+                    <span class="field-type">${f.type}</span>
+                  </label>
+                </div>
+              `;}).join('')}
+            </div>
+          </div>
+
+          <div class="config-section">
+            <div class="config-preview">
+              <span class="preview-label">Preview:</span>
+              <span class="preview-count">${subtype.count} records</span>
+              <span class="preview-fields">${viewConfig.visibleFields.length} fields</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="record-type-config-footer">
+          <button class="btn btn-secondary record-type-cancel-btn">Cancel</button>
+          <button class="btn btn-primary record-type-apply-btn">Apply</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Get initial relevant fields (fields with data for this type)
+    const source = this._sources[0]?.source;
+    const typeFieldName = this._detectedSubtypes.fieldName;
+    const relevantFields = new Set();
+
+    if (source?.records) {
+      const typeRecords = source.records.filter(r => String(r[typeFieldName]) === subtype.name);
+      for (const field of allFields) {
+        let hasValue = false;
+        for (const record of typeRecords) {
+          const val = record[field.name];
+          if (val !== null && val !== undefined && val !== '') {
+            hasValue = true;
+            break;
+          }
+        }
+        if (hasValue) relevantFields.add(field.name);
+      }
+    }
+
+    // Event handlers
+    modal.querySelector('.record-type-config-close').addEventListener('click', () => modal.remove());
+    modal.querySelector('.record-type-cancel-btn').addEventListener('click', () => modal.remove());
+
+    // View type selection
+    modal.querySelectorAll('input[name="view-type"]').forEach(radio => {
+      radio.addEventListener('change', () => {
+        modal.querySelectorAll('.view-type-option').forEach(opt => {
+          opt.classList.toggle('selected', opt.querySelector('input').checked);
+        });
+      });
+    });
+
+    // Field selection helpers
+    modal.querySelector('#select-all-type-fields').addEventListener('click', () => {
+      modal.querySelectorAll('.type-field-item input[type="checkbox"]').forEach(cb => cb.checked = true);
+      this._updateTypeConfigPreview(modal, subtype.count);
+    });
+
+    modal.querySelector('#select-none-type-fields').addEventListener('click', () => {
+      modal.querySelectorAll('.type-field-item input[type="checkbox"]').forEach(cb => cb.checked = false);
+      this._updateTypeConfigPreview(modal, subtype.count);
+    });
+
+    modal.querySelector('#select-relevant-type-fields').addEventListener('click', () => {
+      modal.querySelectorAll('.type-field-item input[type="checkbox"]').forEach(cb => {
+        cb.checked = relevantFields.has(cb.dataset.field);
+      });
+      this._updateTypeConfigPreview(modal, subtype.count);
+    });
+
+    // Update preview on field change
+    modal.querySelectorAll('.type-field-item input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', () => this._updateTypeConfigPreview(modal, subtype.count));
+    });
+
+    // Apply configuration
+    modal.querySelector('.record-type-apply-btn').addEventListener('click', () => {
+      const selectedViewType = modal.querySelector('input[name="view-type"]:checked')?.value || 'table';
+      const selectedFields = [];
+
+      modal.querySelectorAll('.type-field-item').forEach(item => {
+        const checkbox = item.querySelector('input[type="checkbox"]');
+        if (checkbox.checked) {
+          selectedFields.push(checkbox.dataset.field);
+        }
+      });
+
+      // Update the subtype's view configuration
+      this._detectedSubtypes.values[subtypeIndex].viewConfig = {
+        viewType: selectedViewType,
+        visibleFields: selectedFields,
+        fieldOrder: selectedFields
+      };
+
+      modal.remove();
+      this._render();
+      this._attachEventListeners();
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+  }
+
+  _updateTypeConfigPreview(modal, recordCount) {
+    const checkedCount = modal.querySelectorAll('.type-field-item input[type="checkbox"]:checked').length;
+    const previewFields = modal.querySelector('.preview-fields');
+    if (previewFields) {
+      previewFields.textContent = `${checkedCount} fields`;
+    }
+  }
+
   _showPreview() {
     const previewEl = this.container.querySelector('#pipeline-preview-results');
     if (!previewEl) return;
@@ -7288,15 +7534,44 @@ class DataPipelineUI {
         const subtypeField = fields.find(f => f.name === subtypeFieldName || f.name === (selectedFields.find(sf => sf.name === subtypeFieldName)?.rename || subtypeFieldName));
         const subtypeFieldId = subtypeField?.id;
 
+        // Create a map from field name to field ID for building hidden fields
+        const fieldNameToId = new Map();
+        selectedFields.forEach((sf, i) => {
+          fieldNameToId.set(sf.name, fields[i].id);
+        });
+
         if (subtypeFieldId) {
           const selectedSubtypes = this._detectedSubtypes.values.filter(v => v.createView);
 
           for (const subtype of selectedSubtypes) {
             const viewId = `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+            const viewConfig = subtype.viewConfig || { viewType: 'table', visibleFields: [] };
+
+            // Calculate hidden fields: all fields not in visibleFields + the type field
+            const hiddenFields = [subtypeFieldId];  // Always hide the type field in filtered views
+            if (viewConfig.visibleFields && viewConfig.visibleFields.length > 0) {
+              for (const [fieldName, fieldId] of fieldNameToId.entries()) {
+                if (fieldId !== subtypeFieldId && !viewConfig.visibleFields.includes(fieldName)) {
+                  hiddenFields.push(fieldId);
+                }
+              }
+            }
+
+            // Calculate field order based on viewConfig.fieldOrder
+            const fieldOrder = [];
+            if (viewConfig.fieldOrder && viewConfig.fieldOrder.length > 0) {
+              for (const fieldName of viewConfig.fieldOrder) {
+                const fieldId = fieldNameToId.get(fieldName);
+                if (fieldId && !hiddenFields.includes(fieldId)) {
+                  fieldOrder.push(fieldId);
+                }
+              }
+            }
+
             views.push({
               id: viewId,
               name: this._formatSubtypeName(subtype.name),
-              type: 'table',
+              type: viewConfig.viewType || 'table',
               config: {
                 filters: [{
                   fieldId: subtypeFieldId,
@@ -7304,13 +7579,14 @@ class DataPipelineUI {
                   filterValue: subtype.name,
                   enabled: true
                 }],
-                // Optionally hide the subtype field in filtered views since it's redundant
-                hiddenFields: [subtypeFieldId]
+                hiddenFields,
+                fieldOrder: fieldOrder.length > 0 ? fieldOrder : undefined
               },
               metadata: {
                 recordType: subtype.name,
                 recordCount: subtype.count,
-                icon: this._getIconForSubtype(subtype.name)
+                icon: this._getIconForSubtype(subtype.name),
+                isRecordTypeView: true
               }
             });
           }
