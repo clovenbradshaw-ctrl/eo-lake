@@ -3194,8 +3194,20 @@ function showImportModal() {
 
         <!-- Sample Data -->
         <div class="preview-sample">
-          <h4>Sample Data</h4>
-          <div class="sample-table-wrapper">
+          <div class="preview-sample-header">
+            <h4>Sample Data</h4>
+            <div class="preview-view-toggle" id="preview-view-toggle" style="display: none;">
+              <button class="preview-view-btn active" data-mode="unified" title="View all records in one table">
+                <i class="ph ph-table"></i>
+                <span>Unified</span>
+              </button>
+              <button class="preview-view-btn" data-mode="split" title="View records split by type">
+                <i class="ph ph-rows"></i>
+                <span>By Type</span>
+              </button>
+            </div>
+          </div>
+          <div class="sample-table-wrapper" id="sample-table-wrapper">
             <table class="sample-table" id="sample-table">
             </table>
           </div>
@@ -3857,30 +3869,144 @@ function initImportHandlers() {
         edgesSection.style.display = 'none';
       }
 
-      // Sample table
-      const sampleTable = document.getElementById('sample-table');
-      const displayHeaders = previewData.headers.slice(0, 6); // Limit columns for readability
-      sampleTable.innerHTML = `
-        <thead>
-          <tr>
-            ${displayHeaders.map(h => `<th>${escapeHtml(h)}</th>`).join('')}
-            ${previewData.headers.length > 6 ? '<th>...</th>' : ''}
-          </tr>
-        </thead>
-        <tbody>
-          ${previewData.sampleRows.slice(0, 3).map(row => `
-            <tr>
-              ${displayHeaders.map(h => {
-                const val = row[h];
-                const displayVal = val === null || val === undefined ? '' :
-                  (typeof val === 'object' ? JSON.stringify(val) : String(val));
-                return `<td>${escapeHtml(displayVal.substring(0, 40))}</td>`;
-              }).join('')}
-              ${previewData.headers.length > 6 ? '<td>...</td>' : ''}
-            </tr>
-          `).join('')}
-        </tbody>
-      `;
+      // Sample table with view mode toggle
+      const sampleTableWrapper = document.getElementById('sample-table-wrapper');
+      const viewToggle = document.getElementById('preview-view-toggle');
+      let previewViewMode = 'unified';
+
+      // Show view toggle if there's schema divergence
+      const hasSchemaDivergence = analysisData.schemaDivergence?.types?.length > 1;
+      viewToggle.style.display = hasSchemaDivergence ? 'flex' : 'none';
+
+      // Function to render sample table based on view mode
+      function renderPreviewSampleTable(mode) {
+        previewViewMode = mode;
+
+        // Update toggle button states
+        viewToggle.querySelectorAll('.preview-view-btn').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+
+        if (mode === 'split' && hasSchemaDivergence) {
+          // Render split tables by type
+          const divergence = analysisData.schemaDivergence;
+          const typeField = divergence.typeField;
+          const typeColors = [
+            { bg: 'rgba(59, 130, 246, 0.08)', border: 'rgba(59, 130, 246, 0.3)', text: '#3b82f6' },
+            { bg: 'rgba(16, 185, 129, 0.08)', border: 'rgba(16, 185, 129, 0.3)', text: '#10b981' },
+            { bg: 'rgba(245, 158, 11, 0.08)', border: 'rgba(245, 158, 11, 0.3)', text: '#f59e0b' },
+            { bg: 'rgba(139, 92, 246, 0.08)', border: 'rgba(139, 92, 246, 0.3)', text: '#8b5cf6' },
+            { bg: 'rgba(236, 72, 153, 0.08)', border: 'rgba(236, 72, 153, 0.3)', text: '#ec4899' },
+          ];
+
+          // Group rows by type
+          const rowsByType = {};
+          previewData.sampleRows.forEach(row => {
+            const typeVal = row[typeField] || '_untyped';
+            if (!rowsByType[typeVal]) rowsByType[typeVal] = [];
+            rowsByType[typeVal].push(row);
+          });
+
+          // Build split tables
+          sampleTableWrapper.innerHTML = divergence.types.slice(0, 4).map((typeInfo, idx) => {
+            const typeRows = rowsByType[typeInfo.type] || [];
+            const color = typeColors[idx % typeColors.length];
+            const commonFields = divergence.commonFields.slice(0, 3);
+            const specificFields = (typeInfo.specificFields || []).slice(0, 3);
+            const displayFields = [...commonFields, ...specificFields];
+
+            return `
+              <div class="preview-split-section" style="border: 1px solid ${color.border}; border-radius: 6px; margin-bottom: 12px; overflow: hidden;">
+                <div style="background: ${color.bg}; padding: 8px 12px; border-bottom: 2px solid ${color.border}; display: flex; justify-content: space-between; align-items: center;">
+                  <span style="font-weight: 600; color: ${color.text};">${escapeHtml(typeInfo.type)}</span>
+                  <span style="font-size: 11px; color: var(--text-muted);">${typeInfo.count} records</span>
+                </div>
+                <table class="sample-table" style="margin: 0;">
+                  <thead>
+                    <tr>
+                      ${displayFields.map(h => `<th>${escapeHtml(h)}</th>`).join('')}
+                      ${displayFields.length < 6 && typeInfo.specificFields?.length > 3 ? '<th>...</th>' : ''}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${typeRows.slice(0, 2).map(row => `
+                      <tr>
+                        ${displayFields.map(h => {
+                          const val = row[h];
+                          const displayVal = val === null || val === undefined ? '' :
+                            (typeof val === 'object' ? JSON.stringify(val) : String(val));
+                          return `<td>${escapeHtml(displayVal.substring(0, 30))}</td>`;
+                        }).join('')}
+                        ${displayFields.length < 6 && typeInfo.specificFields?.length > 3 ? '<td>...</td>' : ''}
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }).join('');
+
+        } else {
+          // Render unified table (default)
+          const displayHeaders = previewData.headers.slice(0, 6);
+
+          // If we have schema divergence, add column shading
+          let fieldTypeMap = {};
+          if (hasSchemaDivergence) {
+            const divergence = analysisData.schemaDivergence;
+            const typeColors = [
+              'rgba(59, 130, 246, 0.1)',   // blue
+              'rgba(16, 185, 129, 0.1)',   // green
+              'rgba(245, 158, 11, 0.1)',   // amber
+              'rgba(139, 92, 246, 0.1)',   // purple
+              'rgba(236, 72, 153, 0.1)',   // pink
+            ];
+            divergence.types.forEach((typeInfo, idx) => {
+              (typeInfo.specificFields || []).forEach(f => {
+                fieldTypeMap[f] = typeColors[idx % typeColors.length];
+              });
+            });
+          }
+
+          sampleTableWrapper.innerHTML = `
+            <table class="sample-table" id="sample-table">
+              <thead>
+                <tr>
+                  ${displayHeaders.map(h => {
+                    const bgColor = fieldTypeMap[h] || '';
+                    return `<th style="${bgColor ? 'background:' + bgColor : ''}">${escapeHtml(h)}</th>`;
+                  }).join('')}
+                  ${previewData.headers.length > 6 ? '<th>...</th>' : ''}
+                </tr>
+              </thead>
+              <tbody>
+                ${previewData.sampleRows.slice(0, 3).map(row => `
+                  <tr>
+                    ${displayHeaders.map(h => {
+                      const val = row[h];
+                      const displayVal = val === null || val === undefined ? '' :
+                        (typeof val === 'object' ? JSON.stringify(val) : String(val));
+                      const bgColor = fieldTypeMap[h] || '';
+                      return `<td style="${bgColor ? 'background:' + bgColor : ''}">${escapeHtml(displayVal.substring(0, 40))}</td>`;
+                    }).join('')}
+                    ${previewData.headers.length > 6 ? '<td>...</td>' : ''}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+        }
+      }
+
+      // Initial render
+      renderPreviewSampleTable('unified');
+
+      // Handle view toggle clicks
+      viewToggle.querySelectorAll('.preview-view-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          renderPreviewSampleTable(btn.dataset.mode);
+        });
+      });
 
       // Set name input
       document.getElementById('import-set-name').value =
@@ -4131,6 +4257,57 @@ importStyles.textContent = `
     color: var(--text-secondary);
     margin-bottom: 8px;
     text-transform: uppercase;
+  }
+
+  .preview-sample-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .preview-sample-header h4 {
+    margin-bottom: 0;
+  }
+
+  .preview-view-toggle {
+    display: flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .preview-view-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .preview-view-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+  }
+
+  .preview-view-btn.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  .preview-view-btn i {
+    font-size: 12px;
   }
 
   .schema-table {

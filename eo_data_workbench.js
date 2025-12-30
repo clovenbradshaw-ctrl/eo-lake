@@ -3590,6 +3590,15 @@ class EODataWorkbench {
       values: record
     }));
 
+    // Compute multiRecordAnalysis on-the-fly if not present
+    if (!source.multiRecordAnalysis && rawRecords.length > 1) {
+      source.multiRecordAnalysis = this._computeMultiRecordAnalysis(rawRecords, fields);
+      if (source.multiRecordAnalysis) {
+        // Persist the computed analysis
+        this._saveData();
+      }
+    }
+
     // Find derived sets (sets created from this source)
     const derivedSets = this.sets.filter(set => {
       const prov = set.datasetProvenance;
@@ -4081,6 +4090,105 @@ class EODataWorkbench {
         }).join('')}
       </div>
     `;
+  }
+
+  /**
+   * Compute multi-record analysis on-the-fly for sources that don't have it stored.
+   * Detects if records have different schemas based on a type field.
+   */
+  _computeMultiRecordAnalysis(records, fields) {
+    if (!records || records.length < 2) return null;
+
+    // Look for a type field
+    const typeFieldCandidates = ['type', '_type', 'recordType', 'record_type', 'kind', 'category', 'filetype'];
+    const fieldNames = fields.map(f => f.name);
+
+    let typeField = null;
+    for (const candidate of typeFieldCandidates) {
+      if (fieldNames.includes(candidate)) {
+        typeField = candidate;
+        break;
+      }
+    }
+
+    if (!typeField) return null;
+
+    // Get unique type values
+    const typeValues = new Set();
+    records.forEach(r => {
+      const val = r[typeField];
+      if (val !== null && val !== undefined && val !== '') {
+        typeValues.add(val);
+      }
+    });
+
+    // Need at least 2 types for this to be relevant
+    if (typeValues.size < 2) return null;
+
+    // Group records by type and track which fields have values
+    const typeSchemas = {};
+    for (const record of records) {
+      const typeValue = record[typeField] || '_untyped';
+
+      if (!typeSchemas[typeValue]) {
+        typeSchemas[typeValue] = {
+          count: 0,
+          fieldsWithValues: new Set()
+        };
+      }
+
+      typeSchemas[typeValue].count++;
+
+      for (const field of fields) {
+        const val = record[field.name];
+        if (val !== null && val !== undefined && val !== '') {
+          typeSchemas[typeValue].fieldsWithValues.add(field.name);
+        }
+      }
+    }
+
+    // Calculate common and type-specific fields
+    const types = Object.keys(typeSchemas);
+    const allFields = new Set();
+    for (const type of types) {
+      for (const field of typeSchemas[type].fieldsWithValues) {
+        if (field !== typeField) allFields.add(field);
+      }
+    }
+
+    const commonFields = [];
+    const typeSpecificFields = {};
+
+    for (const field of allFields) {
+      const typesWithField = types.filter(t => typeSchemas[t].fieldsWithValues.has(field));
+      if (typesWithField.length === types.length) {
+        commonFields.push(field);
+      } else {
+        for (const t of typesWithField) {
+          if (!typeSpecificFields[t]) typeSpecificFields[t] = [];
+          typeSpecificFields[t].push(field);
+        }
+      }
+    }
+
+    // Check if there's meaningful divergence (at least one type has specific fields)
+    const hasSpecificFields = Object.values(typeSpecificFields).some(arr => arr.length > 0);
+    if (!hasSpecificFields) return null;
+
+    // Build the analysis result
+    const divergenceScore = allFields.size > 0 ? 1 - (commonFields.length / allFields.size) : 0;
+
+    return {
+      typeField: typeField,
+      types: types.map(t => ({
+        value: t,
+        label: t,
+        count: typeSchemas[t].count,
+        specificFields: typeSpecificFields[t] || []
+      })).sort((a, b) => b.count - a.count),
+      commonFields: commonFields,
+      divergenceScore: divergenceScore
+    };
   }
 
   /**
