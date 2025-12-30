@@ -7349,20 +7349,33 @@ class EODataWorkbench {
   /**
    * Render the browser-style tab bar showing Sets (like Airtable tables)
    * Tabs = Sets, Views are shown in the disclosure panel below
+   * Also includes an "Import Data" tab as the first tab for viewing sources
    */
   _renderTabBar() {
     const container = this.elements.tabBarTabs;
     if (!container) return;
 
-    if (this.sets.length === 0) {
-      container.innerHTML = '';
-      return;
-    }
-
-    // Don't show any set as active when viewing a source
+    // Check if viewing a source (Import Data tab should be active)
     const isViewingSource = !!this.currentSourceId;
 
-    container.innerHTML = this.sets.map(set => {
+    // Count active sources for the Import Data tab badge
+    const activeSourceCount = (this.sources || []).filter(s => s.status !== 'archived').length;
+
+    // Build Import Data tab (always first)
+    const importDataTab = `
+      <div class="browser-tab import-data-tab ${isViewingSource ? 'active' : ''}"
+           data-tab-type="import-data">
+        <div class="tab-icon">
+          <i class="ph ph-download-simple"></i>
+        </div>
+        <span class="tab-title">Import Data</span>
+        <span class="tab-count">${activeSourceCount}</span>
+        ${isViewingSource ? '<div class="tab-curve-right"></div>' : ''}
+      </div>
+    `;
+
+    // Build Set tabs
+    const setTabs = this.sets.map(set => {
       const recordCount = set.records?.length || 0;
       const isActive = !isViewingSource && set.id === this.currentSetId;
       return `
@@ -7379,6 +7392,8 @@ class EODataWorkbench {
       `;
     }).join('');
 
+    container.innerHTML = importDataTab + setTabs;
+
     // Attach event handlers to tabs
     this._attachTabEventHandlers();
     this._checkTabOverflow();
@@ -7386,12 +7401,23 @@ class EODataWorkbench {
 
   /**
    * Attach event handlers to tab elements (now for Sets, not Views)
+   * Also handles the special Import Data tab
    */
   _attachTabEventHandlers() {
     const container = this.elements.tabBarTabs;
     if (!container) return;
 
-    container.querySelectorAll('.browser-tab').forEach(tab => {
+    // Handle Import Data tab
+    const importDataTab = container.querySelector('.import-data-tab');
+    if (importDataTab) {
+      importDataTab.addEventListener('click', () => {
+        this._showSourcesTableView();
+        this._renderTabBar();
+      });
+    }
+
+    // Handle Set tabs
+    container.querySelectorAll('.browser-tab[data-set-id]').forEach(tab => {
       const setId = tab.dataset.setId;
 
       // Click to select set
