@@ -2446,11 +2446,12 @@ mark.search-highlight {
 }
 
 .data-table tbody tr.selected {
-  background: var(--primary-50);
+  background: var(--primary-500);
 }
 
 .data-table tbody tr.selected td {
   background: transparent;
+  color: white;
 }
 
 /* Cell Types */
@@ -8306,6 +8307,13 @@ a:focus-visible,
 }
 
 .fs-table-row.selected td {
+  color: white;
+}
+
+.fs-table-row.selected .fs-table-name-text,
+.fs-table-row.selected .fs-table-count,
+.fs-table-row.selected .fs-table-modified,
+.fs-table-row.selected .fs-table-toggle {
   color: white;
 }
 
