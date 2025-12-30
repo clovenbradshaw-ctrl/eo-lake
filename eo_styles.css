@@ -11555,6 +11555,11 @@ body.has-picked-up .browser-tab:hover {
   letter-spacing: 0.5px;
   border-bottom: none;
   background: var(--bg-secondary); /* Ensure all header cells have background for sticky */
+  /* Text overlap protection */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 250px;
 }
 
 /* Row number cell in column group header - needs proper styling */
@@ -11573,8 +11578,9 @@ body.has-picked-up .browser-tab:hover {
 }
 
 .source-col-group.common {
-  background: var(--bg-secondary);
-  color: var(--text-muted);
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.03));
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-color);
 }
 
 .source-col-group.typed {
@@ -11658,6 +11664,13 @@ body.has-picked-up .browser-tab:hover {
   position: sticky;
   top: 0;
   z-index: 10;
+  /* Prevent text from showing through semi-transparent backgrounds */
+  isolation: isolate;
+}
+
+/* Ensure column group row has solid background to prevent bleed-through */
+.source-data-table.multi-record thead tr:first-child th {
+  background: var(--bg-primary);
 }
 
 .source-data-table th {
@@ -11676,10 +11689,17 @@ body.has-picked-up .browser-tab:hover {
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Text overlap protection */
+  max-width: 200px;
+  overflow: hidden;
 }
 
 .source-col-name {
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 150px;
 }
 
 .source-col-type {
