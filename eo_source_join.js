@@ -6387,7 +6387,8 @@ class DataPipelineUI {
   _initFieldsFromSources() {
     this._selectedFields = [];
     for (const { source } of this._sources) {
-      if (source.schema?.fields) {
+      if (source.schema?.fields && source.schema.fields.length > 0) {
+        // Use schema fields if available
         for (const field of source.schema.fields) {
           this._selectedFields.push({
             sourceId: source.id,
@@ -6398,11 +6399,100 @@ class DataPipelineUI {
             include: true
           });
         }
+      } else if (source.records && source.records.length > 0) {
+        // Fallback: Infer fields from records when schema.fields is missing
+        // This matches the logic in _renderSourceDataView for consistency
+        // Handles both flat records and {values: {...}} format
+        const fieldSet = new Set();
+        const fieldOrder = [];
+
+        // Helper to get keys from a record (handles both formats)
+        const getRecordKeys = (record) => {
+          if (record.values && typeof record.values === 'object') {
+            return Object.keys(record.values);
+          }
+          return Object.keys(record).filter(k => k !== 'id' && k !== 'values');
+        };
+
+        // First, add fields from the first record (preserves typical order)
+        for (const key of getRecordKeys(source.records[0])) {
+          if (!key.startsWith('_')) {  // Skip internal fields
+            fieldOrder.push(key);
+            fieldSet.add(key);
+          }
+        }
+
+        // Then scan remaining records for any additional fields
+        for (let i = 1; i < source.records.length; i++) {
+          for (const key of getRecordKeys(source.records[i])) {
+            if (!key.startsWith('_') && !fieldSet.has(key)) {
+              fieldOrder.push(key);
+              fieldSet.add(key);
+            }
+          }
+        }
+
+        // Add inferred fields to selectedFields
+        for (const fieldName of fieldOrder) {
+          this._selectedFields.push({
+            sourceId: source.id,
+            sourceName: source.name,
+            name: fieldName,
+            type: this._inferFieldType(source.records, fieldName),
+            rename: null,
+            include: true
+          });
+        }
       }
     }
 
     // Detect subtypes after loading fields
     this._detectSubtypes();
+  }
+
+  /**
+   * Infer field type from record values
+   * Simple inference based on sample values
+   * Handles both flat records and {values: {...}} format
+   */
+  _inferFieldType(records, fieldName) {
+    const sampleSize = Math.min(records.length, 100);
+    let numberCount = 0;
+    let dateCount = 0;
+    let boolCount = 0;
+    let nonEmptyCount = 0;
+
+    for (let i = 0; i < sampleSize; i++) {
+      const record = records[i];
+      // Handle both flat records and {values: {...}} format
+      const value = record.values?.[fieldName] ?? record[fieldName];
+      if (value === null || value === undefined || value === '') continue;
+
+      nonEmptyCount++;
+      const strValue = String(value);
+
+      // Check for number
+      if (!isNaN(parseFloat(strValue)) && isFinite(strValue)) {
+        numberCount++;
+      }
+      // Check for date patterns
+      else if (/^\d{4}-\d{2}-\d{2}/.test(strValue) || /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(strValue)) {
+        dateCount++;
+      }
+      // Check for boolean
+      else if (/^(true|false|yes|no)$/i.test(strValue)) {
+        boolCount++;
+      }
+    }
+
+    if (nonEmptyCount === 0) return 'text';
+
+    const threshold = nonEmptyCount * 0.8;
+    if (numberCount >= threshold) return 'number';
+    if (dateCount >= threshold) return 'date';
+    if (boolCount >= threshold) return 'boolean';
+
+    return 'text';
   }
 
   /**
@@ -6433,12 +6523,17 @@ class DataPipelineUI {
 
     if (!typeFieldName) return;
 
+    // Helper to get value from record (handles both flat and {values: {...}} formats)
+    const getRecordValue = (record, fieldName) => {
+      return record.values?.[fieldName] ?? record[fieldName];
+    };
+
     // Count values and track which fields have data for each type
     const valueCounts = {};
     const fieldsByType = {};  // { typeName: { fieldName: countOfNonEmpty } }
 
     for (const record of source.records) {
-      const typeVal = record[typeFieldName];
+      const typeVal = getRecordValue(record, typeFieldName);
       if (typeVal === null || typeVal === undefined || typeVal === '') continue;
 
       const strVal = String(typeVal);
@@ -6450,7 +6545,7 @@ class DataPipelineUI {
       }
 
       for (const field of this._selectedFields) {
-        const fieldValue = record[field.name];
+        const fieldValue = getRecordValue(record, field.name);
         if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
           fieldsByType[strVal][field.name] = (fieldsByType[strVal][field.name] || 0) + 1;
         }
