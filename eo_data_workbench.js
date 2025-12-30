@@ -934,21 +934,32 @@ class EODataWorkbench {
       const btn = e.target.closest('.view-toggle-btn');
       if (!btn) return;
       const viewMode = btn.dataset.view;
-      if (viewMode && viewMode !== this.sourcesViewMode) {
+      if (!viewMode) return;
+
+      // Always update button states for visual feedback
+      document.querySelectorAll('#sources-view-toggle .view-toggle-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === viewMode);
+      });
+
+      // Only re-render if mode actually changed
+      if (viewMode !== this.sourcesViewMode) {
         this.sourcesViewMode = viewMode;
-        // Update toggle button states
-        document.querySelectorAll('#sources-view-toggle .view-toggle-btn').forEach(b => {
-          b.classList.toggle('active', b.dataset.view === viewMode);
-        });
         // Re-render sources navigation or show table view
         if (viewMode === 'table') {
           this._showSourcesTableView();
         } else {
           this._renderSourcesNav();
-          // If we were viewing a source table, clear main content
+          // When switching to list mode, show the first source if available, otherwise show welcome state
           if (this.currentSourceId === 'sources-table') {
-            this.currentSourceId = null;
-            this._renderView();
+            const activeSources = (this.sources || []).filter(s => s.status !== 'archived');
+            if (activeSources.length > 0) {
+              // Show the first source
+              this._showSourceDetail(activeSources[0].id);
+            } else {
+              // No sources - show empty/welcome state
+              this.currentSourceId = null;
+              this._renderView();
+            }
           }
         }
       }
@@ -5128,14 +5139,20 @@ class EODataWorkbench {
     document.querySelectorAll('.source-view-mode-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const mode = btn.dataset.mode;
-        if (mode && source.sourceViewMode !== mode) {
+        if (!mode) return;
+
+        // Always update button states for visual feedback
+        document.querySelectorAll('.source-view-mode-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.mode === mode);
+        });
+
+        // Get the effective current mode (default is 'unified')
+        const currentMode = source.sourceViewMode || 'unified';
+
+        // Only re-render if mode actually changed
+        if (currentMode !== mode) {
           source.sourceViewMode = mode;
           this._saveData();
-
-          // Update button states
-          document.querySelectorAll('.source-view-mode-btn').forEach(b => {
-            b.classList.toggle('active', b.dataset.mode === mode);
-          });
 
           // Re-render just the table container
           const container = document.getElementById('source-data-table-container');
