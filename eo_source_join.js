@@ -5723,7 +5723,7 @@ class SetJoinFilterCreator {
             ${displayRecords.map(record => `
               <tr>
                 ${displayFields.map(f => {
-                  const val = record.values?.[f.name] ?? record[f.name] ?? '';
+                  const val = record[f.id] ?? record[f.name] ?? '';
                   return `<td>${this._escapeHtml(String(val).substring(0, 50))}</td>`;
                 }).join('')}
                 ${fields.length > 6 ? '<td class="more">...</td>' : ''}
