@@ -513,6 +513,23 @@ const EventCategory = Object.freeze({
   INTERPRETATION: 'interpretation',
   AGGREGATION_EXECUTED: 'aggregation_executed',
 
+  // Schema Semantic categories (interpretation layer)
+  SCHEMA_SEMANTIC_CREATED: 'schema_semantic_created',
+  SCHEMA_SEMANTIC_VERSIONED: 'schema_semantic_versioned',
+  SCHEMA_SEMANTIC_DEPRECATED: 'schema_semantic_deprecated',
+
+  // Interpretation Binding categories
+  INTERPRETATION_CREATED: 'interpretation_created',
+  INTERPRETATION_UPDATED: 'interpretation_updated',
+  INTERPRETATION_SUPERSEDED: 'interpretation_superseded',
+  COLUMN_BOUND: 'column_bound',
+  COLUMN_UNBOUND: 'column_unbound',
+
+  // Suggestion audit trail
+  SUGGESTION_SEARCHED: 'suggestion_searched',
+  SUGGESTION_SELECTED: 'suggestion_selected',
+  SUGGESTION_REJECTED: 'suggestion_rejected',
+
   // Derived value categories
   AGGREGATION_RESULT: 'aggregation_result',
   COMPUTED_VALUE: 'computed_value',

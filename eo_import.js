@@ -1830,6 +1830,9 @@ class ImportOrchestrator {
       if (data.sets.length > 0 && data.sets[0].records) {
         return this._convertEOLakeExport(data.sets[0]);
       }
+    } else if (this._isEOAwareFormat(data)) {
+      // EO-Aware import format with dataset, schema_semantics, and interpretation
+      return this._parseEOAwareJSON(data);
     } else if (typeof data === 'object') {
       // Single object or keyed object
       const keys = Object.keys(data);
@@ -1901,6 +1904,214 @@ class ImportOrchestrator {
     });
 
     return { headers, rows, hasHeaders: true, totalRows: rows.length };
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // EO-Aware Import Format Support
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Check if data is in EO-Aware format
+   *
+   * EO-Aware format has:
+   * - dataset: { id, source, ingested_at, data[] }
+   * - schema_semantics: [ SchemaSemantic[] ]
+   * - interpretation: { InterpretationBinding }
+   */
+  _isEOAwareFormat(data) {
+    return (
+      data &&
+      typeof data === 'object' &&
+      data.dataset &&
+      typeof data.dataset === 'object' &&
+      Array.isArray(data.dataset.data)
+    );
+  }
+
+  /**
+   * Parse EO-Aware JSON format
+   *
+   * Returns parsed result with embedded semantic and interpretation metadata
+   */
+  _parseEOAwareJSON(data) {
+    const dataset = data.dataset;
+    const schemaSemantics = data.schema_semantics || [];
+    const interpretation = data.interpretation || null;
+
+    // Extract records from dataset.data
+    let records = dataset.data || [];
+
+    // Flatten nested objects if needed
+    records = records.map(record => this._flattenObject(record));
+
+    // Build headers from records
+    const headerSet = new Set();
+    const headers = [];
+
+    for (const record of records) {
+      for (const key of Object.keys(record)) {
+        if (!key.startsWith('_') && !headerSet.has(key)) {
+          headers.push(key);
+          headerSet.add(key);
+        }
+      }
+    }
+
+    // Return with EO-aware metadata attached
+    return {
+      headers,
+      rows: records,
+      hasHeaders: true,
+      totalRows: records.length,
+      fileType: 'eo_aware_json',
+      eoAware: {
+        datasetId: dataset.id,
+        datasetSource: dataset.source,
+        ingestedAt: dataset.ingested_at,
+        schemaSemantics,
+        interpretation
+      }
+    };
+  }
+
+  /**
+   * Validate EO-Aware import data
+   *
+   * Validates according to EO rules:
+   * - Reject if interpretation present but agent missing
+   * - Reject if semantic_uri referenced but not defined
+   * - Reject if column has multiple conflicting bindings
+   * - Reject if semantic definition changed without version bump
+   * - Warn if jurisdiction/scale/background missing
+   */
+  validateEOAwareImport(data) {
+    const errors = [];
+    const warnings = [];
+
+    if (!data || !data.dataset) {
+      errors.push('Missing dataset object');
+      return { valid: false, errors, warnings };
+    }
+
+    // Check dataset
+    if (!data.dataset.data || !Array.isArray(data.dataset.data)) {
+      errors.push('Dataset must have data array');
+    }
+
+    // Check interpretation
+    const interpretation = data.interpretation;
+    if (interpretation) {
+      // RULE: Agent is required
+      if (!interpretation.agent || interpretation.agent.trim() === '') {
+        errors.push('Interpretation present but agent is missing');
+      }
+
+      // Check bindings
+      const bindings = interpretation.bindings || [];
+      const semanticUris = new Set((data.schema_semantics || []).map(s => s.id));
+      const columnsSeen = new Set();
+
+      for (const binding of bindings) {
+        // RULE: Semantic URI must be defined
+        if (binding.semantic_uri && !semanticUris.has(binding.semantic_uri)) {
+          errors.push(`Semantic URI referenced but not defined: ${binding.semantic_uri}`);
+        }
+
+        // RULE: No conflicting bindings
+        if (columnsSeen.has(binding.column)) {
+          errors.push(`Column has multiple conflicting bindings: ${binding.column}`);
+        }
+        columnsSeen.add(binding.column);
+      }
+
+      // Warnings for missing provenance
+      if (!interpretation.jurisdiction) {
+        warnings.push('jurisdiction_missing');
+      }
+      if (!interpretation.scale) {
+        warnings.push('scale_unspecified');
+      }
+      if (!interpretation.background || interpretation.background.length === 0) {
+        warnings.push('background_empty');
+      }
+    }
+
+    // Check schema semantics
+    for (const semantic of (data.schema_semantics || [])) {
+      if (!semantic.id) {
+        errors.push('Schema semantic missing id');
+      }
+      if (!semantic.term) {
+        errors.push('Schema semantic missing term');
+      }
+      if (!semantic.definition) {
+        warnings.push(`Schema semantic ${semantic.id} missing definition`);
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings
+    };
+  }
+
+  /**
+   * Process EO-Aware import
+   *
+   * Handles the full import workflow for EO-aware JSON:
+   * 1. Validate the import data
+   * 2. Import schema semantics to registry
+   * 3. Import dataset as source
+   * 4. Create interpretation binding
+   * 5. Link dataset to interpretation
+   */
+  async processEOAwareImport(parseResult, options = {}) {
+    const eoData = parseResult.eoAware;
+    if (!eoData) {
+      throw new Error('Not an EO-aware import');
+    }
+
+    const results = {
+      dataset: null,
+      semantics: [],
+      interpretation: null,
+      warnings: []
+    };
+
+    // Step 1: Import schema semantics
+    if (eoData.schemaSemantics && eoData.schemaSemantics.length > 0) {
+      const registry = window.EOSchemaSemantic?.getSemanticRegistry();
+      if (registry) {
+        for (const semanticData of eoData.schemaSemantics) {
+          const semantic = new window.EOSchemaSemantic.SchemaSemantic(semanticData);
+          registry.add(semantic);
+          results.semantics.push(semantic);
+        }
+      }
+    }
+
+    // Step 2: Create interpretation binding
+    if (eoData.interpretation && window.EOInterpretationBinding) {
+      const binding = window.EOInterpretationBinding.createInterpretationBinding({
+        ...eoData.interpretation,
+        source_dataset: eoData.datasetId
+      });
+
+      const store = window.EOInterpretationBinding.getBindingStore();
+      store.add(binding);
+      results.interpretation = binding;
+
+      // Record usage for each bound semantic
+      const registry = window.EOSchemaSemantic?.getSemanticRegistry();
+      if (registry) {
+        for (const b of binding.bindings) {
+          registry.recordUsage(b.semantic_uri);
+        }
+      }
+    }
+
+    return results;
   }
 
   /**

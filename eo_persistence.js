@@ -20,7 +20,7 @@
 class IndexedDBBackend {
   constructor(dbName = 'eo_experience_engine') {
     this.dbName = dbName;
-    this.version = 3; // Incremented for ghost data stores
+    this.version = 4; // Incremented for interpretation layer stores
     this.db = null;
   }
 
@@ -96,6 +96,25 @@ class IndexedDBBackend {
           hauntStore.createIndex('by_target', 'targetId', { unique: false });
           hauntStore.createIndex('hauntType', 'hauntType', { unique: false });
           hauntStore.createIndex('resolved', 'resolved', { unique: false });
+        }
+
+        // Schema Semantics store - versioned column meaning objects
+        if (!db.objectStoreNames.contains('schemaSemantics')) {
+          const semanticStore = db.createObjectStore('schemaSemantics', { keyPath: 'id' });
+          semanticStore.createIndex('term', 'term', { unique: false });
+          semanticStore.createIndex('status', 'status', { unique: false });
+          semanticStore.createIndex('jurisdiction', 'jurisdiction', { unique: false });
+          semanticStore.createIndex('version', 'version', { unique: false });
+          semanticStore.createIndex('created_at', 'created_at', { unique: false });
+        }
+
+        // Interpretation Bindings store - dataset column to semantic URI mappings
+        if (!db.objectStoreNames.contains('interpretationBindings')) {
+          const bindingStore = db.createObjectStore('interpretationBindings', { keyPath: 'id' });
+          bindingStore.createIndex('source_dataset', 'source_dataset', { unique: false });
+          bindingStore.createIndex('agent', 'agent', { unique: false });
+          bindingStore.createIndex('is_active', 'is_active', { unique: false });
+          bindingStore.createIndex('created_at', 'created_at', { unique: false });
         }
       };
     });
@@ -437,20 +456,20 @@ class IndexedDBBackend {
    */
   async clear() {
     return new Promise((resolve, reject) => {
-      const tx = this.db.transaction(
-        ['events', 'horizons', 'syncQueue', 'metadata', 'ghosts', 'haunts'],
-        'readwrite'
-      );
+      const storeNames = ['events', 'horizons', 'syncQueue', 'metadata'];
 
-      tx.objectStore('events').clear();
-      tx.objectStore('horizons').clear();
-      tx.objectStore('syncQueue').clear();
-      tx.objectStore('metadata').clear();
-      if (this.db.objectStoreNames.contains('ghosts')) {
-        tx.objectStore('ghosts').clear();
+      // Add optional stores if they exist
+      const optionalStores = ['ghosts', 'haunts', 'schemaSemantics', 'interpretationBindings'];
+      for (const storeName of optionalStores) {
+        if (this.db.objectStoreNames.contains(storeName)) {
+          storeNames.push(storeName);
+        }
       }
-      if (this.db.objectStoreNames.contains('haunts')) {
-        tx.objectStore('haunts').clear();
+
+      const tx = this.db.transaction(storeNames, 'readwrite');
+
+      for (const storeName of storeNames) {
+        tx.objectStore(storeName).clear();
       }
 
       tx.oncomplete = () => resolve();
@@ -592,6 +611,176 @@ class IndexedDBBackend {
       const tx = this.db.transaction('haunts', 'readwrite');
       const store = tx.objectStore('haunts');
       store.delete([ghostId, targetId]);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Schema Semantic Methods
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Save a schema semantic
+   */
+  async saveSchemaSemantic(semantic) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('schemaSemantics', 'readwrite');
+      const store = tx.objectStore('schemaSemantics');
+      store.put(typeof semantic.toJSON === 'function' ? semantic.toJSON() : semantic);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Save multiple schema semantics
+   */
+  async saveSchemaSemantics(semantics) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('schemaSemantics', 'readwrite');
+      const store = tx.objectStore('schemaSemantics');
+      for (const semantic of semantics) {
+        store.put(typeof semantic.toJSON === 'function' ? semantic.toJSON() : semantic);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Load all schema semantics
+   */
+  async loadSchemaSemantics() {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('schemaSemantics', 'readonly');
+      const store = tx.objectStore('schemaSemantics');
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get schema semantic by ID
+   */
+  async getSchemaSemantic(id) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('schemaSemantics', 'readonly');
+      const store = tx.objectStore('schemaSemantics');
+      const request = store.get(id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get schema semantics by term
+   */
+  async getSchemaSemanticsByTerm(term) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('schemaSemantics', 'readonly');
+      const store = tx.objectStore('schemaSemantics');
+      const index = store.index('term');
+      const request = index.getAll(term);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Delete a schema semantic
+   */
+  async deleteSchemaSemantic(id) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('schemaSemantics', 'readwrite');
+      const store = tx.objectStore('schemaSemantics');
+      store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Interpretation Binding Methods
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Save an interpretation binding
+   */
+  async saveInterpretationBinding(binding) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('interpretationBindings', 'readwrite');
+      const store = tx.objectStore('interpretationBindings');
+      store.put(typeof binding.toJSON === 'function' ? binding.toJSON() : binding);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Save multiple interpretation bindings
+   */
+  async saveInterpretationBindings(bindings) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('interpretationBindings', 'readwrite');
+      const store = tx.objectStore('interpretationBindings');
+      for (const binding of bindings) {
+        store.put(typeof binding.toJSON === 'function' ? binding.toJSON() : binding);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Load all interpretation bindings
+   */
+  async loadInterpretationBindings() {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('interpretationBindings', 'readonly');
+      const store = tx.objectStore('interpretationBindings');
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get interpretation binding by ID
+   */
+  async getInterpretationBinding(id) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('interpretationBindings', 'readonly');
+      const store = tx.objectStore('interpretationBindings');
+      const request = store.get(id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Get interpretation bindings for a dataset
+   */
+  async getBindingsForDataset(datasetId) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('interpretationBindings', 'readonly');
+      const store = tx.objectStore('interpretationBindings');
+      const index = store.index('source_dataset');
+      const request = index.getAll(datasetId);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Delete an interpretation binding
+   */
+  async deleteInterpretationBinding(id) {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction('interpretationBindings', 'readwrite');
+      const store = tx.objectStore('interpretationBindings');
+      store.delete(id);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
