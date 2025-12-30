@@ -11381,12 +11381,15 @@ body.has-picked-up .browser-tab:hover {
 /* Toolbar */
 .source-viewer-toolbar {
   grid-column: 1;
+  grid-row: 2; /* Explicitly set grid row for clarity */
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 20px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
+  position: relative;
+  z-index: 11; /* Higher than table thead (z-index: 10) to prevent overlap */
 }
 
 .source-search-box {
@@ -11518,10 +11521,22 @@ body.has-picked-up .browser-tab:hover {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   border-bottom: none;
+  background: var(--bg-secondary); /* Ensure all header cells have background for sticky */
+}
+
+/* Row number cell in column group header - needs proper styling */
+.source-col-group-header th.source-row-num {
+  border-right: 1px solid var(--border-color);
 }
 
 .source-col-group {
   text-align: center;
+  border-right: 1px solid var(--border-color); /* Separate column groups with border */
+}
+
+/* Remove border from last column group */
+.source-col-group:last-child {
+  border-right: none;
 }
 
 .source-col-group.common {
@@ -11531,6 +11546,8 @@ body.has-picked-up .browser-tab:hover {
 
 .source-col-group.typed {
   color: var(--text-secondary);
+  /* Background applied via inline style from JS, but provide fallback */
+  background: var(--bg-secondary);
 }
 
 .source-col-group-count {
@@ -11594,12 +11611,14 @@ body.has-picked-up .browser-tab:hover {
   grid-row: 3;
   overflow: auto;
   background: var(--bg-primary);
+  min-width: 0; /* Prevent grid blowout - allows proper overflow handling */
 }
 
 .source-data-table {
   border-collapse: collapse;
   table-layout: auto; /* Allow columns to expand for content */
   font-size: 13px;
+  width: 100%; /* Ensure table fills container width */
 }
 
 .source-data-table thead {
