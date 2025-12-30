@@ -4779,6 +4779,10 @@ class EODataWorkbench {
     this.currentSourceId = null;
     this.currentSetId = null;
 
+    // Hide add-field buttons - they don't apply in file explorer
+    const addFieldFab = document.getElementById('add-field-fab');
+    if (addFieldFab) addFieldFab.style.display = 'none';
+
     // Update breadcrumb
     this._updateBreadcrumb('File Explorer', 'ph-folder-open');
 
@@ -8809,6 +8813,9 @@ class EODataWorkbench {
   _injectViewTabsHeader() {
     const contentArea = this.elements.contentArea;
     if (!contentArea) return;
+
+    // Don't inject if we're in file explorer mode
+    if (this.fileExplorerMode) return;
 
     // Don't inject if we're on empty state or no current set
     const set = this.getCurrentSet();

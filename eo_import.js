@@ -1743,6 +1743,26 @@ class ImportOrchestrator {
   }
 
   /**
+   * Flatten nested objects into dot-notation keys
+   * e.g., {address: {city: "NYC", zip: "10001"}} -> {"address.city": "NYC", "address.zip": "10001"}
+   */
+  _flattenObject(obj, prefix = '', result = {}) {
+    for (const key of Object.keys(obj)) {
+      const value = obj[key];
+      const newKey = prefix ? `${prefix}.${key}` : key;
+
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        // Recursively flatten nested objects
+        this._flattenObject(value, newKey, result);
+      } else {
+        // Keep primitives and arrays as-is
+        result[newKey] = value;
+      }
+    }
+    return result;
+  }
+
+  /**
    * Parse JSON into normalized format
    */
   _parseJSON(text) {
@@ -1815,6 +1835,10 @@ class ImportOrchestrator {
     if (records.length > 0 && (typeof records[0] !== 'object' || records[0] === null)) {
       records = records.map(item => ({ value: item }));
     }
+
+    // Flatten nested objects into dot-notation keys
+    // e.g., {address: {city: "NYC"}} -> {"address.city": "NYC"}
+    records = records.map(record => this._flattenObject(record));
 
     // Extract headers from ALL records to capture fields that may be missing in some records
     // Preserve order from first record, then add any additional fields found in other records
@@ -3829,7 +3853,12 @@ function initImportHandlers() {
         <tbody>
           ${previewData.sampleRows.slice(0, 3).map(row => `
             <tr>
-              ${displayHeaders.map(h => `<td>${escapeHtml(String(row[h] || '').substring(0, 40))}</td>`).join('')}
+              ${displayHeaders.map(h => {
+                const val = row[h];
+                const displayVal = val === null || val === undefined ? '' :
+                  (typeof val === 'object' ? JSON.stringify(val) : String(val));
+                return `<td>${escapeHtml(displayVal.substring(0, 40))}</td>`;
+              }).join('')}
               ${previewData.headers.length > 6 ? '<td>...</td>' : ''}
             </tr>
           `).join('')}
