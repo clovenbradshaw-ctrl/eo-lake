@@ -1,22 +1,35 @@
 /**
- * EO Provenance System
+ * EO Interpretation Parameters - 9-Element Schema for Sets/Interpretations
  *
- * Implements the 9-element Experiential Ontology provenance schema:
+ * IMPORTANT: This is for INTERPRETATION-LEVEL data (Sets), NOT source-level.
+ * Source-level data uses Identity/Space/Time provenance (see eo_source_provenance.js).
  *
- * I. EPISTEMIC PROVENANCE (How the claim was produced)
- *    1. Agent - Who made the claim
- *    2. Method - How the claim was produced
- *    3. Source - Where the claim was published/archived
+ * Interpretation-level parameters describe HOW meaning is being constructed,
+ * not how the data was produced. Each parameter is a COMMITMENT, not metadata.
  *
- * II. SEMANTIC PROVENANCE (What the claim means)
- *    4. Term - The key concept being used
- *    5. Definition - What that term means here
- *    6. Jurisdiction - Where/under whose authority
+ * KEY DISTINCTION:
+ * - Source provenance (Identity/Space/Time) answers: "What exists?"
+ * - Interpretation parameters (9-element) answers: "In what way does this count
+ *   as something, for someone, somewhere, for now?"
  *
- * III. SITUATIONAL PROVENANCE (When/where it holds)
- *    7. Scale - At what level the claim operates
- *    8. Timeframe - When observed, over what duration
- *    9. Background - Enabling/constraining conditions
+ * I. EPISTEMIC TRIAD - From what knowing position is this interpretation made?
+ *    1. Interpreting Agent - Who is doing the interpreting
+ *    2. Interpretive Method - By what epistemic act was meaning constructed
+ *    3. Source Set - What materials does this interpretation stand on
+ *
+ * II. SEMANTIC TRIAD - What meaning-space is being asserted?
+ *    4. Term - What concept is being interpreted
+ *    5. Definition - Which meaning of the term is being used
+ *    6. Jurisdiction - Where does this definition legitimately apply
+ *
+ * III. SITUATIONAL TRIAD - Under what conditions does this interpretation hold?
+ *    7. Scale - At what level does this interpretation make sense
+ *    8. Timeframe - Over what temporal horizon is this interpretation valid
+ *    9. Background - What conditions must be true for this to hold
+ *
+ * EO HARD CONSTRAINT:
+ * An interpretation record may NEVER overwrite a source record.
+ * It may only reference it.
  *
  * Each element can be:
  * - A direct string value
@@ -25,84 +38,128 @@
  */
 
 // ============================================================================
-// Provenance Schema
+// Interpretation Parameters Schema (9-Element)
 // ============================================================================
 
+/**
+ * InterpretationElements - The 9 parameters for interpretation-level data
+ *
+ * Note: We keep the short key names (agent, method, source) for backwards
+ * compatibility, but the semantic meaning is interpretation-specific.
+ */
 const ProvenanceElements = Object.freeze({
-  // Epistemic
-  AGENT: 'agent',
-  METHOD: 'method',
-  SOURCE: 'source',
-  // Semantic
-  TERM: 'term',
-  DEFINITION: 'definition',
-  JURISDICTION: 'jurisdiction',
-  // Situational
+  // Epistemic Triad - From what knowing position?
+  AGENT: 'agent',           // interpreting_agent
+  METHOD: 'method',         // interpretive_method
+  SOURCE: 'source',         // source_set (epistemic dependency)
+  // Semantic Triad - What meaning-space?
+  TERM: 'term',             // interpreted_term
+  DEFINITION: 'definition', // definition commitment
+  JURISDICTION: 'jurisdiction', // semantic boundary
+  // Situational Triad - Under what conditions?
   SCALE: 'scale',
   TIMEFRAME: 'timeframe',
   BACKGROUND: 'background'
 });
 
+/**
+ * Triad groupings for the 9 interpretation parameters
+ */
 const ProvenanceTriads = Object.freeze({
   EPISTEMIC: ['agent', 'method', 'source'],
   SEMANTIC: ['term', 'definition', 'jurisdiction'],
   SITUATIONAL: ['scale', 'timeframe', 'background']
 });
 
+/**
+ * Labels and UI metadata for interpretation parameters
+ *
+ * These labels reflect interpretation-level semantics:
+ * - Agent = Who is INTERPRETING (not who produced the source data)
+ * - Method = How MEANING was constructed (not how data was collected)
+ * - Source = Epistemic DEPENDENCY (not publication location)
+ */
 const ProvenanceLabels = Object.freeze({
   agent: {
-    label: 'Agent',
-    question: 'Who provided this information?',
-    hint: 'Person, institution, instrument, or system',
-    icon: 'ph-user'
+    label: 'Interpreting Agent',
+    question: 'Who is doing the interpreting?',
+    hint: 'Analyst, reviewer, synthesizer, or system making the interpretation',
+    icon: 'ph-user',
+    triad: 'epistemic',
+    required: true,
+    preserveFields: ['interpreting_agent_id', 'agent_type', 'epistemic_standing', 'role_relative_to_sources']
   },
   method: {
-    label: 'Method',
-    question: 'How was this information produced?',
-    hint: 'Measured, observed, inferred, declared, aggregated',
-    icon: 'ph-flask'
+    label: 'Interpretive Method',
+    question: 'By what epistemic act was meaning constructed?',
+    hint: 'inferred, synthesized, comparative, adjudicated, scenario-built',
+    icon: 'ph-flask',
+    triad: 'epistemic',
+    required: true,
+    preserveFields: ['interpretive_method', 'primary_operators', 'exclusions']
   },
   source: {
-    label: 'Source',
-    question: 'Where was this published or archived?',
-    hint: 'Document, database, report, system',
-    icon: 'ph-file-text'
+    label: 'Source Set',
+    question: 'What materials does this interpretation stand on?',
+    hint: 'Source record IDs this interpretation depends on (epistemic dependency)',
+    icon: 'ph-file-text',
+    triad: 'epistemic',
+    required: true,
+    preserveFields: ['source_record_ids', 'version_constraints', 'dependency_type']
   },
   term: {
-    label: 'Term',
-    question: 'What key concept does this use?',
-    hint: 'The main term or concept being referenced',
-    icon: 'ph-bookmark'
+    label: 'Interpreted Term',
+    question: 'What concept is being interpreted?',
+    hint: 'The primary figure or concept this interpretation is about',
+    icon: 'ph-bookmark',
+    triad: 'semantic',
+    required: true,
+    preserveFields: ['interpreted_term', 'term_scope', 'term_role']
   },
   definition: {
     label: 'Definition',
-    question: 'What does that term mean here?',
-    hint: 'The specific meaning in this context',
-    icon: 'ph-book-open'
+    question: 'Which meaning of the term is being used?',
+    hint: 'Semantic commitment - why THIS definition',
+    icon: 'ph-book-open',
+    triad: 'semantic',
+    required: true,
+    preserveFields: ['definition_id', 'definition_source', 'definition_choice_rationale']
   },
   jurisdiction: {
     label: 'Jurisdiction',
-    question: 'Where does this definition apply?',
-    hint: 'Legal, geographic, institutional scope',
-    icon: 'ph-map-pin'
+    question: 'Where does this definition legitimately apply?',
+    hint: 'Disciplinary, institutional, legal, or cultural boundary',
+    icon: 'ph-map-pin',
+    triad: 'semantic',
+    required: true,
+    preserveFields: ['jurisdiction_type', 'jurisdiction_scope', 'outside_scope_behavior']
   },
   scale: {
     label: 'Scale',
-    question: 'At what level does this operate?',
-    hint: 'Individual, team, region, global',
-    icon: 'ph-arrows-out'
+    question: 'At what level does this interpretation make sense?',
+    hint: 'Individual, team, org, system, region, global',
+    icon: 'ph-arrows-out',
+    triad: 'situational',
+    required: true,
+    preserveFields: ['scale_level', 'scale_exclusions']
   },
   timeframe: {
     label: 'Timeframe',
-    question: 'When was this observed? Over what period?',
-    hint: 'Date range, snapshot vs longitudinal',
-    icon: 'ph-calendar'
+    question: 'Over what temporal horizon is this valid?',
+    hint: 'Snapshot, short-term, long-term, open-ended',
+    icon: 'ph-calendar',
+    triad: 'situational',
+    required: true,
+    preserveFields: ['temporal_horizon', 'stability_expectation', 'reassessment_trigger']
   },
   background: {
     label: 'Background',
-    question: 'What conditions enable or constrain this?',
-    hint: 'Context, environment, prior events',
-    icon: 'ph-info'
+    question: 'What conditions must be true for this to hold?',
+    hint: 'Ground made explicit - assumed conditions, known confounders',
+    icon: 'ph-info',
+    triad: 'situational',
+    required: true,
+    preserveFields: ['assumed_conditions', 'known_confounders', 'dependency_on_context_state']
   }
 });
 

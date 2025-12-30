@@ -7,6 +7,17 @@
  * 3. Joins are EO-IR compliant with full provenance
  * 4. No-code join tools with field mapping and conditionals
  *
+ * PROVENANCE STRUCTURE:
+ * - Sources use IDENTITY/SPACE/TIME provenance (eo_source_provenance.js)
+ *   - Identity: What has been made into a thing?
+ *   - Space: Where are the boundaries of relevance?
+ *   - Time: How does this persist or change?
+ *
+ * - Sets use 9-ELEMENT INTERPRETATION PARAMETERS (eo_provenance.js)
+ *   - Epistemic Triad: agent, method, source_set
+ *   - Semantic Triad: term, definition, jurisdiction
+ *   - Situational Triad: scale, timeframe, background
+ *
  * EO-IR Integration:
  * - Sources are GIVEN events (immutable raw data entry points)
  * - Sets derived from Sources use SEG derivation strategy
@@ -33,11 +44,17 @@ class SourceStore {
 
   /**
    * Create a new Source from imported data
+   *
+   * Sources use Identity/Space/Time provenance structure:
+   * - Identity: What has been made into a thing?
+   * - Space: Where are the boundaries of relevance?
+   * - Time: How does this persist or change?
+   *
    * @param {Object} config
    * @param {string} config.name - Source name (usually filename)
    * @param {Object[]} config.records - Raw imported records
    * @param {Object[]} config.schema - Inferred schema (field definitions)
-   * @param {Object} config.provenance - 9-element provenance from import
+   * @param {Object} config.provenance - Identity/Space/Time provenance
    * @param {Object} config.parseResult - Raw parse result with decisions
    * @returns {Source}
    */
@@ -79,8 +96,14 @@ class SourceStore {
         mimeType: fileMetadata.mimeType || null
       },
 
-      // Provenance (9-element EO structure)
-      provenance: this._normalizeProvenance(provenance),
+      // Provenance (Identity/Space/Time structure)
+      // See eo_source_provenance.js for full schema
+      provenance: this._normalizeSourceProvenance(provenance, {
+        name,
+        timestamp,
+        fileMetadata,
+        parseResult
+      }),
 
       // Parsing decisions (for transparency)
       parsingDecisions: parseResult.parsingDecisions || null,
@@ -253,21 +276,97 @@ class SourceStore {
     return 'text';
   }
 
-  _normalizeProvenance(prov) {
+  /**
+   * Normalize source provenance to Identity/Space/Time structure
+   *
+   * This creates the proper provenance structure for GIVEN events (sources).
+   * Sets use the 9-element interpretation parameters instead.
+   *
+   * @param {Object} prov - User-provided provenance
+   * @param {Object} context - Import context for auto-population
+   * @returns {Object} Normalized Identity/Space/Time provenance
+   */
+  _normalizeSourceProvenance(prov, context = {}) {
+    const now = context.timestamp || new Date().toISOString();
+    const fileType = context.parseResult?.fileType || context.fileMetadata?.mimeType?.split('/')[1] || 'data';
+
+    // Use EOSourceProvenance if available, otherwise create structure inline
+    if (typeof window !== 'undefined' && window.EOSourceProvenance) {
+      return window.EOSourceProvenance.createSourceProvenance({
+        // Identity dimension
+        identityKind: prov.identity_kind || 'import',
+        identityScope: prov.identity_scope || 'composite',
+        designationOperator: prov.designation_operator || 'rec',
+        mechanism: prov.designation_mechanism || `${fileType} import`,
+        designationTime: prov.designation_time || now,
+        assertingAgent: prov.asserting_agent || prov.agent || null,
+        authorityClass: prov.authority_class || (prov.agent ? 'human' : 'pipeline'),
+
+        // Space dimension
+        boundaryType: prov.boundary_type || '+1',
+        boundaryBasis: prov.boundary_basis || 'file',
+        containerId: prov.container_id || context.name || context.fileMetadata?.originalFilename || null,
+        containerStability: prov.container_stability || 'immutable',
+        containmentLevel: prov.containment_level || 'root',
+        jurisdictionPresent: prov.jurisdiction_present ?? false,
+
+        // Time dimension
+        temporalMode: prov.temporal_mode || '-1',
+        temporalJustification: prov.temporal_justification || 'import snapshot',
+        fixationTimestamp: prov.fixation_timestamp || now,
+        fixationEvent: prov.fixation_event || 'import completed',
+        validityWindow: prov.validity_window || 'implicit',
+        reassessmentRequired: prov.reassessment_required ?? false
+      });
+    }
+
+    // Fallback: create structure inline
     return {
-      // Epistemic Triad
-      agent: prov.agent || null,
-      method: prov.method || null,
-      source: prov.source || null,
-      // Semantic Triad
-      term: prov.term || null,
-      definition: prov.definition || null,
-      jurisdiction: prov.jurisdiction || null,
-      // Situational Triad
-      scale: prov.scale || null,
-      timeframe: prov.timeframe || null,
-      background: prov.background || null
+      // IDENTITY DIMENSION - What has been made into a thing?
+      identity_kind: prov.identity_kind || 'import',
+      identity_scope: prov.identity_scope || 'composite',
+      designation_operator: prov.designation_operator || 'rec',
+      designation_mechanism: prov.designation_mechanism || `${fileType} import`,
+      designation_time: prov.designation_time || now,
+      asserting_agent: prov.asserting_agent || prov.agent || null,
+      authority_class: prov.authority_class || (prov.agent ? 'human' : 'pipeline'),
+
+      // SPACE DIMENSION - Where are the boundaries of relevance?
+      boundary_type: prov.boundary_type || '+1', // bounded by default
+      boundary_basis: prov.boundary_basis || 'file',
+      container_id: prov.container_id || context.name || context.fileMetadata?.originalFilename || null,
+      container_stability: prov.container_stability || 'immutable',
+      containment_level: prov.containment_level || 'root',
+      jurisdiction_present: prov.jurisdiction_present ?? false,
+
+      // TIME DIMENSION - How does this persist or change?
+      temporal_mode: prov.temporal_mode || '-1', // static by default (import snapshot)
+      temporal_justification: prov.temporal_justification || 'import snapshot',
+      fixation_timestamp: prov.fixation_timestamp || now,
+      fixation_event: prov.fixation_event || 'import completed',
+      validity_window: prov.validity_window || 'implicit',
+      reassessment_required: prov.reassessment_required ?? false
     };
+  }
+
+  /**
+   * Legacy: Normalize 9-element interpretation provenance
+   * Used for backwards compatibility when old-style provenance is provided
+   * @deprecated Use _normalizeSourceProvenance for sources
+   */
+  _normalizeProvenance(prov) {
+    // Check if this is already Identity/Space/Time format
+    if (prov.identity_kind || prov.boundary_type || prov.temporal_mode) {
+      return this._normalizeSourceProvenance(prov);
+    }
+
+    // Legacy 9-element format - convert to Identity/Space/Time
+    return this._normalizeSourceProvenance({
+      asserting_agent: prov.agent,
+      designation_mechanism: prov.method,
+      container_id: prov.source,
+      // Other fields use defaults
+    });
   }
 
   _createSourceEvent(source) {

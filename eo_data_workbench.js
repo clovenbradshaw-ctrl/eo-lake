@@ -19749,68 +19749,266 @@ class EODataWorkbench {
 
   /**
    * Render provenance section for detail panel
+   *
+   * Detects whether to render:
+   * - Source-level provenance (Identity/Space/Time) for raw sources
+   * - Interpretation parameters (9-element) for sets
    */
   _renderProvenanceSection(record, set) {
-    // Get resolved provenance (merging dataset + record level)
+    // Check if this is source-level (Identity/Space/Time) or interpretation-level (9-element)
     const datasetProv = set?.datasetProvenance?.provenance || {};
+
+    // Detect Identity/Space/Time format by checking for identity_kind, boundary_type, or temporal_mode
+    const isSourceProvenance = datasetProv.identity_kind || datasetProv.boundary_type || datasetProv.temporal_mode;
+
+    if (isSourceProvenance) {
+      return this._renderSourceProvenanceSection(record, set, datasetProv);
+    }
+
+    return this._renderInterpretationProvenanceSection(record, set, datasetProv);
+  }
+
+  /**
+   * Render Source-level provenance (Identity/Space/Time)
+   *
+   * This is for GIVEN events (raw imported data).
+   * Answers: "What exists?"
+   */
+  _renderSourceProvenanceSection(record, set, datasetProv) {
+    const recordProv = record?.provenance || {};
+    const mergedProv = { ...datasetProv, ...recordProv };
+
+    // Define dimensions and their elements
+    const dimensions = [
+      {
+        name: 'Identity',
+        subtitle: 'What has been made into a thing?',
+        icon: 'ph-fingerprint',
+        color: 'var(--primary-500, #6366f1)',
+        elements: [
+          { key: 'identity_kind', label: 'Kind', hint: 'claim, observation, record, import' },
+          { key: 'identity_scope', label: 'Scope', hint: 'atomic, composite, aggregate' },
+          { key: 'designation_operator', label: 'Operator', hint: 'DES, INS, REC, GEN' },
+          { key: 'designation_mechanism', label: 'Mechanism', hint: 'How identity was created' },
+          { key: 'designation_time', label: 'Designated', hint: 'When identity stabilized' },
+          { key: 'asserting_agent', label: 'Agent', hint: 'Who made this real' },
+          { key: 'authority_class', label: 'Authority', hint: 'human, institution, pipeline' }
+        ]
+      },
+      {
+        name: 'Space',
+        subtitle: 'Where are the boundaries?',
+        icon: 'ph-frame-corners',
+        color: 'var(--success-500, #22c55e)',
+        elements: [
+          { key: 'boundary_type', label: 'Type', hint: '+1 bounded, -1 unbounded' },
+          { key: 'boundary_basis', label: 'Basis', hint: 'file, system, domain' },
+          { key: 'container_id', label: 'Container', hint: 'Where this lives' },
+          { key: 'container_stability', label: 'Stability', hint: 'immutable or mutable' },
+          { key: 'containment_level', label: 'Level', hint: 'leaf, intermediate, root' },
+          { key: 'jurisdiction_present', label: 'Jurisdiction', hint: 'Authority present?' }
+        ]
+      },
+      {
+        name: 'Time',
+        subtitle: 'How does this persist?',
+        icon: 'ph-clock-clockwise',
+        color: 'var(--warning-500, #f59e0b)',
+        elements: [
+          { key: 'temporal_mode', label: 'Mode', hint: '-1 static, +1 dynamic, tau recursive' },
+          { key: 'temporal_justification', label: 'Justification', hint: 'Why this mode' },
+          { key: 'fixation_timestamp', label: 'Fixated', hint: 'When identity locked' },
+          { key: 'fixation_event', label: 'Event', hint: 'What caused fixation' },
+          { key: 'validity_window', label: 'Validity', hint: 'How long to trust' },
+          { key: 'reassessment_required', label: 'Reassess', hint: 'Needs review?' }
+        ]
+      }
+    ];
+
+    // Calculate completeness
+    const totalFields = dimensions.reduce((sum, d) => sum + d.elements.length, 0);
+    const filledFields = dimensions.reduce((sum, d) =>
+      sum + d.elements.filter(e => this._hasSourceProvenanceValue(mergedProv[e.key])).length, 0);
+    const status = filledFields === 0 ? 'none' : filledFields === totalFields ? 'full' : 'partial';
+    const indicator = this._getProvenanceIndicator(status);
+
+    return `
+      <div class="provenance-section source-provenance" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
+        <div class="provenance-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <span class="prov-indicator prov-${status}" style="font-size: 14px;">${indicator}</span>
+          <span style="font-weight: 500; font-size: 13px;">Source Provenance</span>
+          <span style="font-size: 11px; color: var(--text-muted);">Identity/Space/Time</span>
+        </div>
+
+        ${dimensions.map(dim => `
+          <div class="source-provenance-dimension" style="margin-bottom: 12px;">
+            <div class="dimension-header" style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px;">
+              <i class="ph ${dim.icon}" style="color: ${dim.color}; font-size: 14px;"></i>
+              <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary);">
+                ${dim.name}
+              </span>
+              <span style="font-size: 10px; color: var(--text-muted);">${dim.subtitle}</span>
+            </div>
+            <div style="padding-left: 20px; display: grid; gap: 4px;">
+              ${dim.elements.map(el => {
+                const value = mergedProv[el.key];
+                const hasValue = this._hasSourceProvenanceValue(value);
+                const displayValue = this._formatSourceProvenanceValue(el.key, value);
+
+                return `
+                  <div class="source-prov-field" style="display: flex; align-items: center; gap: 8px; padding: 2px 0;">
+                    <span style="font-size: 11px; color: var(--text-muted); min-width: 80px;">${el.label}:</span>
+                    <span style="font-size: 12px; color: ${hasValue ? 'var(--text-primary)' : 'var(--text-muted)'}; ${!hasValue ? 'font-style: italic; opacity: 0.6;' : ''}">
+                      ${displayValue || '(not set)'}
+                    </span>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * Render Interpretation-level provenance (9-element)
+   *
+   * This is for MEANT events (interpretations/sets).
+   * Answers: "In what way does this count as something?"
+   */
+  _renderInterpretationProvenanceSection(record, set, datasetProv) {
     const recordProv = record?.provenance || {};
 
     const status = this._getRecordProvenanceStatus(record, set);
     const indicator = this._getProvenanceIndicator(status);
 
-    // Provenance elements with their display info
-    const elements = [
-      { key: 'agent', label: 'Agent', icon: 'ph-user', hint: 'Who provided this?' },
-      { key: 'method', label: 'Method', icon: 'ph-flask', hint: 'How was it produced?' },
-      { key: 'source', label: 'Source', icon: 'ph-file-text', hint: 'Where was it published?' },
-      { key: 'term', label: 'Term', icon: 'ph-bookmark', hint: 'Key concept used' },
-      { key: 'definition', label: 'Definition', icon: 'ph-book-open', hint: 'What does that mean here?' },
-      { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-map-pin', hint: 'Where does this apply?' },
-      { key: 'scale', label: 'Scale', icon: 'ph-arrows-out', hint: 'At what level?' },
-      { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', hint: 'When was this observed?' },
-      { key: 'background', label: 'Background', icon: 'ph-info', hint: 'What context/conditions?' }
+    // Interpretation elements with their display info (updated labels)
+    const triads = [
+      {
+        name: 'Epistemic',
+        subtitle: 'From what knowing position?',
+        elements: [
+          { key: 'agent', label: 'Interpreting Agent', icon: 'ph-user', hint: 'Who is doing the interpreting?' },
+          { key: 'method', label: 'Interpretive Method', icon: 'ph-flask', hint: 'By what act was meaning constructed?' },
+          { key: 'source', label: 'Source Set', icon: 'ph-file-text', hint: 'What materials does this stand on?' }
+        ]
+      },
+      {
+        name: 'Semantic',
+        subtitle: 'What meaning-space?',
+        elements: [
+          { key: 'term', label: 'Interpreted Term', icon: 'ph-bookmark', hint: 'What concept is being interpreted?' },
+          { key: 'definition', label: 'Definition', icon: 'ph-book-open', hint: 'Which meaning is being used?' },
+          { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-map-pin', hint: 'Where does this apply?' }
+        ]
+      },
+      {
+        name: 'Situational',
+        subtitle: 'Under what conditions?',
+        elements: [
+          { key: 'scale', label: 'Scale', icon: 'ph-arrows-out', hint: 'At what level does this make sense?' },
+          { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', hint: 'Over what horizon is this valid?' },
+          { key: 'background', label: 'Background', icon: 'ph-info', hint: 'What conditions must be true?' }
+        ]
+      }
     ];
 
     return `
-      <div class="provenance-section" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
+      <div class="provenance-section interpretation-provenance" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
         <div class="provenance-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
           <span class="prov-indicator prov-${status}" style="font-size: 14px;">${indicator}</span>
-          <span style="font-weight: 500; font-size: 13px;">Interpretation</span>
+          <span style="font-weight: 500; font-size: 13px;">Interpretation Parameters</span>
           <span style="font-size: 11px; color: var(--text-muted);">
             ${status === 'full' ? '(complete)' : status === 'partial' ? '(partial)' : '(none)'}
           </span>
         </div>
-        <div class="provenance-grid" style="display: grid; gap: 8px;">
-          ${elements.map(el => {
-            const value = recordProv[el.key] ?? datasetProv[el.key] ?? null;
-            const inherited = !this._hasProvenanceValue(recordProv[el.key]) && this._hasProvenanceValue(datasetProv[el.key]);
-            const isRef = this._isProvenanceRef(value);
-            const displayValue = this._formatProvenanceValue(value);
-            const hasValue = this._hasProvenanceValue(value);
 
-            return `
-              <div class="provenance-field" data-prov-key="${el.key}" data-record-id="${record.id}"
-                   style="display: flex; align-items: flex-start; gap: 8px; padding: 4px 0;">
-                <i class="ph ${el.icon}" style="color: var(--text-muted); margin-top: 2px; flex-shrink: 0;"></i>
-                <div style="flex: 1; min-width: 0;">
-                  <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">
-                    ${el.label}
-                    ${inherited ? '<span style="font-size: 10px; opacity: 0.7;">(inherited)</span>' : ''}
+        ${triads.map(triad => `
+          <div class="interpretation-triad" style="margin-bottom: 12px;">
+            <div style="font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.5px;">
+              ${triad.name} <span style="font-weight: 400; text-transform: none;">${triad.subtitle}</span>
+            </div>
+            <div style="display: grid; gap: 6px;">
+              ${triad.elements.map(el => {
+                const value = recordProv[el.key] ?? datasetProv[el.key] ?? null;
+                const inherited = !this._hasProvenanceValue(recordProv[el.key]) && this._hasProvenanceValue(datasetProv[el.key]);
+                const isRef = this._isProvenanceRef(value);
+                const displayValue = this._formatProvenanceValue(value);
+                const hasValue = this._hasProvenanceValue(value);
+
+                return `
+                  <div class="provenance-field" data-prov-key="${el.key}" data-record-id="${record.id}"
+                       style="display: flex; align-items: flex-start; gap: 8px; padding: 4px 0;">
+                    <i class="ph ${el.icon}" style="color: var(--text-muted); margin-top: 2px; flex-shrink: 0;"></i>
+                    <div style="flex: 1; min-width: 0;">
+                      <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 2px;">
+                        ${el.label}
+                        ${inherited ? '<span style="font-size: 10px; opacity: 0.7;">(inherited)</span>' : ''}
+                      </div>
+                      <div class="provenance-value editable ${isRef ? 'is-ref' : ''}"
+                           data-prov-key="${el.key}"
+                           data-record-id="${record.id}"
+                           title="${el.hint}"
+                           style="font-size: 12px; color: ${hasValue ? 'var(--text-primary)' : 'var(--text-muted)'}; cursor: pointer;">
+                        ${displayValue || '<span style="opacity: 0.5;">Click to add</span>'}
+                      </div>
+                    </div>
                   </div>
-                  <div class="provenance-value editable ${isRef ? 'is-ref' : ''}"
-                       data-prov-key="${el.key}"
-                       data-record-id="${record.id}"
-                       title="${el.hint}"
-                       style="font-size: 12px; color: ${hasValue ? 'var(--text-primary)' : 'var(--text-muted)'}; cursor: pointer;">
-                    ${displayValue || '<span style="opacity: 0.5;">Click to add</span>'}
-                  </div>
-                </div>
-              </div>
-            `;
-          }).join('')}
-        </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `).join('')}
       </div>
     `;
+  }
+
+  /**
+   * Check if a source provenance value has content
+   */
+  _hasSourceProvenanceValue(value) {
+    if (value === null || value === undefined) return false;
+    if (typeof value === 'boolean') return true;
+    if (typeof value === 'string') return value.length > 0;
+    return true;
+  }
+
+  /**
+   * Format source provenance value for display
+   */
+  _formatSourceProvenanceValue(key, value) {
+    if (value === null || value === undefined) return '';
+
+    // Format booleans
+    if (typeof value === 'boolean') {
+      return value ? 'Yes' : 'No';
+    }
+
+    // Format timestamps
+    if (key.includes('timestamp') || key.includes('time') || key === 'designation_time') {
+      try {
+        const date = new Date(value);
+        if (!isNaN(date.getTime())) {
+          return date.toLocaleString();
+        }
+      } catch {
+        // Fall through to string display
+      }
+    }
+
+    // Format phase-space values
+    const phaseLabels = {
+      '+1': 'Bounded (+1)',
+      '-1': 'Unbounded (-1)',
+      'sqrt2': 'Fractal (\u221A2)',
+      'tau': 'Recursive (\u03C4)'
+    };
+    if (phaseLabels[value]) {
+      return phaseLabels[value];
+    }
+
+    return this._escapeHtml(String(value));
   }
 
   /**
