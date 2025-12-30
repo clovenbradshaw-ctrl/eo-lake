@@ -3607,9 +3607,12 @@ class EODataWorkbench {
              prov.originalFilename?.toLowerCase() === source.name.toLowerCase();
     });
 
+    // Check if provenance panel should be hidden (from localStorage)
+    const hideProvenance = localStorage.getItem('eo-hide-source-provenance') === 'true';
+
     // Build the source data viewer HTML
     contentArea.innerHTML = `
-      <div class="source-data-viewer">
+      <div class="source-data-viewer${hideProvenance ? ' provenance-hidden' : ''}">
         <!-- Source Header -->
         <div class="source-viewer-header">
           <div class="source-viewer-title">
@@ -3667,6 +3670,9 @@ class EODataWorkbench {
           <div class="source-record-count">
             Showing ${Math.min(records.length, 100)} of ${source.recordCount || records.length} records
           </div>
+          <button class="source-provenance-toggle-btn" id="source-provenance-toggle-btn" title="Toggle provenance panel">
+            <i class="ph ph-sidebar-simple"></i>
+          </button>
         </div>
 
         <!-- Data Table Container -->
@@ -3840,6 +3846,22 @@ class EODataWorkbench {
           }
         }
       });
+    });
+
+    // Provenance panel toggle
+    document.getElementById('source-provenance-toggle-btn')?.addEventListener('click', () => {
+      const viewer = document.querySelector('.source-data-viewer');
+      const toggleBtn = document.getElementById('source-provenance-toggle-btn');
+      if (viewer) {
+        const isHidden = viewer.classList.toggle('provenance-hidden');
+        localStorage.setItem('eo-hide-source-provenance', isHidden);
+        // Update icon
+        const icon = toggleBtn?.querySelector('i');
+        if (icon) {
+          icon.className = isHidden ? 'ph ph-sidebar-simple' : 'ph ph-sidebar-simple';
+        }
+        this._showToast(isHidden ? 'Provenance panel hidden' : 'Provenance panel visible', 'info');
+      }
     });
   }
 

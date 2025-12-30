@@ -11423,6 +11423,52 @@ body.has-picked-up .browser-tab:hover {
   color: var(--text-muted);
 }
 
+/* Provenance Panel Toggle Button */
+.source-provenance-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-left: 8px;
+}
+
+.source-provenance-toggle-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.source-provenance-toggle-btn i {
+  font-size: 16px;
+}
+
+/* Hidden Provenance Panel State */
+.source-data-viewer.provenance-hidden {
+  grid-template-columns: 1fr;
+}
+
+.source-data-viewer.provenance-hidden .source-provenance-panel {
+  display: none;
+}
+
+.source-data-viewer.provenance-hidden .source-provenance-toggle-btn {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: white;
+}
+
+.source-data-viewer.provenance-hidden .source-provenance-toggle-btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
 /* View Mode Toggle */
 .source-view-mode-toggle {
   display: flex;
