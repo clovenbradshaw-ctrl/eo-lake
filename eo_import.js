@@ -2313,15 +2313,16 @@ class ImportOrchestrator {
   }
 
   /**
-   * Create separate sets for each type value in the data.
-   * This is ideal for graph data where different node types have different fields.
+   * Create a master set with filtered views for each record type.
+   * This creates ONE set with all records, adding a _recordType field to distinguish types,
+   * and creates filtered views that users can click into to see each type's records.
    */
   async _createSeparateSetsPerType(baseName, parseResult, options = {}) {
     const typeFieldName = options.viewSplitField || 'type';
     const { headers, rows } = parseResult;
     const now = new Date().toISOString();
 
-    // Group rows by type
+    // Group rows by type to understand the structure
     const rowsByType = {};
     for (const row of rows) {
       const typeValue = row[typeFieldName] || '_untyped';
@@ -2332,109 +2333,184 @@ class ImportOrchestrator {
     }
 
     const typeValues = Object.keys(rowsByType);
-    const createdSets = [];
-    let totalRecords = 0;
-    let processed = 0;
 
     this._emitProgress('progress', {
-      phase: 'splitting_by_type',
+      phase: 'analyzing_types',
       percentage: 55,
       typeCount: typeValues.length
     });
 
-    // Create a set for each type
+    // Build a union of all fields across all record types
+    // This ensures all fields are present in the master schema
+    const allUsedHeaders = new Set();
     for (const typeValue of typeValues) {
       const typeRows = rowsByType[typeValue];
-      const typeName = this._formatViewName(typeValue);
-      const setName = typeValues.length > 1 ? `${baseName} - ${typeName}` : baseName;
-
-      // Find headers that are actually used by this type (have non-empty values)
-      const usedHeaders = headers.filter(header => {
-        // Skip the type field itself for cleaner schemas
-        if (header === typeFieldName && typeValues.length > 1) return false;
+      for (const header of headers) {
         // Check if any row of this type has a value for this header
-        return typeRows.some(row => {
+        const hasValue = typeRows.some(row => {
           const val = row[header];
           return val !== null && val !== undefined && val !== '';
         });
+        if (hasValue) {
+          allUsedHeaders.add(header);
+        }
+      }
+    }
+
+    // Convert to array and infer schema from all rows
+    const unionHeaders = Array.from(allUsedHeaders);
+    const fullSchema = this.schemaInferrer.inferSchema(unionHeaders, rows);
+
+    // Create the master set
+    const set = createSet(baseName);
+    set.icon = 'ph-stack'; // Stack icon for multi-type sets
+
+    // Add metadata about the record types
+    set.metadata = {
+      ...set.metadata,
+      recordTypes: typeValues,
+      sourceFile: options.originalFilename || baseName,
+      importedAt: now,
+      isMasterSet: true
+    };
+
+    // Create fields from inferred schema
+    set.fields = fullSchema.fields.map((field, index) => {
+      return createField(field.name, field.type, {
+        isPrimary: index === 0,
+        ...field.options
       });
+    });
 
-      // Infer schema from just this type's rows
-      const typeSchema = this.schemaInferrer.inferSchema(usedHeaders, typeRows);
+    // Add a _recordType field to distinguish record types
+    const recordTypeField = createField('_recordType', 'SELECT', {
+      isPrimary: false,
+      choices: typeValues.map((tv, idx) => ({
+        id: `choice_${idx}`,
+        name: tv,
+        color: this._getTypeColor(idx)
+      }))
+    });
+    set.fields.push(recordTypeField);
 
-      // Create the set
-      const set = createSet(setName);
+    this._emitProgress('progress', {
+      phase: 'creating_master_set',
+      percentage: 65,
+      fieldCount: set.fields.length
+    });
 
-      // Set appropriate icon based on type
-      set.icon = this._getIconForType(typeValue);
+    // Add all records with _recordType field populated
+    let processed = 0;
+    for (const typeValue of typeValues) {
+      const typeRows = rowsByType[typeValue];
 
-      // Add metadata about the original type
-      set.metadata = {
-        ...set.metadata,
-        originalType: typeValue,
-        sourceFile: options.originalFilename || baseName,
-        importedAt: now
-      };
-
-      // Create fields from inferred schema
-      set.fields = typeSchema.fields.map((field, index) => {
-        return createField(field.name, field.type, {
-          isPrimary: index === 0,
-          ...field.options
-        });
-      });
-
-      // Add records
       for (const row of typeRows) {
         const values = {};
+
+        // Populate values for all fields
         set.fields.forEach((field) => {
-          const header = field.name;
-          let value = row[header];
-          value = this._convertValue(value, field.type, field.options);
-          values[field.id] = value;
+          if (field.name === '_recordType') {
+            values[field.id] = typeValue;
+          } else {
+            const header = field.name;
+            let value = row[header];
+            value = this._convertValue(value, field.type, field.options);
+            values[field.id] = value;
+          }
         });
+
         set.records.push(createRecord(set.id, values));
       }
 
-      this.workbench.sets.push(set);
-      createdSets.push({
-        setId: set.id,
-        name: setName,
-        type: typeValue,
-        recordCount: set.records.length,
-        fieldCount: set.fields.length
-      });
-
-      totalRecords += set.records.length;
-      processed++;
-
+      processed += typeRows.length;
       this._emitProgress('progress', {
-        phase: 'creating_type_sets',
-        percentage: 55 + Math.round((processed / typeValues.length) * 35),
-        currentType: typeName,
-        typesProcessed: processed,
-        totalTypes: typeValues.length
+        phase: 'importing_records',
+        percentage: 65 + Math.round((processed / rows.length) * 20),
+        recordsProcessed: processed,
+        totalRecords: rows.length
       });
 
       await new Promise(r => setTimeout(r, 0));
     }
+
+    this._emitProgress('progress', {
+      phase: 'creating_views',
+      percentage: 88
+    });
+
+    // Create filtered views for each record type
+    // These appear as clickable sub-items under the master set in the sidebar
+    const viewsCreated = [];
+    for (const typeValue of typeValues) {
+      const viewName = this._formatViewName(typeValue);
+      const typeCount = rowsByType[typeValue].length;
+
+      const view = createView(viewName, 'table', {
+        filters: [{
+          fieldId: recordTypeField.id,
+          operator: 'is',
+          filterValue: typeValue,
+          enabled: true
+        }],
+        // Hide the _recordType field in type-specific views since it's redundant
+        hiddenFields: [recordTypeField.id]
+      });
+
+      // Add metadata to the view for display purposes
+      view.metadata = {
+        recordType: typeValue,
+        recordCount: typeCount,
+        icon: this._getIconForType(typeValue)
+      };
+
+      set.views.push(view);
+      viewsCreated.push(viewName);
+    }
+
+    // Add the set to workbench
+    this.workbench.sets.push(set);
+    this.workbench.currentSetId = set.id;
+    this.workbench.currentViewId = set.views[0]?.id; // Default to "All Records" view
 
     // Import edges if present
     if (options.includeEdges && options.graphInfo?.edges) {
       await this._importEdgesAsSet(baseName, options.graphInfo);
     }
 
-    // Save data
+    // Save and refresh UI
     this.workbench._saveData();
+    this.workbench._renderSidebar();
+    this.workbench._renderView();
+    this.workbench._updateStatus();
 
     return {
       success: true,
-      setId: createdSets[0]?.setId,
-      setIds: createdSets.map(s => s.setId),
-      recordCount: totalRecords,
-      setsCreated: createdSets,
+      setId: set.id,
+      setIds: [set.id], // Single master set
+      recordCount: set.records.length,
+      setsCreated: [{
+        setId: set.id,
+        name: baseName,
+        type: 'master',
+        recordCount: set.records.length,
+        fieldCount: set.fields.length,
+        recordTypes: typeValues,
+        viewsCreated: viewsCreated
+      }],
+      viewsCreated: viewsCreated,
       edgesImported: options.includeEdges ? (options.graphInfo?.edges?.length || 0) : 0
     };
+  }
+
+  /**
+   * Get a color for record type based on index
+   */
+  _getTypeColor(index) {
+    const colors = [
+      'blue', 'green', 'orange', 'purple', 'red',
+      'cyan', 'pink', 'yellow', 'teal', 'indigo'
+    ];
+    return colors[index % colors.length];
   }
 
   /**

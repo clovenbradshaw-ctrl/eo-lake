@@ -1309,6 +1309,7 @@ html, body {
   cursor: pointer;
   font-size: 12px;
   transition: var(--transition-fast);
+  position: relative;
 }
 
 .set-view-item:hover {
@@ -1331,6 +1332,38 @@ html, body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Record count badge for type-filtered views */
+.view-item-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 1px 5px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.set-view-item.active .view-item-count {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--primary-500);
+}
+
+/* Type-filtered view styling */
+.set-view-item.type-filtered-view {
+  padding-left: 12px;
+}
+
+.set-view-item.type-filtered-view::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--border-color);
+  transform: translateY(-50%);
 }
 
 /* Add View Button */

@@ -1763,14 +1763,19 @@ class EODataWorkbench {
       // Render nested views
       const viewsHtml = views.map(view => {
         const isActiveView = view.id === this.currentViewId && isActiveSet;
-        const viewIcon = viewTypeIcons[view.type] || 'ph-eye';
+        // Use custom icon from view metadata if available, otherwise use view type icon
+        const viewIcon = view.metadata?.icon || viewTypeIcons[view.type] || 'ph-eye';
+        // Show record count for views with metadata (e.g., type-filtered views)
+        const viewCount = view.metadata?.recordCount;
+        const countHtml = viewCount !== undefined ? `<span class="view-item-count">${viewCount}</span>` : '';
         return `
-          <div class="set-view-item ${isActiveView ? 'active' : ''}"
+          <div class="set-view-item ${isActiveView ? 'active' : ''} ${view.metadata?.recordType ? 'type-filtered-view' : ''}"
                data-view-id="${view.id}"
                data-set-id="${set.id}"
-               title="${this._escapeHtml(view.name)} (${view.type})">
+               title="${this._escapeHtml(view.name)} (${view.type})${viewCount !== undefined ? ` · ${viewCount} records` : ''}">
             <i class="ph ${viewIcon}"></i>
             <span>${this._escapeHtml(view.name)}</span>
+            ${countHtml}
           </div>
         `;
       }).join('');
