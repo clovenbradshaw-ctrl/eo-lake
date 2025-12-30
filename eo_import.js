@@ -2412,6 +2412,8 @@ class ImportOrchestrator {
 
       for (const typeValue of typeValues) {
         const viewName = this._formatViewName(typeValue);
+        // Count records of this type for metadata
+        const typeRecordCount = set.records.filter(r => r.values[typeField.id] === typeValue).length;
         const view = createView(viewName, 'table', {
           filters: [{
             fieldId: typeField.id,
@@ -2419,6 +2421,11 @@ class ImportOrchestrator {
             filterValue: typeValue,
             enabled: true
           }]
+        }, {
+          // Mark this view as a record type view (not a regular view)
+          recordType: typeValue,
+          recordCount: typeRecordCount,
+          isRecordTypeView: true
         });
         set.views.push(view);
         viewsCreated.push(viewName);

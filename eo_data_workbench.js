@@ -384,9 +384,13 @@ function createField(name, type, options = {}) {
 
 /**
  * Create a new View
+ * @param {string} name - View name
+ * @param {string} type - View type (table, cards, kanban, calendar, graph)
+ * @param {Object} config - View configuration
+ * @param {Object} metadata - Optional metadata (recordType, recordCount, icon, etc.)
  */
-function createView(name, type, config = {}) {
-  return {
+function createView(name, type, config = {}, metadata = null) {
+  const view = {
     id: generateId(),
     name,
     type, // table, cards, kanban, calendar, graph
@@ -401,6 +405,13 @@ function createView(name, type, config = {}) {
     },
     createdAt: new Date().toISOString()
   };
+
+  // Add metadata if provided (for record type views, etc.)
+  if (metadata) {
+    view.metadata = metadata;
+  }
+
+  return view;
 }
 
 /**
@@ -435,6 +446,7 @@ class EODataWorkbench {
     this.currentSetId = null;
     this.currentViewId = null;
     this.currentSourceId = null; // Track when viewing a source (GIVEN data)
+    this.showingSetFields = false; // Track when showing set fields panel (like Airtable's "Manage Fields")
     this.lastViewPerSet = {}; // Remember last active view for each set
     this.expandedSets = {}; // Track which sets are expanded in sidebar
     this.currentSetTagFilter = null; // Filter sets by tag in header
@@ -1763,26 +1775,47 @@ class EODataWorkbench {
       // Render nested views
       const viewsHtml = views.map(view => {
         const isActiveView = view.id === this.currentViewId && isActiveSet;
-        // Use custom icon from view metadata if available, otherwise use view type icon
-        const viewIcon = view.metadata?.icon || viewTypeIcons[view.type] || 'ph-eye';
+        const isRecordTypeView = view.metadata?.isRecordTypeView || view.metadata?.recordType;
+        // For record type views, use a distinct icon; otherwise use view type icon
+        const viewIcon = isRecordTypeView
+          ? 'ph-stack'
+          : (view.metadata?.icon || viewTypeIcons[view.type] || 'ph-eye');
         // Show record count for views with metadata (e.g., type-filtered views)
         const viewCount = view.metadata?.recordCount;
         const countHtml = viewCount !== undefined ? `<span class="view-item-count">${viewCount}</span>` : '';
+        // Record type badge for type-filtered views
+        const typeBadge = isRecordTypeView
+          ? `<span class="view-type-badge" title="Record Type: ${this._escapeHtml(view.metadata?.recordType || '')}">type</span>`
+          : '';
         return `
-          <div class="set-view-item ${isActiveView ? 'active' : ''} ${view.metadata?.recordType ? 'type-filtered-view' : ''}"
+          <div class="set-view-item ${isActiveView ? 'active' : ''} ${isRecordTypeView ? 'record-type-view' : 'regular-view'}"
                data-view-id="${view.id}"
                data-set-id="${set.id}"
-               title="${this._escapeHtml(view.name)} (${view.type})${viewCount !== undefined ? ` · ${viewCount} records` : ''}">
+               title="${this._escapeHtml(view.name)} (${view.type})${isRecordTypeView ? ' · Record Type' : ''}${viewCount !== undefined ? ` · ${viewCount} records` : ''}">
             <i class="ph ${viewIcon}"></i>
             <span>${this._escapeHtml(view.name)}</span>
+            ${typeBadge}
             ${countHtml}
           </div>
         `;
       }).join('');
 
+      // Fields item at top of views list (like Airtable's "Manage Fields")
+      const isFieldsActive = isActiveSet && this.showingSetFields;
+      const fieldsItem = `
+        <div class="set-view-item set-fields-item ${isFieldsActive ? 'active' : ''}"
+             data-set-id="${set.id}"
+             data-action="fields"
+             title="Manage all fields in this set">
+          <i class="ph ph-columns"></i>
+          <span>Fields</span>
+          <span class="view-item-count">${fieldCount}</span>
+        </div>
+      `;
+
       return `
         <div class="set-item-container ${isExpanded ? 'expanded' : ''} ${stabilityClass}" data-set-id="${set.id}">
-          <div class="set-item-header ${isActiveSet ? 'active' : ''}"
+          <div class="set-item-header ${isActiveSet && !this.showingSetFields ? 'active' : ''}"
                data-set-id="${set.id}"
                title="${derivation.description}\n${fieldCount} fields · ${recordCount} records">
             <div class="set-item-expand">
@@ -1799,6 +1832,7 @@ class EODataWorkbench {
             </div>
           </div>
           <div class="set-views-list">
+            ${fieldsItem}
             ${viewsHtml}
             <button class="set-add-view-btn" data-set-id="${set.id}">
               <i class="ph ph-plus"></i>
@@ -1848,12 +1882,13 @@ class EODataWorkbench {
       });
     });
 
-    // View item click - select view
+    // View item click - select view (or Fields panel)
     container.querySelectorAll('.set-view-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
         const setId = item.dataset.setId;
         const viewId = item.dataset.viewId;
+        const action = item.dataset.action;
 
         // Select set first if not already selected
         if (this.currentSetId !== setId) {
@@ -1863,11 +1898,20 @@ class EODataWorkbench {
           }
         }
 
+        // Handle special "Fields" action
+        if (action === 'fields') {
+          this._selectSet(setId, true); // true = show fields panel
+          return;
+        }
+
+        // Otherwise select the view
         this._selectView(viewId);
       });
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
+        // Don't show context menu for Fields item
+        if (item.dataset.action === 'fields') return;
         this._showViewContextMenu(e, item.dataset.viewId, item.dataset.setId);
       });
     });
@@ -9005,7 +9049,7 @@ class EODataWorkbench {
     }
   }
 
-  _selectSet(setId) {
+  _selectSet(setId, showFieldsPanel = true) {
     this.currentSetId = setId;
 
     // Clear source selection when switching to a set
@@ -9021,10 +9065,17 @@ class EODataWorkbench {
 
     const set = this.getCurrentSet();
 
-    // Use remembered view for this set, or fall back to first view
-    const rememberedViewId = this.lastViewPerSet[setId];
-    const rememberedView = rememberedViewId && set?.views.find(v => v.id === rememberedViewId);
-    this.currentViewId = rememberedView ? rememberedViewId : set?.views[0]?.id;
+    // When clicking on set header, show fields panel by default (like Airtable)
+    if (showFieldsPanel) {
+      this.showingSetFields = true;
+      this.currentViewId = null; // No view selected when showing fields
+    } else {
+      // Use remembered view for this set, or fall back to first view
+      this.showingSetFields = false;
+      const rememberedViewId = this.lastViewPerSet[setId];
+      const rememberedView = rememberedViewId && set?.views.find(v => v.id === rememberedViewId);
+      this.currentViewId = rememberedView ? rememberedViewId : set?.views[0]?.id;
+    }
 
     this._renderSidebar();
     this._renderView();
@@ -9034,6 +9085,9 @@ class EODataWorkbench {
 
   _selectView(viewId) {
     this.currentViewId = viewId;
+
+    // Turn off fields panel mode when selecting a view
+    this.showingSetFields = false;
 
     // Remember this view for the current set
     if (this.currentSetId) {
@@ -9122,13 +9176,22 @@ class EODataWorkbench {
 
     // View/Lens breadcrumb - CLICKABLE (shows sibling lenses)
     if (this.elements.currentViewName) {
-      const epistemicBadge = this._getEpistemicStatusBadge(view);
-      this.elements.currentViewName.innerHTML = `
-        <i class="ph ${this._getLensIcon(view?.type)}"></i>
-        ${this._escapeHtml(view?.name || 'No Lens')}
-        ${epistemicBadge}
-        <i class="ph ph-caret-down breadcrumb-dropdown-icon"></i>
-      `;
+      // Show "Fields" when viewing the fields panel
+      if (this.showingSetFields) {
+        this.elements.currentViewName.innerHTML = `
+          <i class="ph ph-columns"></i>
+          Fields
+          <i class="ph ph-caret-down breadcrumb-dropdown-icon"></i>
+        `;
+      } else {
+        const epistemicBadge = this._getEpistemicStatusBadge(view);
+        this.elements.currentViewName.innerHTML = `
+          <i class="ph ${this._getLensIcon(view?.type)}"></i>
+          ${this._escapeHtml(view?.name || 'No Lens')}
+          ${epistemicBadge}
+          <i class="ph ph-caret-down breadcrumb-dropdown-icon"></i>
+        `;
+      }
       this.elements.currentViewName.classList.add('breadcrumb-clickable');
       this.elements.currentViewName.onclick = () => this._showLensBreadcrumbMenu(this.elements.currentViewName);
     }
@@ -9366,6 +9429,12 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderView() {
+    // If showing set fields panel (like Airtable's "Manage Fields")
+    if (this.showingSetFields && this.currentSetId) {
+      this._renderSetFieldsPanel();
+      return;
+    }
+
     const view = this.getCurrentView();
     if (!view) {
       this._renderEmptyState();
@@ -9436,6 +9505,306 @@ class EODataWorkbench {
 
     // Inject view tabs header at the top of the content area
     this._injectViewTabsHeader();
+  }
+
+  /**
+   * Render the Set Fields Panel (like Airtable's "Manage Fields")
+   * Shows all unique fields across the set with full management capabilities
+   */
+  _renderSetFieldsPanel() {
+    const set = this.getCurrentSet();
+    if (!set) {
+      this._renderEmptyState();
+      return;
+    }
+
+    const content = document.getElementById('content');
+    if (!content) return;
+
+    const fields = set.fields || [];
+    const recordCount = set.records?.length || 0;
+
+    // Field type icons mapping
+    const fieldTypeIcons = {
+      'text': 'ph-text-t',
+      'long_text': 'ph-text-aa',
+      'number': 'ph-hash',
+      'select': 'ph-list-bullets',
+      'multi_select': 'ph-checks',
+      'date': 'ph-calendar',
+      'checkbox': 'ph-check-square',
+      'link': 'ph-link',
+      'attachment': 'ph-paperclip',
+      'url': 'ph-globe',
+      'email': 'ph-envelope',
+      'phone': 'ph-phone',
+      'formula': 'ph-function',
+      'rollup': 'ph-sigma',
+      'count': 'ph-number-circle-one',
+      'autonumber': 'ph-number-square-one',
+      'json': 'ph-brackets-curly'
+    };
+
+    // Field type display names
+    const fieldTypeNames = {
+      'text': 'Single line text',
+      'long_text': 'Long text',
+      'number': 'Number',
+      'select': 'Single select',
+      'multi_select': 'Multiple select',
+      'date': 'Date',
+      'checkbox': 'Checkbox',
+      'link': 'Link to another record',
+      'attachment': 'Attachment',
+      'url': 'URL',
+      'email': 'Email',
+      'phone': 'Phone',
+      'formula': 'Formula',
+      'rollup': 'Rollup',
+      'count': 'Count',
+      'autonumber': 'Auto number',
+      'json': 'JSON'
+    };
+
+    // Count how many views use each field (for usage stats)
+    const views = set.views || [];
+    const fieldUsage = {};
+    fields.forEach(f => {
+      fieldUsage[f.id] = views.filter(v =>
+        !v.config?.hiddenFields?.includes(f.id)
+      ).length;
+    });
+
+    // Build fields list HTML
+    const fieldsHtml = fields.map((field, index) => {
+      const icon = fieldTypeIcons[field.type] || 'ph-question';
+      const typeName = fieldTypeNames[field.type] || field.type;
+      const isPrimary = field.isPrimary || index === 0;
+      const usage = fieldUsage[field.id];
+      const usageText = usage === views.length
+        ? 'All views'
+        : `${usage}/${views.length} views`;
+
+      return `
+        <div class="fields-panel-row" data-field-id="${field.id}">
+          <div class="fields-panel-drag-handle">
+            <i class="ph ph-dots-six-vertical"></i>
+          </div>
+          <div class="fields-panel-icon">
+            <i class="ph ${icon}"></i>
+          </div>
+          <div class="fields-panel-info">
+            <div class="fields-panel-name">
+              ${this._escapeHtml(field.name)}
+              ${isPrimary ? '<span class="fields-panel-primary-badge">Primary</span>' : ''}
+            </div>
+            <div class="fields-panel-meta">
+              <span class="fields-panel-type">${typeName}</span>
+              <span class="fields-panel-usage">${usageText}</span>
+            </div>
+          </div>
+          <div class="fields-panel-actions">
+            <button class="fields-panel-action-btn" data-action="edit" title="Edit field">
+              <i class="ph ph-pencil-simple"></i>
+            </button>
+            <button class="fields-panel-action-btn" data-action="duplicate" title="Duplicate field">
+              <i class="ph ph-copy"></i>
+            </button>
+            ${!isPrimary ? `
+              <button class="fields-panel-action-btn fields-panel-delete-btn" data-action="delete" title="Delete field">
+                <i class="ph ph-trash"></i>
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    content.innerHTML = `
+      <div class="fields-panel-container">
+        <div class="fields-panel-header">
+          <div class="fields-panel-title">
+            <i class="ph ph-columns"></i>
+            <h2>Fields</h2>
+            <span class="fields-panel-count">${fields.length} fields</span>
+          </div>
+          <div class="fields-panel-subtitle">
+            Manage all fields in "${this._escapeHtml(set.name)}" · ${recordCount.toLocaleString()} records
+          </div>
+        </div>
+
+        <div class="fields-panel-toolbar">
+          <button class="fields-panel-add-btn" id="fields-panel-add-field">
+            <i class="ph ph-plus"></i>
+            <span>Add field</span>
+          </button>
+          <div class="fields-panel-search">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" placeholder="Search fields..." id="fields-panel-search-input">
+          </div>
+        </div>
+
+        <div class="fields-panel-list" id="fields-panel-list">
+          ${fieldsHtml}
+        </div>
+
+        ${fields.length === 0 ? `
+          <div class="fields-panel-empty">
+            <i class="ph ph-columns"></i>
+            <p>No fields yet</p>
+            <button class="fields-panel-empty-add-btn" id="fields-panel-empty-add">
+              <i class="ph ph-plus"></i>
+              Add your first field
+            </button>
+          </div>
+        ` : ''}
+
+        <div class="fields-panel-footer">
+          <div class="fields-panel-help">
+            <i class="ph ph-info"></i>
+            <span>Fields define the structure of your data. Each field has a type that determines what kind of data it can store.</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    this._attachFieldsPanelEventHandlers();
+  }
+
+  /**
+   * Attach event handlers for the fields panel
+   */
+  _attachFieldsPanelEventHandlers() {
+    // Add field button
+    document.getElementById('fields-panel-add-field')?.addEventListener('click', () => {
+      this._showAddFieldModal();
+    });
+
+    document.getElementById('fields-panel-empty-add')?.addEventListener('click', () => {
+      this._showAddFieldModal();
+    });
+
+    // Search input
+    document.getElementById('fields-panel-search-input')?.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      document.querySelectorAll('.fields-panel-row').forEach(row => {
+        const name = row.querySelector('.fields-panel-name')?.textContent.toLowerCase() || '';
+        const type = row.querySelector('.fields-panel-type')?.textContent.toLowerCase() || '';
+        const matches = name.includes(term) || type.includes(term);
+        row.style.display = matches ? '' : 'none';
+      });
+    });
+
+    // Field row actions
+    document.querySelectorAll('.fields-panel-row').forEach(row => {
+      const fieldId = row.dataset.fieldId;
+
+      // Row click - edit field
+      row.addEventListener('click', (e) => {
+        if (!e.target.closest('.fields-panel-action-btn') && !e.target.closest('.fields-panel-drag-handle')) {
+          this._showEditFieldModal(fieldId);
+        }
+      });
+
+      // Action buttons
+      row.querySelectorAll('.fields-panel-action-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const action = btn.dataset.action;
+
+          switch (action) {
+            case 'edit':
+              this._showEditFieldModal(fieldId);
+              break;
+            case 'duplicate':
+              this._duplicateField(fieldId);
+              break;
+            case 'delete':
+              this._confirmDeleteField(fieldId);
+              break;
+          }
+        });
+      });
+    });
+  }
+
+  /**
+   * Show modal to add a new field
+   */
+  _showAddFieldModal() {
+    // Create a fake button element to position the field type picker
+    const container = document.querySelector('.fields-panel-toolbar') || document.querySelector('.fields-panel-container');
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      this._showFieldTypePicker({ clientX: rect.left + 10, clientY: rect.top + 50 }, null, {
+        left: rect.left + 10,
+        top: rect.top + 50
+      });
+    } else {
+      // Fallback: center of screen
+      this._showFieldTypePicker({ clientX: window.innerWidth / 2, clientY: 200 }, null, {
+        left: window.innerWidth / 2 - 120,
+        top: 200
+      });
+    }
+  }
+
+  /**
+   * Show modal to configure/edit a field
+   */
+  _showFieldConfigModal(field) {
+    // Use the rename field modal for now, which allows editing the name
+    // In the future, this could be expanded to show more field options
+    this._showRenameFieldModal(field.id);
+  }
+
+  /**
+   * Show modal to edit a field
+   */
+  _showEditFieldModal(fieldId) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    // Use existing field modal if available, or show simple rename
+    this._showFieldConfigModal(field);
+  }
+
+  /**
+   * Duplicate a field
+   */
+  _duplicateField(fieldId) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    const newField = createField(`${field.name} (copy)`, field.type, { ...field.options });
+    set.fields.push(newField);
+
+    // Copy values to new field
+    set.records.forEach(record => {
+      if (record.values[fieldId] !== undefined) {
+        record.values[newField.id] = JSON.parse(JSON.stringify(record.values[fieldId]));
+      }
+    });
+
+    this._saveData();
+    this._renderView();
+    this._showToast(`Duplicated field "${field.name}"`, 'success');
+  }
+
+  /**
+   * Confirm and delete a field
+   */
+  _confirmDeleteField(fieldId) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    if (confirm(`Are you sure you want to delete the field "${field.name}"? This will remove all data in this field.`)) {
+      this._deleteField(fieldId);
+    }
   }
 
   /**
