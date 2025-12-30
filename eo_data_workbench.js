@@ -1932,6 +1932,9 @@ class EODataWorkbench {
     // Remove any existing picker
     document.querySelectorAll('.view-type-picker-popup').forEach(p => p.remove());
 
+    const set = this.sets.find(s => s.id === setId);
+    const hasRecords = set && set.records && set.records.length > 0;
+
     const viewTypes = [
       { type: 'table', icon: 'ph-table', label: 'Table' },
       { type: 'cards', icon: 'ph-cards', label: 'Cards' },
@@ -1945,7 +1948,7 @@ class EODataWorkbench {
     picker.className = 'view-type-picker-popup';
     picker.style.cssText = `
       position: fixed;
-      min-width: 140px;
+      min-width: 160px;
       background: var(--bg-secondary);
       border: 1px solid var(--border-primary);
       border-radius: var(--radius-md);
@@ -1968,7 +1971,23 @@ class EODataWorkbench {
         <i class="ph ${vt.icon}" style="font-size: 14px;"></i>
         <span>${vt.label}</span>
       </div>
-    `).join('');
+    `).join('') + `
+      <div style="height: 1px; background: var(--border-primary); margin: 4px 0;"></div>
+      <div class="view-type-option from-column-option ${!hasRecords ? 'disabled' : ''}" data-type="from-column" style="
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        font-size: 12px;
+        color: ${hasRecords ? 'var(--accent-primary)' : 'var(--text-tertiary)'};
+        border-radius: var(--radius-sm);
+        cursor: ${hasRecords ? 'pointer' : 'not-allowed'};
+        opacity: ${hasRecords ? '1' : '0.6'};
+      " ${!hasRecords ? 'title="Requires records in the set"' : ''}>
+        <i class="ph ph-columns" style="font-size: 14px;"></i>
+        <span>From column...</span>
+      </div>
+    `;
 
     // Position near anchor
     const rect = anchor.getBoundingClientRect();
@@ -1979,16 +1998,33 @@ class EODataWorkbench {
 
     // Add hover effects
     picker.querySelectorAll('.view-type-option').forEach(opt => {
+      const isDisabled = opt.classList.contains('disabled');
+
       opt.addEventListener('mouseenter', () => {
-        opt.style.background = 'var(--bg-hover)';
-        opt.style.color = 'var(--text-primary)';
+        if (!isDisabled) {
+          opt.style.background = 'var(--bg-hover)';
+          if (!opt.classList.contains('from-column-option')) {
+            opt.style.color = 'var(--text-primary)';
+          }
+        }
       });
       opt.addEventListener('mouseleave', () => {
         opt.style.background = 'transparent';
-        opt.style.color = 'var(--text-secondary)';
+        if (!opt.classList.contains('from-column-option')) {
+          opt.style.color = 'var(--text-secondary)';
+        }
       });
       opt.addEventListener('click', () => {
         const type = opt.dataset.type;
+
+        if (type === 'from-column') {
+          if (!isDisabled) {
+            picker.remove();
+            this._showCreateViewsFromColumnModal(setId);
+          }
+          return;
+        }
+
         const set = this.sets.find(s => s.id === setId);
         if (set) {
           const viewName = `${type.charAt(0).toUpperCase() + type.slice(1)} View`;
@@ -2084,6 +2120,344 @@ class EODataWorkbench {
 
     this._selectView(dupView.id);
     this._saveData();
+  }
+
+  // --------------------------------------------------------------------------
+  // Column-Based View Creation
+  // --------------------------------------------------------------------------
+
+  /**
+   * Get unique values for a specific column in a set
+   * @param {Object} set - The set to analyze
+   * @param {string} fieldId - The field ID to get unique values from
+   * @returns {Array} Array of unique values sorted alphabetically
+   */
+  _getUniqueColumnValues(set, fieldId) {
+    if (!set || !set.records || !fieldId) return [];
+
+    const uniqueValues = new Set();
+
+    for (const record of set.records) {
+      const value = record.values?.[fieldId];
+      // Include null/empty as a separate category if exists
+      if (value !== undefined && value !== null && value !== '') {
+        uniqueValues.add(String(value));
+      }
+    }
+
+    return Array.from(uniqueValues).sort((a, b) =>
+      String(a).toLowerCase().localeCompare(String(b).toLowerCase())
+    );
+  }
+
+  /**
+   * Show modal to create views based on column values
+   * @param {string} setId - The set ID to create views for
+   */
+  _showCreateViewsFromColumnModal(setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    const fields = set.fields || [];
+    if (fields.length === 0) {
+      this._showToast('No columns available in this set', 'warning');
+      return;
+    }
+
+    // Get fields that are good candidates for grouping (text, select, etc.)
+    const groupableFields = fields.filter(f =>
+      ['text', 'select', 'multiSelect', 'number', 'checkbox'].includes(f.type)
+    );
+
+    if (groupableFields.length === 0) {
+      this._showToast('No suitable columns for creating views', 'warning');
+      return;
+    }
+
+    const viewTypes = [
+      { type: 'table', icon: 'ph-table', label: 'Table' },
+      { type: 'cards', icon: 'ph-cards', label: 'Cards' },
+      { type: 'kanban', icon: 'ph-kanban', label: 'Kanban' },
+      { type: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar' }
+    ];
+
+    const html = `
+      <div class="create-views-from-column-modal">
+        <p class="modal-description">Create separate views for each unique value in a column. Each view will be filtered to show only records matching that value.</p>
+
+        <div class="form-group">
+          <label class="form-label">Select Column</label>
+          <select id="column-select" class="form-input">
+            <option value="">Choose a column...</option>
+            ${groupableFields.map(f => `
+              <option value="${f.id}">${this._escapeHtml(f.name)} (${f.type})</option>
+            `).join('')}
+          </select>
+        </div>
+
+        <div id="column-preview" class="column-preview" style="display: none;">
+          <div class="preview-header">
+            <span class="preview-title">Unique Values</span>
+            <span id="value-count" class="preview-count">0 values</span>
+          </div>
+          <div id="value-list" class="value-list"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">View Type</label>
+          <div class="view-type-selector">
+            ${viewTypes.map((vt, i) => `
+              <label class="view-type-radio ${i === 0 ? 'selected' : ''}">
+                <input type="radio" name="view-type" value="${vt.type}" ${i === 0 ? 'checked' : ''}>
+                <i class="ph ${vt.icon}"></i>
+                <span>${vt.label}</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="include-empty-view" checked>
+            <span>Create "All" view (unfiltered)</span>
+          </label>
+        </div>
+      </div>
+
+      <style>
+        .create-views-from-column-modal .modal-description {
+          color: var(--text-secondary);
+          font-size: 13px;
+          margin-bottom: 16px;
+          line-height: 1.5;
+        }
+        .create-views-from-column-modal .column-preview {
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-primary);
+          border-radius: var(--radius-md);
+          padding: 12px;
+          margin: 12px 0;
+          max-height: 200px;
+          overflow-y: auto;
+        }
+        .create-views-from-column-modal .preview-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+        }
+        .create-views-from-column-modal .preview-title {
+          font-weight: 500;
+          font-size: 12px;
+          color: var(--text-secondary);
+        }
+        .create-views-from-column-modal .preview-count {
+          font-size: 11px;
+          color: var(--text-tertiary);
+        }
+        .create-views-from-column-modal .value-list {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .create-views-from-column-modal .value-tag {
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-primary);
+          padding: 4px 8px;
+          border-radius: var(--radius-sm);
+          font-size: 12px;
+          color: var(--text-primary);
+        }
+        .create-views-from-column-modal .value-tag.empty {
+          font-style: italic;
+          color: var(--text-tertiary);
+        }
+        .create-views-from-column-modal .view-type-selector {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .create-views-from-column-modal .view-type-radio {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 8px 12px;
+          background: var(--bg-tertiary);
+          border: 1px solid var(--border-primary);
+          border-radius: var(--radius-md);
+          cursor: pointer;
+          font-size: 12px;
+          transition: all 0.15s ease;
+        }
+        .create-views-from-column-modal .view-type-radio:hover {
+          background: var(--bg-hover);
+        }
+        .create-views-from-column-modal .view-type-radio.selected {
+          background: var(--accent-bg);
+          border-color: var(--accent-primary);
+          color: var(--accent-primary);
+        }
+        .create-views-from-column-modal .view-type-radio input {
+          display: none;
+        }
+        .create-views-from-column-modal .checkbox-label {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 13px;
+          cursor: pointer;
+        }
+        .create-views-from-column-modal .too-many-warning {
+          color: var(--warning-color, #f59e0b);
+          font-size: 12px;
+          margin-top: 8px;
+        }
+      </style>
+    `;
+
+    this._showModal('Create Views from Column', html, () => {
+      const fieldId = document.getElementById('column-select')?.value;
+      const viewType = document.querySelector('input[name="view-type"]:checked')?.value || 'table';
+      const includeAllView = document.getElementById('include-empty-view')?.checked;
+
+      if (!fieldId) {
+        this._showToast('Please select a column', 'warning');
+        return;
+      }
+
+      this._createViewsFromColumn(setId, fieldId, viewType, includeAllView);
+    }, { confirmText: 'Create Views' });
+
+    // Set up event handlers after modal is shown
+    setTimeout(() => {
+      const columnSelect = document.getElementById('column-select');
+      const previewDiv = document.getElementById('column-preview');
+      const valueListDiv = document.getElementById('value-list');
+      const valueCountSpan = document.getElementById('value-count');
+
+      // View type radio selection
+      document.querySelectorAll('.view-type-radio').forEach(radio => {
+        radio.addEventListener('click', () => {
+          document.querySelectorAll('.view-type-radio').forEach(r => r.classList.remove('selected'));
+          radio.classList.add('selected');
+          radio.querySelector('input').checked = true;
+        });
+      });
+
+      // Column selection change handler
+      columnSelect?.addEventListener('change', () => {
+        const fieldId = columnSelect.value;
+        if (!fieldId) {
+          previewDiv.style.display = 'none';
+          return;
+        }
+
+        const uniqueValues = this._getUniqueColumnValues(set, fieldId);
+        previewDiv.style.display = 'block';
+        valueCountSpan.textContent = `${uniqueValues.length} value${uniqueValues.length !== 1 ? 's' : ''}`;
+
+        // Show warning if too many values
+        const maxRecommended = 20;
+        let warningHtml = '';
+        if (uniqueValues.length > maxRecommended) {
+          warningHtml = `<div class="too-many-warning">
+            <i class="ph ph-warning"></i>
+            This will create ${uniqueValues.length} views. Consider using a column with fewer unique values.
+          </div>`;
+        }
+
+        // Show up to 30 values in preview
+        const displayValues = uniqueValues.slice(0, 30);
+        const remaining = uniqueValues.length - displayValues.length;
+
+        valueListDiv.innerHTML = displayValues.map(v =>
+          `<span class="value-tag">${this._escapeHtml(v)}</span>`
+        ).join('') +
+          (remaining > 0 ? `<span class="value-tag empty">+${remaining} more...</span>` : '') +
+          warningHtml;
+      });
+    }, 0);
+  }
+
+  /**
+   * Create views from unique column values
+   * @param {string} setId - The set ID
+   * @param {string} fieldId - The field ID to filter by
+   * @param {string} viewType - The type of view to create
+   * @param {boolean} includeAllView - Whether to create an "All" view
+   */
+  _createViewsFromColumn(setId, fieldId, viewType, includeAllView = true) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    const field = set.fields?.find(f => f.id === fieldId);
+    if (!field) return;
+
+    const uniqueValues = this._getUniqueColumnValues(set, fieldId);
+
+    if (uniqueValues.length === 0) {
+      this._showToast('No values found in this column', 'warning');
+      return;
+    }
+
+    // Create "All" view first if requested
+    if (includeAllView) {
+      const allView = createView(`All (by ${field.name})`, viewType, {
+        // Store metadata about this being a column-based view group
+        metadata: {
+          columnBasedGroup: true,
+          sourceFieldId: fieldId,
+          sourceFieldName: field.name
+        }
+      });
+      set.views.push(allView);
+    }
+
+    // Create a view for each unique value
+    for (const value of uniqueValues) {
+      const viewName = `${value}`;
+      const newView = createView(viewName, viewType, {
+        filters: [
+          { fieldId, operator: 'is', filterValue: value }
+        ],
+        // Store metadata about the source column and value
+        metadata: {
+          columnBasedGroup: true,
+          sourceFieldId: fieldId,
+          sourceFieldName: field.name,
+          filterValue: value,
+          recordType: value // For special styling in sidebar
+        }
+      });
+
+      // Count records matching this filter
+      const matchingCount = set.records?.filter(r =>
+        String(r.values?.[fieldId] || '') === String(value)
+      ).length || 0;
+      newView.metadata.recordCount = matchingCount;
+
+      set.views.push(newView);
+    }
+
+    // Select the first new view (the "All" view if created, otherwise first filtered view)
+    const firstNewView = includeAllView
+      ? set.views[set.views.length - uniqueValues.length - 1]
+      : set.views[set.views.length - uniqueValues.length];
+
+    if (firstNewView) {
+      this.currentSetId = setId;
+      this.currentViewId = firstNewView.id;
+      this.lastViewPerSet[setId] = firstNewView.id;
+      this.expandedSets[setId] = true;
+    }
+
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
+
+    const viewCount = includeAllView ? uniqueValues.length + 1 : uniqueValues.length;
+    this._showToast(`Created ${viewCount} view${viewCount !== 1 ? 's' : ''} from "${field.name}"`, 'success');
   }
 
   /**
@@ -14545,6 +14919,9 @@ class EODataWorkbench {
     const menu = this.elements.contextMenu;
     if (!menu) return;
 
+    const set = this.sets.find(s => s.id === setId);
+    const hasRecords = set && set.records && set.records.length > 0;
+
     menu.innerHTML = `
       <div class="context-menu-item" data-action="rename">
         <i class="ph ph-pencil"></i>
@@ -14555,6 +14932,11 @@ class EODataWorkbench {
         <span>Duplicate</span>
       </div>
       <div class="context-menu-divider"></div>
+      <div class="context-menu-item ${!hasRecords ? 'disabled' : ''}" data-action="create-views-from-column" ${!hasRecords ? 'title="Requires records in the set"' : ''}>
+        <i class="ph ph-columns"></i>
+        <span>Create views from column...</span>
+      </div>
+      <div class="context-menu-divider"></div>
       <div class="context-menu-item danger" data-action="delete">
         <i class="ph ph-trash"></i>
         <span>Delete</span>
@@ -14562,8 +14944,8 @@ class EODataWorkbench {
     `;
 
     // Calculate position with viewport boundary checking
-    const menuWidth = 200;
-    const menuHeight = 130;
+    const menuWidth = 220;
+    const menuHeight = 180;
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
@@ -14585,8 +14967,26 @@ class EODataWorkbench {
 
     menu.querySelectorAll('.context-menu-item').forEach(item => {
       item.addEventListener('click', () => {
+        const action = item.dataset.action;
         menu.classList.remove('active');
+
         // Handle set actions
+        switch (action) {
+          case 'rename':
+            this._renameSet(setId);
+            break;
+          case 'duplicate':
+            this._duplicateSet(setId);
+            break;
+          case 'create-views-from-column':
+            if (!item.classList.contains('disabled')) {
+              this._showCreateViewsFromColumnModal(setId);
+            }
+            break;
+          case 'delete':
+            this._deleteSet(setId);
+            break;
+        }
       });
     });
   }
