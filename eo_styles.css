@@ -2185,15 +2185,22 @@ mark.search-highlight {
 }
 
 /* Number Field */
-.cell-number {
+/* Target span inside td, not td itself - td needs display:table-cell for proper column layout */
+.data-table td span.cell-number {
   font-family: var(--font-mono);
   text-align: right;
   display: block;
   line-height: calc(var(--row-height) - 16px);
 }
 
+/* Ensure NUMBER type td cells have right-aligned text */
+.data-table td.cell-number {
+  text-align: right;
+}
+
 /* Checkbox Field */
-.cell-checkbox {
+/* Target div inside td, not td itself - td needs display:table-cell for proper column layout */
+.data-table td div.cell-checkbox {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2224,7 +2231,8 @@ mark.search-highlight {
 }
 
 /* Select Field */
-.cell-select {
+/* Target div wrapper inside td (for MULTI_SELECT), not td itself - td needs display:table-cell for proper column layout */
+.data-table td div.cell-select {
   display: flex;
   flex-wrap: nowrap;
   gap: 4px;
@@ -2394,7 +2402,8 @@ mark.search-highlight {
 }
 
 /* Date Field */
-.cell-date {
+/* Target span inside td, not td itself - td needs display:table-cell for proper column layout */
+.data-table td span.cell-date {
   color: var(--text-secondary);
   display: block;
   line-height: calc(var(--row-height) - 16px);
@@ -2472,7 +2481,8 @@ mark.search-highlight {
 }
 
 /* Link Field */
-.cell-link {
+/* Target div wrapper inside td, not td itself - td needs display:table-cell for proper column layout */
+.data-table td div.cell-link {
   display: flex;
   gap: 4px;
   flex-wrap: nowrap;
@@ -2763,7 +2773,8 @@ mark.search-highlight {
 }
 
 /* URL Field */
-.cell-url {
+/* Target span inside td, not td itself - td needs display:table-cell for proper column layout */
+.data-table td span.cell-url {
   display: block;
   line-height: calc(var(--row-height) - 16px);
   overflow: hidden;
@@ -2780,7 +2791,8 @@ mark.search-highlight {
 }
 
 /* Attachment Field */
-.cell-attachment {
+/* Target div wrapper inside td, not td itself - td needs display:table-cell for proper column layout */
+.data-table td div.cell-attachment {
   display: flex;
   gap: 4px;
   flex-wrap: nowrap;
