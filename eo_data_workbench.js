@@ -3933,12 +3933,13 @@ class EODataWorkbench {
    */
   _renderSourceUnifiedTable(source, fields, records, multiRecord) {
     // Define colors for record types
+    // Using higher opacity (0.15) for better visibility and text separation
     const typeColors = [
-      { bg: 'var(--type-color-1-bg, rgba(59, 130, 246, 0.08))', border: 'var(--type-color-1-border, rgba(59, 130, 246, 0.2))' },  // blue
-      { bg: 'var(--type-color-2-bg, rgba(16, 185, 129, 0.08))', border: 'var(--type-color-2-border, rgba(16, 185, 129, 0.2))' },  // green
-      { bg: 'var(--type-color-3-bg, rgba(245, 158, 11, 0.08))', border: 'var(--type-color-3-border, rgba(245, 158, 11, 0.2))' },  // amber
-      { bg: 'var(--type-color-4-bg, rgba(139, 92, 246, 0.08))', border: 'var(--type-color-4-border, rgba(139, 92, 246, 0.2))' },  // purple
-      { bg: 'var(--type-color-5-bg, rgba(236, 72, 153, 0.08))', border: 'var(--type-color-5-border, rgba(236, 72, 153, 0.2))' },  // pink
+      { bg: 'var(--type-color-1-bg, rgba(59, 130, 246, 0.15))', border: 'var(--type-color-1-border, rgba(59, 130, 246, 0.35))' },  // blue
+      { bg: 'var(--type-color-2-bg, rgba(16, 185, 129, 0.15))', border: 'var(--type-color-2-border, rgba(16, 185, 129, 0.35))' },  // green
+      { bg: 'var(--type-color-3-bg, rgba(245, 158, 11, 0.15))', border: 'var(--type-color-3-border, rgba(245, 158, 11, 0.35))' },  // amber
+      { bg: 'var(--type-color-4-bg, rgba(139, 92, 246, 0.15))', border: 'var(--type-color-4-border, rgba(139, 92, 246, 0.35))' },  // purple
+      { bg: 'var(--type-color-5-bg, rgba(236, 72, 153, 0.15))', border: 'var(--type-color-5-border, rgba(236, 72, 153, 0.35))' },  // pink
     ];
 
     // Build field-to-type mapping
@@ -4061,12 +4062,13 @@ class EODataWorkbench {
    */
   _renderSourceSplitTables(source, fields, records, multiRecord) {
     const typeField = multiRecord.typeField;
+    // Using higher opacity (0.15) for better visibility - consistent with unified view
     const typeColors = [
-      { bg: 'var(--type-color-1-bg, rgba(59, 130, 246, 0.08))', border: 'var(--type-color-1-border, rgba(59, 130, 246, 0.3))', text: 'var(--type-color-1-text, #3b82f6)' },
-      { bg: 'var(--type-color-2-bg, rgba(16, 185, 129, 0.08))', border: 'var(--type-color-2-border, rgba(16, 185, 129, 0.3))', text: 'var(--type-color-2-text, #10b981)' },
-      { bg: 'var(--type-color-3-bg, rgba(245, 158, 11, 0.08))', border: 'var(--type-color-3-border, rgba(245, 158, 11, 0.3))', text: 'var(--type-color-3-text, #f59e0b)' },
-      { bg: 'var(--type-color-4-bg, rgba(139, 92, 246, 0.08))', border: 'var(--type-color-4-border, rgba(139, 92, 246, 0.3))', text: 'var(--type-color-4-text, #8b5cf6)' },
-      { bg: 'var(--type-color-5-bg, rgba(236, 72, 153, 0.08))', border: 'var(--type-color-5-border, rgba(236, 72, 153, 0.3))', text: 'var(--type-color-5-text, #ec4899)' },
+      { bg: 'var(--type-color-1-bg, rgba(59, 130, 246, 0.15))', border: 'var(--type-color-1-border, rgba(59, 130, 246, 0.35))', text: 'var(--type-color-1-text, #3b82f6)' },
+      { bg: 'var(--type-color-2-bg, rgba(16, 185, 129, 0.15))', border: 'var(--type-color-2-border, rgba(16, 185, 129, 0.35))', text: 'var(--type-color-2-text, #10b981)' },
+      { bg: 'var(--type-color-3-bg, rgba(245, 158, 11, 0.15))', border: 'var(--type-color-3-border, rgba(245, 158, 11, 0.35))', text: 'var(--type-color-3-text, #f59e0b)' },
+      { bg: 'var(--type-color-4-bg, rgba(139, 92, 246, 0.15))', border: 'var(--type-color-4-border, rgba(139, 92, 246, 0.35))', text: 'var(--type-color-4-text, #8b5cf6)' },
+      { bg: 'var(--type-color-5-bg, rgba(236, 72, 153, 0.15))', border: 'var(--type-color-5-border, rgba(236, 72, 153, 0.35))', text: 'var(--type-color-5-text, #ec4899)' },
     ];
 
     // Group records by type
