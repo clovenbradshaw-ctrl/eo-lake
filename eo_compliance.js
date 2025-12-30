@@ -1003,6 +1003,251 @@ class EOComplianceChecker {
     return audit;
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Interpretation Layer Compliance
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Check interpretation binding compliance
+   *
+   * Rules:
+   * I1: Interpretations must have agents (no anonymous meaning)
+   * I2: Semantic URIs must resolve (no dangling references)
+   * I3: No conflicting bindings (each column bound once per interpretation)
+   * I4: Version integrity (semantic changes require version bumps)
+   */
+  checkInterpretationCompliance() {
+    const violations = [];
+    const details = [];
+
+    // Get binding store and semantic registry
+    const bindingStore = typeof window !== 'undefined' && window.EOInterpretationBinding?.getBindingStore?.();
+    const semanticRegistry = typeof window !== 'undefined' && window.EOSchemaSemantic?.getSemanticRegistry?.();
+
+    if (!bindingStore) {
+      details.push('InterpretationBindingStore not available');
+      return { passed: true, details, violations, rules: [] };
+    }
+
+    const bindings = bindingStore.getAll();
+    details.push(`Checking ${bindings.length} interpretation bindings`);
+
+    const ruleResults = [];
+
+    // Rule I1: Agent is required
+    const i1Violations = [];
+    for (const binding of bindings) {
+      if (!binding.agent || binding.agent.trim() === '') {
+        i1Violations.push({
+          bindingId: binding.id,
+          error: 'InterpretationBinding missing agent'
+        });
+      }
+    }
+    ruleResults.push({
+      rule: 'I1',
+      name: 'Agent Required',
+      passed: i1Violations.length === 0,
+      violations: i1Violations
+    });
+    violations.push(...i1Violations);
+
+    // Rule I2: Semantic URI resolution
+    const i2Violations = [];
+    if (semanticRegistry) {
+      for (const binding of bindings) {
+        for (const b of binding.bindings || []) {
+          if (b.semantic_uri && !semanticRegistry.get(b.semantic_uri)) {
+            i2Violations.push({
+              bindingId: binding.id,
+              column: b.column,
+              semanticUri: b.semantic_uri,
+              error: 'Semantic URI not found in registry'
+            });
+          }
+        }
+      }
+    }
+    ruleResults.push({
+      rule: 'I2',
+      name: 'Semantic Resolution',
+      passed: i2Violations.length === 0,
+      violations: i2Violations
+    });
+    violations.push(...i2Violations);
+
+    // Rule I3: No conflicting bindings
+    const i3Violations = [];
+    for (const binding of bindings) {
+      const columnCounts = new Map();
+      for (const b of binding.bindings || []) {
+        const count = (columnCounts.get(b.column) || 0) + 1;
+        columnCounts.set(b.column, count);
+        if (count > 1) {
+          i3Violations.push({
+            bindingId: binding.id,
+            column: b.column,
+            error: 'Column has multiple bindings in same interpretation'
+          });
+        }
+      }
+    }
+    ruleResults.push({
+      rule: 'I3',
+      name: 'No Conflicts',
+      passed: i3Violations.length === 0,
+      violations: i3Violations
+    });
+    violations.push(...i3Violations);
+
+    // Rule I4: Version integrity (check for definition changes without version bump)
+    // This requires tracking historical changes - for now we check status
+    const i4Violations = [];
+    if (semanticRegistry) {
+      const semantics = semanticRegistry.getAll();
+      const byTerm = new Map();
+      for (const s of semantics) {
+        if (!byTerm.has(s.term)) {
+          byTerm.set(s.term, []);
+        }
+        byTerm.get(s.term).push(s);
+      }
+
+      for (const [term, versions] of byTerm) {
+        if (versions.length > 1) {
+          // Sort by version
+          versions.sort((a, b) => a.version - b.version);
+          for (let i = 1; i < versions.length; i++) {
+            const prev = versions[i - 1];
+            const curr = versions[i];
+            // Check if definition changed but version didn't bump correctly
+            if (prev.definition !== curr.definition && curr.version <= prev.version) {
+              i4Violations.push({
+                term,
+                prevVersion: prev.version,
+                currVersion: curr.version,
+                error: 'Semantic definition changed without version bump'
+              });
+            }
+          }
+        }
+      }
+    }
+    ruleResults.push({
+      rule: 'I4',
+      name: 'Version Integrity',
+      passed: i4Violations.length === 0,
+      violations: i4Violations
+    });
+    violations.push(...i4Violations);
+
+    // Summary stats
+    const semanticCount = semanticRegistry?.size || 0;
+    const boundColumns = bindings.reduce((sum, b) => sum + (b.bindings?.length || 0), 0);
+    details.push(`Schema semantics in registry: ${semanticCount}`);
+    details.push(`Total column bindings: ${boundColumns}`);
+    details.push(`Rules passed: ${ruleResults.filter(r => r.passed).length}/4`);
+
+    return {
+      passed: violations.length === 0,
+      details,
+      violations,
+      rules: ruleResults
+    };
+  }
+
+  /**
+   * Validate an individual interpretation binding
+   */
+  validateInterpretationBinding(binding) {
+    const errors = [];
+    const warnings = [];
+
+    // Check agent
+    if (!binding.agent || binding.agent.trim() === '') {
+      errors.push('InterpretationBinding requires an agent');
+    }
+
+    // Check source dataset
+    if (!binding.source_dataset) {
+      errors.push('InterpretationBinding requires a source_dataset');
+    }
+
+    // Check method
+    const validMethods = ['manual_binding', 'suggested_accepted', 'imported', 'inferred', 'migrated'];
+    if (binding.method && !validMethods.includes(binding.method)) {
+      warnings.push(`Unknown binding method: ${binding.method}`);
+    }
+
+    // Check bindings array
+    if (!binding.bindings || binding.bindings.length === 0) {
+      warnings.push('InterpretationBinding has no column bindings');
+    }
+
+    // Check for duplicates
+    const columns = new Set();
+    for (const b of binding.bindings || []) {
+      if (columns.has(b.column)) {
+        errors.push(`Duplicate binding for column: ${b.column}`);
+      }
+      columns.add(b.column);
+
+      // Check semantic URI format
+      if (b.semantic_uri && !b.semantic_uri.startsWith('eo://')) {
+        warnings.push(`Non-standard semantic URI: ${b.semantic_uri}`);
+      }
+    }
+
+    // Check provenance completeness
+    if (!binding.jurisdiction) {
+      warnings.push('jurisdiction_missing');
+    }
+    if (!binding.scale) {
+      warnings.push('scale_unspecified');
+    }
+    if (!binding.timeframe) {
+      warnings.push('timeframe_unspecified');
+    }
+    if (!binding.background || binding.background.length === 0) {
+      warnings.push('background_empty');
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings
+    };
+  }
+
+  /**
+   * Run full audit including interpretation compliance
+   */
+  async runFullAuditWithInterpretations() {
+    const audit = this.runAudit();
+
+    // Add interpretation compliance
+    const interpretationCompliance = this.checkInterpretationCompliance();
+    audit.interpretationCompliance = interpretationCompliance;
+
+    // Interpretation violations primarily affect Rule 7 (groundedness)
+    // since semantics provide grounding for meanings
+    if (!interpretationCompliance.passed) {
+      const rule7Result = audit.results.find(r => r.ruleNumber === 7);
+      if (rule7Result) {
+        const interpretationViolations = interpretationCompliance.violations.map(v => ({
+          ...v,
+          source: 'interpretation_layer'
+        }));
+        rule7Result.violations.push(...interpretationViolations);
+        if (rule7Result.violations.length > 0) {
+          rule7Result.passed = false;
+        }
+      }
+    }
+
+    return audit;
+  }
+
   /**
    * Generate a human-readable compliance report
    */

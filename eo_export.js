@@ -201,6 +201,141 @@ class JSONExporter {
 
 
 // ============================================================================
+// EO-Aware Exporter (exports with semantic and interpretation metadata)
+// ============================================================================
+
+class EOAwareExporter {
+  /**
+   * Export a dataset with full EO-aware metadata
+   *
+   * Produces the gold-standard EO-Aware JSON format:
+   * - dataset: { id, source, ingested_at, data[] }
+   * - schema_semantics: [ SchemaSemantic[] ]
+   * - interpretation: { InterpretationBinding }
+   *
+   * @param {Object} options - Export options
+   * @param {string} options.datasetId - Dataset/source ID
+   * @param {string} options.name - Dataset name
+   * @param {Array} options.fields - Field definitions
+   * @param {Array} options.records - Records to export
+   * @param {boolean} [options.pretty=true] - Pretty print JSON
+   * @returns {Blob} EO-Aware JSON file as Blob
+   */
+  static async export(options) {
+    const {
+      datasetId,
+      name,
+      fields,
+      records,
+      pretty = true
+    } = options;
+
+    // Get interpretation binding for this dataset
+    const bindingStore = window.EOInterpretationBinding?.getBindingStore();
+    const binding = bindingStore?.getActiveForDataset(datasetId);
+
+    // Collect schema semantics referenced by the binding
+    const schemaSemantics = [];
+    const semanticRegistry = window.EOSchemaSemantic?.getSemanticRegistry();
+
+    if (binding && semanticRegistry) {
+      const seenUris = new Set();
+      for (const b of binding.bindings) {
+        if (!seenUris.has(b.semantic_uri)) {
+          const semantic = semanticRegistry.get(b.semantic_uri);
+          if (semantic) {
+            schemaSemantics.push(semantic.toJSON());
+          }
+          seenUris.add(b.semantic_uri);
+        }
+      }
+    }
+
+    // Build export data structure
+    const exportData = {
+      dataset: {
+        id: datasetId || `ds_${Date.now().toString(36)}`,
+        source: name,
+        ingested_at: new Date().toISOString(),
+        data: records.map(r => {
+          const row = {};
+          fields.forEach(field => {
+            row[field.name] = r.values?.[field.id] ?? r[field.name] ?? '';
+          });
+          return row;
+        })
+      },
+      schema_semantics: schemaSemantics,
+      interpretation: binding ? {
+        id: binding.id,
+        agent: binding.agent,
+        method: binding.method,
+        bindings: binding.bindings.map(b => ({
+          column: b.column,
+          semantic_uri: b.semantic_uri,
+          confidence: b.confidence
+        })),
+        jurisdiction: binding.jurisdiction,
+        scale: binding.scale,
+        timeframe: binding.timeframe,
+        background: binding.background
+      } : null
+    };
+
+    const json = pretty
+      ? JSON.stringify(exportData, null, 2)
+      : JSON.stringify(exportData);
+
+    return new Blob([json], { type: 'application/json' });
+  }
+
+  /**
+   * Export only schema semantics (for sharing semantic definitions)
+   */
+  static exportSemantics(semantics, options = {}) {
+    const { pretty = true } = options;
+
+    const exportData = {
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      count: semantics.length,
+      schema_semantics: semantics.map(s =>
+        typeof s.toJSON === 'function' ? s.toJSON() : s
+      )
+    };
+
+    const json = pretty
+      ? JSON.stringify(exportData, null, 2)
+      : JSON.stringify(exportData);
+
+    return new Blob([json], { type: 'application/json' });
+  }
+
+  /**
+   * Export only interpretation bindings (for sharing interpretations)
+   */
+  static exportInterpretations(bindings, options = {}) {
+    const { pretty = true } = options;
+
+    const exportData = {
+      version: '1.0',
+      exported_at: new Date().toISOString(),
+      count: bindings.length,
+      interpretations: bindings.map(b =>
+        typeof b.toJSON === 'function' ? b.toJSON() : b
+      )
+    };
+
+    const json = pretty
+      ? JSON.stringify(exportData, null, 2)
+      : JSON.stringify(exportData);
+
+    return new Blob([json], { type: 'application/json' });
+  }
+}
+
+
+// ============================================================================
 // Excel Exporter (using SheetJS/xlsx library)
 // ============================================================================
 
@@ -778,6 +913,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     CSVExporter,
     JSONExporter,
+    EOAwareExporter,
     ExcelExporter,
     showExportDialog,
     quickExport,
@@ -788,6 +924,7 @@ if (typeof module !== 'undefined' && module.exports) {
 if (typeof window !== 'undefined') {
   window.CSVExporter = CSVExporter;
   window.JSONExporter = JSONExporter;
+  window.EOAwareExporter = EOAwareExporter;
   window.ExcelExporter = ExcelExporter;
   window.showExportDialog = showExportDialog;
   window.quickExport = quickExport;
