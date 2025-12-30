@@ -6323,6 +6323,10 @@ class DataPipelineUI {
 
     // All sources from the workbench (passed via show())
     this._allSources = [];
+
+    // Subtype detection state
+    this._detectedSubtypes = null;  // { fieldName, fieldId, values: [{name, count}], createViews: true }
+    this._subtypeFieldCandidates = ['type', '_type', 'recordType', 'record_type', 'kind', 'category', 'status', 'class', 'subtype'];
   }
 
   /**
@@ -6388,6 +6392,108 @@ class DataPipelineUI {
         }
       }
     }
+
+    // Detect subtypes after loading fields
+    this._detectSubtypes();
+  }
+
+  /**
+   * Detect if the source data has a subtype field (type, kind, category, etc.)
+   * and identify the distinct values to potentially create views for
+   */
+  _detectSubtypes() {
+    this._detectedSubtypes = null;
+
+    if (this._sources.length === 0) return;
+
+    // For now, only detect subtypes from first source
+    const source = this._sources[0].source;
+    if (!source.records || source.records.length < 2) return;
+
+    // Look for a type field
+    const fieldNames = this._selectedFields.map(f => f.name.toLowerCase());
+    let typeFieldName = null;
+
+    for (const candidate of this._subtypeFieldCandidates) {
+      const index = fieldNames.indexOf(candidate.toLowerCase());
+      if (index !== -1) {
+        typeFieldName = this._selectedFields[index].name;
+        break;
+      }
+    }
+
+    if (!typeFieldName) return;
+
+    // Count values for the type field
+    const valueCounts = {};
+    for (const record of source.records) {
+      const val = record[typeFieldName];
+      if (val !== null && val !== undefined && val !== '') {
+        const strVal = String(val);
+        valueCounts[strVal] = (valueCounts[strVal] || 0) + 1;
+      }
+    }
+
+    const distinctValues = Object.keys(valueCounts);
+
+    // Need at least 2 distinct values to be meaningful
+    if (distinctValues.length < 2 || distinctValues.length > 20) return;
+
+    // Store detected subtypes
+    this._detectedSubtypes = {
+      fieldName: typeFieldName,
+      values: distinctValues.map(name => ({
+        name,
+        count: valueCounts[name],
+        createView: true  // Default to creating views
+      })).sort((a, b) => b.count - a.count),
+      createViews: true  // Master toggle
+    };
+  }
+
+  /**
+   * Render the subtypes detection section in the output panel
+   */
+  _renderSubtypesSection() {
+    if (!this._detectedSubtypes) return '';
+
+    const { fieldName, values, createViews } = this._detectedSubtypes;
+    const viewCount = values.filter(v => v.createView).length;
+
+    return `
+      <div class="subtypes-section">
+        <div class="subtypes-header">
+          <div class="subtypes-title">
+            <i class="ph ph-stack"></i>
+            <span>Record Types Detected</span>
+          </div>
+          <label class="subtypes-toggle">
+            <input type="checkbox" id="subtypes-create-views" ${createViews ? 'checked' : ''}>
+            <span>Create views</span>
+          </label>
+        </div>
+        <div class="subtypes-info">
+          Found <strong>${values.length}</strong> types in <code>${this._escapeHtml(fieldName)}</code> field
+        </div>
+        <div class="subtypes-list ${!createViews ? 'disabled' : ''}" id="subtypes-list">
+          ${values.map((v, i) => `
+            <div class="subtype-item">
+              <input type="checkbox" id="subtype-${i}" data-index="${i}"
+                     ${v.createView ? 'checked' : ''} ${!createViews ? 'disabled' : ''}>
+              <label for="subtype-${i}">
+                <span class="subtype-name">${this._escapeHtml(v.name)}</span>
+                <span class="subtype-count">${v.count}</span>
+              </label>
+            </div>
+          `).join('')}
+        </div>
+        <div class="subtypes-summary">
+          ${createViews && viewCount > 0
+            ? `<i class="ph ph-check-circle"></i> Will create ${viewCount} filtered view${viewCount !== 1 ? 's' : ''}`
+            : `<i class="ph ph-info"></i> No views will be created`}
+        </div>
+      </div>
+    `;
   }
 
   _render() {
@@ -6479,6 +6585,9 @@ class DataPipelineUI {
                     <span class="stat-label">fields</span>
                   </div>
                 </div>
+
+                ${this._renderSubtypesSection()}
+
                 <div class="output-preview">
                   <button class="preview-btn" id="pipeline-preview-btn">
                     <i class="ph ph-eye"></i> Preview
@@ -6720,6 +6829,32 @@ class DataPipelineUI {
     // Create
     this.container.querySelector('#pipeline-create-btn')?.addEventListener('click', () => {
       this._createSet();
+    });
+
+    // Subtype toggles
+    this.container.querySelector('#subtypes-create-views')?.addEventListener('change', (e) => {
+      if (this._detectedSubtypes) {
+        this._detectedSubtypes.createViews = e.target.checked;
+        this._render();
+        this._attachEventListeners();
+      }
+    });
+
+    this.container.querySelectorAll('#subtypes-list input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        if (this._detectedSubtypes) {
+          const index = parseInt(e.target.dataset.index);
+          this._detectedSubtypes.values[index].createView = e.target.checked;
+          // Update summary without full re-render
+          const summary = this.container.querySelector('.subtypes-summary');
+          if (summary) {
+            const viewCount = this._detectedSubtypes.values.filter(v => v.createView).length;
+            summary.innerHTML = viewCount > 0
+              ? `<i class="ph ph-check-circle"></i> Will create ${viewCount} filtered view${viewCount !== 1 ? 's' : ''}`
+              : `<i class="ph ph-info"></i> No views will be created`;
+          }
+        }
+      });
     });
   }
 
@@ -7139,6 +7274,49 @@ class DataPipelineUI {
         derivedAt: new Date().toISOString()
       };
 
+      // Build views - start with default "All Records" view
+      const views = [{
+        id: `view_${Date.now().toString(36)}_all`,
+        name: 'All Records',
+        type: 'table',
+        config: {}
+      }];
+
+      // Create subtype views if enabled
+      if (this._detectedSubtypes?.createViews) {
+        const subtypeFieldName = this._detectedSubtypes.fieldName;
+        const subtypeField = fields.find(f => f.name === subtypeFieldName || f.name === (selectedFields.find(sf => sf.name === subtypeFieldName)?.rename || subtypeFieldName));
+        const subtypeFieldId = subtypeField?.id;
+
+        if (subtypeFieldId) {
+          const selectedSubtypes = this._detectedSubtypes.values.filter(v => v.createView);
+
+          for (const subtype of selectedSubtypes) {
+            const viewId = `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+            views.push({
+              id: viewId,
+              name: this._formatSubtypeName(subtype.name),
+              type: 'table',
+              config: {
+                filters: [{
+                  fieldId: subtypeFieldId,
+                  operator: 'is',
+                  filterValue: subtype.name,
+                  enabled: true
+                }],
+                // Optionally hide the subtype field in filtered views since it's redundant
+                hiddenFields: [subtypeFieldId]
+              },
+              metadata: {
+                recordType: subtype.name,
+                recordCount: subtype.count,
+                icon: this._getIconForSubtype(subtype.name)
+              }
+            });
+          }
+        }
+      }
+
       // Create the set
       const newSet = {
         id: `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
@@ -7146,12 +7324,7 @@ class DataPipelineUI {
         icon: 'table',
         fields,
         records: setRecords,
-        views: [{
-          id: `view_${Date.now().toString(36)}`,
-          name: 'Default',
-          type: 'table',
-          config: {}
-        }],
+        views,
         derivation,
         datasetProvenance: {
           sourceIds: this._sources.map(s => s.id)
@@ -7182,6 +7355,61 @@ class DataPipelineUI {
       'url': 'URL'
     };
     return mapping[type?.toLowerCase()] || 'TEXT';
+  }
+
+  /**
+   * Format subtype name for view display
+   * Converts snake_case/camelCase to Title Case
+   */
+  _formatSubtypeName(name) {
+    if (!name) return 'Unknown';
+    return name
+      .replace(/_/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  /**
+   * Get an appropriate icon for a subtype based on common naming patterns
+   */
+  _getIconForSubtype(name) {
+    const lower = (name || '').toLowerCase();
+    const iconMap = {
+      'person': 'ph-user',
+      'people': 'ph-users',
+      'user': 'ph-user',
+      'company': 'ph-buildings',
+      'organization': 'ph-buildings',
+      'org': 'ph-buildings',
+      'event': 'ph-calendar',
+      'meeting': 'ph-calendar-check',
+      'task': 'ph-check-square',
+      'todo': 'ph-check-square',
+      'document': 'ph-file-text',
+      'file': 'ph-file',
+      'note': 'ph-note',
+      'email': 'ph-envelope',
+      'message': 'ph-chat',
+      'project': 'ph-folder',
+      'product': 'ph-package',
+      'order': 'ph-shopping-cart',
+      'transaction': 'ph-currency-dollar',
+      'payment': 'ph-credit-card',
+      'location': 'ph-map-pin',
+      'address': 'ph-map-pin',
+      'contact': 'ph-address-book',
+      'lead': 'ph-target',
+      'opportunity': 'ph-lightning',
+      'case': 'ph-briefcase',
+      'ticket': 'ph-ticket',
+      'issue': 'ph-warning',
+      'bug': 'ph-bug'
+    };
+
+    for (const [key, icon] of Object.entries(iconMap)) {
+      if (lower.includes(key)) return icon;
+    }
+    return 'ph-tag';
   }
 
   _escapeHtml(text) {
