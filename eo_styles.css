@@ -20564,3 +20564,332 @@ body.has-picked-up .browser-tab:hover {
 .subtypes-summary i.ph-info {
   color: var(--text-muted, #888);
 }
+
+/* Enhanced Subtype Item with Configuration */
+.subtype-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  transition: background 0.2s;
+  border: 1px solid transparent;
+}
+
+.subtype-item.enabled {
+  background: rgba(96, 165, 250, 0.05);
+  border-color: rgba(96, 165, 250, 0.2);
+}
+
+.subtype-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subtype-main label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.subtype-main label i {
+  color: var(--text-secondary, #aaa);
+  font-size: 14px;
+}
+
+.subtype-config {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 24px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary, #1a1a35);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.subtype-view-type {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary, #aaa);
+}
+
+.subtype-view-type i {
+  font-size: 12px;
+  color: var(--primary, #60a5fa);
+}
+
+.subtype-field-count {
+  color: var(--text-muted, #888);
+}
+
+.subtype-configure-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid var(--border-color, #2a2a4a);
+  border-radius: 4px;
+  color: var(--text-secondary, #aaa);
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-left: auto;
+}
+
+.subtype-configure-btn:hover {
+  background: var(--primary, #60a5fa);
+  color: #fff;
+  border-color: var(--primary, #60a5fa);
+}
+
+/* Record Type View Configuration Modal */
+.record-type-config-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+}
+
+.record-type-config-modal {
+  background: var(--bg-primary, #0f0f1a);
+  border: 1px solid var(--border-color, #2a2a4a);
+  border-radius: 12px;
+  width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.record-type-config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, #2a2a4a);
+}
+
+.record-type-config-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+  margin: 0;
+}
+
+.record-type-config-header h3 i {
+  color: var(--primary, #60a5fa);
+  font-size: 20px;
+}
+
+.record-type-config-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #888);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.record-type-config-close:hover {
+  background: var(--bg-tertiary, #1a1a35);
+  color: var(--text-primary, #fff);
+}
+
+.record-type-config-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.config-section {
+  margin-bottom: 20px;
+}
+
+.config-section:last-child {
+  margin-bottom: 0;
+}
+
+.config-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #aaa);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.config-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.field-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.field-actions .btn {
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.view-type-options {
+  display: flex;
+  gap: 10px;
+}
+
+.view-type-option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px;
+  background: var(--bg-secondary, #16162a);
+  border: 2px solid var(--border-color, #2a2a4a);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.view-type-option:hover {
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+.view-type-option.selected {
+  border-color: var(--primary, #60a5fa);
+  background: rgba(96, 165, 250, 0.1);
+}
+
+.view-type-option input[type="radio"] {
+  display: none;
+}
+
+.view-type-option i {
+  font-size: 24px;
+  color: var(--text-secondary, #aaa);
+}
+
+.view-type-option.selected i {
+  color: var(--primary, #60a5fa);
+}
+
+.view-type-option span {
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+}
+
+.view-type-option.selected span {
+  color: var(--text-primary, #fff);
+}
+
+.type-fields-list {
+  max-height: 250px;
+  overflow-y: auto;
+  background: var(--bg-secondary, #16162a);
+  border: 1px solid var(--border-color, #2a2a4a);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.type-field-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.type-field-item:hover {
+  background: var(--bg-tertiary, #1a1a35);
+}
+
+.type-field-item .drag-handle {
+  color: var(--text-muted, #888);
+  cursor: grab;
+  opacity: 0.5;
+}
+
+.type-field-item:hover .drag-handle {
+  opacity: 1;
+}
+
+.type-field-item input[type="checkbox"] {
+  accent-color: var(--primary, #60a5fa);
+}
+
+.type-field-item label {
+  flex: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.type-field-item .field-name {
+  font-size: 13px;
+  color: var(--text-primary, #fff);
+}
+
+.type-field-item .field-type {
+  font-size: 11px;
+  color: var(--text-muted, #888);
+  background: var(--bg-tertiary, #1a1a35);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.config-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-secondary, #16162a);
+  border-radius: 8px;
+}
+
+.preview-label {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+}
+
+.preview-count,
+.preview-fields {
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+  background: var(--bg-tertiary, #1a1a35);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.record-type-config-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color, #2a2a4a);
+}
