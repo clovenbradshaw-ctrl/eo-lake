@@ -2038,7 +2038,7 @@ class EODataWorkbench {
   }
 
   /**
-   * Delete a view
+   * Delete (toss) a view - moves to tossed items for recovery
    */
   _deleteView(viewId, setId) {
     const set = this.sets.find(s => s.id === setId);
@@ -2053,6 +2053,19 @@ class EODataWorkbench {
       return;
     }
 
+    const view = set.views[viewIndex];
+
+    // Add to tossed items (nothing is ever deleted per Rule 9)
+    this.tossedItems.unshift({
+      type: 'view',
+      view: JSON.parse(JSON.stringify(view)), // Deep clone
+      setId: setId,
+      tossedAt: new Date().toISOString()
+    });
+    if (this.tossedItems.length > this.maxTossedItems) {
+      this.tossedItems.pop();
+    }
+
     set.views.splice(viewIndex, 1);
 
     // If deleted view was active, switch to another
@@ -2065,6 +2078,33 @@ class EODataWorkbench {
     this._renderView();
     this._updateBreadcrumb();
     this._saveData();
+    this._updateTossedBadge();
+
+    // Show undo toast with countdown
+    this._showToast(`Tossed view "${view.name}"`, 'info', {
+      countdown: 5000,
+      action: {
+        label: 'Undo',
+        callback: () => {
+          // Restore the view
+          const tossedIndex = this.tossedItems.findIndex(
+            t => t.type === 'view' && t.view.id === view.id
+          );
+          if (tossedIndex !== -1) {
+            this.tossedItems.splice(tossedIndex, 1);
+            set.views.splice(viewIndex, 0, view);
+            this.currentViewId = view.id;
+            this.lastViewPerSet[setId] = view.id;
+            this._renderSidebar();
+            this._renderView();
+            this._updateBreadcrumb();
+            this._saveData();
+            this._updateTossedBadge();
+            this._showToast(`Restored view "${view.name}"`, 'success');
+          }
+        }
+      }
+    });
   }
 
   /**
@@ -5055,12 +5095,18 @@ class EODataWorkbench {
   }
 
   /**
-   * Delete a source permanently
+   * Delete (toss) a source - moves to tossed items and becomes a ghost
+   * Sources persist as ghosts so derived sets can track their provenance
    */
   _deleteSource(sourceId) {
     // Find source from this.sources
     const source = this.sources?.find(s => s.id === sourceId);
     const sourceName = source?.name || 'this source';
+
+    if (!source) {
+      this._showToast('Source not found', 'warning');
+      return;
+    }
 
     // Check for derived sets
     const derivedSets = this.sets.filter(set => {
@@ -5072,9 +5118,8 @@ class EODataWorkbench {
     // Build confirmation message
     let confirmMessage = `Are you sure you want to delete "${sourceName}"?`;
     if (derivedSets.length > 0) {
-      confirmMessage += `\n\nWarning: ${derivedSets.length} set(s) were created from this source. The sets will remain but will lose their source reference.`;
+      confirmMessage += `\n\nNote: ${derivedSets.length} set(s) were created from this source. The sets will remain and the source will persist as a ghost for provenance tracking.`;
     }
-    confirmMessage += '\n\nThis action cannot be undone.';
 
     // Show confirmation dialog
     this._showConfirmDialog({
@@ -5083,12 +5128,50 @@ class EODataWorkbench {
       confirmText: 'Delete',
       confirmClass: 'btn-danger',
       onConfirm: () => {
+        const sourceIndex = this.sources?.findIndex(s => s.id === sourceId) ?? -1;
+
+        // Add to tossed items (nothing is ever deleted per Rule 9)
+        this.tossedItems.unshift({
+          type: 'source',
+          source: JSON.parse(JSON.stringify(source)), // Deep clone
+          derivedSetIds: derivedSets.map(s => s.id),
+          tossedAt: new Date().toISOString()
+        });
+        if (this.tossedItems.length > this.maxTossedItems) {
+          this.tossedItems.pop();
+        }
+
+        // Register as ghost if ghost registry is available
+        if (typeof getGhostRegistry === 'function') {
+          const ghostRegistry = getGhostRegistry();
+          const tombstoneEvent = {
+            id: `tombstone_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`,
+            timestamp: new Date().toISOString(),
+            actor: 'user',
+            payload: {
+              action: 'tombstone',
+              targetId: sourceId,
+              reason: 'User tossed source',
+              targetSnapshot: {
+                type: 'source',
+                payload: {
+                  name: source.name,
+                  recordCount: source.records?.length || source.recordCount || 0,
+                  derivedSetCount: derivedSets.length
+                }
+              }
+            },
+            context: { workspace: 'default' }
+          };
+          ghostRegistry.registerGhost(sourceId, tombstoneEvent, {
+            entityType: 'source',
+            workspace: 'default'
+          });
+        }
+
         // Remove from this.sources array
-        if (this.sources) {
-          const index = this.sources.findIndex(s => s.id === sourceId);
-          if (index !== -1) {
-            this.sources.splice(index, 1);
-          }
+        if (this.sources && sourceIndex !== -1) {
+          this.sources.splice(sourceIndex, 1);
         }
 
         // Also remove from sourceStore if present
@@ -5109,8 +5192,47 @@ class EODataWorkbench {
 
         // Update sidebar
         this._renderSidebar();
+        this._updateTossedBadge();
 
-        this._showToast(`Source "${sourceName}" deleted`, 'success');
+        // Show undo toast with countdown
+        this._showToast(`Tossed source "${sourceName}"`, 'info', {
+          countdown: 5000,
+          action: {
+            label: 'Undo',
+            callback: () => {
+              // Restore the source
+              const tossedIndex = this.tossedItems.findIndex(
+                t => t.type === 'source' && t.source.id === sourceId
+              );
+              if (tossedIndex !== -1) {
+                const tossedItem = this.tossedItems.splice(tossedIndex, 1)[0];
+
+                // Re-add to sources array
+                if (!this.sources) this.sources = [];
+                this.sources.push(tossedItem.source);
+
+                // Re-add to sourceStore if present
+                if (this.sourceStore) {
+                  this.sourceStore.sources.set(sourceId, tossedItem.source);
+                }
+
+                // Resurrect from ghost registry if available
+                if (typeof getGhostRegistry === 'function') {
+                  const ghostRegistry = getGhostRegistry();
+                  if (ghostRegistry.isGhost(sourceId)) {
+                    ghostRegistry.resurrect(sourceId, 'user', { reason: 'User undid source deletion' });
+                  }
+                }
+
+                this._saveData();
+                this._renderSidebar();
+                this._renderFileExplorer?.();
+                this._updateTossedBadge();
+                this._showToast(`Restored source "${sourceName}"`, 'success');
+              }
+            }
+          }
+        });
       }
     });
   }
@@ -7721,6 +7843,13 @@ class EODataWorkbench {
     if (setIndex === -1) return;
 
     const set = this.sets[setIndex];
+
+    // Can't delete the Tossed/Trash set (the toss bin is a permanent feature)
+    const protectedNames = ['tossed', 'trash', 'toss bin', 'trash bin', 'deleted', 'recycle bin'];
+    if (protectedNames.includes(set.name.toLowerCase().trim())) {
+      this._showToast('Cannot delete the toss bin', 'warning');
+      return;
+    }
     const wasCurrentSet = this.currentSetId === setId;
 
     // Add to tossed items (nothing is ever deleted per Rule 9)
@@ -17694,6 +17823,7 @@ class EODataWorkbench {
 
     // Group items by type
     const grouped = {
+      source: [],
       set: [],
       view: [],
       record: [],
@@ -17708,6 +17838,7 @@ class EODataWorkbench {
 
     // Category configurations
     const categories = [
+      { type: 'source', label: 'Sources', icon: 'ph-file-csv', iconClass: 'source-icon' },
       { type: 'set', label: 'Sets', icon: 'ph-table', iconClass: 'set-icon' },
       { type: 'view', label: 'Views', icon: 'ph-eye', iconClass: 'view-icon' },
       { type: 'field', label: 'Fields (Columns)', icon: 'ph-columns', iconClass: 'field-icon' },
@@ -17793,6 +17924,8 @@ class EODataWorkbench {
 
   _getTossedItemName(item) {
     switch (item.type) {
+      case 'source':
+        return item.source?.name || 'Unnamed Source';
       case 'set':
         return item.set?.name || 'Unnamed Set';
       case 'view':
@@ -17816,6 +17949,14 @@ class EODataWorkbench {
 
   _getTossedItemMeta(item) {
     switch (item.type) {
+      case 'source':
+        const sourceRecordCount = item.source?.records?.length || item.source?.recordCount || 0;
+        const derivedCount = item.derivedSetIds?.length || 0;
+        let meta = `${sourceRecordCount} records`;
+        if (derivedCount > 0) {
+          meta += `, ${derivedCount} derived set${derivedCount > 1 ? 's' : ''} (ghost)`;
+        }
+        return meta;
       case 'set':
         const recordCount = item.set?.records?.length || 0;
         const viewCount = item.set?.views?.length || 0;
@@ -17861,6 +18002,29 @@ class EODataWorkbench {
 
     // Restore based on type
     switch (item.type) {
+      case 'source':
+        // Re-add to sources array
+        if (!this.sources) this.sources = [];
+        this.sources.push(item.source);
+
+        // Re-add to sourceStore if present
+        if (this.sourceStore) {
+          this.sourceStore.sources.set(item.source.id, item.source);
+        }
+
+        // Resurrect from ghost registry if available
+        if (typeof getGhostRegistry === 'function') {
+          const ghostRegistry = getGhostRegistry();
+          if (ghostRegistry.isGhost(item.source.id)) {
+            ghostRegistry.resurrect(item.source.id, 'user', { reason: 'User restored source from toss bin' });
+          }
+        }
+
+        this._renderSidebar();
+        this._renderFileExplorer?.();
+        this._showToast(`Restored source "${item.source.name}"`, 'success');
+        break;
+
       case 'set':
         this.sets.push(item.set);
         this.currentSetId = item.set.id;
@@ -17944,10 +18108,14 @@ class EODataWorkbench {
     const item = this.tossedItems[index];
     const name = this._getTossedItemName(item);
 
-    if (confirm(`Permanently delete "${name}"? This cannot be undone.`)) {
+    if (confirm(`Remove "${name}" from toss bin? The item will persist as a ghost for provenance tracking.`)) {
+      // Register as ghost before removing from toss bin (nothing is ever truly deleted)
+      this._registerTossedItemAsGhost(item);
+
       this.tossedItems.splice(index, 1);
+      this._saveData();
       this._renderTossedPanel();
-      this._showToast(`Permanently deleted "${name}"`, 'info');
+      this._showToast(`Removed "${name}" from toss bin (persists as ghost)`, 'info');
     }
   }
 
@@ -17957,11 +18125,110 @@ class EODataWorkbench {
       return;
     }
 
-    if (confirm(`Permanently delete all ${this.tossedItems.length} tossed items? This cannot be undone.`)) {
+    if (confirm(`Clear all ${this.tossedItems.length} tossed items? Items will persist as ghosts for provenance tracking.`)) {
+      // Register all items as ghosts before clearing
+      this.tossedItems.forEach(item => {
+        this._registerTossedItemAsGhost(item);
+      });
+
       this.tossedItems = [];
+      this._saveData();
       this._renderTossedPanel();
-      this._showToast('Cleared all tossed items', 'info');
+      this._showToast('Cleared toss bin (items persist as ghosts)', 'info');
     }
+  }
+
+  /**
+   * Register a tossed item as a ghost in the ghost registry
+   * This ensures items are never truly deleted - they persist for provenance tracking
+   */
+  _registerTossedItemAsGhost(item) {
+    if (typeof getGhostRegistry !== 'function') return;
+
+    const ghostRegistry = getGhostRegistry();
+    let entityId, entityType, snapshot;
+
+    switch (item.type) {
+      case 'source':
+        entityId = item.source?.id;
+        entityType = 'source';
+        snapshot = {
+          type: 'source',
+          payload: {
+            name: item.source?.name,
+            recordCount: item.source?.records?.length || item.source?.recordCount || 0
+          }
+        };
+        break;
+      case 'set':
+        entityId = item.set?.id;
+        entityType = 'set';
+        snapshot = {
+          type: 'set',
+          payload: {
+            name: item.set?.name,
+            fieldCount: item.set?.fields?.length || 0,
+            recordCount: item.set?.records?.length || 0
+          }
+        };
+        break;
+      case 'view':
+        entityId = item.view?.id;
+        entityType = 'view';
+        snapshot = {
+          type: 'view',
+          payload: {
+            name: item.view?.name,
+            setId: item.setId
+          }
+        };
+        break;
+      case 'record':
+        entityId = item.record?.id;
+        entityType = 'record';
+        snapshot = {
+          type: 'record',
+          payload: {
+            setId: item.setId,
+            values: item.record?.values
+          }
+        };
+        break;
+      case 'field':
+        entityId = item.field?.id;
+        entityType = 'field';
+        snapshot = {
+          type: 'field',
+          payload: {
+            name: item.field?.name,
+            fieldType: item.field?.type,
+            setId: item.setId
+          }
+        };
+        break;
+      default:
+        return;
+    }
+
+    if (!entityId || ghostRegistry.isGhost(entityId)) return;
+
+    const tombstoneEvent = {
+      id: `tombstone_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      actor: 'user',
+      payload: {
+        action: 'tombstone',
+        targetId: entityId,
+        reason: 'Cleared from toss bin',
+        targetSnapshot: snapshot
+      },
+      context: { workspace: 'default' }
+    };
+
+    ghostRegistry.registerGhost(entityId, tombstoneEvent, {
+      entityType,
+      workspace: 'default'
+    });
   }
 
   // --------------------------------------------------------------------------
