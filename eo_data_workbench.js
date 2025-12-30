@@ -13912,7 +13912,12 @@ class EODataWorkbench {
       <div class="form-group">
         <div class="source-selection-empty">
           <i class="ph ph-file-dashed"></i>
-          <span>No imported sources available. You can import data after creating the set.</span>
+          <span>No imported sources available.</span>
+          <button type="button" class="btn btn-primary btn-sm" id="new-set-import-btn" style="margin-top: 12px;">
+            <i class="ph ph-upload"></i>
+            Import Data First
+          </button>
+          <span class="source-selection-empty-hint">Or create an empty set below</span>
         </div>
       </div>
     `;
@@ -14010,6 +14015,11 @@ class EODataWorkbench {
         .source-selection-empty i {
           font-size: 32px;
         }
+        .source-selection-empty-hint {
+          font-size: 12px;
+          color: var(--text-muted, #94a3b8);
+          margin-top: 8px;
+        }
       </style>
     `, () => {
       const name = document.getElementById('new-set-name')?.value || 'Untitled Set';
@@ -14044,6 +14054,11 @@ class EODataWorkbench {
     // Focus input
     setTimeout(() => {
       document.getElementById('new-set-name')?.focus();
+      // Add handler for "Import Data First" button when no sources available
+      document.getElementById('new-set-import-btn')?.addEventListener('click', () => {
+        this._closeModal();
+        this._showImportModal();
+      });
     }, 100);
   }
 

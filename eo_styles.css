@@ -17008,8 +17008,8 @@ body.has-picked-up .browser-tab:hover {
   font-weight: 500;
   cursor: pointer;
   box-shadow: var(--shadow-lg);
-  transition: var(--transition-normal);
-  z-index: 100;
+  transition: right var(--transition-normal), background var(--transition-normal), box-shadow var(--transition-normal), transform var(--transition-fast);
+  z-index: 150;
 }
 
 .add-field-fab:hover {
@@ -17022,10 +17022,11 @@ body.has-picked-up .browser-tab:hover {
   font-size: 18px;
 }
 
-/* When detail panel is open, move the FAB left */
+/* When detail panel is open, move the FAB left - ensure it stays visible */
 .detail-panel.open ~ .add-field-fab,
 .app-container:has(.detail-panel.open) .add-field-fab {
   right: calc(var(--detail-panel-width) + 24px);
+  z-index: 150; /* Above detail panel content */
 }
 
 /* Ensure add-column-btn is always visible in table header */
