@@ -567,6 +567,11 @@ html, body {
   color: var(--meant-color);
 }
 
+.nav-panel-badge.vocab-badge {
+  background: rgba(168, 85, 247, 0.15);
+  color: rgb(168, 85, 247);
+}
+
 .nav-panel-action {
   width: 22px;
   height: 22px;
@@ -10680,6 +10685,257 @@ body.has-picked-up .browser-tab:hover {
   color: var(--given-color);
   margin-left: auto;
   margin-right: 4px;
+}
+
+/* Definition Item Styling */
+.definition-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.definition-item .definition-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.definition-item .definition-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.definition-item .definition-meta-inline {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.definition-item.active {
+  background: var(--bg-active);
+}
+
+.definition-item.active .definition-name {
+  color: var(--primary-500);
+}
+
+.definition-item.active .definition-meta-inline {
+  color: var(--text-secondary);
+}
+
+.definition-source-badge {
+  font-size: 10px;
+  color: rgb(168, 85, 247);
+  margin-left: auto;
+  margin-right: 4px;
+}
+
+.definition-source-badge i {
+  font-size: 12px;
+}
+
+/* Definition Detail View */
+.definition-detail-view {
+  padding: 24px;
+  max-width: 1000px;
+}
+
+.definition-detail-header {
+  margin-bottom: 24px;
+}
+
+.definition-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.definition-detail-title i {
+  font-size: 24px;
+  color: rgb(168, 85, 247);
+}
+
+.definition-detail-title h2 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.definition-uri-link {
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.definition-uri-link:hover {
+  color: var(--primary-500);
+}
+
+.definition-detail-meta {
+  margin-bottom: 16px;
+}
+
+.definition-description {
+  color: var(--text-secondary);
+  margin: 0 0 12px 0;
+}
+
+.definition-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.definition-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.definition-meta-item i {
+  font-size: 14px;
+}
+
+.definition-detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.definition-terms-section {
+  margin-top: 32px;
+}
+
+.definition-terms-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 16px 0;
+}
+
+.definition-empty-terms {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.definition-terms-table {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.definition-terms-table .data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.definition-terms-table th,
+.definition-terms-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.definition-terms-table th {
+  background: var(--bg-secondary);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.definition-terms-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.definition-terms-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.term-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+
+.term-name i {
+  color: rgb(168, 85, 247);
+  font-size: 14px;
+}
+
+.type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+.term-description {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.term-uri-link {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--primary-500);
+  text-decoration: none;
+}
+
+.term-uri-link:hover {
+  text-decoration: underline;
+}
+
+.definition-add-term-section {
+  margin-top: 16px;
+}
+
+/* Import Definition Modal Tabs */
+.import-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.import-tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  transition: all 0.15s;
+}
+
+.import-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.import-tab.active {
+  color: var(--primary-500);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.import-tab-content {
+  animation: fadeIn 0.2s ease;
 }
 
 /* Empty State */

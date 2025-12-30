@@ -443,9 +443,11 @@ class EODataWorkbench {
     // Legacy State (for backward compatibility)
     this.sets = [];
     this.sources = []; // CRITICAL: Initialize sources array for imports
+    this.definitions = []; // Definition schemas for columns/keys from URIs
     this.currentSetId = null;
     this.currentViewId = null;
     this.currentSourceId = null; // Track when viewing a source (GIVEN data)
+    this.currentDefinitionId = null; // Track when viewing a definition (VOCAB)
     this.showingSetFields = false; // Track when showing set fields panel (like Airtable's "Manage Fields")
     this.lastViewPerSet = {}; // Remember last active view for each set
     this.expandedSets = {}; // Track which sets are expanded in sidebar
@@ -910,6 +912,15 @@ class EODataWorkbench {
       this._showImportModal();
     });
 
+    // Definition panel buttons
+    document.getElementById('btn-new-definition')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+
+    document.getElementById('btn-import-definition-uri')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+
     // Consolidated "New" action button and dropdown
     this._initNewActionDropdown();
 
@@ -1166,6 +1177,9 @@ class EODataWorkbench {
         // Load sources (CRITICAL for import functionality)
         this.sources = parsed.sources || [];
 
+        // Load definitions (schema definitions from URIs)
+        this.definitions = parsed.definitions || [];
+
         // Performance: Use lazy loading for set records
         // Only load metadata initially, defer record loading
         if (this._useLazyLoading && parsed.sets?.length > 1) {
@@ -1250,6 +1264,7 @@ class EODataWorkbench {
 
       localStorage.setItem('eo_lake_data', JSON.stringify({
         sources: this.sources || [], // CRITICAL: Save sources for import functionality
+        definitions: this.definitions || [], // Save definition schemas
         sets: setsToSave,
         currentSetId: this.currentSetId,
         currentViewId: this.currentViewId,
@@ -1498,9 +1513,10 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderSidebar() {
-    // Two-panel navigation: Sources (GIVEN) / Sets (Schema)
+    // Three-panel navigation: Sources (GIVEN) / Definitions (VOCAB) / Sets (Schema)
     // Views are shown nested under sets in sidebar (Airtable-style)
     this._renderSourcesNav();
+    this._renderDefinitionsNav();
     this._renderSetsNavFlat();
     // Update tab bar (view disclosure removed - views in sidebar only)
     this._renderTabBar();
@@ -3562,6 +3578,855 @@ class EODataWorkbench {
         e.preventDefault();
         this._showSourceContextMenu(e, item.dataset.sourceId);
       });
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Definitions Panel Rendering
+  // --------------------------------------------------------------------------
+
+  /**
+   * Render Definitions navigation panel
+   * Definitions are schema definitions for columns/keys, imported from URIs (e.g., JSON-LD, RDF)
+   * They provide vocabulary and type definitions that can be applied to sets
+   */
+  _renderDefinitionsNav() {
+    const container = document.getElementById('definitions-nav');
+    if (!container) return;
+
+    // Ensure definitions array exists
+    if (!Array.isArray(this.definitions)) {
+      this.definitions = [];
+    }
+
+    // Get all active definitions
+    const activeDefinitions = this.definitions.filter(d => d.status !== 'archived');
+
+    // Sort definitions by import date (newest first)
+    const sortedDefinitions = activeDefinitions.sort((a, b) => {
+      if (!a.importedAt) return 1;
+      if (!b.importedAt) return -1;
+      return new Date(b.importedAt) - new Date(a.importedAt);
+    });
+
+    // Empty state - no definitions yet
+    if (sortedDefinitions.length === 0) {
+      container.innerHTML = `
+        <div class="nav-empty-state">
+          <i class="ph ph-book-open"></i>
+          <span>No definitions yet</span>
+          <button class="btn-link" id="btn-first-definition">Import from URI or create</button>
+        </div>
+      `;
+      container.querySelector('#btn-first-definition')?.addEventListener('click', () => {
+        this._showImportDefinitionModal();
+      });
+      return;
+    }
+
+    // Render definitions as a flat list
+    let html = '';
+    for (const definition of sortedDefinitions) {
+      const defIcon = this._getDefinitionIcon(definition);
+      const importDate = definition.importedAt ? new Date(definition.importedAt).toLocaleDateString() : '';
+      const termCount = definition.terms?.length || definition.properties?.length || 0;
+      const sourceLabel = definition.sourceUri ? 'URI' : 'local';
+      const isActive = this.currentDefinitionId === definition.id;
+
+      html += `
+        <div class="nav-item definition-item ${isActive ? 'active' : ''}"
+             data-definition-id="${definition.id}"
+             title="${this._escapeHtml(definition.description || definition.name)}">
+          <i class="ph ${defIcon} definition-icon"></i>
+          <div class="definition-info">
+            <span class="definition-name">${this._escapeHtml(this._truncateName(definition.name, 20))}</span>
+            <span class="definition-meta-inline">${sourceLabel}</span>
+          </div>
+          <span class="definition-source-badge" title="${sourceLabel === 'URI' ? 'Imported from external URI' : 'Locally created'}">
+            ${sourceLabel === 'URI' ? '<i class="ph ph-link"></i>' : '<i class="ph ph-pencil-simple"></i>'}
+          </span>
+          <span class="nav-item-count" title="${termCount} terms defined">${termCount}</span>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+
+    // Attach event handlers for definition items
+    this._attachDefinitionsNavEventHandlers(container);
+  }
+
+  /**
+   * Attach event handlers for definitions navigation items
+   */
+  _attachDefinitionsNavEventHandlers(container) {
+    container.querySelectorAll('.definition-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const definitionId = item.dataset.definitionId;
+        this._showDefinitionDetail(definitionId);
+      });
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showDefinitionContextMenu(e, item.dataset.definitionId);
+      });
+    });
+  }
+
+  /**
+   * Get icon for definition based on its type
+   */
+  _getDefinitionIcon(definition) {
+    if (definition.type === 'jsonld' || definition.format === 'jsonld') {
+      return 'ph-brackets-curly';
+    } else if (definition.type === 'rdf' || definition.format === 'rdf') {
+      return 'ph-graph';
+    } else if (definition.type === 'csv-schema' || definition.format === 'csvw') {
+      return 'ph-table';
+    } else if (definition.sourceUri) {
+      return 'ph-link';
+    }
+    return 'ph-book-open';
+  }
+
+  /**
+   * Truncate name for display
+   */
+  _truncateName(name, maxLength = 20) {
+    if (!name) return 'Untitled';
+    if (name.length <= maxLength) return name;
+    return name.substring(0, maxLength - 1) + '…';
+  }
+
+  /**
+   * Show definition detail view
+   */
+  _showDefinitionDetail(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) {
+      this._showNotification('Definition not found', 'error');
+      return;
+    }
+
+    // Set current definition
+    this.currentDefinitionId = definitionId;
+
+    // Clear other selections
+    this.currentSourceId = null;
+    this.currentSetId = null;
+    this.currentViewId = null;
+    this.showingSetFields = false;
+
+    // Update sidebar selection
+    document.querySelectorAll('.source-item, .set-item, .set-item-header, .set-view-item').forEach(item => {
+      item.classList.remove('active');
+    });
+    document.querySelectorAll('.definition-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.definitionId === definitionId);
+    });
+
+    // Render definition detail view
+    this._renderDefinitionDetailView(definition);
+
+    // Update breadcrumb
+    this._updateBreadcrumb();
+  }
+
+  /**
+   * Render definition detail view in main content area
+   */
+  _renderDefinitionDetailView(definition) {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const terms = definition.terms || definition.properties || [];
+    const importDate = definition.importedAt ? new Date(definition.importedAt).toLocaleString() : 'Unknown';
+
+    contentArea.innerHTML = `
+      <div class="definition-detail-view">
+        <div class="definition-detail-header">
+          <div class="definition-detail-title">
+            <i class="ph ${this._getDefinitionIcon(definition)}"></i>
+            <h2>${this._escapeHtml(definition.name)}</h2>
+            ${definition.sourceUri ? `<a href="${this._escapeHtml(definition.sourceUri)}" target="_blank" class="definition-uri-link" title="Open source URI">
+              <i class="ph ph-arrow-square-out"></i>
+            </a>` : ''}
+          </div>
+          <div class="definition-detail-meta">
+            ${definition.description ? `<p class="definition-description">${this._escapeHtml(definition.description)}</p>` : ''}
+            <div class="definition-meta-row">
+              <span class="definition-meta-item">
+                <i class="ph ph-calendar"></i> Imported: ${importDate}
+              </span>
+              ${definition.sourceUri ? `<span class="definition-meta-item">
+                <i class="ph ph-link"></i> ${this._escapeHtml(this._truncateName(definition.sourceUri, 50))}
+              </span>` : ''}
+              <span class="definition-meta-item">
+                <i class="ph ph-list-numbers"></i> ${terms.length} term${terms.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+          </div>
+          <div class="definition-detail-actions">
+            <button class="btn btn-secondary" id="btn-refresh-definition" title="Refresh from URI">
+              <i class="ph ph-arrows-clockwise"></i> Refresh
+            </button>
+            <button class="btn btn-secondary" id="btn-apply-definition" title="Apply to a set">
+              <i class="ph ph-arrow-right"></i> Apply to Set
+            </button>
+            <button class="btn btn-secondary btn-danger" id="btn-delete-definition" title="Delete definition">
+              <i class="ph ph-trash"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="definition-terms-section">
+          <h3><i class="ph ph-list"></i> Terms & Properties</h3>
+          ${terms.length === 0 ? `
+            <div class="definition-empty-terms">
+              <i class="ph ph-info"></i>
+              <span>No terms defined. Add terms manually or re-import from URI.</span>
+            </div>
+          ` : `
+            <div class="definition-terms-table">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th style="width: 200px;">Name</th>
+                    <th style="width: 120px;">Type</th>
+                    <th>Description</th>
+                    <th style="width: 200px;">URI / IRI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${terms.map(term => `
+                    <tr class="definition-term-row" data-term-id="${term.id || term.name}">
+                      <td class="term-name">
+                        <i class="ph ph-tag"></i>
+                        ${this._escapeHtml(term.name || term.label)}
+                      </td>
+                      <td class="term-type">
+                        <span class="type-badge">${this._escapeHtml(term.type || term.datatype || 'string')}</span>
+                      </td>
+                      <td class="term-description">${this._escapeHtml(term.description || term.comment || '—')}</td>
+                      <td class="term-uri">
+                        ${term.uri || term['@id'] ? `<a href="${this._escapeHtml(term.uri || term['@id'])}" target="_blank" class="term-uri-link">
+                          ${this._escapeHtml(this._truncateName(term.uri || term['@id'], 30))}
+                        </a>` : '—'}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+
+        <div class="definition-add-term-section">
+          <button class="btn btn-secondary" id="btn-add-term">
+            <i class="ph ph-plus"></i> Add Term
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    this._attachDefinitionDetailHandlers(definition);
+  }
+
+  /**
+   * Attach event handlers for definition detail view
+   */
+  _attachDefinitionDetailHandlers(definition) {
+    const contentArea = this.elements.contentArea;
+
+    contentArea.querySelector('#btn-refresh-definition')?.addEventListener('click', () => {
+      this._refreshDefinitionFromUri(definition.id);
+    });
+
+    contentArea.querySelector('#btn-apply-definition')?.addEventListener('click', () => {
+      this._showApplyDefinitionModal(definition.id);
+    });
+
+    contentArea.querySelector('#btn-delete-definition')?.addEventListener('click', () => {
+      this._deleteDefinition(definition.id);
+    });
+
+    contentArea.querySelector('#btn-add-term')?.addEventListener('click', () => {
+      this._showAddTermModal(definition.id);
+    });
+  }
+
+  /**
+   * Show context menu for a definition
+   */
+  _showDefinitionContextMenu(e, definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    const menuItems = [
+      { label: 'View Details', icon: 'ph-eye', action: () => this._showDefinitionDetail(definitionId) },
+      { label: 'Apply to Set...', icon: 'ph-arrow-right', action: () => this._showApplyDefinitionModal(definitionId) },
+      { divider: true },
+      { label: 'Refresh from URI', icon: 'ph-arrows-clockwise', action: () => this._refreshDefinitionFromUri(definitionId), disabled: !definition.sourceUri },
+      { label: 'Edit Definition', icon: 'ph-pencil', action: () => this._showEditDefinitionModal(definitionId) },
+      { divider: true },
+      { label: 'Delete', icon: 'ph-trash', action: () => this._deleteDefinition(definitionId), danger: true }
+    ];
+
+    this._showContextMenu(e, menuItems);
+  }
+
+  /**
+   * Show modal to import definition from URI
+   */
+  _showImportDefinitionModal() {
+    const html = `
+      <div class="import-definition-form">
+        <div class="import-tabs">
+          <button class="import-tab active" data-tab="uri">From URI</button>
+          <button class="import-tab" data-tab="manual">Create Manually</button>
+        </div>
+
+        <div class="import-tab-content" id="tab-uri">
+          <div class="form-group">
+            <label for="definition-uri" class="form-label">Definition URI</label>
+            <input type="url" id="definition-uri" class="form-input"
+                   placeholder="https://schema.org/Person.jsonld">
+            <span class="form-hint">Supports JSON-LD, RDF, CSV Schema (CSVW)</span>
+          </div>
+          <div class="form-group">
+            <label for="definition-name-uri" class="form-label">Name (optional)</label>
+            <input type="text" id="definition-name-uri" class="form-input"
+                   placeholder="Will be inferred from URI if not provided">
+          </div>
+        </div>
+
+        <div class="import-tab-content" id="tab-manual" style="display: none;">
+          <div class="form-group">
+            <label for="definition-name" class="form-label">Definition Name</label>
+            <input type="text" id="definition-name" class="form-input"
+                   placeholder="My Custom Schema">
+          </div>
+          <div class="form-group">
+            <label for="definition-description" class="form-label">Description (optional)</label>
+            <textarea id="definition-description" class="form-input" rows="2"
+                      placeholder="Describe what this definition is for"></textarea>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this._showModal('Import Definition', html, () => {
+      const activeTab = document.querySelector('.import-tab.active')?.dataset.tab;
+
+      if (activeTab === 'uri') {
+        const uri = document.getElementById('definition-uri')?.value?.trim();
+        const name = document.getElementById('definition-name-uri')?.value?.trim();
+        if (uri) {
+          this._importDefinitionFromUri(uri, name);
+        } else {
+          this._showNotification('Please enter a URI', 'error');
+        }
+      } else {
+        const name = document.getElementById('definition-name')?.value?.trim();
+        const description = document.getElementById('definition-description')?.value?.trim();
+        if (name) {
+          this._createManualDefinition(name, description);
+        } else {
+          this._showNotification('Please enter a name', 'error');
+        }
+      }
+    });
+
+    // Tab switching
+    setTimeout(() => {
+      document.querySelectorAll('.import-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.import-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          document.querySelectorAll('.import-tab-content').forEach(content => {
+            content.style.display = content.id === `tab-${tab.dataset.tab}` ? 'block' : 'none';
+          });
+        });
+      });
+    }, 0);
+  }
+
+  /**
+   * Import definition from a URI
+   */
+  async _importDefinitionFromUri(uri, providedName = null) {
+    try {
+      this._showNotification('Fetching definition...', 'info');
+
+      const response = await fetch(uri);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      const text = await response.text();
+      let data;
+      let format = 'unknown';
+
+      // Try to parse based on content type or content
+      if (contentType.includes('json') || text.trim().startsWith('{') || text.trim().startsWith('[')) {
+        data = JSON.parse(text);
+        format = data['@context'] ? 'jsonld' : 'json';
+      } else if (contentType.includes('xml') || text.trim().startsWith('<')) {
+        format = 'rdf';
+        // Basic RDF/XML parsing would go here
+        data = { raw: text };
+      } else {
+        format = 'text';
+        data = { raw: text };
+      }
+
+      // Extract terms from JSON-LD or JSON
+      const terms = this._extractTermsFromData(data, format);
+
+      // Create definition object
+      const definition = {
+        id: `def_${Date.now()}`,
+        name: providedName || this._extractNameFromUri(uri) || 'Imported Definition',
+        description: data.description || data['schema:description'] || '',
+        sourceUri: uri,
+        format: format,
+        importedAt: new Date().toISOString(),
+        status: 'active',
+        terms: terms,
+        rawData: data
+      };
+
+      this.definitions.push(definition);
+      this._saveData();
+      this._renderDefinitionsNav();
+      this._showDefinitionDetail(definition.id);
+      this._showNotification(`Imported ${terms.length} terms from ${this._truncateName(uri, 30)}`, 'success');
+
+    } catch (error) {
+      console.error('Failed to import definition:', error);
+      this._showNotification(`Import failed: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Extract terms from parsed data (JSON-LD, JSON, etc.)
+   */
+  _extractTermsFromData(data, format) {
+    const terms = [];
+
+    if (format === 'jsonld') {
+      // Handle JSON-LD @context
+      const context = data['@context'];
+      if (context && typeof context === 'object') {
+        for (const [key, value] of Object.entries(context)) {
+          if (key.startsWith('@')) continue; // Skip @vocab, @base, etc.
+
+          const term = {
+            id: `term_${Date.now()}_${terms.length}`,
+            name: key,
+            type: 'string'
+          };
+
+          if (typeof value === 'string') {
+            term.uri = value;
+          } else if (typeof value === 'object') {
+            term.uri = value['@id'];
+            term.type = value['@type'] || 'string';
+          }
+
+          terms.push(term);
+        }
+      }
+
+      // Handle @graph with property definitions
+      const graph = data['@graph'];
+      if (Array.isArray(graph)) {
+        for (const node of graph) {
+          if (node['@type'] === 'rdf:Property' || node['@type'] === 'rdfs:Property') {
+            terms.push({
+              id: `term_${Date.now()}_${terms.length}`,
+              name: node['rdfs:label'] || node['@id']?.split(/[#/]/).pop(),
+              description: node['rdfs:comment'],
+              uri: node['@id'],
+              type: node['rdfs:range']?.['@id'] || 'string'
+            });
+          }
+        }
+      }
+    } else if (format === 'json') {
+      // Handle plain JSON schema-like structures
+      if (data.properties) {
+        for (const [key, value] of Object.entries(data.properties)) {
+          terms.push({
+            id: `term_${Date.now()}_${terms.length}`,
+            name: key,
+            type: value.type || 'string',
+            description: value.description
+          });
+        }
+      }
+      // Handle array of property definitions
+      if (Array.isArray(data)) {
+        for (const item of data) {
+          if (item.name || item.property || item.label) {
+            terms.push({
+              id: `term_${Date.now()}_${terms.length}`,
+              name: item.name || item.property || item.label,
+              type: item.type || item.datatype || 'string',
+              description: item.description || item.comment,
+              uri: item.uri || item['@id']
+            });
+          }
+        }
+      }
+    }
+
+    return terms;
+  }
+
+  /**
+   * Extract a name from a URI
+   */
+  _extractNameFromUri(uri) {
+    try {
+      const url = new URL(uri);
+      // Try to get meaningful name from path or hostname
+      const pathParts = url.pathname.split('/').filter(p => p);
+      if (pathParts.length > 0) {
+        const lastPart = pathParts[pathParts.length - 1];
+        // Remove file extension
+        return lastPart.replace(/\.[^.]+$/, '');
+      }
+      return url.hostname;
+    } catch {
+      return uri.split('/').pop() || 'Definition';
+    }
+  }
+
+  /**
+   * Create a manual definition (no URI import)
+   */
+  _createManualDefinition(name, description = '') {
+    const definition = {
+      id: `def_${Date.now()}`,
+      name: name,
+      description: description,
+      sourceUri: null,
+      format: 'manual',
+      importedAt: new Date().toISOString(),
+      status: 'active',
+      terms: []
+    };
+
+    this.definitions.push(definition);
+    this._saveData();
+    this._renderDefinitionsNav();
+    this._showDefinitionDetail(definition.id);
+    this._showNotification(`Created definition: ${name}`, 'success');
+  }
+
+  /**
+   * Refresh definition from its source URI
+   */
+  async _refreshDefinitionFromUri(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition || !definition.sourceUri) {
+      this._showNotification('No source URI to refresh from', 'error');
+      return;
+    }
+
+    try {
+      this._showNotification('Refreshing from URI...', 'info');
+
+      const response = await fetch(definition.sourceUri);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch: ${response.status}`);
+      }
+
+      const text = await response.text();
+      const data = JSON.parse(text);
+      const format = data['@context'] ? 'jsonld' : 'json';
+      const terms = this._extractTermsFromData(data, format);
+
+      // Update definition
+      definition.terms = terms;
+      definition.rawData = data;
+      definition.format = format;
+      definition.refreshedAt = new Date().toISOString();
+
+      this._saveData();
+      this._renderDefinitionsNav();
+      this._showDefinitionDetail(definitionId);
+      this._showNotification(`Refreshed: ${terms.length} terms loaded`, 'success');
+
+    } catch (error) {
+      console.error('Failed to refresh definition:', error);
+      this._showNotification(`Refresh failed: ${error.message}`, 'error');
+    }
+  }
+
+  /**
+   * Delete a definition
+   */
+  _deleteDefinition(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    if (!confirm(`Delete definition "${definition.name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    // Remove from array
+    this.definitions = this.definitions.filter(d => d.id !== definitionId);
+
+    // Clear current selection if this was selected
+    if (this.currentDefinitionId === definitionId) {
+      this.currentDefinitionId = null;
+    }
+
+    this._saveData();
+    this._renderDefinitionsNav();
+
+    // Show empty state in content area if nothing else selected
+    if (!this.currentSetId && !this.currentSourceId) {
+      this._renderWelcomeView();
+    }
+
+    this._showNotification('Definition deleted', 'success');
+  }
+
+  /**
+   * Show modal to add a term to a definition
+   */
+  _showAddTermModal(definitionId) {
+    const html = `
+      <div class="add-term-form">
+        <div class="form-group">
+          <label for="term-name" class="form-label">Term Name</label>
+          <input type="text" id="term-name" class="form-input" placeholder="propertyName">
+        </div>
+        <div class="form-group">
+          <label for="term-type" class="form-label">Data Type</label>
+          <select id="term-type" class="form-input">
+            <option value="string">String (text)</option>
+            <option value="number">Number</option>
+            <option value="integer">Integer</option>
+            <option value="boolean">Boolean</option>
+            <option value="date">Date</option>
+            <option value="dateTime">DateTime</option>
+            <option value="url">URL</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="term-description" class="form-label">Description (optional)</label>
+          <textarea id="term-description" class="form-input" rows="2" placeholder="What this term represents"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="term-uri" class="form-label">URI / IRI (optional)</label>
+          <input type="url" id="term-uri" class="form-input" placeholder="https://schema.org/name">
+        </div>
+      </div>
+    `;
+
+    this._showModal('Add Term', html, () => {
+      const name = document.getElementById('term-name')?.value?.trim();
+      const type = document.getElementById('term-type')?.value;
+      const description = document.getElementById('term-description')?.value?.trim();
+      const uri = document.getElementById('term-uri')?.value?.trim();
+
+      if (!name) {
+        this._showNotification('Please enter a term name', 'error');
+        return;
+      }
+
+      this._addTermToDefinition(definitionId, { name, type, description, uri });
+    });
+  }
+
+  /**
+   * Add a term to a definition
+   */
+  _addTermToDefinition(definitionId, termData) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    if (!definition.terms) {
+      definition.terms = [];
+    }
+
+    const term = {
+      id: `term_${Date.now()}`,
+      name: termData.name,
+      type: termData.type || 'string',
+      description: termData.description || '',
+      uri: termData.uri || null
+    };
+
+    definition.terms.push(term);
+    this._saveData();
+    this._showDefinitionDetail(definitionId);
+    this._showNotification(`Added term: ${term.name}`, 'success');
+  }
+
+  /**
+   * Show modal to apply definition to a set
+   */
+  _showApplyDefinitionModal(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    if (this.sets.length === 0) {
+      this._showNotification('No sets available. Create a set first.', 'error');
+      return;
+    }
+
+    const html = `
+      <div class="apply-definition-form">
+        <p>Apply terms from <strong>${this._escapeHtml(definition.name)}</strong> as fields to:</p>
+        <div class="form-group">
+          <label for="target-set" class="form-label">Target Set</label>
+          <select id="target-set" class="form-input">
+            ${this.sets.map(set => `
+              <option value="${set.id}">${this._escapeHtml(set.name)}</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="merge-fields" checked>
+            Merge with existing fields (uncheck to replace)
+          </label>
+        </div>
+      </div>
+    `;
+
+    this._showModal('Apply Definition to Set', html, () => {
+      const setId = document.getElementById('target-set')?.value;
+      const merge = document.getElementById('merge-fields')?.checked;
+
+      if (setId) {
+        this._applyDefinitionToSet(definitionId, setId, merge);
+      }
+    });
+  }
+
+  /**
+   * Apply definition terms as fields to a set
+   */
+  _applyDefinitionToSet(definitionId, setId, merge = true) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    const set = this.sets?.find(s => s.id === setId);
+
+    if (!definition || !set) return;
+
+    const terms = definition.terms || [];
+    if (terms.length === 0) {
+      this._showNotification('Definition has no terms to apply', 'error');
+      return;
+    }
+
+    // Convert terms to fields
+    const newFields = terms.map(term => ensureValidField({
+      id: `fld_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      name: term.name,
+      type: this._mapTermTypeToFieldType(term.type),
+      definitionRef: {
+        definitionId: definition.id,
+        termId: term.id,
+        uri: term.uri
+      }
+    }));
+
+    if (merge) {
+      // Merge: add new fields that don't already exist (by name)
+      const existingNames = new Set(set.fields.map(f => f.name.toLowerCase()));
+      const fieldsToAdd = newFields.filter(f => !existingNames.has(f.name.toLowerCase()));
+      set.fields.push(...fieldsToAdd);
+      this._showNotification(`Added ${fieldsToAdd.length} new fields to ${set.name}`, 'success');
+    } else {
+      // Replace: remove all fields and add new ones
+      set.fields = newFields;
+      this._showNotification(`Replaced fields in ${set.name} with ${newFields.length} fields`, 'success');
+    }
+
+    this._saveData();
+    this._renderSidebar();
+
+    // If viewing this set, refresh the view
+    if (this.currentSetId === setId) {
+      this._renderView();
+    }
+  }
+
+  /**
+   * Map definition term type to field type
+   */
+  _mapTermTypeToFieldType(termType) {
+    const mapping = {
+      'string': 'text',
+      'text': 'text',
+      'number': 'number',
+      'integer': 'number',
+      'float': 'number',
+      'double': 'number',
+      'boolean': 'checkbox',
+      'bool': 'checkbox',
+      'date': 'date',
+      'dateTime': 'date',
+      'datetime': 'date',
+      'url': 'url',
+      'uri': 'url',
+      'email': 'email',
+      'phone': 'phone'
+    };
+    return mapping[termType] || mapping[termType?.toLowerCase()] || 'text';
+  }
+
+  /**
+   * Show modal to edit a definition
+   */
+  _showEditDefinitionModal(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    const html = `
+      <div class="edit-definition-form">
+        <div class="form-group">
+          <label for="edit-definition-name" class="form-label">Name</label>
+          <input type="text" id="edit-definition-name" class="form-input"
+                 value="${this._escapeHtml(definition.name)}">
+        </div>
+        <div class="form-group">
+          <label for="edit-definition-description" class="form-label">Description</label>
+          <textarea id="edit-definition-description" class="form-input" rows="3">${this._escapeHtml(definition.description || '')}</textarea>
+        </div>
+        ${definition.sourceUri ? `
+          <div class="form-group">
+            <label class="form-label">Source URI</label>
+            <input type="text" class="form-input" value="${this._escapeHtml(definition.sourceUri)}" readonly disabled>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    this._showModal('Edit Definition', html, () => {
+      const name = document.getElementById('edit-definition-name')?.value?.trim();
+      const description = document.getElementById('edit-definition-description')?.value?.trim();
+
+      if (!name) {
+        this._showNotification('Name is required', 'error');
+        return;
+      }
+
+      definition.name = name;
+      definition.description = description;
+      this._saveData();
+      this._renderDefinitionsNav();
+      this._showDefinitionDetail(definitionId);
+      this._showNotification('Definition updated', 'success');
     });
   }
 
