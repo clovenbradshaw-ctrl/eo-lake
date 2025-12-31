@@ -8,7 +8,20 @@
  *
  * The 9 operators (INS, DES, SEG, CON, SYN, ALT, SUP, REC, NUL) are the vocabulary.
  * Context is referenced, not embedded (unless truly needed).
+ *
+ * ENFORCEMENT: See eo_activity_enforcement.js for comprehensive rule validation
+ * based on docs/LAYER_ACTIVITY_TRACKING_RULES.md
  */
+
+// Import enforcement if available
+let enforcement = null;
+if (typeof require !== 'undefined') {
+  try {
+    enforcement = require('./eo_activity_enforcement.js');
+  } catch (e) {
+    // Enforcement module not available - will use basic validation
+  }
+}
 
 // ============================================================================
 // Constants
@@ -86,8 +99,21 @@ function createActivity(op, target, actor, options = {}) {
 
 /**
  * Validate an activity record
+ *
+ * @param {Object} activity - The activity to validate
+ * @param {Object} options - Validation options
+ * @param {string} options.layerType - Layer type for layer-specific validation
+ * @param {boolean} options.strict - If true, treats warnings as errors
+ * @param {boolean} options.enforceRules - If true, uses comprehensive enforcement (default: true if enforcement available)
+ * @returns {Object} { valid: boolean, errors: string[], warnings: string[] }
  */
-function validateActivity(activity) {
+function validateActivity(activity, options = {}) {
+  // Use comprehensive enforcement if available and not explicitly disabled
+  if (enforcement && options.enforceRules !== false) {
+    return enforcement.enforceActivityRules(activity, options);
+  }
+
+  // Fallback to basic validation
   const errors = [];
   const warnings = [];
 
@@ -98,15 +124,15 @@ function validateActivity(activity) {
   }
 
   if (!activity.target) {
-    warnings.push('Missing target');
+    errors.push('Missing target - every activity must specify what is being operated on');
   }
 
   if (!activity.actor) {
-    warnings.push('Missing actor');
+    errors.push('Missing actor - every activity must specify who/what is performing it');
   }
 
   if (!activity.ts) {
-    warnings.push('Missing timestamp');
+    errors.push('Missing timestamp (ts)');
   }
 
   return {
@@ -651,10 +677,46 @@ class ActivityStore {
 
   /**
    * Record an activity
+   *
+   * @param {Object} activity - The activity to record
+   * @param {Object} options - Recording options
+   * @param {string} options.layerType - Layer type for validation
+   * @param {boolean} options.strict - If true, throws on validation errors
+   * @param {boolean} options.skipValidation - If true, skips validation (not recommended)
    */
-  async record(activity) {
+  async record(activity, options = {}) {
     // Ensure compact format
     const stored = isVerboseFormat(activity) ? compact(activity) : activity;
+
+    // Validate unless explicitly skipped
+    if (!options.skipValidation) {
+      const validation = validateActivity(stored, {
+        layerType: options.layerType,
+        strict: options.strict
+      });
+
+      if (!validation.valid) {
+        const error = new Error(
+          `Activity validation failed:\n` +
+          validation.errors.map(e => `  - ${e}`).join('\n')
+        );
+        error.name = 'ActivityValidationError';
+        error.activity = stored;
+        error.errors = validation.errors;
+
+        if (options.strict) {
+          throw error;
+        } else {
+          console.warn(`Activity ${stored.id} recorded with validation errors:`, validation.errors);
+        }
+      }
+
+      // Log warnings
+      if (validation.warnings.length > 0) {
+        console.warn(`Activity ${stored.id} has warnings:`, validation.warnings);
+        stored._warnings = validation.warnings;
+      }
+    }
 
     this.activities.set(stored.id, stored);
     this._indexActivity(stored);
@@ -665,6 +727,17 @@ class ActivityStore {
 
     this._emit('activity:recorded', stored);
     return stored;
+  }
+
+  /**
+   * Record an activity with strict enforcement
+   * Throws if validation fails
+   *
+   * @param {Object} activity - The activity to record
+   * @param {Object} options - Recording options (layerType required for full enforcement)
+   */
+  async recordStrict(activity, options = {}) {
+    return this.record(activity, { ...options, strict: true });
   }
 
   /**
@@ -935,11 +1008,19 @@ if (typeof module !== 'undefined' && module.exports) {
 
     // Store
     ActivityStore,
-    getActivityStore
+    getActivityStore,
+
+    // Enforcement (re-export if available)
+    enforcement
   };
 }
 
 if (typeof window !== 'undefined') {
+  // Load enforcement module for browser
+  if (!enforcement && window.EOActivityEnforcement) {
+    enforcement = window.EOActivityEnforcement;
+  }
+
   window.EOActivity = {
     // Core
     OPERATORS,
@@ -968,7 +1049,10 @@ if (typeof window !== 'undefined') {
 
     // Store
     Store: ActivityStore,
-    getStore: getActivityStore
+    getStore: getActivityStore,
+
+    // Enforcement
+    enforcement: enforcement
   };
 
   // Legacy global
@@ -977,7 +1061,7 @@ if (typeof window !== 'undefined') {
   // Auto-initialize
   getActivityStore().then(store => {
     window.activityStore = store;
-    console.log('EO Activity Store initialized (compact format)');
+    console.log('EO Activity Store initialized (compact format with enforcement)');
   }).catch(err => {
     console.error('Failed to initialize Activity Store:', err);
   });
