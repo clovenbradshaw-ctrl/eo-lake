@@ -5922,6 +5922,10 @@ class EODataWorkbench {
     this.showingSetFields = false;
     this.showingSetDetail = false;
 
+    // Set viewing definitions flag and update tab bar
+    this.isViewingDefinitions = true;
+    this._renderTabBar();
+
     // Update sidebar selection
     document.querySelectorAll('.source-item, .set-item, .set-item-header, .set-view-item').forEach(item => {
       item.classList.remove('active');
@@ -10224,6 +10228,9 @@ class EODataWorkbench {
     this.currentDefinitionId = null;
     this.showingSetFields = false;
     this.showingSetDetail = false;
+
+    // Update tab bar to show Definitions tab as active
+    this._renderTabBar();
 
     // Get all definitions (filtered by project if applicable)
     const activeDefinitions = this._getProjectDefinitions().filter(d => d.status !== 'archived');
