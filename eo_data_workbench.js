@@ -444,10 +444,12 @@ class EODataWorkbench {
     this.sets = [];
     this.sources = []; // CRITICAL: Initialize sources array for imports
     this.definitions = []; // Definition schemas for columns/keys from URIs
+    this.exports = []; // Immutable frozen captures (downloads and records)
     this.currentSetId = null;
     this.currentViewId = null;
     this.currentSourceId = null; // Track when viewing a source (GIVEN data)
     this.currentDefinitionId = null; // Track when viewing a definition (DICT)
+    this.currentExportId = null; // Track when viewing an export (FROZEN)
     this.showingSetFields = false; // Track when showing set fields panel (like Airtable's "Manage Fields")
     this.lastViewPerSet = {}; // Remember last active view for each set
     this.expandedSets = {}; // Track which sets are expanded in sidebar
@@ -492,8 +494,11 @@ class EODataWorkbench {
     // Calendar navigation state
     this.calendarDate = new Date();
 
-    // Sources view mode (list vs table)
+    // Panel view modes (list vs table)
     this.sourcesViewMode = 'list'; // 'list' or 'table'
+    this.setsViewMode = 'list'; // 'list' or 'table'
+    this.definitionsViewMode = 'list'; // 'list' or 'table'
+    this.exportsViewMode = 'list'; // 'list' or 'table'
 
     // File Explorer state
     this.fileExplorerMode = false; // Whether file explorer is active
@@ -965,6 +970,93 @@ class EODataWorkbench {
       }
     });
 
+    // Sets view toggle (list vs table)
+    document.getElementById('sets-view-toggle')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.view-toggle-btn');
+      if (!btn) return;
+      const viewMode = btn.dataset.view;
+      if (!viewMode) return;
+
+      // Update button states for visual feedback
+      document.querySelectorAll('#sets-view-toggle .view-toggle-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === viewMode);
+      });
+
+      // Only re-render if mode actually changed
+      if (viewMode !== this.setsViewMode) {
+        this.setsViewMode = viewMode;
+        if (viewMode === 'table') {
+          this._showSetsTableView();
+        } else {
+          this._renderSetsNavFlat();
+        }
+      }
+    });
+
+    // Definitions view toggle (list vs table)
+    document.getElementById('definitions-view-toggle')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.view-toggle-btn');
+      if (!btn) return;
+      const viewMode = btn.dataset.view;
+      if (!viewMode) return;
+
+      // Update button states for visual feedback
+      document.querySelectorAll('#definitions-view-toggle .view-toggle-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === viewMode);
+      });
+
+      // Only re-render if mode actually changed
+      if (viewMode !== this.definitionsViewMode) {
+        this.definitionsViewMode = viewMode;
+        if (viewMode === 'table') {
+          this._showDefinitionsTableView();
+        } else {
+          this._renderDefinitionsNav();
+        }
+      }
+    });
+
+    // Exports view toggle (list vs table)
+    document.getElementById('exports-view-toggle')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.view-toggle-btn');
+      if (!btn) return;
+      const viewMode = btn.dataset.view;
+      if (!viewMode) return;
+
+      // Update button states for visual feedback
+      document.querySelectorAll('#exports-view-toggle .view-toggle-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.view === viewMode);
+      });
+
+      // Only re-render if mode actually changed
+      if (viewMode !== this.exportsViewMode) {
+        this.exportsViewMode = viewMode;
+        if (viewMode === 'table') {
+          this._showExportsTableView();
+        } else {
+          this._renderExportsNav();
+        }
+      }
+    });
+
+    // Explorer buttons for each panel
+    document.getElementById('btn-sets-explorer')?.addEventListener('click', () => {
+      this._showSetsExplorer();
+    });
+
+    document.getElementById('btn-definitions-explorer')?.addEventListener('click', () => {
+      this._showDefinitionsExplorer();
+    });
+
+    document.getElementById('btn-exports-explorer')?.addEventListener('click', () => {
+      this._showExportsExplorer();
+    });
+
+    // New export button
+    document.getElementById('btn-new-export')?.addEventListener('click', () => {
+      this._showNewExportModal();
+    });
+
     // New view button
     document.getElementById('btn-new-view')?.addEventListener('click', () => {
       this._showNewViewModal();
@@ -1191,6 +1283,9 @@ class EODataWorkbench {
         // Load definitions (schema definitions from URIs)
         this.definitions = parsed.definitions || [];
 
+        // Load exports (immutable frozen captures)
+        this.exports = parsed.exports || [];
+
         // Performance: Use lazy loading for set records
         // Only load metadata initially, defer record loading
         if (this._useLazyLoading && parsed.sets?.length > 1) {
@@ -1276,6 +1371,7 @@ class EODataWorkbench {
       localStorage.setItem('eo_lake_data', JSON.stringify({
         sources: this.sources || [], // CRITICAL: Save sources for import functionality
         definitions: this.definitions || [], // Save definition schemas
+        exports: this.exports || [], // Save exports (frozen captures)
         sets: setsToSave,
         currentSetId: this.currentSetId,
         currentViewId: this.currentViewId,
@@ -1524,11 +1620,12 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderSidebar() {
-    // Three-panel navigation: Sources (GIVEN) / Definitions (DICT) / Sets (Schema)
+    // Four-panel navigation: Sources (GIVEN) / Sets (SCHEMA) / Definitions (DICT) / Exports (FROZEN)
     // Views are shown nested under sets in sidebar (Airtable-style)
     this._renderSourcesNav();
-    this._renderDefinitionsNav();
     this._renderSetsNavFlat();
+    this._renderDefinitionsNav();
+    this._renderExportsNav();
     // Update tab bar (view disclosure removed - views in sidebar only)
     this._renderTabBar();
   }
@@ -4081,6 +4178,306 @@ class EODataWorkbench {
     if (!name) return 'Untitled';
     if (name.length <= maxLength) return name;
     return name.substring(0, maxLength - 1) + '…';
+  }
+
+  // --------------------------------------------------------------------------
+  // Exports Panel Rendering
+  // --------------------------------------------------------------------------
+
+  /**
+   * Render Exports navigation panel
+   * Exports are immutable frozen captures (downloads and records)
+   * Rule 9: Exports are immutable and can be superseded but never modified
+   */
+  _renderExportsNav() {
+    const container = document.getElementById('exports-nav');
+    if (!container) return;
+
+    // Ensure exports array exists
+    if (!Array.isArray(this.exports)) {
+      this.exports = [];
+    }
+
+    // Get all exports
+    const sortedExports = [...this.exports].sort((a, b) => {
+      if (!a.createdAt) return 1;
+      if (!b.createdAt) return -1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    // Empty state - no exports yet
+    if (sortedExports.length === 0) {
+      container.innerHTML = `
+        <div class="nav-empty-state">
+          <i class="ph ph-export"></i>
+          <span>No exports yet</span>
+          <button class="btn-link" id="btn-first-export">Create an export</button>
+        </div>
+      `;
+      container.querySelector('#btn-first-export')?.addEventListener('click', () => {
+        this._showNewExportModal();
+      });
+      return;
+    }
+
+    // Render exports as a flat list
+    let html = '';
+    for (const exp of sortedExports) {
+      const exportIcon = this._getExportIcon(exp);
+      const createdDate = exp.createdAt ? new Date(exp.createdAt).toLocaleDateString() : '';
+      const isActive = this.currentExportId === exp.id;
+      const purposeLabel = exp.purpose || 'export';
+
+      html += `
+        <div class="nav-item export-item ${isActive ? 'active' : ''}"
+             data-export-id="${exp.id}"
+             title="${this._escapeHtml(exp.notes || exp.name)}">
+          <i class="ph ${exportIcon} export-icon"></i>
+          <div class="export-info">
+            <span class="export-name">${this._escapeHtml(this._truncateName(exp.name, 20))}</span>
+            <span class="export-meta-inline">${createdDate}</span>
+          </div>
+          <span class="export-purpose-badge" title="${purposeLabel}">
+            <i class="ph ph-snowflake"></i>
+          </span>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+
+    // Attach event handlers for export items
+    this._attachExportsNavEventHandlers(container);
+  }
+
+  /**
+   * Attach event handlers for exports navigation items
+   */
+  _attachExportsNavEventHandlers(container) {
+    container.querySelectorAll('.export-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const exportId = item.dataset.exportId;
+        this._showExportDetail(exportId);
+      });
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showExportContextMenu(e, item.dataset.exportId);
+      });
+    });
+  }
+
+  /**
+   * Get icon for export based on its purpose
+   */
+  _getExportIcon(exp) {
+    switch (exp.purpose) {
+      case 'backup': return 'ph-cloud-arrow-down';
+      case 'milestone': return 'ph-flag';
+      case 'comparison': return 'ph-arrows-out-line-horizontal';
+      case 'review': return 'ph-magnifying-glass';
+      default: return 'ph-export';
+    }
+  }
+
+  /**
+   * Show export detail view
+   */
+  _showExportDetail(exportId) {
+    const exp = this.exports?.find(e => e.id === exportId);
+    if (!exp) {
+      this._showNotification('Export not found', 'error');
+      return;
+    }
+
+    // Set current export
+    this.currentExportId = exportId;
+
+    // Clear other selections
+    this.currentSourceId = null;
+    this.currentSetId = null;
+    this.currentViewId = null;
+    this.currentDefinitionId = null;
+    this.showingSetFields = false;
+
+    // Update sidebar highlighting
+    this._updateSidebarHighlighting();
+
+    // Update breadcrumb
+    this._updateBreadcrumb('Export: ' + exp.name, 'ph-export');
+
+    // Render export detail view
+    this._renderExportDetailView(exp);
+  }
+
+  /**
+   * Render export detail view in main content area
+   */
+  _renderExportDetailView(exp) {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const createdDate = exp.createdAt ? new Date(exp.createdAt).toLocaleString() : 'Unknown';
+    const purposeLabel = exp.purpose || 'export';
+
+    contentArea.innerHTML = `
+      <div class="export-detail-view">
+        <div class="export-detail-header">
+          <div class="export-detail-icon">
+            <i class="ph ${this._getExportIcon(exp)}"></i>
+          </div>
+          <div class="export-detail-info">
+            <h2>
+              <span>${this._escapeHtml(exp.name)}</span>
+              <span class="export-frozen-badge">
+                <i class="ph ph-snowflake"></i>
+                FROZEN
+              </span>
+            </h2>
+            <div class="export-detail-meta">
+              Created ${createdDate} • Purpose: ${purposeLabel}
+            </div>
+          </div>
+          <div class="export-detail-actions">
+            <button class="source-action-btn" id="export-download-btn" title="Download export">
+              <i class="ph ph-download-simple"></i>
+              <span>Download</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="export-detail-content">
+          ${exp.notes ? `
+            <div class="export-notes">
+              <h3>Notes</h3>
+              <p>${this._escapeHtml(exp.notes)}</p>
+            </div>
+          ` : ''}
+
+          <div class="export-provenance">
+            <h3>Provenance</h3>
+            <div class="provenance-item">
+              <span class="provenance-label">Source View:</span>
+              <span class="provenance-value">${exp.sourceViewId || 'N/A'}</span>
+            </div>
+            <div class="provenance-item">
+              <span class="provenance-label">Captured At:</span>
+              <span class="provenance-value">${exp.capturedAt || createdDate}</span>
+            </div>
+            <div class="provenance-item">
+              <span class="provenance-label">Created By:</span>
+              <span class="provenance-value">${exp.createdBy || 'Unknown'}</span>
+            </div>
+          </div>
+
+          <div class="compliance-note frozen">
+            <i class="ph ph-snowflake"></i>
+            <span><strong>Rule 9:</strong> This export is immutable. It can be superseded but never modified.</span>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    contentArea.querySelector('#export-download-btn')?.addEventListener('click', () => {
+      this._downloadExport(exp.id);
+    });
+  }
+
+  /**
+   * Download export as JSON file
+   */
+  _downloadExport(exportId) {
+    const exp = this.exports?.find(e => e.id === exportId);
+    if (!exp) {
+      this._showToast('Export not found', 'error');
+      return;
+    }
+
+    const json = JSON.stringify(exp, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${exp.name.replace(/[^a-z0-9]/gi, '_')}_export.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    this._showToast('Export downloaded', 'success');
+  }
+
+  /**
+   * Show export context menu
+   */
+  _showExportContextMenu(e, exportId) {
+    const menu = this.elements.contextMenu;
+    if (!menu) return;
+
+    menu.innerHTML = `
+      <div class="context-menu-item" data-action="view">
+        <i class="ph ph-eye"></i>
+        <span>View Details</span>
+      </div>
+      <div class="context-menu-item" data-action="download">
+        <i class="ph ph-download-simple"></i>
+        <span>Download</span>
+      </div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item" data-action="supersede">
+        <i class="ph ph-arrows-clockwise"></i>
+        <span>Supersede (Create New)</span>
+      </div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item danger" data-action="delete">
+        <i class="ph ph-trash"></i>
+        <span>Delete Export</span>
+      </div>
+    `;
+
+    menu.style.left = e.pageX + 'px';
+    menu.style.top = e.pageY + 'px';
+    menu.classList.add('active');
+
+    menu.querySelectorAll('.context-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        menu.classList.remove('active');
+        const action = item.dataset.action;
+
+        switch (action) {
+          case 'view':
+            this._showExportDetail(exportId);
+            break;
+          case 'download':
+            this._downloadExport(exportId);
+            break;
+          case 'supersede':
+            this._showNewExportModal();
+            break;
+          case 'delete':
+            this._deleteExport(exportId);
+            break;
+        }
+      });
+    });
+  }
+
+  /**
+   * Delete an export
+   */
+  _deleteExport(exportId) {
+    if (!confirm('Delete this export? This cannot be undone.')) return;
+
+    this.exports = this.exports.filter(e => e.id !== exportId);
+    this._saveData();
+    this._renderExportsNav();
+
+    if (this.currentExportId === exportId) {
+      this.currentExportId = null;
+      this._renderView();
+    }
+
+    this._showToast('Export deleted', 'success');
   }
 
   /**
@@ -6760,6 +7157,628 @@ class EODataWorkbench {
     this.fileExplorerMode = false;
     this._renderSidebar();
     this._renderView();
+  }
+
+  // ==========================================================================
+  // Sets Explorer - Full-featured sets browser
+  // ==========================================================================
+
+  /**
+   * Show the Sets Explorer in the main content area
+   */
+  _showSetsExplorer() {
+    this.currentSourceId = null;
+    this.currentDefinitionId = null;
+    this.currentExportId = null;
+    this.fileExplorerMode = false;
+
+    // Update breadcrumb
+    this._updateBreadcrumb('Sets Explorer', 'ph-database');
+
+    // Render the sets explorer
+    this._renderSetsExplorer();
+  }
+
+  /**
+   * Render Sets Explorer view
+   */
+  _renderSetsExplorer() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const sets = this.sets || [];
+
+    contentArea.innerHTML = `
+      <div class="file-explorer">
+        <div class="file-explorer-toolbar">
+          <div class="file-explorer-toolbar-left">
+            <button class="file-explorer-close-btn" id="sets-explorer-close" title="Close Sets Explorer">
+              <i class="ph ph-x"></i>
+            </button>
+            <div class="file-explorer-title">
+              <i class="ph ph-database"></i>
+              <span>Sets Explorer</span>
+              <span class="file-explorer-badge schema-badge">SCHEMA</span>
+            </div>
+          </div>
+          <div class="file-explorer-toolbar-center">
+            <div class="file-explorer-search">
+              <i class="ph ph-magnifying-glass"></i>
+              <input type="text" id="sets-explorer-search" placeholder="Search sets...">
+            </div>
+          </div>
+          <div class="file-explorer-toolbar-right">
+            <button class="file-explorer-import-btn" id="sets-explorer-new">
+              <i class="ph ph-plus"></i>
+              <span>New Set</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="file-explorer-content" style="padding: 20px;">
+          <div class="fe-section-header">All Sets (${sets.length})</div>
+          ${sets.length === 0 ? `
+            <div class="nav-empty-state" style="padding: 40px;">
+              <i class="ph ph-database"></i>
+              <span>No sets yet</span>
+              <button class="btn-link" id="sets-explorer-create">Create your first set</button>
+            </div>
+          ` : `
+            <div class="file-explorer-grid">
+              ${sets.map(set => `
+                <div class="fe-grid-item" data-set-id="${set.id}">
+                  <div class="fe-grid-icon">
+                    <i class="ph ph-database"></i>
+                  </div>
+                  <div class="fe-grid-name">${this._escapeHtml(set.name)}</div>
+                  <div class="fe-grid-meta">${set.records?.length || 0} records • ${set.views?.length || 0} views</div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    contentArea.querySelector('#sets-explorer-close')?.addEventListener('click', () => {
+      this._renderView();
+    });
+
+    contentArea.querySelector('#sets-explorer-new')?.addEventListener('click', () => {
+      this._showNewSetModal();
+    });
+
+    contentArea.querySelector('#sets-explorer-create')?.addEventListener('click', () => {
+      this._showNewSetModal();
+    });
+
+    contentArea.querySelectorAll('.fe-grid-item[data-set-id]').forEach(item => {
+      item.addEventListener('click', () => {
+        const setId = item.dataset.setId;
+        this._selectSet(setId);
+      });
+    });
+  }
+
+  // ==========================================================================
+  // Definitions Explorer - Full-featured definitions browser
+  // ==========================================================================
+
+  /**
+   * Show the Definitions Explorer in the main content area
+   */
+  _showDefinitionsExplorer() {
+    this.currentSourceId = null;
+    this.currentSetId = null;
+    this.currentExportId = null;
+    this.fileExplorerMode = false;
+
+    // Update breadcrumb
+    this._updateBreadcrumb('Definitions Explorer', 'ph-book-open');
+
+    // Render the definitions explorer
+    this._renderDefinitionsExplorer();
+  }
+
+  /**
+   * Render Definitions Explorer view
+   */
+  _renderDefinitionsExplorer() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const definitions = this.definitions || [];
+
+    contentArea.innerHTML = `
+      <div class="file-explorer">
+        <div class="file-explorer-toolbar">
+          <div class="file-explorer-toolbar-left">
+            <button class="file-explorer-close-btn" id="defs-explorer-close" title="Close Definitions Explorer">
+              <i class="ph ph-x"></i>
+            </button>
+            <div class="file-explorer-title">
+              <i class="ph ph-book-open"></i>
+              <span>Definitions Explorer</span>
+              <span class="file-explorer-badge dictionary-badge">DICT</span>
+            </div>
+          </div>
+          <div class="file-explorer-toolbar-center">
+            <div class="file-explorer-search">
+              <i class="ph ph-magnifying-glass"></i>
+              <input type="text" id="defs-explorer-search" placeholder="Search definitions...">
+            </div>
+          </div>
+          <div class="file-explorer-toolbar-right">
+            <button class="nav-panel-action" id="defs-explorer-import" title="Import from URI">
+              <i class="ph ph-link"></i>
+            </button>
+            <button class="file-explorer-import-btn" id="defs-explorer-new">
+              <i class="ph ph-plus"></i>
+              <span>New</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="file-explorer-content" style="padding: 20px;">
+          <div class="fe-section-header">All Definitions (${definitions.length})</div>
+          ${definitions.length === 0 ? `
+            <div class="nav-empty-state" style="padding: 40px;">
+              <i class="ph ph-book-open"></i>
+              <span>No definitions yet</span>
+              <button class="btn-link" id="defs-explorer-create">Import from URI or create</button>
+            </div>
+          ` : `
+            <div class="file-explorer-grid">
+              ${definitions.map(def => `
+                <div class="fe-grid-item" data-definition-id="${def.id}">
+                  <div class="fe-grid-icon">
+                    <i class="ph ${this._getDefinitionIcon(def)}"></i>
+                  </div>
+                  <div class="fe-grid-name">${this._escapeHtml(def.name)}</div>
+                  <div class="fe-grid-meta">${def.terms?.length || def.properties?.length || 0} terms • ${def.sourceUri ? 'URI' : 'local'}</div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    contentArea.querySelector('#defs-explorer-close')?.addEventListener('click', () => {
+      this._renderView();
+    });
+
+    contentArea.querySelector('#defs-explorer-new')?.addEventListener('click', () => {
+      this._showNewDefinitionModal();
+    });
+
+    contentArea.querySelector('#defs-explorer-import')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+
+    contentArea.querySelector('#defs-explorer-create')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+
+    contentArea.querySelectorAll('.fe-grid-item[data-definition-id]').forEach(item => {
+      item.addEventListener('click', () => {
+        const definitionId = item.dataset.definitionId;
+        this._showDefinitionDetail(definitionId);
+      });
+    });
+  }
+
+  // ==========================================================================
+  // Exports Explorer - Full-featured exports browser
+  // ==========================================================================
+
+  /**
+   * Show the Exports Explorer in the main content area
+   */
+  _showExportsExplorer() {
+    this.currentSourceId = null;
+    this.currentSetId = null;
+    this.currentDefinitionId = null;
+    this.fileExplorerMode = false;
+
+    // Update breadcrumb
+    this._updateBreadcrumb('Exports Explorer', 'ph-export');
+
+    // Render the exports explorer
+    this._renderExportsExplorer();
+  }
+
+  /**
+   * Render Exports Explorer view
+   */
+  _renderExportsExplorer() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const exports = this.exports || [];
+
+    contentArea.innerHTML = `
+      <div class="file-explorer">
+        <div class="file-explorer-toolbar">
+          <div class="file-explorer-toolbar-left">
+            <button class="file-explorer-close-btn" id="exports-explorer-close" title="Close Exports Explorer">
+              <i class="ph ph-x"></i>
+            </button>
+            <div class="file-explorer-title">
+              <i class="ph ph-export"></i>
+              <span>Exports Explorer</span>
+              <span class="file-explorer-badge export-badge">FROZEN</span>
+            </div>
+          </div>
+          <div class="file-explorer-toolbar-center">
+            <div class="file-explorer-search">
+              <i class="ph ph-magnifying-glass"></i>
+              <input type="text" id="exports-explorer-search" placeholder="Search exports...">
+            </div>
+          </div>
+          <div class="file-explorer-toolbar-right">
+            <button class="file-explorer-import-btn" id="exports-explorer-new">
+              <i class="ph ph-plus"></i>
+              <span>New Export</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="file-explorer-content" style="padding: 20px;">
+          <div class="fe-section-header">All Exports (${exports.length})</div>
+          ${exports.length === 0 ? `
+            <div class="nav-empty-state" style="padding: 40px;">
+              <i class="ph ph-export"></i>
+              <span>No exports yet</span>
+              <button class="btn-link" id="exports-explorer-create">Create your first export</button>
+            </div>
+          ` : `
+            <div class="file-explorer-grid">
+              ${exports.map(exp => `
+                <div class="fe-grid-item" data-export-id="${exp.id}">
+                  <div class="fe-grid-icon">
+                    <i class="ph ${this._getExportIcon(exp)}"></i>
+                  </div>
+                  <div class="fe-grid-name">${this._escapeHtml(exp.name)}</div>
+                  <div class="fe-grid-meta">${exp.createdAt ? new Date(exp.createdAt).toLocaleDateString() : 'Unknown'} • ${exp.purpose || 'export'}</div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    contentArea.querySelector('#exports-explorer-close')?.addEventListener('click', () => {
+      this._renderView();
+    });
+
+    contentArea.querySelector('#exports-explorer-new')?.addEventListener('click', () => {
+      this._showNewExportModal();
+    });
+
+    contentArea.querySelector('#exports-explorer-create')?.addEventListener('click', () => {
+      this._showNewExportModal();
+    });
+
+    contentArea.querySelectorAll('.fe-grid-item[data-export-id]').forEach(item => {
+      item.addEventListener('click', () => {
+        const exportId = item.dataset.exportId;
+        this._showExportDetail(exportId);
+      });
+    });
+  }
+
+  // ==========================================================================
+  // Table Views for each panel
+  // ==========================================================================
+
+  /**
+   * Show sets as a table view in the main content area
+   */
+  _showSetsTableView() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const sets = this.sets || [];
+
+    // Update breadcrumb
+    this._updateBreadcrumb({
+      workspace: this._getCurrentWorkspaceName(),
+      set: 'Sets',
+      view: 'Table View'
+    });
+
+    contentArea.innerHTML = `
+      <div class="sources-table-view">
+        <div class="sources-table-header">
+          <div class="sources-table-title">
+            <div class="sources-table-icon">
+              <i class="ph ph-database"></i>
+            </div>
+            <div class="sources-table-info">
+              <h2>
+                <span>Sets</span>
+                <span class="schema-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(59, 130, 246, 0.15); color: var(--primary-500);">
+                  SCHEMA
+                </span>
+              </h2>
+              <div class="sources-table-meta">
+                ${sets.length} set${sets.length !== 1 ? 's' : ''}
+              </div>
+            </div>
+          </div>
+          <div class="sources-table-actions">
+            <button class="source-action-btn" id="sets-table-new-btn" title="Create new set">
+              <i class="ph ph-plus"></i>
+              <span>New Set</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="sources-table-container">
+          ${sets.length > 0 ? `
+            <table class="sources-table">
+              <thead>
+                <tr>
+                  <th class="col-icon"></th>
+                  <th class="col-name">Name</th>
+                  <th class="col-records">Records</th>
+                  <th class="col-views">Views</th>
+                  <th class="col-created">Created</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sets.map(set => `
+                  <tr class="sources-table-row" data-set-id="${set.id}">
+                    <td class="col-icon">
+                      <i class="ph ph-database"></i>
+                    </td>
+                    <td class="col-name">${this._escapeHtml(set.name)}</td>
+                    <td class="col-records">${set.records?.length || 0}</td>
+                    <td class="col-views">${set.views?.length || 0}</td>
+                    <td class="col-created">${set.createdAt ? new Date(set.createdAt).toLocaleDateString() : 'Unknown'}</td>
+                    <td class="col-actions">
+                      <button class="sources-table-action-btn" data-action="view" title="View set">
+                        <i class="ph ph-eye"></i>
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          ` : `
+            <div class="sources-table-empty">
+              <i class="ph ph-database"></i>
+              <span>No sets yet. Create your first set to get started.</span>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    contentArea.querySelector('#sets-table-new-btn')?.addEventListener('click', () => {
+      this._showNewSetModal();
+    });
+
+    contentArea.querySelectorAll('.sources-table-row[data-set-id]').forEach(row => {
+      row.addEventListener('click', () => {
+        const setId = row.dataset.setId;
+        this._selectSet(setId);
+      });
+    });
+  }
+
+  /**
+   * Show definitions as a table view in the main content area
+   */
+  _showDefinitionsTableView() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const definitions = this.definitions || [];
+
+    // Update breadcrumb
+    this._updateBreadcrumb({
+      workspace: this._getCurrentWorkspaceName(),
+      set: 'Definitions',
+      view: 'Table View'
+    });
+
+    contentArea.innerHTML = `
+      <div class="sources-table-view">
+        <div class="sources-table-header">
+          <div class="sources-table-title">
+            <div class="sources-table-icon">
+              <i class="ph ph-book-open"></i>
+            </div>
+            <div class="sources-table-info">
+              <h2>
+                <span>Definitions</span>
+                <span class="dictionary-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(168, 85, 247, 0.15); color: rgb(168, 85, 247);">
+                  DICT
+                </span>
+              </h2>
+              <div class="sources-table-meta">
+                ${definitions.length} definition${definitions.length !== 1 ? 's' : ''}
+              </div>
+            </div>
+          </div>
+          <div class="sources-table-actions">
+            <button class="source-action-btn" id="defs-table-new-btn" title="Create new definition">
+              <i class="ph ph-plus"></i>
+              <span>New</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="sources-table-container">
+          ${definitions.length > 0 ? `
+            <table class="sources-table">
+              <thead>
+                <tr>
+                  <th class="col-icon"></th>
+                  <th class="col-name">Name</th>
+                  <th class="col-type">Source</th>
+                  <th class="col-terms">Terms</th>
+                  <th class="col-created">Imported</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${definitions.map(def => `
+                  <tr class="sources-table-row" data-definition-id="${def.id}">
+                    <td class="col-icon">
+                      <i class="ph ${this._getDefinitionIcon(def)}"></i>
+                    </td>
+                    <td class="col-name">${this._escapeHtml(def.name)}</td>
+                    <td class="col-type">${def.sourceUri ? 'URI' : 'Local'}</td>
+                    <td class="col-terms">${def.terms?.length || def.properties?.length || 0}</td>
+                    <td class="col-created">${def.importedAt ? new Date(def.importedAt).toLocaleDateString() : 'Unknown'}</td>
+                    <td class="col-actions">
+                      <button class="sources-table-action-btn" data-action="view" title="View definition">
+                        <i class="ph ph-eye"></i>
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          ` : `
+            <div class="sources-table-empty">
+              <i class="ph ph-book-open"></i>
+              <span>No definitions yet. Import from URI or create one.</span>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    contentArea.querySelector('#defs-table-new-btn')?.addEventListener('click', () => {
+      this._showNewDefinitionModal();
+    });
+
+    contentArea.querySelectorAll('.sources-table-row[data-definition-id]').forEach(row => {
+      row.addEventListener('click', () => {
+        const definitionId = row.dataset.definitionId;
+        this._showDefinitionDetail(definitionId);
+      });
+    });
+  }
+
+  /**
+   * Show exports as a table view in the main content area
+   */
+  _showExportsTableView() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const exports = this.exports || [];
+
+    // Update breadcrumb
+    this._updateBreadcrumb({
+      workspace: this._getCurrentWorkspaceName(),
+      set: 'Exports',
+      view: 'Table View'
+    });
+
+    contentArea.innerHTML = `
+      <div class="sources-table-view">
+        <div class="sources-table-header">
+          <div class="sources-table-title">
+            <div class="sources-table-icon">
+              <i class="ph ph-export"></i>
+            </div>
+            <div class="sources-table-info">
+              <h2>
+                <span>Exports</span>
+                <span class="export-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.15); color: rgb(34, 197, 94);">
+                  <i class="ph ph-snowflake"></i>
+                  FROZEN
+                </span>
+              </h2>
+              <div class="sources-table-meta">
+                ${exports.length} export${exports.length !== 1 ? 's' : ''}
+              </div>
+            </div>
+          </div>
+          <div class="sources-table-actions">
+            <button class="source-action-btn" id="exports-table-new-btn" title="Create new export">
+              <i class="ph ph-plus"></i>
+              <span>New Export</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="sources-table-container">
+          ${exports.length > 0 ? `
+            <table class="sources-table">
+              <thead>
+                <tr>
+                  <th class="col-icon"></th>
+                  <th class="col-name">Name</th>
+                  <th class="col-purpose">Purpose</th>
+                  <th class="col-created">Created</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${exports.map(exp => `
+                  <tr class="sources-table-row" data-export-id="${exp.id}">
+                    <td class="col-icon">
+                      <i class="ph ${this._getExportIcon(exp)}"></i>
+                    </td>
+                    <td class="col-name">${this._escapeHtml(exp.name)}</td>
+                    <td class="col-purpose">${exp.purpose || 'export'}</td>
+                    <td class="col-created">${exp.createdAt ? new Date(exp.createdAt).toLocaleDateString() : 'Unknown'}</td>
+                    <td class="col-actions">
+                      <button class="sources-table-action-btn" data-action="view" title="View export">
+                        <i class="ph ph-eye"></i>
+                      </button>
+                      <button class="sources-table-action-btn" data-action="download" title="Download export">
+                        <i class="ph ph-download-simple"></i>
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          ` : `
+            <div class="sources-table-empty">
+              <i class="ph ph-export"></i>
+              <span>No exports yet. Create an export to capture a snapshot.</span>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    contentArea.querySelector('#exports-table-new-btn')?.addEventListener('click', () => {
+      this._showNewExportModal();
+    });
+
+    contentArea.querySelectorAll('.sources-table-row[data-export-id]').forEach(row => {
+      row.addEventListener('click', (e) => {
+        const btn = e.target.closest('.sources-table-action-btn');
+        const exportId = row.dataset.exportId;
+
+        if (btn) {
+          const action = btn.dataset.action;
+          if (action === 'download') {
+            this._downloadExport(exportId);
+            return;
+          }
+        }
+        this._showExportDetail(exportId);
+      });
+    });
   }
 
   /**
@@ -17725,17 +18744,45 @@ class EODataWorkbench {
 
       try {
         const sourceViewId = this.currentFocusId || this.currentLensId || this.currentViewId;
-        const exportRecord = this.viewRegistry?.createExport?.({
-          name,
-          annotations: { purpose, notes }
-        }, sourceViewId, 'current_user');
+        const now = new Date().toISOString();
 
-        if (exportRecord) {
-          this._showNotification(`Export "${name}" created successfully`);
-          alert(`Export created!\n\nID: ${exportRecord.id}\nCaptured at: ${exportRecord.capturedAt}`);
+        // Create export record
+        const exportRecord = {
+          id: `exp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name,
+          purpose,
+          notes,
+          sourceViewId,
+          createdAt: now,
+          capturedAt: now,
+          createdBy: 'current_user',
+          // Capture snapshot of current data
+          snapshot: {
+            sets: this.sets?.length || 0,
+            sources: this.sources?.length || 0,
+            definitions: this.definitions?.length || 0
+          }
+        };
+
+        // Add to exports array
+        if (!Array.isArray(this.exports)) {
+          this.exports = [];
         }
+        this.exports.push(exportRecord);
+
+        // Save data
+        this._saveData();
+
+        // Update exports nav
+        this._renderExportsNav();
+
+        // Show success notification
+        this._showNotification(`Export "${name}" created successfully`);
+        this._showToast(`Export created: ${name}`, 'success');
+
       } catch (e) {
-        alert('Failed to create export: ' + e.message);
+        console.error('Failed to create export:', e);
+        this._showToast('Failed to create export: ' + e.message, 'error');
       }
     });
 

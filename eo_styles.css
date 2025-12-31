@@ -572,6 +572,11 @@ html, body {
   color: rgb(168, 85, 247);
 }
 
+.nav-panel-badge.export-badge {
+  background: rgba(34, 197, 94, 0.15);
+  color: rgb(34, 197, 94);
+}
+
 .nav-panel-action {
   width: 22px;
   height: 22px;
@@ -16414,6 +16419,235 @@ body.has-picked-up .browser-tab:hover {
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 8px;
+}
+
+/* File Explorer Grid (for explorers) */
+.file-explorer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  padding: 0;
+}
+
+.fe-grid-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
+}
+
+.fe-grid-item:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+.fe-grid-item .fe-grid-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+}
+
+.fe-grid-item .fe-grid-icon i {
+  font-size: 24px;
+  color: var(--text-muted);
+}
+
+.fe-grid-item .fe-grid-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fe-grid-item .fe-grid-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.fe-section-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 16px;
+}
+
+/* ============================================================================
+   Export Detail View
+   ============================================================================ */
+
+.export-detail-view {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.export-detail-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 24px;
+}
+
+.export-detail-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(34, 197, 94, 0.1);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.export-detail-icon i {
+  font-size: 28px;
+  color: rgb(34, 197, 94);
+}
+
+.export-detail-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.export-detail-info h2 {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.export-frozen-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.15);
+  color: rgb(34, 197, 94);
+}
+
+.export-frozen-badge i {
+  font-size: 11px;
+}
+
+.export-detail-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.export-detail-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.export-detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.export-notes {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.export-notes h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 8px 0;
+}
+
+.export-notes p {
+  font-size: 14px;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.export-provenance {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.export-provenance h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 12px 0;
+}
+
+.provenance-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.provenance-item:last-child {
+  border-bottom: none;
+}
+
+.provenance-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  min-width: 120px;
+}
+
+.provenance-value {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.compliance-note.frozen {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.2);
+  border-radius: 8px;
+}
+
+.compliance-note.frozen i {
+  font-size: 18px;
+  color: rgb(34, 197, 94);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.compliance-note.frozen span {
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
 }
 
 /* Tree View */

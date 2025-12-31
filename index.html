@@ -150,7 +150,38 @@
           </div>
         </div>
 
-        <!-- Panel 2: DEFINITIONS (Column/Key Schemas from URIs) -->
+        <!-- Panel 2: SETS (Data Collections) -->
+        <div class="nav-panel sets-panel" data-panel="sets">
+          <div class="nav-panel-header">
+            <div class="nav-panel-title">
+              <i class="ph ph-database"></i>
+              <span>Sets</span>
+              <span class="nav-panel-badge schema-badge">SCHEMA</span>
+            </div>
+            <div class="nav-panel-actions">
+              <div class="sources-view-toggle" id="sets-view-toggle">
+                <button class="view-toggle-btn active" data-view="list" title="List view">
+                  <i class="ph ph-list"></i>
+                </button>
+                <button class="view-toggle-btn" data-view="table" title="Table view">
+                  <i class="ph ph-table"></i>
+                </button>
+              </div>
+              <button class="nav-panel-action" id="btn-sets-explorer" title="Open Sets Explorer">
+                <i class="ph ph-folder-open"></i>
+              </button>
+              <button class="nav-panel-action-labeled" id="btn-new-set" title="Create new set - Ctrl+Shift+S">
+                <i class="ph ph-plus"></i>
+                <span class="nav-panel-action-label">New Set</span>
+              </button>
+            </div>
+          </div>
+          <div class="nav-panel-content" id="sets-nav">
+            <!-- Sets with nested views rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Panel 3: DEFINITIONS (Column/Key Schemas from URIs) -->
         <div class="nav-panel definitions-panel" data-panel="definitions">
           <div class="nav-panel-header">
             <div class="nav-panel-title">
@@ -159,8 +190,16 @@
               <span class="nav-panel-badge dictionary-badge">DICT</span>
             </div>
             <div class="nav-panel-actions">
-              <button class="nav-panel-action" id="btn-import-definition-uri" title="Import from URI">
-                <i class="ph ph-link"></i>
+              <div class="sources-view-toggle" id="definitions-view-toggle">
+                <button class="view-toggle-btn active" data-view="list" title="List view">
+                  <i class="ph ph-list"></i>
+                </button>
+                <button class="view-toggle-btn" data-view="table" title="Table view">
+                  <i class="ph ph-table"></i>
+                </button>
+              </div>
+              <button class="nav-panel-action" id="btn-definitions-explorer" title="Open Definitions Explorer">
+                <i class="ph ph-folder-open"></i>
               </button>
               <button class="nav-panel-action-labeled" id="btn-new-definition" title="Create new definition">
                 <i class="ph ph-plus"></i>
@@ -173,21 +212,34 @@
           </div>
         </div>
 
-        <!-- Panel 3: SETS with nested VIEWS -->
-        <div class="nav-panel sets-panel" data-panel="sets">
+        <!-- Panel 4: EXPORTS (Immutable Frozen Captures) -->
+        <div class="nav-panel exports-panel" data-panel="exports">
           <div class="nav-panel-header">
             <div class="nav-panel-title">
-              <i class="ph ph-database"></i>
-              <span>Sets & Views</span>
-              <span class="nav-panel-badge schema-badge">SCHEMA</span>
+              <i class="ph ph-export"></i>
+              <span>Exports</span>
+              <span class="nav-panel-badge export-badge">FROZEN</span>
             </div>
-            <button class="nav-panel-action-labeled" id="btn-new-set" title="Create new set - Ctrl+Shift+S">
-              <i class="ph ph-plus"></i>
-              <span class="nav-panel-action-label">New Set</span>
-            </button>
+            <div class="nav-panel-actions">
+              <div class="sources-view-toggle" id="exports-view-toggle">
+                <button class="view-toggle-btn active" data-view="list" title="List view">
+                  <i class="ph ph-list"></i>
+                </button>
+                <button class="view-toggle-btn" data-view="table" title="Table view">
+                  <i class="ph ph-table"></i>
+                </button>
+              </div>
+              <button class="nav-panel-action" id="btn-exports-explorer" title="Open Exports Explorer">
+                <i class="ph ph-folder-open"></i>
+              </button>
+              <button class="nav-panel-action-labeled" id="btn-new-export" title="Create new export">
+                <i class="ph ph-plus"></i>
+                <span class="nav-panel-action-label">New</span>
+              </button>
+            </div>
           </div>
-          <div class="nav-panel-content" id="sets-nav">
-            <!-- Sets with nested views rendered dynamically -->
+          <div class="nav-panel-content" id="exports-nav">
+            <!-- Exports rendered dynamically -->
           </div>
         </div>
 
