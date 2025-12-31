@@ -1289,7 +1289,116 @@ class EODataWorkbench {
     // Select the sample project so user is always in a project context
     this.currentProjectId = sampleProject.id;
 
+    // Trigger auto-import key definition suggestions for sample data
+    this._triggerKeySuggestions(source);
+
     this._saveData();
+  }
+
+  /**
+   * Trigger key definition suggestions for a source
+   * @param {Object} source - Source object with schema
+   * @private
+   */
+  _triggerKeySuggestions(source) {
+    if (!source || !window.EOKeySuggestions) return;
+
+    const { autoImportSuggestions, injectKeySuggestionStyles } = window.EOKeySuggestions;
+
+    // Inject styles
+    injectKeySuggestionStyles();
+
+    // Generate suggestions asynchronously
+    setTimeout(async () => {
+      try {
+        const suggestions = await autoImportSuggestions(source, {
+          showPanel: false, // Don't auto-show, we'll show via notification
+          workbench: this
+        });
+
+        if (suggestions && suggestions.length > 0) {
+          // Show notification banner after a brief delay
+          setTimeout(() => {
+            this._showKeySuggestionNotification(suggestions.length, source.id);
+          }, 1000);
+        }
+      } catch (error) {
+        console.warn('Key suggestion generation failed:', error);
+      }
+    }, 500);
+  }
+
+  /**
+   * Show notification for pending key suggestions
+   * @param {number} count - Number of pending suggestions
+   * @param {string} sourceId - Source ID
+   * @private
+   */
+  _showKeySuggestionNotification(count, sourceId) {
+    if (!window.EOKeySuggestions || count === 0) return;
+
+    const { createSuggestionBanner } = window.EOKeySuggestions;
+
+    const banner = createSuggestionBanner(count, () => {
+      this._showKeySuggestionPanel(sourceId);
+    });
+
+    if (banner) {
+      // Insert banner at top of content area
+      const contentArea = document.getElementById('content-area');
+      if (contentArea) {
+        const existingBanner = contentArea.querySelector('.suggestion-banner');
+        if (existingBanner) existingBanner.remove();
+        contentArea.insertBefore(banner, contentArea.firstChild);
+      }
+    }
+  }
+
+  /**
+   * Show the key suggestion panel
+   * @param {string} sourceId - Optional source ID to focus on
+   */
+  _showKeySuggestionPanel(sourceId = null) {
+    if (!window.EOKeySuggestions) return;
+
+    const { initKeySuggestionPanel, injectKeySuggestionStyles } = window.EOKeySuggestions;
+
+    // Inject styles
+    injectKeySuggestionStyles();
+
+    // Show the overlay
+    const overlay = document.getElementById('key-suggestion-overlay');
+    const container = document.getElementById('key-suggestion-container');
+
+    if (overlay && container) {
+      overlay.style.display = 'flex';
+
+      // Initialize the panel
+      const panel = initKeySuggestionPanel({
+        container: container,
+        workbench: this
+      });
+
+      // Override the hide method to also hide the overlay
+      const originalHide = panel.hide.bind(panel);
+      panel.hide = () => {
+        originalHide();
+        overlay.style.display = 'none';
+
+        // Remove any suggestion banners
+        const banner = document.querySelector('.suggestion-banner');
+        if (banner) banner.remove();
+      };
+
+      panel.show(sourceId);
+
+      // Close on overlay click (outside the panel)
+      overlay.onclick = (e) => {
+        if (e.target === overlay) {
+          panel.hide();
+        }
+      };
+    }
   }
 
   _bindElements() {

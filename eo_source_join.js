@@ -140,7 +140,37 @@ class SourceStore {
     // Notify listeners
     this._notify('source_created', source);
 
+    // Trigger key definition suggestions if available
+    if (window.EOKeySuggestions && config.triggerSuggestions !== false) {
+      this._triggerKeySuggestions(source);
+    }
+
     return source;
+  }
+
+  /**
+   * Trigger key definition suggestions for a newly created source
+   * @param {Object} source - The source object
+   * @private
+   */
+  _triggerKeySuggestions(source) {
+    if (!window.EOKeySuggestions) return;
+
+    const { autoImportSuggestions, injectKeySuggestionStyles } = window.EOKeySuggestions;
+
+    // Inject styles
+    injectKeySuggestionStyles();
+
+    // Generate suggestions asynchronously
+    setTimeout(async () => {
+      try {
+        await autoImportSuggestions(source, {
+          showPanel: false // Don't auto-show; the workbench will handle notification
+        });
+      } catch (error) {
+        console.warn('Key suggestion generation failed:', error);
+      }
+    }, 100);
   }
 
   /**
