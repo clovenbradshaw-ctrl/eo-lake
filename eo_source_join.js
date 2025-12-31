@@ -7043,6 +7043,39 @@ class DataPipelineUI {
     const source = this._sources[0].source;
     if (!source.records || source.records.length < 2) return;
 
+    // Check if source already has multiRecordAnalysis computed (from main view)
+    // This ensures consistency between the main view's type detection and the dialog
+    if (source.multiRecordAnalysis && source.multiRecordAnalysis.types?.length >= 1) {
+      const analysis = source.multiRecordAnalysis;
+      const allFieldNames = this._selectedFields.map(f => f.name);
+
+      this._detectedSubtypes = {
+        fieldName: analysis.typeField,
+        values: analysis.types.map(typeInfo => {
+          // Compute visible fields: type-specific fields + common fields, excluding the type field itself
+          const specificFields = typeInfo.specificFields || [];
+          const commonFields = analysis.commonFields || [];
+          const relevantFields = [...new Set([...specificFields, ...commonFields])]
+            .filter(f => f !== analysis.typeField);
+          const visibleFields = relevantFields.length > 0 ? relevantFields : allFieldNames.filter(f => f !== analysis.typeField);
+
+          return {
+            name: typeInfo.value,
+            count: typeInfo.count,
+            createView: true,
+            viewConfig: {
+              viewType: 'table',
+              visibleFields: visibleFields,
+              fieldOrder: visibleFields
+            }
+          };
+        }),
+        createViews: true
+      };
+      return;
+    }
+
+    // Fallback: detect types manually if multiRecordAnalysis not available
     // Look for a type field
     const fieldNames = this._selectedFields.map(f => f.name.toLowerCase());
     let typeFieldName = null;
