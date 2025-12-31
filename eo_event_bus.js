@@ -364,13 +364,13 @@ class EOEventBusIntegration {
   connect() {
     // Subscribe to store events
     this.app.eventStore.subscribe(event => {
-      if (event.type === 'given') {
+      if (event.epistemicType === 'given') {
         this.bus.emit(BusEventType.GIVEN_RECORDED, event, { source: 'eventStore' });
 
         if (event.payload?.action === 'tombstone') {
           this.bus.emit(BusEventType.TOMBSTONE_CREATED, event, { source: 'eventStore' });
         }
-      } else if (event.type === 'meant') {
+      } else if (event.epistemicType === 'meant') {
         this.bus.emit(BusEventType.MEANT_RECORDED, event, { source: 'eventStore' });
 
         if (event.supersedes) {

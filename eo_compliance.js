@@ -172,8 +172,8 @@ class EOComplianceChecker {
     details.push(`Checking ${events.length} events for epistemic type classification`);
 
     for (const event of events) {
-      // Support both old (type) and new (epistemicType) field names
-      const epistemicType = event.epistemicType || event.type;
+      // Use standardized epistemicType field
+      const epistemicType = event.epistemicType;
 
       // Check that epistemic type exists and is valid
       if (!epistemicType) {

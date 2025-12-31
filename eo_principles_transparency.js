@@ -882,13 +882,13 @@ class EOPrinciplesTransparency {
    * Render a log event
    */
   _renderLogEvent(event) {
-    const isGiven = event.type === 'given';
+    const isGiven = event.epistemicType === 'given';
     const typeClass = isGiven ? 'given' : 'meant';
 
     return `
       <div class="log-event ${typeClass}">
         <div class="log-event-header">
-          <span class="event-type ${typeClass}">${event.type.toUpperCase()}</span>
+          <span class="event-type ${typeClass}">${event.epistemicType.toUpperCase()}</span>
           <span class="event-mode">${isGiven ? event.mode : event.frame?.purpose || 'interpretation'}</span>
           <span class="event-clock">LC: ${event.logicalClock}</span>
           <span class="event-time">${new Date(event.timestamp).toLocaleTimeString()}</span>

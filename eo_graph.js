@@ -359,7 +359,7 @@ class EOGraph {
     } else {
       // EO event mode: Create nodes for all events
       for (const event of events) {
-        const type = event.type === 'given' ? GraphNodeType.GIVEN : GraphNodeType.MEANT;
+        const type = event.epistemicType === 'given' ? GraphNodeType.GIVEN : GraphNodeType.MEANT;
         const node = new GraphNode(event.id, type, event);
 
         if (type === GraphNodeType.GIVEN && !this.showGiven) {

@@ -442,7 +442,7 @@ class EOSyncAPI {
   _prepareEventForSync(event) {
     return {
       id: event.id,
-      epistemic_type: event.epistemicType || event.type || 'given',
+      epistemic_type: event.epistemicType || 'given',
       category: event.category || this._inferCategory(event),
       action: event.action || event.payload?.action || 'unknown',
       actor: event.actor,

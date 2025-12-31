@@ -902,75 +902,6 @@ async function getActivityStore() {
 }
 
 // ============================================================================
-// Legacy API Compatibility
-// ============================================================================
-
-/**
- * Create activity atom in OLD verbose format
- * @deprecated Use createActivity() instead
- */
-function createActivityAtom(params, options = {}) {
-  console.warn('createActivityAtom is deprecated. Use createActivity() for compact format.');
-
-  const activity = createActivity(
-    params.operator,
-    params.target,
-    params.context?.epistemic?.agent || params.context?.agent || 'unknown',
-    {
-      method: params.context?.epistemic?.method || params.context?.method,
-      source: params.context?.epistemic?.source || params.context?.source,
-      delta: params.target?.previousValue !== undefined
-        ? [params.target.previousValue, params.target.newValue]
-        : null,
-      seq: options.sequenceId
-    }
-  );
-
-  // Return expanded for backward compatibility
-  return expand(activity);
-}
-
-/**
- * Legacy activity patterns
- * @deprecated Use Activity.* instead
- */
-const ActivityPatterns = {
-  create(store, entityType, entityId, name, context) {
-    console.warn('ActivityPatterns.create is deprecated. Use Activity.insert + Activity.designate');
-    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
-    return [
-      Activity.insert({ id: entityId }, actor, { data: { entityType } }),
-      Activity.designate({ id: entityId }, actor, name)
-    ];
-  },
-
-  updateField(store, entityId, fieldId, oldValue, newValue, context) {
-    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
-    return Activity.update({ id: entityId, field: fieldId }, actor, [oldValue, newValue]);
-  },
-
-  link(store, sourceId, targetId, linkType, context) {
-    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
-    return Activity.connect({ id: sourceId }, actor, targetId, { data: { linkType } });
-  },
-
-  delete(store, entityId, entityType, context) {
-    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
-    return Activity.nullify({ id: entityId }, actor, 'user_deletion', { data: { entityType } });
-  },
-
-  merge(store, sourceIds, targetId, entityType, context) {
-    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
-    return Activity.synthesize({ id: targetId }, actor, sourceIds, { data: { entityType } });
-  },
-
-  toggle(store, entityId, fieldId, oldValue, newValue, context) {
-    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
-    return Activity.update({ id: entityId, field: fieldId }, actor, [oldValue, newValue]);
-  }
-};
-
-// ============================================================================
 // Exports
 // ============================================================================
 
@@ -1004,11 +935,7 @@ if (typeof module !== 'undefined' && module.exports) {
 
     // Store
     ActivityStore,
-    getActivityStore,
-
-    // Legacy (deprecated)
-    createActivityAtom,
-    ActivityPatterns
+    getActivityStore
   };
 }
 
@@ -1041,11 +968,7 @@ if (typeof window !== 'undefined') {
 
     // Store
     Store: ActivityStore,
-    getStore: getActivityStore,
-
-    // Legacy (deprecated)
-    createAtom: createActivityAtom,
-    patterns: ActivityPatterns
+    getStore: getActivityStore
   };
 
   // Legacy global

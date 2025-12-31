@@ -399,8 +399,8 @@ function invoke(op, target, context = {}) {
     throw new Error(`Invalid operator: ${op}. Must be one of: ${Object.keys(NINE_OPERATORS).join(', ')}`);
   }
 
-  // Extract actor from context
-  const actor = context.epistemic?.agent || context.agent || 'unknown';
+  // Extract actor from context (must use epistemic.agent)
+  const actor = context.epistemic?.agent || 'unknown';
 
   // Build compact activity
   const activity = {
@@ -420,11 +420,11 @@ function invoke(op, target, context = {}) {
     activity.delta = [target.previousValue, target.newValue];
   }
 
-  // Method and source from context
-  const method = context.epistemic?.method || context.method;
+  // Method and source from context (must use epistemic.*)
+  const method = context.epistemic?.method;
   if (method) activity.method = method;
 
-  const source = context.epistemic?.source || context.source;
+  const source = context.epistemic?.source;
   if (source) activity.source = source;
 
   // Additional data (for complex targets)
@@ -449,40 +449,6 @@ function normalizeTargetId(target) {
 }
 
 /**
- * Create an operator invocation in VERBOSE format (legacy)
- * @deprecated Use invoke() for compact format
- */
-function invokeVerbose(operator, target, context = {}) {
-  console.warn('invokeVerbose is deprecated. Use invoke() for compact format.');
-
-  if (!NINE_OPERATORS[operator]) {
-    throw new Error(`Invalid operator: ${operator}. Must be one of: ${Object.keys(NINE_OPERATORS).join(', ')}`);
-  }
-
-  const meta = OperatorMetadata[operator];
-
-  const invocation = {
-    id: generateActivityId(),
-    operator,
-    symbol: meta.symbol,
-    target: normalizeTarget(target),
-    context: normalizeContext(context),
-    timestamp: new Date().toISOString(),
-    grounding: operator !== 'REC' ? {
-      operator: 'REC',
-      target: { type: 'invocation', ref: null },
-      context: context
-    } : null
-  };
-
-  if (invocation.grounding) {
-    invocation.grounding.target.ref = invocation.id;
-  }
-
-  return invocation;
-}
-
-/**
  * Normalize target to standard form
  */
 function normalizeTarget(target) {
@@ -492,7 +458,7 @@ function normalizeTarget(target) {
   return {
     type: target.type || target.positionType || 'entity',
     id: target.id || target.entityId || null,
-    field: target.field || target.fieldId || null,
+    fieldId: target.fieldId || target.field || null,
     value: target.value,
     previousValue: target.previousValue,
     newValue: target.newValue,
@@ -510,19 +476,19 @@ function normalizeContext(context) {
 
   return {
     epistemic: {
-      agent: context.epistemic?.agent || context.agent || null,
-      method: context.epistemic?.method || context.method || null,
-      source: context.epistemic?.source || context.source || null
+      agent: context.epistemic?.agent || null,
+      method: context.epistemic?.method || null,
+      source: context.epistemic?.source || null
     },
     semantic: {
-      term: context.semantic?.term || context.term || null,
-      definition: context.semantic?.definition || context.definition || null,
-      jurisdiction: context.semantic?.jurisdiction || context.jurisdiction || null
+      term: context.semantic?.term || null,
+      definition: context.semantic?.definition || null,
+      jurisdiction: context.semantic?.jurisdiction || null
     },
     situational: {
-      scale: context.situational?.scale || context.scale || null,
-      timeframe: context.situational?.timeframe || context.timeframe || null,
-      background: context.situational?.background || context.background || null
+      scale: context.situational?.scale || null,
+      timeframe: context.situational?.timeframe || null,
+      background: context.situational?.background || null
     }
   };
 }
@@ -1789,7 +1755,6 @@ if (typeof module !== 'undefined' && module.exports) {
     // Invocation (compact format)
     invoke,
     normalizeTargetId,
-    invokeVerbose,  // deprecated
 
     // Legacy (verbose format)
     normalizeTarget,
@@ -1829,7 +1794,6 @@ if (typeof window !== 'undefined') {
     // Invocation (compact format)
     invoke,
     normalizeTargetId,
-    invokeVerbose,  // deprecated
 
     // Legacy (verbose format) - for backward compat
     normalizeTarget,

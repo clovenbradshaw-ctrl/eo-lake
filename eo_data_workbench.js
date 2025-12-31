@@ -3797,17 +3797,6 @@ class EODataWorkbench {
   }
 
   /**
-   * Render Views hierarchy - DEPRECATED
-   * The sidebar VIEWS panel has been removed. Views are now managed via the
-   * View Disclosure panel below the tab bar (like Airtable).
-   * This function is kept as a no-op for backwards compatibility.
-   */
-  _renderViewsHierarchy() {
-    // No-op: sidebar views panel has been removed
-    // Views are now shown in the view disclosure panel only
-  }
-
-  /**
    * Get lenses for a workspace
    */
   _getLensesForWorkspace(workspaceId) {
