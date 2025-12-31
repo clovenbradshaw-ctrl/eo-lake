@@ -1517,7 +1517,18 @@ class EODataWorkbench {
 
   getCurrentView() {
     const set = this.getCurrentSet();
+    // If a lens is selected, check lens views first
+    if (this.currentLensId) {
+      const lens = set?.lenses?.find(l => l.id === this.currentLensId);
+      const lensView = lens?.views?.find(v => v.id === this.currentViewId);
+      if (lensView) return lensView;
+    }
     return set?.views.find(v => v.id === this.currentViewId);
+  }
+
+  getCurrentLens() {
+    const set = this.getCurrentSet();
+    return set?.lenses?.find(l => l.id === this.currentLensId);
   }
 
   getFilteredRecords() {
@@ -1526,6 +1537,18 @@ class EODataWorkbench {
     if (!set) return [];
 
     let records = [...set.records];
+
+    // Apply lens filter if a lens is selected
+    const lens = this.getCurrentLens();
+    if (lens && lens.pivotFieldId !== undefined) {
+      records = records.filter(r => {
+        const val = r.values?.[lens.pivotFieldId];
+        if (Array.isArray(val)) {
+          return val.includes(lens.pivotValue);
+        }
+        return val === lens.pivotValue;
+      });
+    }
 
     // Apply filters
     if (view?.config.filters?.length > 0) {
