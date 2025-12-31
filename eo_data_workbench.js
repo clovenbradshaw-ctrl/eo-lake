@@ -5,7 +5,8 @@
  * Core Concepts (Nine Rules-Compliant Hierarchy):
  * - Workspaces: Contextual boundaries (broadest horizon)
  * - Sets: Typed data collections with schema
- * - Lenses: View types (Grid, Cards, Kanban, Timeline, Calendar, Graph)
+ * - Lenses: Type-scoped subsets of Sets (with their own refined schemas)
+ * - Views: Display configurations (Grid, Cards, Kanban, Timeline, Calendar, Graph)
  * - Focuses: Filtered/restricted views
  * - Exports: Immutable frozen captures (downloaded and recorded)
  *
@@ -2721,7 +2722,7 @@ class EODataWorkbench {
       return {
         operator: strategy.toUpperCase(),
         strategy: strategy,
-        description: descriptions[strategy] || 'Derived set'
+        description: descriptions[strategy] || 'Lens'
       };
     }
 
@@ -5511,7 +5512,7 @@ class EODataWorkbench {
             <div class="source-derived-sets">
               <div class="source-derived-header">
                 <i class="ph ph-git-branch"></i>
-                <span>Derived Sets (${derivedSets.length})</span>
+                <span>Lenses (${derivedSets.length})</span>
               </div>
               ${derivedSets.map(set => `
                 <div class="source-derived-item" data-set-id="${set.id}">
@@ -6241,7 +6242,7 @@ class EODataWorkbench {
                   <th class="col-fields">Fields</th>
                   <th class="col-imported">Imported</th>
                   <th class="col-agent">Agent</th>
-                  <th class="col-derived">Derived Sets</th>
+                  <th class="col-derived">Lenses</th>
                   <th class="col-actions"></th>
                 </tr>
               </thead>
@@ -12189,12 +12190,12 @@ class EODataWorkbench {
             </div>
           </div>
 
-          <!-- Derived Sets Card -->
+          <!-- Lenses Card -->
           <div class="set-dashboard-card derived">
             <div class="set-dashboard-card-header">
               <div class="set-dashboard-card-title">
                 <i class="ph ph-git-branch"></i>
-                Derived Sets
+                Lenses
               </div>
             </div>
             <div class="set-dashboard-card-content">
@@ -12213,11 +12214,11 @@ class EODataWorkbench {
               ` : `
                 <div class="set-dashboard-empty">
                   <i class="ph ph-git-branch"></i>
-                  <span>No derived sets</span>
+                  <span>No lenses</span>
                 </div>
               `}
               <button class="set-dashboard-add-btn" id="set-dashboard-create-derived">
-                <i class="ph ph-git-branch"></i> Create Derived Set
+                <i class="ph ph-git-branch"></i> Create Lens
               </button>
             </div>
           </div>
