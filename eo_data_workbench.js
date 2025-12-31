@@ -5678,7 +5678,9 @@ class EODataWorkbench {
             <th class="source-row-num">#</th>
             ${orderedFields.map(field => {
               const typeOwner = fieldTypeMap[field.name];
-              const style = typeOwner ? `background: ${typeOwner.color.bg};` : '';
+              const style = typeOwner
+                ? `background: ${typeOwner.color.bg};`
+                : 'background: var(--common-col-bg, rgba(148, 163, 184, 0.12));';
               return `
                 <th style="${style}">
                   <div class="source-col-header">
@@ -5697,7 +5699,9 @@ class EODataWorkbench {
               ${orderedFields.map(field => {
                 const value = record.values?.[field.id];
                 const typeOwner = fieldTypeMap[field.name];
-                const bgStyle = typeOwner ? `background: ${typeOwner.color.bg};` : '';
+                const bgStyle = typeOwner
+                  ? `background: ${typeOwner.color.bg};`
+                  : 'background: var(--common-col-bg, rgba(148, 163, 184, 0.12));';
                 const cellClass = this._getSourceCellClass(value);
                 const displayValue = this._formatSourceCellValue(value);
                 const titleValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
