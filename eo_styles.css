@@ -18160,14 +18160,29 @@ body.has-picked-up .browser-tab:hover {
   font-size: 12px;
 }
 
-/* Make definitions panel title clickable */
-.definitions-panel .nav-panel-title {
+/* Make all panel titles clickable - opens explorer views */
+.projects-panel .nav-panel-title,
+.sources-panel .nav-panel-title,
+.definitions-panel .nav-panel-title,
+.sets-panel .nav-panel-title {
   cursor: pointer;
   transition: color 0.15s ease;
 }
 
+.projects-panel .nav-panel-title:hover {
+  color: var(--text-primary);
+}
+
+.sources-panel .nav-panel-title:hover {
+  color: var(--accent-green, #10b981);
+}
+
 .definitions-panel .nav-panel-title:hover {
   color: rgb(168, 85, 247);
+}
+
+.sets-panel .nav-panel-title:hover {
+  color: var(--accent-purple, #8b5cf6);
 }
 
 /* Responsive */
