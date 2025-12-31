@@ -447,7 +447,7 @@ class EODataWorkbench {
     this.currentSetId = null;
     this.currentViewId = null;
     this.currentSourceId = null; // Track when viewing a source (GIVEN data)
-    this.currentDefinitionId = null; // Track when viewing a definition (VOCAB)
+    this.currentDefinitionId = null; // Track when viewing a definition (DICT)
     this.showingSetFields = false; // Track when showing set fields panel (like Airtable's "Manage Fields")
     this.lastViewPerSet = {}; // Remember last active view for each set
     this.expandedSets = {}; // Track which sets are expanded in sidebar
@@ -1524,7 +1524,7 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderSidebar() {
-    // Three-panel navigation: Sources (GIVEN) / Definitions (VOCAB) / Sets (Schema)
+    // Three-panel navigation: Sources (GIVEN) / Definitions (DICT) / Sets (Schema)
     // Views are shown nested under sets in sidebar (Airtable-style)
     this._renderSourcesNav();
     this._renderDefinitionsNav();
