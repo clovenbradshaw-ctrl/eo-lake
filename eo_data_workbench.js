@@ -14197,7 +14197,7 @@ class EODataWorkbench {
               <i class="ph ph-link"></i>
               Link definition
             </button>
-            <button class="fields-panel-bulk-btn danger" id="bulk-delete">
+            <button type="button" class="fields-panel-bulk-btn danger" id="fields-bulk-delete">
               <i class="ph ph-trash"></i>
               Delete
             </button>
@@ -14686,7 +14686,7 @@ class EODataWorkbench {
     });
 
     // Bulk actions
-    document.getElementById('bulk-delete')?.addEventListener('click', () => {
+    document.getElementById('fields-bulk-delete')?.addEventListener('click', () => {
       this._bulkDeleteFields();
     });
 
