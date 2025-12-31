@@ -23098,6 +23098,69 @@ body.has-picked-up .browser-tab:hover {
   color: var(--text-muted, #888);
 }
 
+.subtypes-summary i.ph-eye {
+  color: var(--primary, #60a5fa);
+}
+
+.subtypes-summary i.ph-circles-three {
+  color: #a855f7;
+}
+
+/* Record Type Mode Selector */
+.subtypes-mode-selector {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  background: var(--bg-secondary, #16162a);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+.subtypes-mode-selector .mode-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary, #aaa);
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.subtypes-mode-selector .mode-option:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.subtypes-mode-selector .mode-option.selected {
+  background: var(--bg-tertiary, #1a1a35);
+  color: var(--text-primary, #fff);
+  border-color: var(--border-color, #2a2a4a);
+}
+
+.subtypes-mode-selector .mode-option input[type="radio"] {
+  display: none;
+}
+
+.subtypes-mode-selector .mode-option i {
+  font-size: 14px;
+}
+
+.subtypes-mode-selector .mode-option.selected i.ph-circles-three {
+  color: #a855f7;
+}
+
+.subtypes-mode-selector .mode-option.selected i.ph-eye {
+  color: var(--primary, #60a5fa);
+}
+
+.subtypes-mode-selector .mode-option.selected i.ph-minus-circle {
+  color: var(--text-muted, #888);
+}
+
 /* Enhanced Subtype Item with Configuration */
 .subtype-item {
   display: flex;

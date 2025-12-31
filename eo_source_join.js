@@ -6509,6 +6509,12 @@ class DataPipelineUI {
     this._detectedSubtypes = null;  // { fieldName, fieldId, values: [{name, count, createView, viewConfig}], createViews: true }
     this._subtypeFieldCandidates = ['type', '_type', 'recordType', 'record_type', 'kind', 'category', 'status', 'class', 'subtype'];
 
+    // Lens creation mode: 'views' | 'lenses' | 'none'
+    // 'views' = create filtered views (display-only, original behavior)
+    // 'lenses' = create lenses (type-scoped subsets with own schema)
+    // 'none' = don't create views or lenses
+    this._recordTypeMode = 'lenses';  // Default to lenses for multi-record-type sources
+
     // Available view types for record type views
     this._viewTypes = [
       { id: 'table', name: 'Table', icon: 'ph-table' },
@@ -6778,8 +6784,10 @@ class DataPipelineUI {
   _renderSubtypesSection() {
     if (!this._detectedSubtypes) return '';
 
-    const { fieldName, values, createViews } = this._detectedSubtypes;
-    const viewCount = values.filter(v => v.createView).length;
+    const { fieldName, values } = this._detectedSubtypes;
+    const selectedCount = values.filter(v => v.createView).length;
+    const mode = this._recordTypeMode;
+    const isActive = mode !== 'none';
 
     return `
       <div class="subtypes-section">
@@ -6788,15 +6796,30 @@ class DataPipelineUI {
             <i class="ph ph-stack"></i>
             <span>Record Types Detected</span>
           </div>
-          <label class="subtypes-toggle">
-            <input type="checkbox" id="subtypes-create-views" ${createViews ? 'checked' : ''}>
-            <span>Create views</span>
-          </label>
         </div>
         <div class="subtypes-info">
           Found <strong>${values.length}</strong> types in <code>${this._escapeHtml(fieldName)}</code> field
         </div>
-        <div class="subtypes-list ${!createViews ? 'disabled' : ''}" id="subtypes-list">
+
+        <div class="subtypes-mode-selector">
+          <label class="mode-option ${mode === 'lenses' ? 'selected' : ''}" title="Create lenses - type-scoped subsets with independent schemas">
+            <input type="radio" name="record-type-mode" value="lenses" ${mode === 'lenses' ? 'checked' : ''}>
+            <i class="ph ph-circles-three"></i>
+            <span>Create as lenses</span>
+          </label>
+          <label class="mode-option ${mode === 'views' ? 'selected' : ''}" title="Create views - filtered display perspectives">
+            <input type="radio" name="record-type-mode" value="views" ${mode === 'views' ? 'checked' : ''}>
+            <i class="ph ph-eye"></i>
+            <span>Create as views</span>
+          </label>
+          <label class="mode-option ${mode === 'none' ? 'selected' : ''}" title="Don't create separate views or lenses">
+            <input type="radio" name="record-type-mode" value="none" ${mode === 'none' ? 'checked' : ''}>
+            <i class="ph ph-minus-circle"></i>
+            <span>Skip</span>
+          </label>
+        </div>
+
+        <div class="subtypes-list ${!isActive ? 'disabled' : ''}" id="subtypes-list">
           ${values.map((v, i) => {
             const viewType = this._viewTypes.find(vt => vt.id === v.viewConfig?.viewType) || this._viewTypes[0];
             const fieldCount = v.viewConfig?.visibleFields?.length || 0;
@@ -6804,21 +6827,21 @@ class DataPipelineUI {
             <div class="subtype-item ${v.createView ? 'enabled' : ''}" data-index="${i}">
               <div class="subtype-main">
                 <input type="checkbox" id="subtype-${i}" data-index="${i}"
-                       ${v.createView ? 'checked' : ''} ${!createViews ? 'disabled' : ''}>
+                       ${v.createView ? 'checked' : ''} ${!isActive ? 'disabled' : ''}>
                 <label for="subtype-${i}">
                   <i class="${this._getIconForSubtype(v.name)}"></i>
                   <span class="subtype-name">${this._escapeHtml(this._formatSubtypeName(v.name))}</span>
                   <span class="subtype-count">${v.count}</span>
                 </label>
               </div>
-              ${v.createView && createViews ? `
+              ${v.createView && isActive ? `
                 <div class="subtype-config">
-                  <span class="subtype-view-type" title="View type">
+                  <span class="subtype-view-type" title="${mode === 'lenses' ? 'Lens type' : 'View type'}">
                     <i class="${viewType.icon}"></i>
                     ${viewType.name}
                   </span>
                   <span class="subtype-field-count" title="Fields visible">${fieldCount} fields</span>
-                  <button class="subtype-configure-btn" data-index="${i}" title="Configure view">
+                  <button class="subtype-configure-btn" data-index="${i}" title="Configure ${mode === 'lenses' ? 'lens' : 'view'}">
                     <i class="ph ph-gear"></i>
                   </button>
                 </div>
@@ -6826,13 +6849,31 @@ class DataPipelineUI {
             </div>
           `;}).join('')}
         </div>
+
         <div class="subtypes-summary">
-          ${createViews && viewCount > 0
-            ? `<i class="ph ph-check-circle"></i> Will create ${viewCount} view${viewCount !== 1 ? 's' : ''} with custom field configurations`
-            : `<i class="ph ph-info"></i> No views will be created`}
+          ${this._getSubtypesSummaryText(mode, selectedCount)}
         </div>
       </div>
     `;
+  }
+
+  /**
+   * Get summary text for subtypes section based on mode and count
+   */
+  _getSubtypesSummaryText(mode, count) {
+    switch (mode) {
+      case 'lenses':
+        return count > 0
+          ? `<i class="ph ph-circles-three"></i> Will create ${count} lens${count !== 1 ? 'es' : ''} with type-specific schemas`
+          : `<i class="ph ph-info"></i> Select record types to create lenses for`;
+      case 'views':
+        return count > 0
+          ? `<i class="ph ph-eye"></i> Will create ${count} view${count !== 1 ? 's' : ''} with custom field configurations`
+          : `<i class="ph ph-info"></i> Select record types to create views for`;
+      case 'none':
+      default:
+        return `<i class="ph ph-info"></i> No lenses or views will be created`;
+    }
   }
 
   _render() {
@@ -7170,13 +7211,13 @@ class DataPipelineUI {
       this._createSet();
     });
 
-    // Subtype toggles
-    this.container.querySelector('#subtypes-create-views')?.addEventListener('change', (e) => {
-      if (this._detectedSubtypes) {
-        this._detectedSubtypes.createViews = e.target.checked;
+    // Record type mode selector (lenses/views/none)
+    this.container.querySelectorAll('input[name="record-type-mode"]').forEach(radio => {
+      radio.addEventListener('change', (e) => {
+        this._recordTypeMode = e.target.value;
         this._render();
         this._attachEventListeners();
-      }
+      });
     });
 
     this.container.querySelectorAll('#subtypes-list input[type="checkbox"]').forEach(cb => {
@@ -7803,74 +7844,64 @@ class DataPipelineUI {
         config: {}
       }];
 
-      // Create subtype views if enabled
-      if (this._detectedSubtypes?.createViews) {
+      // Build lenses array (only populated when mode is 'lenses')
+      const lenses = [];
+
+      // Create a map from field name to field ID for building field configurations
+      const fieldNameToId = new Map();
+      selectedFields.forEach((sf, i) => {
+        fieldNameToId.set(sf.name, fields[i].id);
+      });
+
+      // Create subtype views or lenses based on mode
+      if (this._detectedSubtypes && this._recordTypeMode !== 'none') {
         const subtypeFieldName = this._detectedSubtypes.fieldName;
         const subtypeField = fields.find(f => f.name === subtypeFieldName || f.name === (selectedFields.find(sf => sf.name === subtypeFieldName)?.rename || subtypeFieldName));
         const subtypeFieldId = subtypeField?.id;
-
-        // Create a map from field name to field ID for building hidden fields
-        const fieldNameToId = new Map();
-        selectedFields.forEach((sf, i) => {
-          fieldNameToId.set(sf.name, fields[i].id);
-        });
 
         if (subtypeFieldId) {
           const selectedSubtypes = this._detectedSubtypes.values.filter(v => v.createView);
 
           for (const subtype of selectedSubtypes) {
-            const viewId = `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
             const viewConfig = subtype.viewConfig || { viewType: 'table', visibleFields: [] };
 
-            // Calculate hidden fields: all fields not in visibleFields + the type field
-            const hiddenFields = [subtypeFieldId];  // Always hide the type field in filtered views
-            if (viewConfig.visibleFields && viewConfig.visibleFields.length > 0) {
-              for (const [fieldName, fieldId] of fieldNameToId.entries()) {
-                if (fieldId !== subtypeFieldId && !viewConfig.visibleFields.includes(fieldName)) {
-                  hiddenFields.push(fieldId);
-                }
-              }
+            if (this._recordTypeMode === 'lenses') {
+              // Create a lens for this record type
+              const lens = this._buildLens(
+                subtype,
+                subtypeFieldId,
+                fields,
+                fieldNameToId,
+                viewConfig,
+                setRecords
+              );
+              lenses.push(lens);
+            } else if (this._recordTypeMode === 'views') {
+              // Create a view for this record type (original behavior)
+              const view = this._buildRecordTypeView(
+                subtype,
+                subtypeFieldId,
+                fieldNameToId,
+                viewConfig
+              );
+              views.push(view);
             }
-
-            // Calculate field order based on viewConfig.fieldOrder
-            const fieldOrder = [];
-            if (viewConfig.fieldOrder && viewConfig.fieldOrder.length > 0) {
-              for (const fieldName of viewConfig.fieldOrder) {
-                const fieldId = fieldNameToId.get(fieldName);
-                if (fieldId && !hiddenFields.includes(fieldId)) {
-                  fieldOrder.push(fieldId);
-                }
-              }
-            }
-
-            views.push({
-              id: viewId,
-              name: this._formatSubtypeName(subtype.name),
-              type: viewConfig.viewType || 'table',
-              config: {
-                filters: [{
-                  fieldId: subtypeFieldId,
-                  operator: 'is',
-                  filterValue: subtype.name,
-                  enabled: true
-                }],
-                hiddenFields,
-                fieldOrder: fieldOrder.length > 0 ? fieldOrder : undefined
-              },
-              metadata: {
-                recordType: subtype.name,
-                recordCount: subtype.count,
-                icon: this._getIconForSubtype(subtype.name),
-                isRecordTypeView: true
-              }
-            });
           }
         }
       }
 
+      // Build lens configuration (if any lenses were created)
+      const lensConfig = lenses.length > 0 ? {
+        autoCreateLenses: false,
+        defaultLens: lenses[0]?.id || null,
+        allowMultiMembership: true,
+        orphanHandling: 'unassigned'
+      } : null;
+
       // Create the set
+      const setId = `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`;
       const newSet = {
-        id: `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+        id: setId,
         name: setName,
         icon: 'table',
         fields,
@@ -7883,11 +7914,213 @@ class DataPipelineUI {
         createdAt: new Date().toISOString()
       };
 
+      // Add lenses and lensConfig if any lenses were created
+      if (lenses.length > 0) {
+        // Update each lens with the setId reference
+        lenses.forEach(lens => {
+          lens.setId = setId;
+        });
+        newSet.lenses = lenses;
+        newSet.lensConfig = lensConfig;
+      }
+
       this.hide();
       this._onComplete?.({ set: newSet });
     } catch (error) {
       alert(`Failed to create set: ${error.message}`);
     }
+  }
+
+  /**
+   * Build a lens object for a record type
+   * Lenses are type-scoped subsets with their own refined schemas
+   */
+  _buildLens(subtype, subtypeFieldId, fields, fieldNameToId, viewConfig, setRecords) {
+    const lensId = `lens_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+    const formattedName = this._formatSubtypeName(subtype.name);
+
+    // Determine included and excluded fields
+    const includedFields = [];
+    const excludedFields = [];
+
+    for (const [fieldName, fieldId] of fieldNameToId.entries()) {
+      if (fieldId === subtypeFieldId) {
+        // Always exclude the type field from lens view (it's redundant)
+        excludedFields.push(fieldId);
+      } else if (viewConfig.visibleFields && viewConfig.visibleFields.length > 0) {
+        if (viewConfig.visibleFields.includes(fieldName)) {
+          includedFields.push(fieldId);
+        } else {
+          excludedFields.push(fieldId);
+        }
+      } else {
+        // If no visible fields specified, include all
+        includedFields.push(fieldId);
+      }
+    }
+
+    // Build field order from viewConfig or use included fields order
+    const fieldOrder = [];
+    if (viewConfig.fieldOrder && viewConfig.fieldOrder.length > 0) {
+      for (const fieldName of viewConfig.fieldOrder) {
+        const fieldId = fieldNameToId.get(fieldName);
+        if (fieldId && includedFields.includes(fieldId)) {
+          fieldOrder.push(fieldId);
+        }
+      }
+    } else {
+      fieldOrder.push(...includedFields);
+    }
+
+    // Count records that match this lens
+    const recordCount = setRecords.filter(rec => {
+      const typeValue = rec.values[subtypeFieldId];
+      return typeValue === subtype.name;
+    }).length;
+
+    // Identify type-specific fields (fields that have values only for this type)
+    const typeSpecificFields = [];
+    const commonFields = [];
+    for (const fieldId of includedFields) {
+      const fieldInfo = [...fieldNameToId.entries()].find(([name, id]) => id === fieldId);
+      if (fieldInfo) {
+        // For now, mark as common (could enhance to detect type-specific later)
+        commonFields.push(fieldId);
+      }
+    }
+
+    // Create the lens object following DESIGN_LENS_SYSTEM.md structure
+    return {
+      id: lensId,
+      name: formattedName,
+      setId: null,  // Will be set after set creation
+
+      // Selector for record membership
+      selector: {
+        type: 'field_match',
+        fieldId: subtypeFieldId,
+        operator: 'is',
+        value: subtype.name
+      },
+
+      // Field configuration
+      fieldOverrides: {},  // Can be customized later by user
+      includedFields,
+      excludedFields,
+      fieldOrder,
+
+      // Stats
+      stats: {
+        recordCount,
+        lastUpdated: new Date().toISOString()
+      },
+
+      // Default view for this lens
+      views: [{
+        id: `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 4)}`,
+        name: 'Table',
+        type: viewConfig.viewType || 'table',
+        config: {}
+      }],
+
+      // Metadata
+      metadata: {
+        icon: this._getIconForSubtype(subtype.name),
+        color: this._getColorForSubtype(subtype.name),
+        description: `${formattedName} records`,
+        isRecordTypeLens: true,
+        typeSpecificFields,
+        commonFields
+      },
+
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Build a record-type view (filtered view, original behavior)
+   */
+  _buildRecordTypeView(subtype, subtypeFieldId, fieldNameToId, viewConfig) {
+    const viewId = `view_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+
+    // Calculate hidden fields: all fields not in visibleFields + the type field
+    const hiddenFields = [subtypeFieldId];  // Always hide the type field in filtered views
+    if (viewConfig.visibleFields && viewConfig.visibleFields.length > 0) {
+      for (const [fieldName, fieldId] of fieldNameToId.entries()) {
+        if (fieldId !== subtypeFieldId && !viewConfig.visibleFields.includes(fieldName)) {
+          hiddenFields.push(fieldId);
+        }
+      }
+    }
+
+    // Calculate field order based on viewConfig.fieldOrder
+    const fieldOrder = [];
+    if (viewConfig.fieldOrder && viewConfig.fieldOrder.length > 0) {
+      for (const fieldName of viewConfig.fieldOrder) {
+        const fieldId = fieldNameToId.get(fieldName);
+        if (fieldId && !hiddenFields.includes(fieldId)) {
+          fieldOrder.push(fieldId);
+        }
+      }
+    }
+
+    return {
+      id: viewId,
+      name: this._formatSubtypeName(subtype.name),
+      type: viewConfig.viewType || 'table',
+      config: {
+        filters: [{
+          fieldId: subtypeFieldId,
+          operator: 'is',
+          filterValue: subtype.name,
+          enabled: true
+        }],
+        hiddenFields,
+        fieldOrder: fieldOrder.length > 0 ? fieldOrder : undefined
+      },
+      metadata: {
+        recordType: subtype.name,
+        recordCount: subtype.count,
+        icon: this._getIconForSubtype(subtype.name),
+        isRecordTypeView: true
+      }
+    };
+  }
+
+  /**
+   * Get a color for a subtype based on common naming patterns
+   */
+  _getColorForSubtype(name) {
+    const lower = (name || '').toLowerCase();
+    const colorMap = {
+      'person': '#3B82F6',     // Blue
+      'people': '#3B82F6',
+      'user': '#3B82F6',
+      'company': '#8B5CF6',    // Purple
+      'organization': '#8B5CF6',
+      'org': '#8B5CF6',
+      'event': '#F59E0B',      // Amber
+      'meeting': '#F59E0B',
+      'task': '#10B981',       // Green
+      'todo': '#10B981',
+      'document': '#6B7280',   // Gray
+      'file': '#6B7280',
+      'note': '#FBBF24',       // Yellow
+      'email': '#EF4444',      // Red
+      'message': '#06B6D4',    // Cyan
+      'project': '#EC4899',    // Pink
+      'product': '#14B8A6',    // Teal
+      'order': '#F97316',      // Orange
+      'transaction': '#22C55E', // Green
+      'payment': '#22C55E',
+      'location': '#0EA5E9',   // Sky
+      'address': '#0EA5E9'
+    };
+
+    for (const [key, color] of Object.entries(colorMap)) {
+      if (lower.includes(key)) return color;
+    }
+    return '#6366F1';  // Default indigo
   }
 
   _mapFieldType(type) {
