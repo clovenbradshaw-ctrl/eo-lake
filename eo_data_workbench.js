@@ -19236,7 +19236,9 @@ class EODataWorkbench {
   _renderCell(record, field, searchTerm = '') {
     try {
       const value = record.values[field.id];
-      const cellClass = `cell-${field.type} cell-editable`;
+      const historyCount = this._getFieldHistoryChangeCount(record.id, field.id);
+      const hasHistory = historyCount > 0;
+      const cellClass = `cell-${field.type} cell-editable${hasHistory ? ' has-history' : ''}`;
 
       let content = '';
 
@@ -19367,7 +19369,18 @@ class EODataWorkbench {
         }
     }
 
-      return `<td class="${cellClass}" data-field-id="${field.id}">${content}</td>`;
+      // Add history indicator if cell has changes
+      const historyIndicator = hasHistory ? `
+        <button class="cell-history-indicator"
+                data-record-id="${record.id}"
+                data-field-id="${field.id}"
+                data-history-count="${historyCount}"
+                title="${historyCount} change${historyCount !== 1 ? 's' : ''}">
+          <span class="history-dot${historyCount > 1 ? ' multiple' : ''}"></span>
+        </button>
+      ` : '';
+
+      return `<td class="${cellClass}" data-field-id="${field.id}">${content}${historyIndicator}</td>`;
     } catch (error) {
       console.error('[RenderCell Error]', { fieldId: field?.id, fieldName: field?.name, fieldType: field?.type, recordId: record?.id, error });
       return `<td class="cell-${field?.type || 'unknown'} cell-editable cell-error" data-field-id="${field?.id || 'unknown'}"><span class="cell-empty cell-render-error" title="Error rendering field">Error</span></td>`;
@@ -19501,6 +19514,18 @@ class EODataWorkbench {
       // Clear search button
       if (target.closest('#clear-search-btn')) {
         this._clearViewSearch();
+        return;
+      }
+
+      // Cell history indicator click
+      const historyIndicator = target.closest('.cell-history-indicator');
+      if (historyIndicator) {
+        e.stopPropagation(); // Prevent row click and cell edit
+        const recordId = historyIndicator.dataset.recordId;
+        const fieldId = historyIndicator.dataset.fieldId;
+        if (recordId && fieldId) {
+          this._showFieldHistoryPopover(recordId, fieldId, historyIndicator);
+        }
         return;
       }
 
@@ -23346,6 +23371,10 @@ class EODataWorkbench {
         <i class="ph ph-arrow-square-out"></i>
         <span>Open record</span>
       </div>
+      <div class="context-menu-item" data-action="view-history">
+        <i class="ph ph-clock-counter-clockwise"></i>
+        <span>View history</span>
+      </div>
       <div class="context-menu-item" data-action="pick-up">
         <i class="ph ph-hand-grabbing"></i>
         <span>Pick up record</span>
@@ -23397,6 +23426,9 @@ class EODataWorkbench {
         switch (action) {
           case 'open':
             this._showRecordDetail(recordId);
+            break;
+          case 'view-history':
+            this._showRecordHistoryDrawer(recordId);
             break;
           case 'pick-up':
             const set = this.getCurrentSet();
@@ -30388,6 +30420,102 @@ class EODataWorkbench {
   }
 
   /**
+   * Get count of field-specific history events (excludes record creation)
+   * Used for efficient history indicator rendering
+   */
+  _getFieldHistoryChangeCount(recordId, fieldId) {
+    const fieldHistory = this._getFieldHistory(recordId, fieldId);
+    // Count only actual field changes, not creation events
+    return fieldHistory.filter(event => {
+      const action = event.payload?.action;
+      return action === 'record_updated' || action === 'field_changed' || action === 'update';
+    }).length;
+  }
+
+  /**
+   * Check if a field has any history changes
+   * Fast check for rendering indicators
+   */
+  _hasFieldHistoryChanges(recordId, fieldId) {
+    return this._getFieldHistoryChangeCount(recordId, fieldId) > 0;
+  }
+
+  /**
+   * Build a cache of field history counts for all fields in a record
+   * Call once per record to avoid repeated event store queries
+   */
+  _buildRecordHistoryCache(recordId) {
+    const recordHistory = this._getRecordHistory(recordId);
+    const cache = {};
+
+    // Count changes per field
+    recordHistory.forEach(event => {
+      const action = event.payload?.action;
+      const fieldId = event.payload?.fieldId;
+
+      if (fieldId && (action === 'record_updated' || action === 'field_changed' || action === 'update')) {
+        cache[fieldId] = (cache[fieldId] || 0) + 1;
+      }
+    });
+
+    return cache;
+  }
+
+  /**
+   * Get the most recent changes for a field (for quick preview)
+   * @param {string} recordId - The record ID
+   * @param {string} fieldId - The field ID
+   * @param {number} limit - Max number of changes to return
+   * @returns {Array} Recent changes with oldValue, newValue, timestamp, actor
+   */
+  _getRecentFieldChanges(recordId, fieldId, limit = 3) {
+    const fieldHistory = this._getFieldHistory(recordId, fieldId);
+
+    return fieldHistory
+      .filter(event => {
+        const action = event.payload?.action;
+        return action === 'record_updated' || action === 'field_changed' || action === 'update';
+      })
+      .slice(0, limit)
+      .map(event => ({
+        oldValue: event.payload?.previousValue ?? event.payload?.oldValue,
+        newValue: event.payload?.newValue ?? event.payload?.value,
+        timestamp: event.timestamp,
+        actor: event.actor || 'system',
+        eventId: event.id
+      }));
+  }
+
+  /**
+   * Restore a field to a previous value
+   * Creates a new update event (never mutates history - Rule 3)
+   */
+  _restoreFieldValue(recordId, fieldId, previousValue, sourceEventId) {
+    const set = this.getCurrentSet();
+    const record = set?.records?.find(r => r.id === recordId);
+    const field = set?.fields?.find(f => f.id === fieldId);
+
+    if (!record || !field) {
+      this._showToast('Could not find record or field', 'error');
+      return;
+    }
+
+    const currentValue = record.values[fieldId];
+
+    // Update the value using existing method (which creates proper events)
+    this._updateRecordValue(recordId, fieldId, previousValue);
+
+    // Re-render the cell
+    const cell = document.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
+    if (cell) {
+      cell.innerHTML = this._renderCellContent(field, previousValue);
+    }
+
+    this._showToast(`Restored to previous value`, 'success');
+    this._hideFieldHistoryPopover();
+  }
+
+  /**
    * Render field history popover/tooltip
    * Shows change history for a specific field with agent, timestamps, and value changes
    */
@@ -30487,7 +30615,7 @@ class EODataWorkbench {
 
           ${hasHistory ? `
             <div class="field-history-events">
-              ${fieldHistory.slice().reverse().map(event => this._renderFieldHistoryEvent(event, field.id)).join('')}
+              ${fieldHistory.slice().reverse().map(event => this._renderFieldHistoryEvent(event, field.id, record.id, true)).join('')}
             </div>
           ` : `
             <div class="field-history-empty">
@@ -30499,19 +30627,32 @@ class EODataWorkbench {
             </div>
           `}
         </div>
+
+        <div class="field-history-footer">
+          <button class="field-history-view-all-btn"
+                  data-record-id="${record.id}"
+                  data-field-id="${field.id}">
+            <i class="ph ph-clock-counter-clockwise"></i>
+            View Full Record History
+          </button>
+        </div>
       </div>
     `;
   }
 
   /**
    * Render a single field history event
+   * @param {Object} event - The history event
+   * @param {string} fieldId - The field ID
+   * @param {string} recordId - The record ID (for restore functionality)
+   * @param {boolean} showRestore - Whether to show restore button
    */
-  _renderFieldHistoryEvent(event, fieldId) {
+  _renderFieldHistoryEvent(event, fieldId, recordId = null, showRestore = true) {
     const action = event.payload?.action || 'unknown';
     const timestamp = event.timestamp ? new Date(event.timestamp) : null;
     const actor = event.actor || 'system';
-    const previousValue = event.payload?.previousValue;
-    const newValue = event.payload?.newValue || event.payload?.value;
+    const previousValue = event.payload?.previousValue ?? event.payload?.oldValue;
+    const newValue = event.payload?.newValue ?? event.payload?.value;
 
     // Determine event type and styling
     let icon = 'ph-circle';
@@ -30541,6 +30682,7 @@ class EODataWorkbench {
     }
 
     const isFieldSpecific = event.payload?.fieldId === fieldId;
+    const canRestore = isFieldSpecific && previousValue !== undefined && showRestore && recordId;
 
     return `
       <div class="field-history-event ${iconClass} ${isFieldSpecific ? 'field-specific' : 'record-level'}">
@@ -30561,9 +30703,22 @@ class EODataWorkbench {
               <span class="new-value" title="${this._escapeHtml(String(newValue))}">${this._escapeHtml(this._truncate(newValue, 25))}</span>
             </div>
           ` : ''}
-          <div class="event-actor">
-            <i class="ph ph-user"></i>
-            ${this._formatActor(actor)}
+          <div class="event-footer">
+            <div class="event-actor">
+              <i class="ph ph-user"></i>
+              ${this._formatActor(actor)}
+            </div>
+            ${canRestore ? `
+              <button class="event-restore-btn"
+                      data-record-id="${recordId}"
+                      data-field-id="${fieldId}"
+                      data-restore-value="${this._escapeHtml(JSON.stringify(previousValue))}"
+                      data-event-id="${event.id}"
+                      title="Restore to this value">
+                <i class="ph ph-arrow-counter-clockwise"></i>
+                Restore
+              </button>
+            ` : ''}
           </div>
         </div>
       </div>
@@ -30615,6 +30770,31 @@ class EODataWorkbench {
       this._hideFieldHistoryPopover();
     });
 
+    // Add restore button handlers
+    popover.querySelectorAll('.event-restore-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const restoreRecordId = btn.dataset.recordId;
+        const restoreFieldId = btn.dataset.fieldId;
+        const restoreValue = JSON.parse(btn.dataset.restoreValue);
+        const eventId = btn.dataset.eventId;
+
+        // Show confirmation
+        if (confirm(`Restore field to previous value?\n\nThis will create a new change event (history is preserved).`)) {
+          this._restoreFieldValue(restoreRecordId, restoreFieldId, restoreValue, eventId);
+        }
+      });
+    });
+
+    // Add "View Full History" button handler
+    popover.querySelector('.field-history-view-all-btn')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const popoverRecordId = e.target.closest('.field-history-view-all-btn').dataset.recordId;
+      const popoverFieldId = e.target.closest('.field-history-view-all-btn').dataset.fieldId;
+      this._hideFieldHistoryPopover();
+      this._showRecordHistoryDrawer(popoverRecordId, popoverFieldId);
+    });
+
     // Close on click outside
     setTimeout(() => {
       document.addEventListener('click', this._fieldHistoryOutsideClickHandler = (e) => {
@@ -30637,6 +30817,255 @@ class EODataWorkbench {
       document.removeEventListener('click', this._fieldHistoryOutsideClickHandler);
       this._fieldHistoryOutsideClickHandler = null;
     }
+  }
+
+  /**
+   * Show record history drawer - full history view for a record
+   */
+  _showRecordHistoryDrawer(recordId, initialFieldFilter = null) {
+    const record = this._getRecordById(recordId);
+    const set = this.getCurrentSet();
+
+    if (!record || !set) {
+      this._showToast('Could not find record', 'error');
+      return;
+    }
+
+    // Get primary field value for title
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+    const recordName = record.values?.[primaryField?.id] || recordId;
+
+    // Get all history for this record
+    const history = this._getRecordHistory(recordId);
+
+    // Group by date
+    const groupedHistory = this._groupHistoryByDate(history);
+
+    // Get unique field IDs that have changes
+    const fieldsWithChanges = [...new Set(
+      history
+        .filter(e => e.payload?.fieldId)
+        .map(e => e.payload.fieldId)
+    )];
+
+    // Create drawer element
+    const overlay = document.createElement('div');
+    overlay.className = 'record-history-overlay';
+    overlay.id = 'record-history-overlay';
+
+    const drawer = document.createElement('div');
+    drawer.className = 'record-history-drawer';
+    drawer.id = 'record-history-drawer';
+    drawer.innerHTML = `
+      <div class="record-history-drawer-header">
+        <div class="record-history-drawer-title">
+          <i class="ph ph-clock-counter-clockwise"></i>
+          <span>History: ${this._escapeHtml(this._truncate(String(recordName), 30))}</span>
+        </div>
+        <button class="record-history-drawer-close" id="close-record-history">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+
+      <div class="record-history-drawer-filters">
+        <button class="record-history-filter ${!initialFieldFilter ? 'active' : ''}" data-filter="all">
+          <i class="ph ph-list"></i>
+          All Changes
+        </button>
+        ${fieldsWithChanges.map(fieldId => {
+          const field = set.fields?.find(f => f.id === fieldId);
+          if (!field) return '';
+          return `
+            <button class="record-history-filter ${initialFieldFilter === fieldId ? 'active' : ''}"
+                    data-filter="${fieldId}">
+              ${this._escapeHtml(field.name)}
+            </button>
+          `;
+        }).join('')}
+      </div>
+
+      <div class="record-history-drawer-content" id="record-history-content">
+        ${this._renderRecordHistoryContent(groupedHistory, set, recordId, initialFieldFilter)}
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+    document.body.appendChild(drawer);
+
+    // Trigger animation
+    requestAnimationFrame(() => {
+      overlay.classList.add('visible');
+      drawer.classList.add('open');
+    });
+
+    // Close handlers
+    const closeDrawer = () => {
+      overlay.classList.remove('visible');
+      drawer.classList.remove('open');
+      setTimeout(() => {
+        overlay.remove();
+        drawer.remove();
+      }, 300);
+    };
+
+    document.getElementById('close-record-history')?.addEventListener('click', closeDrawer);
+    overlay.addEventListener('click', closeDrawer);
+
+    // Filter handlers
+    drawer.querySelectorAll('.record-history-filter').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const filter = btn.dataset.filter;
+        drawer.querySelectorAll('.record-history-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const filteredHistory = filter === 'all'
+          ? history
+          : history.filter(e => e.payload?.fieldId === filter ||
+              e.payload?.action === 'record_created' ||
+              e.payload?.action === 'import');
+
+        const grouped = this._groupHistoryByDate(filteredHistory);
+        const content = document.getElementById('record-history-content');
+        if (content) {
+          content.innerHTML = this._renderRecordHistoryContent(grouped, set, recordId, filter === 'all' ? null : filter);
+        }
+      });
+    });
+
+    // Escape key handler
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        closeDrawer();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
+
+  /**
+   * Group history events by date for display
+   */
+  _groupHistoryByDate(history) {
+    const groups = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    history.forEach(event => {
+      const date = new Date(event.timestamp);
+      date.setHours(0, 0, 0, 0);
+
+      let dateKey;
+      if (date.getTime() === today.getTime()) {
+        dateKey = 'Today';
+      } else if (date.getTime() === yesterday.getTime()) {
+        dateKey = 'Yesterday';
+      } else {
+        dateKey = date.toLocaleDateString('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric',
+          year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
+        });
+      }
+
+      if (!groups[dateKey]) {
+        groups[dateKey] = [];
+      }
+      groups[dateKey].push(event);
+    });
+
+    return groups;
+  }
+
+  /**
+   * Render content for record history drawer
+   */
+  _renderRecordHistoryContent(groupedHistory, set, recordId, fieldFilter = null) {
+    const dateKeys = Object.keys(groupedHistory);
+
+    if (dateKeys.length === 0) {
+      return `
+        <div class="record-history-empty">
+          <i class="ph ph-clock-afternoon"></i>
+          <div class="record-history-empty-title">No changes recorded</div>
+          <div class="record-history-empty-hint">
+            Changes will appear here as you edit this record
+          </div>
+        </div>
+      `;
+    }
+
+    return dateKeys.map(dateKey => `
+      <div class="record-history-date-group">
+        <div class="record-history-date-label">${dateKey}</div>
+        ${groupedHistory[dateKey].map(event => this._renderRecordHistoryEvent(event, set, recordId)).join('')}
+      </div>
+    `).join('');
+  }
+
+  /**
+   * Render a single event in the record history drawer
+   */
+  _renderRecordHistoryEvent(event, set, recordId) {
+    const action = event.payload?.action || 'unknown';
+    const timestamp = event.timestamp ? new Date(event.timestamp) : null;
+    const actor = event.actor || 'system';
+    const fieldId = event.payload?.fieldId;
+    const field = fieldId ? set.fields?.find(f => f.id === fieldId) : null;
+    const previousValue = event.payload?.previousValue ?? event.payload?.oldValue;
+    const newValue = event.payload?.newValue ?? event.payload?.value;
+
+    let iconClass = 'modified';
+    let icon = 'ph-pencil-simple';
+    let label = field?.name || 'Field';
+
+    switch (action) {
+      case 'record_created':
+      case 'create':
+      case 'import':
+        iconClass = 'created';
+        icon = 'ph-plus-circle';
+        label = 'Record Created';
+        break;
+      case 'record_deleted':
+        iconClass = 'deleted';
+        icon = 'ph-trash';
+        label = 'Record Deleted';
+        break;
+    }
+
+    const timeStr = timestamp
+      ? timestamp.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+      : '';
+
+    return `
+      <div class="record-history-event">
+        <div class="record-history-event-icon ${iconClass}">
+          <i class="ph ${icon}"></i>
+        </div>
+        <div class="record-history-event-content">
+          <div class="record-history-event-header">
+            <span class="record-history-event-field">${this._escapeHtml(label)}</span>
+            <span class="record-history-event-time">${timeStr}</span>
+          </div>
+          ${previousValue !== undefined || newValue !== undefined ? `
+            <div class="record-history-event-change">
+              ${previousValue !== undefined ? `
+                <span class="old-val" title="${this._escapeHtml(String(previousValue))}">${this._escapeHtml(this._truncate(previousValue, 20))}</span>
+                <span class="arrow">→</span>
+              ` : ''}
+              <span class="new-val" title="${this._escapeHtml(String(newValue))}">${this._escapeHtml(this._truncate(newValue, 20))}</span>
+            </div>
+          ` : ''}
+          <div class="record-history-event-actor">
+            <i class="ph ph-user"></i>
+            ${this._formatActor(actor)}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   /**
