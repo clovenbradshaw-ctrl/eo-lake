@@ -6917,6 +6917,13 @@ class DataPipelineUI {
       { id: 'cards', name: 'Cards', icon: 'ph-cards' },
       { id: 'kanban', name: 'Kanban', icon: 'ph-kanban' }
     ];
+
+    // Wizard step state
+    // Step 1: Source overview and data preview
+    // Step 2: Record types configuration (only if multiple types detected)
+    // Step 3: Final naming and create
+    this._currentStep = 1;
+    this._totalSteps = 2; // Will be updated to 3 if multiple types detected
   }
 
   /**
@@ -7205,6 +7212,16 @@ class DataPipelineUI {
       }).sort((a, b) => b.count - a.count),
       createViews: true  // Master toggle
     };
+
+    // Update total steps based on whether we have multiple types
+    this._totalSteps = this._hasMultipleRecordTypes() ? 3 : 2;
+  }
+
+  /**
+   * Check if we have multiple record types that warrant a dedicated configuration step
+   */
+  _hasMultipleRecordTypes() {
+    return this._detectedSubtypes && this._detectedSubtypes.values && this._detectedSubtypes.values.length >= 2;
   }
 
   /**
@@ -7331,14 +7348,9 @@ class DataPipelineUI {
   }
 
   _render() {
-    const sourcesCount = this._sources.length;
-    const transformsCount = this._transforms.length;
-    const outputRecords = this._getOutputRecordCount();
-    const outputFields = this._selectedFields.filter(f => f.include).length;
-
     this.container.innerHTML = `
       <div class="data-pipeline-overlay">
-        <div class="data-pipeline-modal">
+        <div class="data-pipeline-modal data-pipeline-wizard">
           <div class="data-pipeline-header">
             <h2><i class="ph ph-flow-arrow"></i> Create Set from Data</h2>
             <button class="data-pipeline-close" id="pipeline-close-btn">
@@ -7346,109 +7358,436 @@ class DataPipelineUI {
             </button>
           </div>
 
-          <div class="data-pipeline-body">
-            <!-- Sources Panel -->
-            <div class="data-pipeline-panel data-pipeline-sources">
-              <div class="panel-header">
-                <h3><i class="ph ph-database"></i> Sources</h3>
-                <span class="panel-badge">${sourcesCount}</span>
-              </div>
-              <div class="panel-content">
-                <div class="source-list" id="pipeline-source-list">
-                  ${this._renderSourceCards()}
-                </div>
-                <button class="add-source-btn" id="add-source-btn">
-                  <i class="ph ph-plus"></i> Add Source
-                </button>
-              </div>
-            </div>
+          ${this._renderWizardProgress()}
 
-            <!-- Flow Arrow -->
-            <div class="data-pipeline-arrow">
-              <i class="ph ph-arrow-right"></i>
-            </div>
-
-            <!-- Transforms Panel -->
-            <div class="data-pipeline-panel data-pipeline-transforms">
-              <div class="panel-header">
-                <h3><i class="ph ph-funnel-simple"></i> Pipeline</h3>
-                <span class="panel-badge">${transformsCount > 0 ? transformsCount : 'pass-through'}</span>
-              </div>
-              <div class="panel-content">
-                ${this._renderTransforms()}
-                <div class="transform-actions">
-                  ${sourcesCount > 1 ? `
-                    <button class="add-transform-btn" id="add-join-btn">
-                      <i class="ph ph-git-merge"></i> Configure Join
-                    </button>
-                  ` : ''}
-                  <button class="add-transform-btn" id="add-filter-btn">
-                    <i class="ph ph-funnel"></i> Add Filter
-                  </button>
-                  <button class="add-transform-btn" id="configure-fields-btn">
-                    <i class="ph ph-columns"></i> Select Fields
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Flow Arrow -->
-            <div class="data-pipeline-arrow">
-              <i class="ph ph-arrow-right"></i>
-            </div>
-
-            <!-- Output Panel -->
-            <div class="data-pipeline-panel data-pipeline-output">
-              <div class="panel-header">
-                <h3><i class="ph ph-table"></i> Output Set</h3>
-              </div>
-              <div class="panel-content">
-                <div class="output-name-section">
-                  <label>Set Name</label>
-                  <input type="text" id="pipeline-set-name" class="output-name-input"
-                         placeholder="Enter set name..."
-                         value="${this._escapeHtml(this._outputName)}">
-                </div>
-                <div class="output-stats">
-                  <div class="stat">
-                    <span class="stat-value">${outputRecords}</span>
-                    <span class="stat-label">records</span>
-                  </div>
-                  <div class="stat">
-                    <span class="stat-value">${outputFields}</span>
-                    <span class="stat-label">fields</span>
-                  </div>
-                </div>
-
-                ${this._renderSubtypesSection()}
-
-                <div class="output-preview">
-                  <button class="preview-btn" id="pipeline-preview-btn">
-                    <i class="ph ph-eye"></i> Preview
-                  </button>
-                  <div class="preview-results" id="pipeline-preview-results"></div>
-                </div>
-              </div>
-            </div>
+          <div class="data-pipeline-body wizard-body">
+            ${this._renderCurrentStep()}
           </div>
 
-          <div class="data-pipeline-footer">
-            <div class="footer-info">
-              <span class="provenance-info">
-                <i class="ph ph-git-branch"></i>
-                Derived from ${sourcesCount} source${sourcesCount !== 1 ? 's' : ''}
-              </span>
-            </div>
-            <div class="footer-actions">
-              <button class="btn btn-secondary" id="pipeline-cancel-btn">Cancel</button>
-              <button class="btn btn-primary" id="pipeline-create-btn" ${sourcesCount === 0 ? 'disabled' : ''}>
-                <i class="ph ph-table"></i> Create Set
-              </button>
-            </div>
-          </div>
+          ${this._renderWizardFooter()}
         </div>
       </div>
     `;
+  }
+
+  /**
+   * Render wizard progress indicator
+   */
+  _renderWizardProgress() {
+    const steps = this._getWizardSteps();
+
+    return `
+      <div class="wizard-progress">
+        ${steps.map((step, i) => {
+          const stepNum = i + 1;
+          const isActive = stepNum === this._currentStep;
+          const isCompleted = stepNum < this._currentStep;
+          return `
+            <div class="wizard-progress-step ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}">
+              <div class="wizard-progress-indicator">
+                ${isCompleted ? '<i class="ph ph-check"></i>' : stepNum}
+              </div>
+              <span class="wizard-progress-label">${step.shortTitle}</span>
+            </div>
+            ${i < steps.length - 1 ? '<div class="wizard-progress-line"></div>' : ''}
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * Get wizard step definitions
+   */
+  _getWizardSteps() {
+    const steps = [
+      { id: 'source', shortTitle: 'Source', title: 'Review Source Data' }
+    ];
+
+    if (this._hasMultipleRecordTypes()) {
+      steps.push({ id: 'types', shortTitle: 'Record Types', title: 'Configure Record Types' });
+    }
+
+    steps.push({ id: 'create', shortTitle: 'Create', title: 'Name & Create Set' });
+
+    return steps;
+  }
+
+  /**
+   * Render the current wizard step content
+   */
+  _renderCurrentStep() {
+    const steps = this._getWizardSteps();
+    const currentStepDef = steps[this._currentStep - 1];
+
+    if (!currentStepDef) return '';
+
+    switch (currentStepDef.id) {
+      case 'source':
+        return this._renderStep1_SourceOverview();
+      case 'types':
+        return this._renderStep2_RecordTypes();
+      case 'create':
+        return this._renderStep3_CreateSet();
+      default:
+        return '';
+    }
+  }
+
+  /**
+   * Step 1: Source Overview
+   * Shows source info, data preview, and type distribution overview
+   */
+  _renderStep1_SourceOverview() {
+    const sourcesCount = this._sources.length;
+    const outputRecords = this._getOutputRecordCount();
+    const outputFields = this._selectedFields.filter(f => f.include).length;
+    const source = this._sources[0]?.source;
+
+    // Get sample data for preview
+    let sampleData = [];
+    if (source?.records) {
+      sampleData = source.records.slice(0, 5);
+    }
+
+    const selectedFields = this._selectedFields.filter(f => f.include).slice(0, 8);
+
+    return `
+      <div class="wizard-step wizard-step-source">
+        <h3 class="wizard-step-title">
+          <i class="ph ph-database"></i>
+          Review Source Data
+        </h3>
+
+        <div class="wizard-step-content">
+          <!-- Source Info -->
+          <div class="wizard-source-info">
+            ${sourcesCount > 0 ? `
+              <div class="wizard-source-card">
+                <div class="source-icon"><i class="ph ph-file-text"></i></div>
+                <div class="source-details">
+                  <span class="source-name">${this._escapeHtml(source?.name || 'Unknown')}</span>
+                  <span class="source-stats">${outputRecords} records · ${outputFields} fields</span>
+                </div>
+                ${this._sources.length > 1 ? `<span class="source-more">+${this._sources.length - 1} more</span>` : ''}
+              </div>
+            ` : `
+              <div class="wizard-empty-state">
+                <i class="ph ph-database"></i>
+                <p>No source selected</p>
+              </div>
+            `}
+          </div>
+
+          <!-- Data Preview Table -->
+          ${sampleData.length > 0 ? `
+            <div class="wizard-data-preview">
+              <h4><i class="ph ph-table"></i> Data Preview</h4>
+              <div class="wizard-preview-table-wrapper">
+                <table class="wizard-preview-table">
+                  <thead>
+                    <tr>
+                      ${selectedFields.map(f => `<th>${this._escapeHtml(f.name)}</th>`).join('')}
+                      ${this._selectedFields.filter(f => f.include).length > 8 ? '<th class="more-cols">...</th>' : ''}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${sampleData.map(row => `
+                      <tr>
+                        ${selectedFields.map(f => {
+                          const val = row.values?.[f.name] ?? row[f.name] ?? '';
+                          return `<td>${this._escapeHtml(String(val).slice(0, 50))}</td>`;
+                        }).join('')}
+                        ${this._selectedFields.filter(f => f.include).length > 8 ? '<td class="more-cols">...</td>' : ''}
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+              ${source?.records?.length > 5 ? `
+                <div class="wizard-preview-more">Showing 5 of ${source.records.length} records</div>
+              ` : ''}
+            </div>
+          ` : ''}
+
+          <!-- Type Distribution (if detected) -->
+          ${this._detectedSubtypes && this._detectedSubtypes.values.length > 0 ? `
+            <div class="wizard-type-overview">
+              <h4><i class="ph ph-stack"></i> Record Types Detected</h4>
+              <div class="wizard-type-info">
+                Found <strong>${this._detectedSubtypes.values.length}</strong> types
+                in <code>${this._escapeHtml(this._detectedSubtypes.fieldName)}</code> field
+              </div>
+              <div class="wizard-type-distribution">
+                ${this._detectedSubtypes.values.slice(0, 6).map(v => {
+                  const maxCount = Math.max(...this._detectedSubtypes.values.map(v => v.count));
+                  const pct = (v.count / maxCount) * 100;
+                  return `
+                    <div class="type-bar-row">
+                      <span class="type-bar-label">
+                        <i class="${this._getIconForSubtype(v.name)}"></i>
+                        ${this._escapeHtml(this._formatSubtypeName(v.name))}
+                      </span>
+                      <div class="type-bar-track">
+                        <div class="type-bar-fill" style="width: ${pct}%"></div>
+                      </div>
+                      <span class="type-bar-count">${v.count}</span>
+                    </div>
+                  `;
+                }).join('')}
+                ${this._detectedSubtypes.values.length > 6 ? `
+                  <div class="type-bar-more">+${this._detectedSubtypes.values.length - 6} more types</div>
+                ` : ''}
+              </div>
+              ${this._hasMultipleRecordTypes() ? `
+                <div class="wizard-type-hint">
+                  <i class="ph ph-info"></i>
+                  You can create lenses or views for each type in the next step
+                </div>
+              ` : ''}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Step 2: Record Types Configuration
+   * Full-screen dedicated UI for configuring lenses/views per type
+   */
+  _renderStep2_RecordTypes() {
+    if (!this._detectedSubtypes) return '';
+
+    const { fieldName, values } = this._detectedSubtypes;
+    const mode = this._recordTypeMode;
+    const totalRecords = values.reduce((sum, v) => sum + v.count, 0);
+
+    return `
+      <div class="wizard-step wizard-step-types">
+        <h3 class="wizard-step-title">
+          <i class="ph ph-stack"></i>
+          Configure Record Types
+        </h3>
+
+        <div class="wizard-step-content">
+          <!-- Mode Selector -->
+          <div class="wizard-mode-selector">
+            <label class="wizard-mode-option ${mode === 'lenses' ? 'selected' : ''}">
+              <input type="radio" name="record-type-mode" value="lenses" ${mode === 'lenses' ? 'checked' : ''}>
+              <div class="mode-content">
+                <i class="ph ph-circles-three"></i>
+                <span class="mode-title">Create as Lenses</span>
+                <span class="mode-desc">Type-scoped subsets with independent schemas</span>
+              </div>
+            </label>
+            <label class="wizard-mode-option ${mode === 'views' ? 'selected' : ''}">
+              <input type="radio" name="record-type-mode" value="views" ${mode === 'views' ? 'checked' : ''}>
+              <div class="mode-content">
+                <i class="ph ph-eye"></i>
+                <span class="mode-title">Create as Views</span>
+                <span class="mode-desc">Filtered display perspectives</span>
+              </div>
+            </label>
+            <label class="wizard-mode-option ${mode === 'none' ? 'selected' : ''}">
+              <input type="radio" name="record-type-mode" value="none" ${mode === 'none' ? 'checked' : ''}>
+              <div class="mode-content">
+                <i class="ph ph-minus-circle"></i>
+                <span class="mode-title">Skip</span>
+                <span class="mode-desc">Don't create separate views or lenses</span>
+              </div>
+            </label>
+          </div>
+
+          <!-- Type Cards -->
+          ${mode !== 'none' ? `
+            <div class="wizard-type-cards">
+              ${values.map((v, i) => {
+                const viewType = this._viewTypes.find(vt => vt.id === v.viewConfig?.viewType) || this._viewTypes[0];
+                const fieldCount = v.viewConfig?.visibleFields?.length || 0;
+                const pct = Math.round((v.count / totalRecords) * 100);
+
+                return `
+                  <div class="wizard-type-card ${v.createView ? 'enabled' : 'disabled'}" data-index="${i}">
+                    <div class="type-card-header">
+                      <label class="type-card-toggle">
+                        <input type="checkbox" data-index="${i}" ${v.createView ? 'checked' : ''}>
+                        <i class="${this._getIconForSubtype(v.name)}"></i>
+                        <span class="type-card-name">${this._escapeHtml(this._formatSubtypeName(v.name))}</span>
+                      </label>
+                      <span class="type-card-count">${v.count} records (${pct}%)</span>
+                    </div>
+                    ${v.createView ? `
+                      <div class="type-card-body">
+                        <div class="type-card-config">
+                          <span class="config-item">
+                            <i class="${viewType.icon}"></i>
+                            ${viewType.name}
+                          </span>
+                          <span class="config-item">
+                            <i class="ph ph-columns"></i>
+                            ${fieldCount} fields
+                          </span>
+                          <button class="type-card-configure-btn" data-index="${i}">
+                            <i class="ph ph-gear"></i>
+                            Configure
+                          </button>
+                        </div>
+                      </div>
+                    ` : ''}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+
+            <div class="wizard-types-summary">
+              ${this._getSubtypesSummaryText(mode, values.filter(v => v.createView).length)}
+            </div>
+          ` : `
+            <div class="wizard-skip-notice">
+              <i class="ph ph-info"></i>
+              <p>All records will be in a single set without type-specific lenses or views.</p>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Step 3: Name and Create Set
+   * Final step with naming and creation
+   */
+  _renderStep3_CreateSet() {
+    const outputRecords = this._getOutputRecordCount();
+    const outputFields = this._selectedFields.filter(f => f.include).length;
+    const selectedTypes = this._detectedSubtypes?.values.filter(v => v.createView).length || 0;
+    const mode = this._recordTypeMode;
+
+    return `
+      <div class="wizard-step wizard-step-create">
+        <h3 class="wizard-step-title">
+          <i class="ph ph-check-circle"></i>
+          Name & Create Set
+        </h3>
+
+        <div class="wizard-step-content">
+          <!-- Set Name Input -->
+          <div class="wizard-name-section">
+            <label for="pipeline-set-name">Set Name</label>
+            <input type="text" id="pipeline-set-name" class="wizard-name-input"
+                   placeholder="Enter a name for your set..."
+                   value="${this._escapeHtml(this._outputName)}">
+          </div>
+
+          <!-- Summary -->
+          <div class="wizard-summary">
+            <h4><i class="ph ph-list-checks"></i> Summary</h4>
+            <div class="wizard-summary-grid">
+              <div class="summary-item">
+                <span class="summary-label">Records</span>
+                <span class="summary-value">${outputRecords}</span>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Fields</span>
+                <span class="summary-value">${outputFields}</span>
+              </div>
+              ${this._hasMultipleRecordTypes() && mode !== 'none' ? `
+                <div class="summary-item">
+                  <span class="summary-label">${mode === 'lenses' ? 'Lenses' : 'Views'}</span>
+                  <span class="summary-value">${selectedTypes}</span>
+                </div>
+              ` : ''}
+              <div class="summary-item">
+                <span class="summary-label">Source</span>
+                <span class="summary-value">${this._sources.length}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- What will be created -->
+          ${this._hasMultipleRecordTypes() && mode !== 'none' && selectedTypes > 0 ? `
+            <div class="wizard-will-create">
+              <h4><i class="ph ph-${mode === 'lenses' ? 'circles-three' : 'eye'}"></i> Will Create</h4>
+              <ul class="will-create-list">
+                <li>
+                  <i class="ph ph-table"></i>
+                  <span>1 set with all ${outputRecords} records</span>
+                </li>
+                ${this._detectedSubtypes.values.filter(v => v.createView).map(v => `
+                  <li>
+                    <i class="${this._getIconForSubtype(v.name)}"></i>
+                    <span>${this._formatSubtypeName(v.name)} ${mode === 'lenses' ? 'lens' : 'view'} (${v.count} records)</span>
+                  </li>
+                `).join('')}
+              </ul>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render wizard footer with navigation buttons
+   */
+  _renderWizardFooter() {
+    const steps = this._getWizardSteps();
+    const isFirstStep = this._currentStep === 1;
+    const isLastStep = this._currentStep === steps.length;
+    const sourcesCount = this._sources.length;
+
+    return `
+      <div class="data-pipeline-footer wizard-footer">
+        <div class="footer-info">
+          <span class="provenance-info">
+            <i class="ph ph-git-branch"></i>
+            ${sourcesCount > 0 ? `Derived from ${sourcesCount} source${sourcesCount !== 1 ? 's' : ''}` : 'No source selected'}
+          </span>
+        </div>
+        <div class="footer-actions">
+          ${isFirstStep ? `
+            <button class="btn btn-secondary" id="pipeline-cancel-btn">Cancel</button>
+          ` : `
+            <button class="btn btn-secondary" id="pipeline-back-btn">
+              <i class="ph ph-arrow-left"></i> Back
+            </button>
+          `}
+          ${isLastStep ? `
+            <button class="btn btn-primary" id="pipeline-create-btn" ${sourcesCount === 0 ? 'disabled' : ''}>
+              <i class="ph ph-check"></i> Create Set
+            </button>
+          ` : `
+            <button class="btn btn-primary" id="pipeline-next-btn" ${sourcesCount === 0 ? 'disabled' : ''}>
+              Continue <i class="ph ph-arrow-right"></i>
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Navigate to next step
+   */
+  _nextStep() {
+    const steps = this._getWizardSteps();
+    if (this._currentStep < steps.length) {
+      this._currentStep++;
+      this._render();
+      this._attachEventListeners();
+    }
+  }
+
+  /**
+   * Navigate to previous step
+   */
+  _prevStep() {
+    if (this._currentStep > 1) {
+      this._currentStep--;
+      this._render();
+      this._attachEventListeners();
+    }
   }
 
   _renderSourceCards() {
@@ -7609,45 +7948,13 @@ class DataPipelineUI {
       this._onCancel?.();
     });
 
-    // Add Source
-    this.container.querySelector('#add-source-btn')?.addEventListener('click', () => {
-      this._showAddSourcePicker();
+    // Wizard Navigation
+    this.container.querySelector('#pipeline-next-btn')?.addEventListener('click', () => {
+      this._nextStep();
     });
 
-    // Remove Source
-    this.container.querySelectorAll('.source-remove-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const index = parseInt(e.currentTarget.dataset.index);
-        this._sources.splice(index, 1);
-        this._initFieldsFromSources();
-        this._render();
-        this._attachEventListeners();
-      });
-    });
-
-    // Add Filter
-    this.container.querySelector('#add-filter-btn')?.addEventListener('click', () => {
-      this._showFilterBuilder();
-    });
-
-    // Configure Join
-    this.container.querySelector('#add-join-btn')?.addEventListener('click', () => {
-      this._showJoinConfig();
-    });
-
-    // Configure Fields
-    this.container.querySelector('#configure-fields-btn')?.addEventListener('click', () => {
-      this._showFieldSelector();
-    });
-
-    // Remove transforms
-    this.container.querySelectorAll('.transform-remove-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const type = e.currentTarget.dataset.transformType;
-        this._transforms = this._transforms.filter(t => t.type !== type);
-        this._render();
-        this._attachEventListeners();
-      });
+    this.container.querySelector('#pipeline-back-btn')?.addEventListener('click', () => {
+      this._prevStep();
     });
 
     // Set name input
@@ -7655,17 +7962,12 @@ class DataPipelineUI {
       this._outputName = e.target.value;
     });
 
-    // Preview
-    this.container.querySelector('#pipeline-preview-btn')?.addEventListener('click', () => {
-      this._showPreview();
-    });
-
     // Create
     this.container.querySelector('#pipeline-create-btn')?.addEventListener('click', () => {
       this._createSet();
     });
 
-    // Record type mode selector (lenses/views/none)
+    // Record type mode selector (lenses/views/none) - for wizard step 2
     this.container.querySelectorAll('input[name="record-type-mode"]').forEach(radio => {
       radio.addEventListener('change', (e) => {
         this._recordTypeMode = e.target.value;
@@ -7674,7 +7976,8 @@ class DataPipelineUI {
       });
     });
 
-    this.container.querySelectorAll('#subtypes-list input[type="checkbox"]').forEach(cb => {
+    // Type checkbox handlers for wizard step 2
+    this.container.querySelectorAll('.wizard-type-card input[type="checkbox"]').forEach(cb => {
       cb.addEventListener('change', (e) => {
         if (this._detectedSubtypes) {
           const index = parseInt(e.target.dataset.index);
@@ -7686,7 +7989,28 @@ class DataPipelineUI {
       });
     });
 
-    // Configure button for each record type view
+    // Configure button for each record type in wizard step 2
+    this.container.querySelectorAll('.type-card-configure-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const index = parseInt(e.currentTarget.dataset.index);
+        this._showRecordTypeViewConfig(index);
+      });
+    });
+
+    // Legacy handlers (kept for backward compatibility)
+    this.container.querySelectorAll('#subtypes-list input[type="checkbox"]').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        if (this._detectedSubtypes) {
+          const index = parseInt(e.target.dataset.index);
+          this._detectedSubtypes.values[index].createView = e.target.checked;
+          this._render();
+          this._attachEventListeners();
+        }
+      });
+    });
+
     this.container.querySelectorAll('.subtype-configure-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.preventDefault();
