@@ -1107,6 +1107,12 @@ class EODataWorkbench {
       this._showExportsExplorer();
     });
 
+    // Definitions panel title click - show definitions panel
+    const definitionsPanel = document.querySelector('.definitions-panel .nav-panel-title');
+    definitionsPanel?.addEventListener('click', () => {
+      this._showDefinitionsPanel();
+    });
+
     // New export button
     document.getElementById('btn-new-export')?.addEventListener('click', () => {
       this._showNewExportModal();
@@ -8499,6 +8505,772 @@ class EODataWorkbench {
         ? `${visibleCount} of ${total} definition${total !== 1 ? 's' : ''}`
         : `${total} definition${total !== 1 ? 's' : ''}`;
     }
+  }
+
+  // ==========================================================================
+  // Definitions Panel - Full Table View
+  // ==========================================================================
+
+  /**
+   * Show the main definitions panel with all definitions in table form
+   * Allows viewing, editing, and linking definitions to set keys
+   */
+  _showDefinitionsPanel() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    // Set state flags
+    this.isViewingDefinitions = true;
+    this.currentSourceId = null;
+    this.currentSetId = null;
+    this.currentViewId = null;
+    this.currentDefinitionId = null;
+    this.showingSetFields = false;
+    this.showingSetDetail = false;
+
+    // Get all definitions (filtered by project if applicable)
+    const activeDefinitions = this._getProjectDefinitions().filter(d => d.status !== 'archived');
+
+    // Update breadcrumb
+    this._updateBreadcrumb({
+      workspace: this._getCurrentWorkspaceName(),
+      set: 'Definitions',
+      view: 'All Definitions'
+    });
+
+    // Clear selection in sidebar
+    document.querySelectorAll('.set-item, .source-item, .definition-item, .set-view-item').forEach(item => {
+      item.classList.remove('active');
+    });
+
+    // Get all sets for linking
+    const sets = this.sets.filter(s => s.status !== 'archived');
+
+    // Build the panel HTML
+    contentArea.innerHTML = `
+      <div class="definitions-panel-view">
+        <!-- Header -->
+        <div class="definitions-panel-header">
+          <div class="definitions-panel-title-area">
+            <div class="definitions-panel-icon">
+              <i class="ph ph-book-open"></i>
+            </div>
+            <div class="definitions-panel-title-info">
+              <h2>Definitions</h2>
+              <p class="definitions-panel-subtitle">${activeDefinitions.length} definition${activeDefinitions.length !== 1 ? 's' : ''} • Manage field schemas and link to sets</p>
+            </div>
+          </div>
+          <div class="definitions-panel-actions">
+            <button class="btn btn-secondary" id="def-panel-import-btn">
+              <i class="ph ph-link"></i>
+              Import from URI
+            </button>
+            <button class="btn btn-primary" id="def-panel-new-btn">
+              <i class="ph ph-plus"></i>
+              New Definition
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="definitions-panel-toolbar">
+          <div class="definitions-panel-search">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" id="def-panel-search" placeholder="Search definitions and terms...">
+          </div>
+          <div class="definitions-panel-filters">
+            <select id="def-panel-format-filter" class="def-panel-filter-select">
+              <option value="">All Formats</option>
+              <option value="jsonld">JSON-LD</option>
+              <option value="csvw">CSV Schema</option>
+              <option value="rdf">RDF</option>
+              <option value="json">JSON</option>
+              <option value="other">Other</option>
+            </select>
+            <select id="def-panel-source-filter" class="def-panel-filter-select">
+              <option value="">All Sources</option>
+              <option value="uri">From URI</option>
+              <option value="local">Local</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Main Table -->
+        <div class="definitions-panel-table-container">
+          ${activeDefinitions.length === 0 ? `
+            <div class="definitions-panel-empty">
+              <i class="ph ph-book-open"></i>
+              <h3>No definitions yet</h3>
+              <p>Definitions help standardize your data fields by linking them to schemas</p>
+              <div class="definitions-panel-empty-actions">
+                <button class="btn btn-secondary" id="def-panel-empty-import">
+                  <i class="ph ph-link"></i>
+                  Import from URI
+                </button>
+                <button class="btn btn-primary" id="def-panel-empty-create">
+                  <i class="ph ph-plus"></i>
+                  Create Definition
+                </button>
+              </div>
+            </div>
+          ` : `
+            <table class="definitions-panel-table">
+              <thead>
+                <tr>
+                  <th class="col-expand"></th>
+                  <th class="col-name">Name</th>
+                  <th class="col-description">Description</th>
+                  <th class="col-format">Format</th>
+                  <th class="col-source">Source</th>
+                  <th class="col-terms">Terms</th>
+                  <th class="col-linked">Linked Fields</th>
+                  <th class="col-actions">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="definitions-table-body">
+                ${activeDefinitions.map(def => this._renderDefinitionTableRow(def, sets)).join('')}
+              </tbody>
+            </table>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    this._attachDefinitionsPanelHandlers(activeDefinitions, sets);
+  }
+
+  /**
+   * Render a single definition row in the table
+   */
+  _renderDefinitionTableRow(definition, sets) {
+    const terms = definition.terms || definition.properties || [];
+    const termCount = terms.length;
+    const format = this._getDefinitionFormatLabel(definition.format || definition.type || 'other');
+    const sourceType = definition.sourceUri ? 'URI' : 'Local';
+    const importDate = definition.importedAt ? new Date(definition.importedAt).toLocaleDateString() : '—';
+
+    // Count how many fields are linked to this definition
+    let linkedFieldsCount = 0;
+    const linkedFields = [];
+    sets.forEach(set => {
+      (set.fields || []).forEach(field => {
+        if (field.definitionRef?.definitionId === definition.id) {
+          linkedFieldsCount++;
+          linkedFields.push({ setName: set.name, fieldName: field.name, fieldId: field.id, setId: set.id });
+        }
+      });
+    });
+
+    return `
+      <tr class="definition-row" data-definition-id="${definition.id}">
+        <td class="col-expand">
+          <button class="def-row-expand-btn" title="Expand to see terms">
+            <i class="ph ph-caret-right"></i>
+          </button>
+        </td>
+        <td class="col-name">
+          <div class="def-name-cell">
+            <i class="ph ${this._getDefinitionIcon(definition)} def-icon"></i>
+            <span class="def-name-text" data-field="name">${this._escapeHtml(definition.name)}</span>
+          </div>
+        </td>
+        <td class="col-description">
+          <span class="def-description-text" data-field="description">${this._escapeHtml(definition.description || '—')}</span>
+        </td>
+        <td class="col-format">
+          <span class="def-format-badge">${format}</span>
+        </td>
+        <td class="col-source">
+          <span class="def-source-badge ${sourceType.toLowerCase()}">
+            <i class="ph ${sourceType === 'URI' ? 'ph-link' : 'ph-pencil-simple'}"></i>
+            ${sourceType}
+          </span>
+          ${definition.sourceUri ? `<span class="def-source-uri" title="${this._escapeHtml(definition.sourceUri)}">${this._escapeHtml(this._truncateName(definition.sourceUri, 30))}</span>` : ''}
+        </td>
+        <td class="col-terms">
+          <span class="def-terms-count">${termCount}</span>
+        </td>
+        <td class="col-linked">
+          ${linkedFieldsCount > 0 ? `
+            <button class="def-linked-badge has-links" title="View linked fields">
+              <i class="ph ph-link-simple"></i>
+              <span>${linkedFieldsCount}</span>
+            </button>
+          ` : `
+            <span class="def-linked-badge no-links">—</span>
+          `}
+        </td>
+        <td class="col-actions">
+          <div class="def-row-actions">
+            <button class="def-action-btn" data-action="edit" title="Edit definition">
+              <i class="ph ph-pencil-simple"></i>
+            </button>
+            <button class="def-action-btn" data-action="link" title="Link to set field">
+              <i class="ph ph-arrow-right"></i>
+            </button>
+            <button class="def-action-btn" data-action="refresh" title="Refresh from URI" ${!definition.sourceUri ? 'disabled' : ''}>
+              <i class="ph ph-arrows-clockwise"></i>
+            </button>
+            <button class="def-action-btn danger" data-action="delete" title="Delete definition">
+              <i class="ph ph-trash"></i>
+            </button>
+          </div>
+        </td>
+      </tr>
+      <tr class="definition-terms-row" data-definition-id="${definition.id}" style="display: none;">
+        <td colspan="8">
+          <div class="def-terms-expanded">
+            <div class="def-terms-header">
+              <h4><i class="ph ph-list-numbers"></i> Terms (${termCount})</h4>
+              <button class="btn btn-sm btn-secondary def-add-term-btn" data-definition-id="${definition.id}">
+                <i class="ph ph-plus"></i> Add Term
+              </button>
+            </div>
+            ${terms.length === 0 ? `
+              <p class="def-terms-empty">No terms defined yet</p>
+            ` : `
+              <table class="def-terms-table">
+                <thead>
+                  <tr>
+                    <th>Term Name</th>
+                    <th>Type</th>
+                    <th>Description</th>
+                    <th>URI</th>
+                    <th>Link to Field</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${terms.map(term => this._renderTermRow(term, definition, sets)).join('')}
+                </tbody>
+              </table>
+            `}
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  /**
+   * Render a single term row within a definition
+   */
+  _renderTermRow(term, definition, sets) {
+    const termId = term.id || term.name;
+    const termUri = term.uri || term['@id'] || '';
+
+    // Check if this term is linked to any field
+    let linkedTo = null;
+    sets.forEach(set => {
+      (set.fields || []).forEach(field => {
+        if (field.definitionRef?.definitionId === definition.id &&
+            field.definitionRef?.termId === termId) {
+          linkedTo = { setName: set.name, fieldName: field.name, setId: set.id, fieldId: field.id };
+        }
+      });
+    });
+
+    return `
+      <tr class="term-row" data-term-id="${termId}" data-definition-id="${definition.id}">
+        <td class="term-name">
+          <i class="ph ph-tag"></i>
+          <span>${this._escapeHtml(term.name || term.label)}</span>
+        </td>
+        <td class="term-type">
+          <span class="type-badge">${this._escapeHtml(term.type || term.datatype || 'string')}</span>
+        </td>
+        <td class="term-description">${this._escapeHtml(term.description || term.comment || '—')}</td>
+        <td class="term-uri">
+          ${termUri ? `
+            <a href="${this._escapeHtml(termUri)}" target="_blank" class="term-uri-link" title="${this._escapeHtml(termUri)}">
+              ${this._escapeHtml(this._truncateName(termUri, 25))}
+            </a>
+          ` : '—'}
+        </td>
+        <td class="term-link-action">
+          ${linkedTo ? `
+            <span class="term-linked-to" title="Linked to ${linkedTo.setName}.${linkedTo.fieldName}">
+              <i class="ph ph-check-circle"></i>
+              ${this._escapeHtml(linkedTo.setName)}.${this._escapeHtml(linkedTo.fieldName)}
+              <button class="term-unlink-btn" data-set-id="${linkedTo.setId}" data-field-id="${linkedTo.fieldId}" title="Unlink">
+                <i class="ph ph-x"></i>
+              </button>
+            </span>
+          ` : `
+            <button class="term-link-btn" data-term-id="${termId}" data-definition-id="${definition.id}" title="Link to a set field">
+              <i class="ph ph-arrow-right"></i>
+              Link to field
+            </button>
+          `}
+        </td>
+      </tr>
+    `;
+  }
+
+  /**
+   * Attach event handlers for the definitions panel
+   */
+  _attachDefinitionsPanelHandlers(definitions, sets) {
+    const contentArea = this.elements.contentArea;
+
+    // Import button
+    contentArea.querySelector('#def-panel-import-btn')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+
+    // New definition button
+    contentArea.querySelector('#def-panel-new-btn')?.addEventListener('click', () => {
+      this._showNewDefinitionModal();
+    });
+
+    // Empty state buttons
+    contentArea.querySelector('#def-panel-empty-import')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+    contentArea.querySelector('#def-panel-empty-create')?.addEventListener('click', () => {
+      this._showNewDefinitionModal();
+    });
+
+    // Search
+    const searchInput = contentArea.querySelector('#def-panel-search');
+    searchInput?.addEventListener('input', (e) => {
+      this._filterDefinitionsPanel(e.target.value);
+    });
+
+    // Format filter
+    contentArea.querySelector('#def-panel-format-filter')?.addEventListener('change', (e) => {
+      this._applyDefinitionsPanelFilters();
+    });
+
+    // Source filter
+    contentArea.querySelector('#def-panel-source-filter')?.addEventListener('change', (e) => {
+      this._applyDefinitionsPanelFilters();
+    });
+
+    // Row expand buttons
+    contentArea.querySelectorAll('.def-row-expand-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const row = btn.closest('.definition-row');
+        const definitionId = row?.dataset.definitionId;
+        const termsRow = contentArea.querySelector(`.definition-terms-row[data-definition-id="${definitionId}"]`);
+
+        if (termsRow) {
+          const isExpanded = termsRow.style.display !== 'none';
+          termsRow.style.display = isExpanded ? 'none' : 'table-row';
+          row.classList.toggle('expanded', !isExpanded);
+          btn.querySelector('i').className = isExpanded ? 'ph ph-caret-right' : 'ph ph-caret-down';
+        }
+      });
+    });
+
+    // Row action buttons
+    contentArea.querySelectorAll('.def-action-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const row = btn.closest('.definition-row');
+        const definitionId = row?.dataset.definitionId;
+        const action = btn.dataset.action;
+
+        if (!definitionId) return;
+
+        switch (action) {
+          case 'edit':
+            this._showEditDefinitionModal(definitionId);
+            break;
+          case 'link':
+            this._showLinkDefinitionToFieldModal(definitionId);
+            break;
+          case 'refresh':
+            this._refreshDefinitionFromUri(definitionId);
+            break;
+          case 'delete':
+            this._deleteDefinition(definitionId);
+            break;
+        }
+      });
+    });
+
+    // Add term buttons
+    contentArea.querySelectorAll('.def-add-term-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const definitionId = btn.dataset.definitionId;
+        this._showAddTermModal(definitionId);
+      });
+    });
+
+    // Term link buttons
+    contentArea.querySelectorAll('.term-link-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const termId = btn.dataset.termId;
+        const definitionId = btn.dataset.definitionId;
+        this._showLinkTermToFieldModal(definitionId, termId);
+      });
+    });
+
+    // Term unlink buttons
+    contentArea.querySelectorAll('.term-unlink-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const setId = btn.dataset.setId;
+        const fieldId = btn.dataset.fieldId;
+        this._unlinkFieldFromDefinition(setId, fieldId);
+      });
+    });
+
+    // Linked fields badge click
+    contentArea.querySelectorAll('.def-linked-badge.has-links').forEach(badge => {
+      badge.addEventListener('click', () => {
+        const row = badge.closest('.definition-row');
+        const definitionId = row?.dataset.definitionId;
+        this._showLinkedFieldsModal(definitionId);
+      });
+    });
+
+    // Double-click to edit name/description
+    contentArea.querySelectorAll('.def-name-text, .def-description-text').forEach(cell => {
+      cell.addEventListener('dblclick', (e) => {
+        const row = cell.closest('.definition-row');
+        const definitionId = row?.dataset.definitionId;
+        const field = cell.dataset.field;
+        this._startInlineEdit(definitionId, field, cell);
+      });
+    });
+  }
+
+  /**
+   * Filter definitions panel by search term
+   */
+  _filterDefinitionsPanel(searchTerm) {
+    const term = searchTerm.toLowerCase().trim();
+    const rows = document.querySelectorAll('.definition-row');
+
+    rows.forEach(row => {
+      const definitionId = row.dataset.definitionId;
+      const def = this.definitions.find(d => d.id === definitionId);
+      if (!def) {
+        row.style.display = 'none';
+        return;
+      }
+
+      const searchFields = [
+        def.name,
+        def.description,
+        ...(def.terms || def.properties || []).map(t => t.name || t.label)
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      const matches = !term || searchFields.includes(term);
+      row.style.display = matches ? '' : 'none';
+
+      // Also hide the terms row if definition is hidden
+      const termsRow = document.querySelector(`.definition-terms-row[data-definition-id="${definitionId}"]`);
+      if (termsRow && !matches) {
+        termsRow.style.display = 'none';
+      }
+    });
+  }
+
+  /**
+   * Apply filters to definitions panel
+   */
+  _applyDefinitionsPanelFilters() {
+    const formatFilter = document.getElementById('def-panel-format-filter')?.value || '';
+    const sourceFilter = document.getElementById('def-panel-source-filter')?.value || '';
+    const rows = document.querySelectorAll('.definition-row');
+
+    rows.forEach(row => {
+      const definitionId = row.dataset.definitionId;
+      const def = this.definitions.find(d => d.id === definitionId);
+      if (!def) {
+        row.style.display = 'none';
+        return;
+      }
+
+      const defFormat = (def.format || def.type || '').toLowerCase();
+      const defSource = def.sourceUri ? 'uri' : 'local';
+
+      const formatMatch = !formatFilter || defFormat.includes(formatFilter);
+      const sourceMatch = !sourceFilter || defSource === sourceFilter;
+
+      row.style.display = formatMatch && sourceMatch ? '' : 'none';
+
+      // Also hide the terms row if definition is hidden
+      const termsRow = document.querySelector(`.definition-terms-row[data-definition-id="${definitionId}"]`);
+      if (termsRow && (!formatMatch || !sourceMatch)) {
+        termsRow.style.display = 'none';
+      }
+    });
+  }
+
+  /**
+   * Start inline editing of a definition field
+   */
+  _startInlineEdit(definitionId, field, cell) {
+    const definition = this.definitions.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    const currentValue = field === 'name' ? definition.name : (definition.description || '');
+    const originalContent = cell.innerHTML;
+
+    cell.innerHTML = `
+      <input type="text" class="inline-edit-input" value="${this._escapeHtml(currentValue)}" />
+    `;
+
+    const input = cell.querySelector('input');
+    input.focus();
+    input.select();
+
+    const saveEdit = () => {
+      const newValue = input.value.trim();
+      if (newValue && newValue !== currentValue) {
+        definition[field] = newValue;
+        this._saveData();
+        cell.textContent = newValue;
+        this._showToast(`Definition ${field} updated`, 'success');
+      } else {
+        cell.innerHTML = originalContent;
+      }
+    };
+
+    input.addEventListener('blur', saveEdit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        saveEdit();
+      } else if (e.key === 'Escape') {
+        cell.innerHTML = originalContent;
+      }
+    });
+  }
+
+  /**
+   * Show modal to link a definition term to a set field
+   */
+  _showLinkTermToFieldModal(definitionId, termId) {
+    const definition = this.definitions.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    const term = (definition.terms || definition.properties || []).find(t => (t.id || t.name) === termId);
+    if (!term) return;
+
+    const sets = this.sets.filter(s => s.status !== 'archived');
+
+    const html = `
+      <div class="link-term-form">
+        <p>Link term "<strong>${this._escapeHtml(term.name || term.label)}</strong>" to a set field:</p>
+        <div class="link-term-sets">
+          ${sets.length > 0 ? sets.map(set => `
+            <div class="link-term-set-group" data-set-id="${set.id}">
+              <div class="link-term-set-header">
+                <i class="${set.icon || 'ph ph-table'}"></i>
+                <span>${this._escapeHtml(set.name)}</span>
+              </div>
+              <div class="link-term-fields">
+                ${(set.fields || []).map(field => {
+                  const isLinked = field.definitionRef?.definitionId === definitionId &&
+                                   field.definitionRef?.termId === termId;
+                  return `
+                    <label class="link-term-field-option ${isLinked ? 'already-linked' : ''}">
+                      <input type="radio" name="target-field" value="${set.id}:${field.id}" ${isLinked ? 'checked' : ''}>
+                      <i class="ph ph-text-columns"></i>
+                      <span>${this._escapeHtml(field.name)}</span>
+                      ${isLinked ? '<span class="linked-indicator"><i class="ph ph-check"></i></span>' : ''}
+                    </label>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `).join('') : `
+            <p class="no-sets-message">No sets available. Create a set first.</p>
+          `}
+        </div>
+      </div>
+    `;
+
+    this._showModal('Link Term to Field', html, () => {
+      const selected = document.querySelector('input[name="target-field"]:checked')?.value;
+      if (selected) {
+        const [setId, fieldId] = selected.split(':');
+        this._linkTermToField(definitionId, termId, setId, fieldId);
+      }
+    });
+  }
+
+  /**
+   * Link a term to a field
+   */
+  _linkTermToField(definitionId, termId, setId, fieldId) {
+    const set = this.sets.find(s => s.id === setId);
+    const definition = this.definitions.find(d => d.id === definitionId);
+    const term = (definition?.terms || definition?.properties || []).find(t => (t.id || t.name) === termId);
+
+    if (!set || !definition || !term) return;
+
+    const field = set.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    // Set the definition reference
+    field.definitionRef = {
+      definitionId: definitionId,
+      termId: termId,
+      uri: term.uri || term['@id'] || null,
+      lastSyncedAt: new Date().toISOString()
+    };
+
+    this._saveData();
+    this._closeModal();
+    this._showDefinitionsPanel(); // Refresh the panel
+    this._showToast(`Linked "${term.name || term.label}" to "${field.name}"`, 'success');
+  }
+
+  /**
+   * Unlink a field from its definition
+   */
+  _unlinkFieldFromDefinition(setId, fieldId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    const field = set.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    delete field.definitionRef;
+    this._saveData();
+    this._showDefinitionsPanel(); // Refresh the panel
+    this._showToast('Field unlinked from definition', 'success');
+  }
+
+  /**
+   * Show modal with all fields linked to a definition
+   */
+  _showLinkedFieldsModal(definitionId) {
+    const definition = this.definitions.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    const linkedFields = [];
+    this.sets.forEach(set => {
+      (set.fields || []).forEach(field => {
+        if (field.definitionRef?.definitionId === definitionId) {
+          const term = (definition.terms || definition.properties || []).find(t =>
+            (t.id || t.name) === field.definitionRef.termId
+          );
+          linkedFields.push({
+            setName: set.name,
+            setId: set.id,
+            fieldName: field.name,
+            fieldId: field.id,
+            termName: term?.name || term?.label || 'Unknown term'
+          });
+        }
+      });
+    });
+
+    const html = `
+      <div class="linked-fields-list">
+        ${linkedFields.length === 0 ? `
+          <p class="no-linked-fields">No fields are linked to this definition.</p>
+        ` : `
+          <table class="linked-fields-table">
+            <thead>
+              <tr>
+                <th>Set</th>
+                <th>Field</th>
+                <th>Term</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${linkedFields.map(lf => `
+                <tr>
+                  <td><i class="ph ph-table"></i> ${this._escapeHtml(lf.setName)}</td>
+                  <td><i class="ph ph-text-columns"></i> ${this._escapeHtml(lf.fieldName)}</td>
+                  <td><i class="ph ph-tag"></i> ${this._escapeHtml(lf.termName)}</td>
+                  <td>
+                    <button class="btn btn-sm btn-danger unlink-field-btn"
+                            data-set-id="${lf.setId}" data-field-id="${lf.fieldId}">
+                      <i class="ph ph-x"></i> Unlink
+                    </button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `}
+      </div>
+    `;
+
+    this._showModal(`Linked Fields - ${definition.name}`, html);
+
+    // Attach unlink button handlers
+    document.querySelectorAll('.unlink-field-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const setId = btn.dataset.setId;
+        const fieldId = btn.dataset.fieldId;
+        this._unlinkFieldFromDefinition(setId, fieldId);
+        this._closeModal();
+        this._showLinkedFieldsModal(definitionId); // Refresh modal
+      });
+    });
+  }
+
+  /**
+   * Show modal to link entire definition to set fields
+   */
+  _showLinkDefinitionToFieldModal(definitionId) {
+    const definition = this.definitions.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    const terms = definition.terms || definition.properties || [];
+    const sets = this.sets.filter(s => s.status !== 'archived');
+
+    if (terms.length === 0) {
+      this._showNotification('This definition has no terms to link', 'warning');
+      return;
+    }
+
+    const html = `
+      <div class="link-definition-form">
+        <p>Select a term from "<strong>${this._escapeHtml(definition.name)}</strong>" to link:</p>
+        <div class="link-definition-terms">
+          ${terms.map(term => `
+            <label class="link-term-option">
+              <input type="radio" name="selected-term" value="${term.id || term.name}">
+              <i class="ph ph-tag"></i>
+              <span class="term-name">${this._escapeHtml(term.name || term.label)}</span>
+              <span class="term-type-badge">${this._escapeHtml(term.type || term.datatype || 'string')}</span>
+            </label>
+          `).join('')}
+        </div>
+        <hr class="form-divider">
+        <p>Then select a field to link it to:</p>
+        <div class="link-term-sets">
+          ${sets.map(set => `
+            <div class="link-term-set-group" data-set-id="${set.id}">
+              <div class="link-term-set-header">
+                <i class="${set.icon || 'ph ph-table'}"></i>
+                <span>${this._escapeHtml(set.name)}</span>
+              </div>
+              <div class="link-term-fields">
+                ${(set.fields || []).map(field => `
+                  <label class="link-term-field-option">
+                    <input type="radio" name="target-field" value="${set.id}:${field.id}">
+                    <i class="ph ph-text-columns"></i>
+                    <span>${this._escapeHtml(field.name)}</span>
+                  </label>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    this._showModal('Link Definition to Field', html, () => {
+      const selectedTerm = document.querySelector('input[name="selected-term"]:checked')?.value;
+      const selectedField = document.querySelector('input[name="target-field"]:checked')?.value;
+
+      if (selectedTerm && selectedField) {
+        const [setId, fieldId] = selectedField.split(':');
+        this._linkTermToField(definitionId, selectedTerm, setId, fieldId);
+      } else {
+        this._showNotification('Please select both a term and a field', 'warning');
+      }
+    });
   }
 
   /**
