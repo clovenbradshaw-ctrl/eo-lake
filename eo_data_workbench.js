@@ -13152,15 +13152,13 @@ class EODataWorkbench {
       `;
     }).join('');
 
-    // Only show Import Data / Definitions tabs when actively viewing them
-    // Don't auto-show them in the tab bar
+    // Only show Import Data tab when actively viewing sources
+    // Definitions tab is always visible for easy access
     let tabsHtml = '';
     if (isViewingSource) {
       tabsHtml += importDataTab;
     }
-    if (isViewingDefinitions) {
-      tabsHtml += definitionsTab;
-    }
+    tabsHtml += definitionsTab;
     tabsHtml += setTabs;
 
     container.innerHTML = tabsHtml;
