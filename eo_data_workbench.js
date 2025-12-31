@@ -565,6 +565,27 @@ class EODataWorkbench {
     this.fileExplorerActiveFilter = 'smart_all'; // Active smart folder or tag filter
     this.fileExplorerExpandedFolders = new Set(); // Track expanded folders in tree view
     this.fileExplorerSelectedSources = new Set(); // Track multi-selected sources for batch operations
+
+    // Browser-Style Tab Manager - Everything is a tab like Chrome
+    this.browserTabs = []; // Array of all open tabs
+    this.activeTabId = null; // Currently active tab
+    this.tabHistory = []; // Navigation history for back/forward
+    this.recentlyClosedTabs = []; // For "Reopen closed tab" feature (max 10)
+
+    // Tab types - like Chrome's chrome://settings, chrome://history, etc.
+    this.tabTypes = {
+      // Content tabs (can have multiple instances)
+      set: { singleton: false, icon: 'ph-table' },
+      source: { singleton: false, icon: 'ph-file-csv' },
+
+      // Singleton tabs (only one instance each, like chrome://settings)
+      sources: { singleton: true, label: 'Sources', icon: 'ph-download-simple' },
+      definitions: { singleton: true, label: 'Definitions', icon: 'ph-book-open' },
+      settings: { singleton: true, label: 'Settings', icon: 'ph-gear' },
+      activity: { singleton: true, label: 'Activity', icon: 'ph-clock-counter-clockwise' },
+      shortcuts: { singleton: true, label: 'Shortcuts', icon: 'ph-keyboard' },
+      newTab: { singleton: true, label: 'New Tab', icon: 'ph-plus' }
+    };
   }
 
   // --------------------------------------------------------------------------
@@ -610,9 +631,29 @@ class EODataWorkbench {
     // Attach event listeners
     this._attachEventListeners();
 
-    // Render initial UI
+    // Initialize browser tab keyboard shortcuts
+    this._initTabKeyboardShortcuts();
+
+    // Initialize browser tabs - open the first set or new tab page
+    if (this.browserTabs.length === 0) {
+      if (this.sets.length > 0) {
+        const firstSet = this.sets[0];
+        this.openTab('set', {
+          contentId: firstSet.id,
+          title: firstSet.name,
+          icon: firstSet.icon || 'ph-table'
+        });
+      } else {
+        this.openTab('newTab');
+      }
+    } else {
+      // Render existing tabs
+      this._renderBrowserTabBar();
+      this._renderTabContent();
+    }
+
+    // Render sidebar
     this._renderSidebar();
-    this._renderView();
 
     // Update tossed items badge
     this._updateTossedBadge();
@@ -653,6 +694,897 @@ class EODataWorkbench {
     // Subscribe to registry events
     this.viewRegistry.subscribe?.((eventType, data) => {
       this._handleRegistryEvent(eventType, data);
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Browser Tab Manager - Chrome-like tab management
+  // --------------------------------------------------------------------------
+
+  /**
+   * Open a new tab (like opening a new page in Chrome)
+   * @param {string} type - Tab type (set, source, sources, definitions, settings, etc.)
+   * @param {Object} options - Tab options (id for sets/sources, etc.)
+   * @returns {Object} The opened tab
+   */
+  openTab(type, options = {}) {
+    const tabType = this.tabTypes[type];
+    if (!tabType) {
+      console.warn(`Unknown tab type: ${type}`);
+      return null;
+    }
+
+    // For singleton tabs, check if already open and just activate it
+    if (tabType.singleton) {
+      const existingTab = this.browserTabs.find(t => t.type === type);
+      if (existingTab) {
+        this.activateTab(existingTab.id);
+        return existingTab;
+      }
+    }
+
+    // For content tabs (set, source), check for existing tab with same content
+    if (!tabType.singleton && options.contentId) {
+      const existingTab = this.browserTabs.find(t => t.type === type && t.contentId === options.contentId);
+      if (existingTab) {
+        this.activateTab(existingTab.id);
+        return existingTab;
+      }
+    }
+
+    // Create new tab
+    const tab = {
+      id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      type: type,
+      contentId: options.contentId || null, // For sets: setId, for sources: sourceId
+      title: options.title || tabType.label || 'New Tab',
+      icon: options.icon || tabType.icon,
+      isPinned: options.isPinned || false,
+      createdAt: Date.now(),
+      // View-specific state
+      viewState: options.viewState || {}
+    };
+
+    // Add to tabs array
+    if (tab.isPinned) {
+      // Pinned tabs go to the front
+      const lastPinnedIndex = this.browserTabs.findLastIndex(t => t.isPinned);
+      this.browserTabs.splice(lastPinnedIndex + 1, 0, tab);
+    } else {
+      this.browserTabs.push(tab);
+    }
+
+    // Activate the new tab
+    this.activateTab(tab.id);
+
+    return tab;
+  }
+
+  /**
+   * Close a tab (like clicking X on a Chrome tab)
+   * @param {string} tabId - ID of tab to close
+   * @param {boolean} skipHistory - Don't add to recently closed
+   */
+  closeTab(tabId, skipHistory = false) {
+    const tabIndex = this.browserTabs.findIndex(t => t.id === tabId);
+    if (tabIndex === -1) return;
+
+    const tab = this.browserTabs[tabIndex];
+
+    // Can't close pinned tabs without unpinning first
+    if (tab.isPinned) {
+      console.warn('Cannot close pinned tab. Unpin first.');
+      return;
+    }
+
+    // Add to recently closed for "reopen tab" feature
+    if (!skipHistory) {
+      this.recentlyClosedTabs.unshift({ ...tab, closedAt: Date.now() });
+      if (this.recentlyClosedTabs.length > 10) {
+        this.recentlyClosedTabs.pop();
+      }
+    }
+
+    // Remove the tab
+    this.browserTabs.splice(tabIndex, 1);
+
+    // If we closed the active tab, activate another
+    if (this.activeTabId === tabId) {
+      if (this.browserTabs.length > 0) {
+        // Activate tab to the right, or left if we closed the rightmost
+        const newIndex = Math.min(tabIndex, this.browserTabs.length - 1);
+        this.activateTab(this.browserTabs[newIndex].id);
+      } else {
+        // No tabs left, open new tab page
+        this.openTab('newTab');
+      }
+    } else {
+      // Just re-render the tab bar
+      this._renderBrowserTabBar();
+    }
+  }
+
+  /**
+   * Close all tabs except pinned ones
+   */
+  closeAllTabs() {
+    const tabsToClose = this.browserTabs.filter(t => !t.isPinned);
+    tabsToClose.forEach(tab => {
+      this.closeTab(tab.id);
+    });
+  }
+
+  /**
+   * Close other tabs (keep only the specified tab and pinned tabs)
+   */
+  closeOtherTabs(keepTabId) {
+    const tabsToClose = this.browserTabs.filter(t => t.id !== keepTabId && !t.isPinned);
+    tabsToClose.forEach(tab => {
+      this.closeTab(tab.id);
+    });
+  }
+
+  /**
+   * Close tabs to the right of specified tab
+   */
+  closeTabsToRight(tabId) {
+    const tabIndex = this.browserTabs.findIndex(t => t.id === tabId);
+    if (tabIndex === -1) return;
+
+    const tabsToClose = this.browserTabs.slice(tabIndex + 1).filter(t => !t.isPinned);
+    tabsToClose.forEach(tab => {
+      this.closeTab(tab.id);
+    });
+  }
+
+  /**
+   * Activate/switch to a tab
+   */
+  activateTab(tabId) {
+    const tab = this.browserTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    // Save current tab to history
+    if (this.activeTabId && this.activeTabId !== tabId) {
+      this.tabHistory.push(this.activeTabId);
+      if (this.tabHistory.length > 50) {
+        this.tabHistory.shift();
+      }
+    }
+
+    this.activeTabId = tabId;
+
+    // Update internal state based on tab type
+    this._syncStateFromTab(tab);
+
+    // Render
+    this._renderBrowserTabBar();
+    this._renderTabContent();
+  }
+
+  /**
+   * Reopen the last closed tab
+   */
+  reopenClosedTab() {
+    if (this.recentlyClosedTabs.length === 0) return null;
+
+    const closedTab = this.recentlyClosedTabs.shift();
+    return this.openTab(closedTab.type, {
+      contentId: closedTab.contentId,
+      title: closedTab.title,
+      icon: closedTab.icon,
+      viewState: closedTab.viewState
+    });
+  }
+
+  /**
+   * Pin/unpin a tab
+   */
+  toggleTabPin(tabId) {
+    const tab = this.browserTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    tab.isPinned = !tab.isPinned;
+
+    // Reorder: pinned tabs should be at the front
+    this.browserTabs.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return 0;
+    });
+
+    this._renderBrowserTabBar();
+  }
+
+  /**
+   * Move tab to a new position
+   */
+  moveTab(tabId, newIndex) {
+    const currentIndex = this.browserTabs.findIndex(t => t.id === tabId);
+    if (currentIndex === -1) return;
+
+    const tab = this.browserTabs[currentIndex];
+
+    // Don't allow moving unpinned tabs before pinned tabs
+    const firstUnpinnedIndex = this.browserTabs.findIndex(t => !t.isPinned);
+    if (!tab.isPinned && newIndex < firstUnpinnedIndex) {
+      newIndex = firstUnpinnedIndex;
+    }
+
+    // Move the tab
+    this.browserTabs.splice(currentIndex, 1);
+    this.browserTabs.splice(newIndex, 0, tab);
+
+    this._renderBrowserTabBar();
+  }
+
+  /**
+   * Get the active tab
+   */
+  getActiveTab() {
+    return this.browserTabs.find(t => t.id === this.activeTabId);
+  }
+
+  /**
+   * Sync internal state from tab (for backward compatibility)
+   */
+  _syncStateFromTab(tab) {
+    // Clear all "current" states
+    this.currentSourceId = null;
+    this.isViewingDefinitions = false;
+    this.showingSetDetail = false;
+    this.showingSetFields = false;
+
+    switch (tab.type) {
+      case 'set':
+        this.currentSetId = tab.contentId;
+        this.currentViewId = tab.viewState?.viewId || this.lastViewPerSet[tab.contentId];
+        this.showingSetDetail = tab.viewState?.showDetail || false;
+        this.showingSetFields = tab.viewState?.showFields || false;
+        break;
+
+      case 'source':
+        this.currentSourceId = tab.contentId;
+        break;
+
+      case 'sources':
+        this.currentSourceId = 'sources-table';
+        break;
+
+      case 'definitions':
+        this.isViewingDefinitions = true;
+        break;
+
+      case 'settings':
+      case 'activity':
+      case 'shortcuts':
+      case 'newTab':
+        // These don't need special state
+        break;
+    }
+  }
+
+  /**
+   * Render the browser tab bar
+   */
+  _renderBrowserTabBar() {
+    const container = this.elements.tabBarTabs;
+    if (!container) return;
+
+    const tabsHtml = this.browserTabs.map(tab => {
+      const isActive = tab.id === this.activeTabId;
+      const isPinned = tab.isPinned;
+
+      return `
+        <div class="browser-tab ${isActive ? 'active' : ''} ${isPinned ? 'pinned' : ''}"
+             data-tab-id="${tab.id}"
+             draggable="true">
+          <div class="tab-icon">
+            <i class="ph ${tab.icon}"></i>
+          </div>
+          ${!isPinned ? `<span class="tab-title">${this._escapeHtml(tab.title)}</span>` : ''}
+          ${!isPinned ? `
+            <button class="tab-close" data-tab-id="${tab.id}" title="Close tab">
+              <i class="ph ph-x"></i>
+            </button>
+          ` : ''}
+          ${isActive ? '<div class="tab-curve-right"></div>' : ''}
+        </div>
+      `;
+    }).join('');
+
+    container.innerHTML = tabsHtml;
+
+    this._attachBrowserTabEventHandlers();
+  }
+
+  /**
+   * Attach event handlers for browser tabs
+   */
+  _attachBrowserTabEventHandlers() {
+    const container = this.elements.tabBarTabs;
+    if (!container) return;
+
+    // Tab clicks
+    container.querySelectorAll('.browser-tab').forEach(tabEl => {
+      const tabId = tabEl.dataset.tabId;
+
+      // Left click to activate
+      tabEl.addEventListener('click', (e) => {
+        if (e.target.closest('.tab-close')) return;
+        this.activateTab(tabId);
+      });
+
+      // Middle click to close
+      tabEl.addEventListener('auxclick', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          this.closeTab(tabId);
+        }
+      });
+
+      // Right click context menu
+      tabEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showTabContextMenu(e, tabId);
+      });
+
+      // Drag and drop
+      tabEl.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', tabId);
+        tabEl.classList.add('dragging');
+      });
+
+      tabEl.addEventListener('dragend', () => {
+        tabEl.classList.remove('dragging');
+        container.querySelectorAll('.browser-tab').forEach(t => {
+          t.classList.remove('drag-over', 'drag-over-right');
+        });
+      });
+
+      tabEl.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const draggingTab = container.querySelector('.dragging');
+        if (draggingTab && draggingTab !== tabEl) {
+          const rect = tabEl.getBoundingClientRect();
+          const midpoint = rect.left + rect.width / 2;
+          tabEl.classList.remove('drag-over', 'drag-over-right');
+          if (e.clientX < midpoint) {
+            tabEl.classList.add('drag-over');
+          } else {
+            tabEl.classList.add('drag-over-right');
+          }
+        }
+      });
+
+      tabEl.addEventListener('dragleave', () => {
+        tabEl.classList.remove('drag-over', 'drag-over-right');
+      });
+
+      tabEl.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const draggedTabId = e.dataTransfer.getData('text/plain');
+        const targetIndex = this.browserTabs.findIndex(t => t.id === tabId);
+        const rect = tabEl.getBoundingClientRect();
+        const insertAfter = e.clientX >= rect.left + rect.width / 2;
+        this.moveTab(draggedTabId, insertAfter ? targetIndex + 1 : targetIndex);
+        tabEl.classList.remove('drag-over', 'drag-over-right');
+      });
+    });
+
+    // Close button clicks
+    container.querySelectorAll('.tab-close').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeTab(btn.dataset.tabId);
+      });
+    });
+  }
+
+  /**
+   * Show context menu for a tab
+   */
+  _showTabContextMenu(e, tabId) {
+    const tab = this.browserTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    // Remove any existing context menu
+    document.querySelectorAll('.tab-context-menu').forEach(m => m.remove());
+
+    const menu = document.createElement('div');
+    menu.className = 'tab-context-menu';
+    menu.innerHTML = `
+      <div class="context-menu-item" data-action="pin">
+        <i class="ph ${tab.isPinned ? 'ph-push-pin-slash' : 'ph-push-pin'}"></i>
+        ${tab.isPinned ? 'Unpin' : 'Pin'}
+      </div>
+      <div class="context-menu-item" data-action="duplicate">
+        <i class="ph ph-copy"></i>
+        Duplicate
+      </div>
+      <div class="context-menu-divider"></div>
+      ${!tab.isPinned ? `
+        <div class="context-menu-item" data-action="close">
+          <i class="ph ph-x"></i>
+          Close
+        </div>
+      ` : ''}
+      <div class="context-menu-item" data-action="close-others">
+        <i class="ph ph-x-square"></i>
+        Close Others
+      </div>
+      <div class="context-menu-item" data-action="close-right">
+        <i class="ph ph-arrow-right"></i>
+        Close Tabs to the Right
+      </div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item ${this.recentlyClosedTabs.length === 0 ? 'disabled' : ''}" data-action="reopen">
+        <i class="ph ph-arrow-counter-clockwise"></i>
+        Reopen Closed Tab
+      </div>
+    `;
+
+    menu.style.position = 'fixed';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    menu.style.zIndex = '10000';
+
+    document.body.appendChild(menu);
+
+    // Handle menu actions
+    menu.querySelectorAll('.context-menu-item:not(.disabled)').forEach(item => {
+      item.addEventListener('click', () => {
+        const action = item.dataset.action;
+        switch (action) {
+          case 'pin':
+            this.toggleTabPin(tabId);
+            break;
+          case 'duplicate':
+            this.openTab(tab.type, {
+              contentId: tab.contentId,
+              title: tab.title,
+              icon: tab.icon,
+              viewState: { ...tab.viewState }
+            });
+            break;
+          case 'close':
+            this.closeTab(tabId);
+            break;
+          case 'close-others':
+            this.closeOtherTabs(tabId);
+            break;
+          case 'close-right':
+            this.closeTabsToRight(tabId);
+            break;
+          case 'reopen':
+            this.reopenClosedTab();
+            break;
+        }
+        menu.remove();
+      });
+    });
+
+    // Close menu on click outside
+    setTimeout(() => {
+      document.addEventListener('click', () => menu.remove(), { once: true });
+    }, 0);
+  }
+
+  /**
+   * Render the content for the active tab
+   */
+  _renderTabContent() {
+    const tab = this.getActiveTab();
+    if (!tab) {
+      this._renderNewTabPage();
+      return;
+    }
+
+    switch (tab.type) {
+      case 'set':
+        if (tab.viewState?.showDetail) {
+          this._renderSetDetailView();
+        } else if (tab.viewState?.showFields) {
+          this._renderSetFieldsPanel();
+        } else {
+          this._renderView();
+        }
+        break;
+
+      case 'source':
+        this._renderSourceDetail();
+        break;
+
+      case 'sources':
+        this._showSourcesTableView();
+        break;
+
+      case 'definitions':
+        this._showDefinitionsTableView();
+        break;
+
+      case 'settings':
+        this._renderSettingsTab();
+        break;
+
+      case 'activity':
+        this._renderActivityTab();
+        break;
+
+      case 'shortcuts':
+        this._renderShortcutsTab();
+        break;
+
+      case 'newTab':
+        this._renderNewTabPage();
+        break;
+
+      default:
+        this._renderNewTabPage();
+    }
+  }
+
+  /**
+   * Render the New Tab page (like Chrome's new tab page)
+   */
+  _renderNewTabPage() {
+    const content = this.elements.contentArea;
+    if (!content) return;
+
+    const recentSets = this.sets.slice(0, 8);
+    const recentSources = (this.sources || []).slice(0, 4);
+
+    content.innerHTML = `
+      <div class="new-tab-page">
+        <div class="new-tab-header">
+          <h1>New Tab</h1>
+        </div>
+
+        <div class="new-tab-search">
+          <div class="new-tab-search-box">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" placeholder="Search sets, sources, or type a command..." id="new-tab-search-input" />
+          </div>
+        </div>
+
+        <div class="new-tab-shortcuts">
+          <button class="new-tab-shortcut" data-action="sources">
+            <div class="new-tab-shortcut-icon sources">
+              <i class="ph ph-download-simple"></i>
+            </div>
+            <span>Sources</span>
+          </button>
+          <button class="new-tab-shortcut" data-action="definitions">
+            <div class="new-tab-shortcut-icon definitions">
+              <i class="ph ph-book-open"></i>
+            </div>
+            <span>Definitions</span>
+          </button>
+          <button class="new-tab-shortcut" data-action="settings">
+            <div class="new-tab-shortcut-icon settings">
+              <i class="ph ph-gear"></i>
+            </div>
+            <span>Settings</span>
+          </button>
+          <button class="new-tab-shortcut" data-action="activity">
+            <div class="new-tab-shortcut-icon activity">
+              <i class="ph ph-clock-counter-clockwise"></i>
+            </div>
+            <span>Activity</span>
+          </button>
+          <button class="new-tab-shortcut" data-action="shortcuts">
+            <div class="new-tab-shortcut-icon shortcuts">
+              <i class="ph ph-keyboard"></i>
+            </div>
+            <span>Shortcuts</span>
+          </button>
+          <button class="new-tab-shortcut" data-action="import">
+            <div class="new-tab-shortcut-icon import">
+              <i class="ph ph-plus"></i>
+            </div>
+            <span>Import</span>
+          </button>
+        </div>
+
+        ${recentSets.length > 0 ? `
+          <div class="new-tab-section">
+            <h2>Sets</h2>
+            <div class="new-tab-grid">
+              ${recentSets.map(set => `
+                <button class="new-tab-item" data-action="open-set" data-set-id="${set.id}">
+                  <div class="new-tab-item-icon">
+                    <i class="${set.icon || 'ph ph-table'}"></i>
+                  </div>
+                  <div class="new-tab-item-info">
+                    <div class="new-tab-item-title">${this._escapeHtml(set.name)}</div>
+                    <div class="new-tab-item-meta">${(set.records || []).length} records</div>
+                  </div>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        ${this.recentlyClosedTabs.length > 0 ? `
+          <div class="new-tab-section">
+            <h2>Recently Closed</h2>
+            <div class="new-tab-list">
+              ${this.recentlyClosedTabs.slice(0, 5).map(tab => `
+                <button class="new-tab-closed-item" data-tab-index="${this.recentlyClosedTabs.indexOf(tab)}">
+                  <i class="ph ${tab.icon}"></i>
+                  <span>${this._escapeHtml(tab.title)}</span>
+                  <small>${this._formatRelativeTime(tab.closedAt)}</small>
+                </button>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    // Attach event handlers
+    content.querySelectorAll('.new-tab-shortcut').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action;
+        switch (action) {
+          case 'sources':
+            this.openTab('sources');
+            break;
+          case 'definitions':
+            this.openTab('definitions');
+            break;
+          case 'settings':
+            this.openTab('settings');
+            break;
+          case 'activity':
+            this.openTab('activity');
+            break;
+          case 'shortcuts':
+            this.openTab('shortcuts');
+            break;
+          case 'import':
+            this._showImportDialog();
+            break;
+        }
+      });
+    });
+
+    content.querySelectorAll('[data-action="open-set"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const setId = btn.dataset.setId;
+        const set = this.sets.find(s => s.id === setId);
+        if (set) {
+          this.openTab('set', {
+            contentId: setId,
+            title: set.name,
+            icon: set.icon || 'ph-table'
+          });
+        }
+      });
+    });
+
+    content.querySelectorAll('.new-tab-closed-item').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this.reopenClosedTab();
+      });
+    });
+
+    // Focus search input
+    const searchInput = document.getElementById('new-tab-search-input');
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          // TODO: Implement search
+        }
+      });
+    }
+  }
+
+  /**
+   * Render Settings tab content
+   */
+  _renderSettingsTab() {
+    const content = this.elements.contentArea;
+    if (!content) return;
+
+    content.innerHTML = `
+      <div class="settings-page">
+        <div class="settings-header">
+          <h1><i class="ph ph-gear"></i> Settings</h1>
+        </div>
+        <div class="settings-content">
+          <div class="settings-section">
+            <h2>Appearance</h2>
+            <div class="settings-item">
+              <div class="settings-item-info">
+                <div class="settings-item-label">Theme</div>
+                <div class="settings-item-desc">Choose your preferred color scheme</div>
+              </div>
+              <select class="settings-select" id="settings-theme">
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+                <option value="system">System</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h2>Data</h2>
+            <div class="settings-item">
+              <div class="settings-item-info">
+                <div class="settings-item-label">Auto-save</div>
+                <div class="settings-item-desc">Automatically save changes</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" checked />
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h2>About</h2>
+            <div class="settings-about">
+              <p><strong>EO Lake</strong></p>
+              <p>Version 1.0.0</p>
+              <p class="settings-about-desc">A data workbench for organizing and transforming your data.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render Activity tab content
+   */
+  _renderActivityTab() {
+    const content = this.elements.contentArea;
+    if (!content) return;
+
+    content.innerHTML = `
+      <div class="activity-page">
+        <div class="activity-header">
+          <h1><i class="ph ph-clock-counter-clockwise"></i> Activity</h1>
+        </div>
+        <div class="activity-content">
+          <div class="activity-empty">
+            <i class="ph ph-clock-counter-clockwise"></i>
+            <h3>No recent activity</h3>
+            <p>Your recent actions will appear here</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render Shortcuts tab content
+   */
+  _renderShortcutsTab() {
+    const content = this.elements.contentArea;
+    if (!content) return;
+
+    content.innerHTML = `
+      <div class="shortcuts-page">
+        <div class="shortcuts-header">
+          <h1><i class="ph ph-keyboard"></i> Keyboard Shortcuts</h1>
+        </div>
+        <div class="shortcuts-content">
+          <div class="shortcuts-section">
+            <h2>Tabs</h2>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">New tab</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>T</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Close tab</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>W</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Reopen closed tab</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>T</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Next tab</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Tab</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Previous tab</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Tab</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Go to tab 1-9</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>1-9</kbd></span>
+            </div>
+          </div>
+
+          <div class="shortcuts-section">
+            <h2>Navigation</h2>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Search</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>K</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Go to Sources</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>S</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Go to Definitions</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd></span>
+            </div>
+          </div>
+
+          <div class="shortcuts-section">
+            <h2>Editing</h2>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Undo</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Z</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Redo</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>Z</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Copy</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>C</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Paste</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>V</kbd></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Initialize keyboard shortcuts for tabs
+   */
+  _initTabKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+T: New tab
+      if (e.ctrlKey && e.key === 't') {
+        e.preventDefault();
+        this.openTab('newTab');
+      }
+
+      // Ctrl+W: Close current tab
+      if (e.ctrlKey && e.key === 'w') {
+        e.preventDefault();
+        if (this.activeTabId) {
+          this.closeTab(this.activeTabId);
+        }
+      }
+
+      // Ctrl+Shift+T: Reopen closed tab
+      if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+        e.preventDefault();
+        this.reopenClosedTab();
+      }
+
+      // Ctrl+Tab: Next tab
+      if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        const currentIndex = this.browserTabs.findIndex(t => t.id === this.activeTabId);
+        const nextIndex = e.shiftKey
+          ? (currentIndex - 1 + this.browserTabs.length) % this.browserTabs.length
+          : (currentIndex + 1) % this.browserTabs.length;
+        if (this.browserTabs[nextIndex]) {
+          this.activateTab(this.browserTabs[nextIndex].id);
+        }
+      }
+
+      // Ctrl+1-9: Go to tab N
+      if (e.ctrlKey && e.key >= '1' && e.key <= '9') {
+        e.preventDefault();
+        const index = parseInt(e.key) - 1;
+        if (this.browserTabs[index]) {
+          this.activateTab(this.browserTabs[index].id);
+        }
+      }
     });
   }
 
@@ -14744,79 +15676,12 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   /**
-   * Render the browser-style tab bar showing Sets (like Airtable tables)
-   * Tabs = Sets, Views are shown in the disclosure panel below
-   * Also includes an "Import Data" tab as the first tab for viewing sources
+   * Render the browser-style tab bar - now uses the unified browser tab system
+   * All tabs (sets, sources, definitions, settings, etc.) are closeable like Chrome
    */
   _renderTabBar() {
-    const container = this.elements.tabBarTabs;
-    if (!container) return;
-
-    // Check if viewing a source (Import Data tab should be active)
-    const isViewingSource = !!this.currentSourceId;
-    const isViewingDefinitions = this.isViewingDefinitions;
-
-    // Count active sources for the Import Data tab badge
-    const activeSourceCount = (this.sources || []).filter(s => s.status !== 'archived').length;
-    const activeDefinitionsCount = (this.definitions || []).filter(d => d.status !== 'archived').length;
-
-    // Build Import Data tab (always first)
-    const importDataTab = `
-      <div class="browser-tab import-data-tab ${isViewingSource ? 'active' : ''}"
-           data-tab-type="import-data">
-        <div class="tab-icon">
-          <i class="ph ph-download-simple"></i>
-        </div>
-        <span class="tab-title">Import Data</span>
-        <span class="tab-count">${activeSourceCount}</span>
-        ${isViewingSource ? '<div class="tab-curve-right"></div>' : ''}
-      </div>
-    `;
-
-    // Build Definitions tab (after Import Data)
-    const definitionsTab = `
-      <div class="browser-tab definitions-tab ${isViewingDefinitions ? 'active' : ''}"
-           data-tab-type="definitions">
-        <div class="tab-icon">
-          <i class="ph ph-book-open"></i>
-        </div>
-        <span class="tab-title">Definitions</span>
-        <span class="tab-count">${activeDefinitionsCount}</span>
-        ${isViewingDefinitions ? '<div class="tab-curve-right"></div>' : ''}
-      </div>
-    `;
-
-    // Build Set tabs
-    const setTabs = this.sets.map(set => {
-      const recordCount = set.records?.length || 0;
-      const isActive = !isViewingSource && !isViewingDefinitions && set.id === this.currentSetId;
-      return `
-        <div class="browser-tab ${isActive ? 'active' : ''}"
-             data-set-id="${set.id}"
-             draggable="true">
-          <div class="tab-icon">
-            <i class="${set.icon || 'ph ph-table'}"></i>
-          </div>
-          <span class="tab-title">${this._escapeHtml(set.name)}</span>
-          <span class="tab-count">${recordCount}</span>
-          ${isActive ? '<div class="tab-curve-right"></div>' : ''}
-        </div>
-      `;
-    }).join('');
-
-    // Only show Import Data tab when actively viewing sources
-    // Definitions tab is always visible for easy access
-    let tabsHtml = '';
-    if (isViewingSource) {
-      tabsHtml += importDataTab;
-    }
-    tabsHtml += definitionsTab;
-    tabsHtml += setTabs;
-
-    container.innerHTML = tabsHtml;
-
-    // Attach event handlers to tabs
-    this._attachTabEventHandlers();
+    // Delegate to the new browser tab rendering
+    this._renderBrowserTabBar();
     this._checkTabOverflow();
   }
 
@@ -15246,11 +16111,10 @@ class EODataWorkbench {
   }
 
   /**
-   * Create a new tab (now creates a new Set since tabs = Sets)
+   * Create a new tab (opens the New Tab page like Chrome)
    */
   _createNewTab() {
-    // Show the operator-first creation modal to create a new Set
-    this._showOperatorFirstCreationModal();
+    this.openTab('newTab');
   }
 
   /**
@@ -16081,11 +16945,8 @@ class EODataWorkbench {
   }
 
   _selectSet(setId, panelMode = 'detail') {
-    this.currentSetId = setId;
-
-    // Clear source selection when switching to a set
-    this.currentSourceId = null;
-    this.isViewingDefinitions = false;
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
 
     // Clear search when switching sets
     this.viewSearchTerm = '';
@@ -16095,29 +16956,32 @@ class EODataWorkbench {
       this._loadSetRecords(setId);
     }
 
-    const set = this.getCurrentSet();
-
-    // When clicking on set header, show detail view by default
-    // panelMode can be: 'detail', 'fields', or 'view'
+    // Build view state based on panel mode
+    let viewState = {};
     if (panelMode === 'detail') {
-      this.showingSetDetail = true;
-      this.showingSetFields = false;
-      this.currentViewId = null;
+      viewState = { showDetail: true, showFields: false };
     } else if (panelMode === 'fields') {
-      this.showingSetDetail = false;
-      this.showingSetFields = true;
-      this.currentViewId = null;
+      viewState = { showDetail: false, showFields: true };
     } else {
-      // Use remembered view for this set, or fall back to first view
-      this.showingSetDetail = false;
-      this.showingSetFields = false;
+      // Use remembered view for this set
       const rememberedViewId = this.lastViewPerSet[setId];
       const rememberedView = rememberedViewId && set?.views.find(v => v.id === rememberedViewId);
-      this.currentViewId = rememberedView ? rememberedViewId : set?.views[0]?.id;
+      viewState = {
+        showDetail: false,
+        showFields: false,
+        viewId: rememberedView ? rememberedViewId : set?.views[0]?.id
+      };
     }
 
+    // Open as a browser tab
+    this.openTab('set', {
+      contentId: setId,
+      title: set.name,
+      icon: set.icon || 'ph-table',
+      viewState: viewState
+    });
+
     this._renderSidebar();
-    this._renderView();
     this._updateBreadcrumb();
     this._saveData();
   }
@@ -16786,7 +17650,7 @@ class EODataWorkbench {
 
   /**
    * Render the Set Detail View (Input → Transformation → Output)
-   * High-level overview of the set's data flow
+   * Now uses a tabbed interface where each panel is a closeable tab
    */
   _renderSetDetailView() {
     const set = this.getCurrentSet();
@@ -16804,33 +17668,12 @@ class EODataWorkbench {
     const derivation = this._getSetDerivationInfo(set);
     const prov = set.datasetProvenance || {};
 
-    // Gather input sources
-    const inputSources = this._getSetInputSources(set);
-
-    // Gather transformation info
-    const transformations = this._getSetTransformations(set);
-
-    // Gather output info (exports, derived sets)
-    const outputs = this._getSetOutputs(set);
-
-    // Detect record types for splitting
-    const recordTypeAnalysis = this._analyzeRecordTypesForSet(set);
-
-    // Calculate field completeness stats
-    const fieldStats = this._calculateFieldStats(set);
-
-    // Calculate overall completeness
-    const completeness = this._calculateSetCompleteness(set);
-
-    // Get source info for display
-    const sourceInfo = this._getSourceDisplayInfo(set);
-
     // Format last updated time
     const lastUpdated = prov.importedAt || prov.createdAt || set.createdAt;
     const lastUpdatedDisplay = lastUpdated ? this._formatRelativeTime(lastUpdated) : 'Unknown';
 
     content.innerHTML = `
-      <div class="set-dashboard">
+      <div class="set-dashboard tabbed">
         <!-- Header -->
         <div class="set-dashboard-header">
           <div class="set-dashboard-title-section">
@@ -16874,269 +17717,52 @@ class EODataWorkbench {
           </div>
         </div>
 
-        <!-- Top Row: Overview, Source, Transformations -->
-        <div class="set-dashboard-grid">
-          <!-- Data Overview Card -->
-          <div class="set-dashboard-card overview">
-            <div class="set-dashboard-card-header">
-              <div class="set-dashboard-card-title">
-                <i class="ph ph-chart-bar"></i>
-                Data Overview
-              </div>
-            </div>
-            <div class="set-dashboard-card-content">
-              <div class="set-dashboard-stats-grid">
-                <div class="set-dashboard-stat">
-                  <div class="set-dashboard-stat-value">${records.length.toLocaleString()}</div>
-                  <div class="set-dashboard-stat-label">Records</div>
-                </div>
-                <div class="set-dashboard-stat">
-                  <div class="set-dashboard-stat-value">${fields.length}</div>
-                  <div class="set-dashboard-stat-label">Fields</div>
-                </div>
-                <div class="set-dashboard-stat">
-                  <div class="set-dashboard-stat-value">${views.length}</div>
-                  <div class="set-dashboard-stat-label">Views</div>
-                </div>
-                <div class="set-dashboard-stat ${recordTypeAnalysis ? 'highlight' : ''}">
-                  <div class="set-dashboard-stat-value">${recordTypeAnalysis ? recordTypeAnalysis.types.length : 1}</div>
-                  <div class="set-dashboard-stat-label">Record Types</div>
-                </div>
-              </div>
-              <div class="set-dashboard-completeness">
-                <div class="set-dashboard-completeness-header">
-                  <span class="set-dashboard-completeness-label">Data Completeness</span>
-                  <span class="set-dashboard-completeness-value">${completeness}%</span>
-                </div>
-                <div class="set-dashboard-completeness-bar">
-                  <div class="set-dashboard-completeness-fill" style="width: ${completeness}%"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Source Card -->
-          <div class="set-dashboard-card source">
-            <div class="set-dashboard-card-header">
-              <div class="set-dashboard-card-title">
-                <i class="ph ph-download-simple"></i>
-                Source
-              </div>
-              ${inputSources.length > 0 ? `
-                <button class="set-dashboard-card-action" id="set-dashboard-view-source">View</button>
-              ` : ''}
-            </div>
-            <div class="set-dashboard-card-content">
-              ${inputSources.length > 0 ? inputSources.map(source => `
-                <div class="set-dashboard-source-item" data-source-id="${source.id || ''}" data-set-id="${source.setId || ''}">
-                  <div class="set-dashboard-source-icon">
-                    <i class="ph ${source.icon}"></i>
-                  </div>
-                  <div class="set-dashboard-source-details">
-                    <div class="set-dashboard-source-name">${this._escapeHtml(source.name)}</div>
-                    <div class="set-dashboard-source-meta">
-                      ${sourceInfo.type ? `<span class="set-dashboard-source-badge">${sourceInfo.type}</span>` : ''}
-                      <span>${source.meta}</span>
-                    </div>
-                  </div>
-                </div>
-              `).join('') : `
-                <div class="set-dashboard-empty">
-                  <i class="ph ph-file-dashed"></i>
-                  <span>No source tracked</span>
-                </div>
-              `}
-              <button class="set-dashboard-add-btn" id="set-dashboard-add-source">
-                <i class="ph ph-plus"></i> Add Source
-              </button>
-            </div>
-          </div>
-
-          <!-- Transformations Card -->
-          <div class="set-dashboard-card transforms">
-            <div class="set-dashboard-card-header">
-              <div class="set-dashboard-card-title">
-                <i class="ph ph-gear"></i>
-                Transformations
-              </div>
-            </div>
-            <div class="set-dashboard-card-content">
-              ${transformations.length > 0 ? `
-                <div class="set-dashboard-transform-list">
-                  ${transformations.map(t => `
-                    <div class="set-dashboard-transform-item">
-                      ${t.badge}
-                      <div class="set-dashboard-transform-text">
-                        ${this._escapeHtml(t.name)}
-                        <small>${this._escapeHtml(t.description)}</small>
-                      </div>
-                    </div>
-                  `).join('')}
-                </div>
-              ` : `
-                <div class="set-dashboard-transform-item">
-                  <span class="op-badge direct">INS</span>
-                  <div class="set-dashboard-transform-text">
-                    Direct Import
-                    <small>No transformations applied</small>
-                  </div>
-                </div>
-              `}
-              <div class="set-dashboard-schema-link">
-                <span class="set-dashboard-schema-info">
-                  Schema: <strong>${fields.length} fields</strong>
-                </span>
-                <button class="set-dashboard-card-action" id="set-dashboard-view-fields">
-                  View Fields →
-                </button>
-              </div>
-            </div>
-          </div>
+        <!-- Panel Tab Bar -->
+        <div class="panel-tab-bar" id="panel-tab-bar">
+          <!-- Tabs rendered dynamically -->
         </div>
 
-        <!-- Fields Overview Row -->
-        <div class="set-dashboard-fields-row">
-          <div class="set-dashboard-card fields">
-            <div class="set-dashboard-card-header">
-              <div class="set-dashboard-card-title">
-                <i class="ph ph-columns"></i>
-                Field Overview
-              </div>
-              <button class="set-dashboard-card-action" id="set-dashboard-manage-fields">
-                Manage Fields →
-              </button>
-            </div>
-            <div class="set-dashboard-card-content">
-              <div class="set-dashboard-fields-grid">
-                ${fieldStats.slice(0, 6).map(field => `
-                  <div class="set-dashboard-field-item" data-field-id="${field.id}">
-                    <div class="set-dashboard-field-name" title="${this._escapeHtml(field.name)}">${this._escapeHtml(field.name)}</div>
-                    <div class="set-dashboard-field-type">
-                      <i class="ph ${this._getFieldTypeIcon(field.type)}"></i>
-                      ${field.type}
-                    </div>
-                    <div class="set-dashboard-field-completeness">
-                      <div class="set-dashboard-field-completeness-fill ${field.completeness < 50 ? 'danger' : field.completeness < 80 ? 'warning' : ''}"
-                           style="width: ${field.completeness}%"></div>
-                    </div>
-                  </div>
-                `).join('')}
-                ${fields.length > 6 ? `
-                  <div class="set-dashboard-field-more" id="set-dashboard-show-all-fields">
-                    <i class="ph ph-plus"></i>
-                    +${fields.length - 6} more
-                  </div>
-                ` : ''}
-              </div>
-            </div>
-          </div>
+        <!-- Panel Tab Content -->
+        <div class="panel-tab-content" id="panel-tab-content">
+          <!-- Content rendered dynamically -->
         </div>
-
-        <!-- Bottom Row: Exports and Derived Sets -->
-        <div class="set-dashboard-bottom-grid">
-          <!-- Exports Card -->
-          <div class="set-dashboard-card exports">
-            <div class="set-dashboard-card-header">
-              <div class="set-dashboard-card-title">
-                <i class="ph ph-export"></i>
-                Exports
-              </div>
-            </div>
-            <div class="set-dashboard-card-content">
-              ${outputs.exports.length > 0 ? `
-                <div class="set-dashboard-list">
-                  ${outputs.exports.map(exp => `
-                    <div class="set-dashboard-list-item">
-                      <i class="ph ${exp.icon}"></i>
-                      <div class="set-dashboard-list-item-info">
-                        <div class="set-dashboard-list-item-name">${this._escapeHtml(exp.name)}</div>
-                        <div class="set-dashboard-list-item-meta">${exp.date}</div>
-                      </div>
-                    </div>
-                  `).join('')}
-                </div>
-              ` : `
-                <div class="set-dashboard-empty">
-                  <i class="ph ph-export"></i>
-                  <span>No exports yet</span>
-                </div>
-              `}
-              <button class="set-dashboard-add-btn" id="set-dashboard-export-now">
-                <i class="ph ph-export"></i> Export Now
-              </button>
-            </div>
-          </div>
-
-          <!-- Lenses Card -->
-          <div class="set-dashboard-card derived">
-            <div class="set-dashboard-card-header">
-              <div class="set-dashboard-card-title">
-                <i class="ph ph-git-branch"></i>
-                Lenses
-              </div>
-            </div>
-            <div class="set-dashboard-card-content">
-              ${outputs.derivedSets.length > 0 ? `
-                <div class="set-dashboard-list">
-                  ${outputs.derivedSets.map(ds => `
-                    <div class="set-dashboard-list-item" data-set-id="${ds.id}">
-                      <i class="ph ${ds.icon}"></i>
-                      <div class="set-dashboard-list-item-info">
-                        <div class="set-dashboard-list-item-name">${this._escapeHtml(ds.name)}</div>
-                        <div class="set-dashboard-list-item-meta">${ds.relation}</div>
-                      </div>
-                    </div>
-                  `).join('')}
-                </div>
-              ` : `
-                <div class="set-dashboard-empty">
-                  <i class="ph ph-git-branch"></i>
-                  <span>No lenses</span>
-                </div>
-              `}
-              <button class="set-dashboard-add-btn" id="set-dashboard-create-derived">
-                <i class="ph ph-git-branch"></i> Create Lens
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Record Types Section (if applicable) -->
-        ${recordTypeAnalysis ? `
-          <div class="set-dashboard-card record-types">
-            <div class="set-dashboard-card-header">
-              <div class="set-dashboard-card-title">
-                <i class="ph ph-stack"></i>
-                Record Types
-              </div>
-              <button class="set-dashboard-card-action" id="set-dashboard-split-all">
-                Create All Views
-              </button>
-            </div>
-            <div class="set-dashboard-card-content">
-              <div class="set-dashboard-record-types-info">
-                This set contains <strong>${recordTypeAnalysis.types.length}</strong> different record types
-                based on the <code>${this._escapeHtml(recordTypeAnalysis.typeField)}</code> field.
-              </div>
-              <div class="set-dashboard-record-types-grid">
-                ${recordTypeAnalysis.types.map(type => `
-                  <div class="set-dashboard-record-type-item" data-type-value="${this._escapeHtml(type.value)}">
-                    <div class="set-dashboard-record-type-name">${this._escapeHtml(type.label)}</div>
-                    <div class="set-dashboard-record-type-count">${type.count} records</div>
-                    <button class="set-dashboard-record-type-btn" data-type-value="${this._escapeHtml(type.value)}">
-                      <i class="ph ph-eye"></i> View
-                    </button>
-                  </div>
-                `).join('')}
-              </div>
-            </div>
-          </div>
-        ` : ''}
       </div>
     `;
 
-    // Attach event handlers
-    this._attachSetDashboardEventHandlers(set, recordTypeAnalysis);
+    // Attach header event handlers
+    this._attachSetDashboardHeaderHandlers(set);
+
+    // Initialize panel tabs if none are open
+    if (this.panelTabs.length === 0) {
+      // Open default tabs: Overview, Fields, and Source
+      this._openPanelTab('overview');
+      this._openPanelTab('fields');
+      this._openPanelTab('source');
+    } else {
+      // Just render the existing tabs
+      this._renderPanelTabs();
+      this._renderPanelTabContent();
+    }
+  }
+
+  /**
+   * Attach event handlers for set dashboard header only
+   */
+  _attachSetDashboardHeaderHandlers(set) {
+    // Export button
+    document.getElementById('set-dashboard-export-btn')?.addEventListener('click', () => {
+      this._showExportDialog(set.id);
+    });
+
+    // Edit button - go to fields
+    document.getElementById('set-dashboard-edit-btn')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+
+    // Delete button
+    document.getElementById('set-dashboard-delete-btn')?.addEventListener('click', () => {
+      this._confirmDeleteSet(set.id);
+    });
   }
 
   /**
@@ -17380,6 +18006,819 @@ class EODataWorkbench {
       if (recordTypeAnalysis) {
         this._createAllRecordTypeViews(set, recordTypeAnalysis);
       }
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Panel Tab Management - Convert panels to closeable tabs
+  // --------------------------------------------------------------------------
+
+  /**
+   * Open a panel tab
+   * @param {string} type - The panel type (overview, source, transforms, fields, exports, lenses, recordTypes)
+   * @param {Object} options - Additional options like context data
+   */
+  _openPanelTab(type, options = {}) {
+    const tabType = this.panelTabTypes[type];
+    if (!tabType) return;
+
+    // Check if tab already exists (singletons)
+    const existingTab = this.panelTabs.find(t => t.type === type);
+    if (existingTab && tabType.singleton) {
+      // Just activate the existing tab
+      this._activatePanelTab(existingTab.id);
+      return;
+    }
+
+    // Create new tab
+    const tabId = `panel-${type}-${Date.now()}`;
+    const newTab = {
+      id: tabId,
+      type: type,
+      label: tabType.label,
+      icon: tabType.icon,
+      context: options.context || {},
+      isPinned: false,
+      openedAt: Date.now()
+    };
+
+    this.panelTabs.push(newTab);
+    this._activatePanelTab(tabId);
+    this._renderPanelTabs();
+  }
+
+  /**
+   * Close a panel tab
+   * @param {string} tabId - The tab ID to close
+   */
+  _closePanelTab(tabId) {
+    const tabIndex = this.panelTabs.findIndex(t => t.id === tabId);
+    if (tabIndex === -1) return;
+
+    const tab = this.panelTabs[tabIndex];
+    if (tab.isPinned) return; // Can't close pinned tabs
+
+    // Add to history for potential "reopen" feature
+    this.panelTabHistory.push(tab);
+    if (this.panelTabHistory.length > 10) {
+      this.panelTabHistory.shift();
+    }
+
+    // Remove the tab
+    this.panelTabs.splice(tabIndex, 1);
+
+    // If we closed the active tab, activate another
+    if (this.activePanelTabId === tabId) {
+      if (this.panelTabs.length > 0) {
+        // Activate the tab to the right, or the last tab if we closed the rightmost
+        const newIndex = Math.min(tabIndex, this.panelTabs.length - 1);
+        this._activatePanelTab(this.panelTabs[newIndex].id);
+      } else {
+        this.activePanelTabId = null;
+        this._renderPanelTabContent();
+      }
+    }
+
+    this._renderPanelTabs();
+  }
+
+  /**
+   * Close all panel tabs
+   */
+  _closeAllPanelTabs() {
+    const unpinnedTabs = this.panelTabs.filter(t => !t.isPinned);
+    unpinnedTabs.forEach(tab => {
+      this.panelTabHistory.push(tab);
+    });
+    if (this.panelTabHistory.length > 10) {
+      this.panelTabHistory = this.panelTabHistory.slice(-10);
+    }
+
+    this.panelTabs = this.panelTabs.filter(t => t.isPinned);
+    this.activePanelTabId = this.panelTabs.length > 0 ? this.panelTabs[0].id : null;
+    this._renderPanelTabs();
+    this._renderPanelTabContent();
+  }
+
+  /**
+   * Activate a panel tab
+   * @param {string} tabId - The tab ID to activate
+   */
+  _activatePanelTab(tabId) {
+    const tab = this.panelTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    this.activePanelTabId = tabId;
+    this._renderPanelTabs();
+    this._renderPanelTabContent();
+  }
+
+  /**
+   * Toggle pin status of a panel tab
+   * @param {string} tabId - The tab ID to toggle
+   */
+  _togglePanelTabPin(tabId) {
+    const tab = this.panelTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    tab.isPinned = !tab.isPinned;
+
+    // Move pinned tabs to the front
+    this.panelTabs.sort((a, b) => {
+      if (a.isPinned && !b.isPinned) return -1;
+      if (!a.isPinned && b.isPinned) return 1;
+      return 0;
+    });
+
+    this._renderPanelTabs();
+  }
+
+  /**
+   * Render the panel tab bar
+   */
+  _renderPanelTabs() {
+    const container = document.getElementById('panel-tab-bar');
+    if (!container) return;
+
+    const tabsHtml = this.panelTabs.map(tab => {
+      const isActive = tab.id === this.activePanelTabId;
+      return `
+        <div class="panel-tab ${isActive ? 'active' : ''} ${tab.isPinned ? 'pinned' : ''}"
+             data-panel-tab-id="${tab.id}"
+             data-panel-type="${tab.type}">
+          <div class="panel-tab-icon">
+            <i class="ph ${tab.icon}"></i>
+          </div>
+          ${!tab.isPinned ? `<span class="panel-tab-title">${this._escapeHtml(tab.label)}</span>` : ''}
+          ${!tab.isPinned ? `
+            <button class="panel-tab-close" data-panel-tab-id="${tab.id}">
+              <i class="ph ph-x"></i>
+            </button>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
+    // Panel types available to open
+    const availableTypes = Object.values(this.panelTabTypes)
+      .filter(type => !this.panelTabs.find(t => t.type === type.id && type.singleton))
+      .map(type => `
+        <div class="panel-tab-menu-item" data-panel-type="${type.id}">
+          <i class="ph ${type.icon}"></i>
+          ${type.label}
+        </div>
+      `).join('');
+
+    container.innerHTML = `
+      <div class="panel-tabs-scroll">
+        ${tabsHtml}
+      </div>
+      <div class="panel-tabs-actions">
+        <button class="panel-tab-add" id="panel-tab-add" title="Open panel">
+          <i class="ph ph-plus"></i>
+        </button>
+        ${this.panelTabs.length > 0 ? `
+          <button class="panel-tab-close-all" id="panel-tab-close-all" title="Close all tabs">
+            <i class="ph ph-x-circle"></i>
+          </button>
+        ` : ''}
+      </div>
+      <div class="panel-tab-menu" id="panel-tab-menu" style="display: none;">
+        ${availableTypes || '<div class="panel-tab-menu-empty">All panels open</div>'}
+      </div>
+    `;
+
+    this._attachPanelTabEventHandlers();
+  }
+
+  /**
+   * Attach event handlers for panel tabs
+   */
+  _attachPanelTabEventHandlers() {
+    const container = document.getElementById('panel-tab-bar');
+    if (!container) return;
+
+    // Tab clicks
+    container.querySelectorAll('.panel-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        if (e.target.closest('.panel-tab-close')) return;
+        this._activatePanelTab(tab.dataset.panelTabId);
+      });
+
+      // Middle click to close
+      tab.addEventListener('auxclick', (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          this._closePanelTab(tab.dataset.panelTabId);
+        }
+      });
+
+      // Right click for context menu
+      tab.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showPanelTabContextMenu(e, tab.dataset.panelTabId);
+      });
+    });
+
+    // Close button clicks
+    container.querySelectorAll('.panel-tab-close').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._closePanelTab(btn.dataset.panelTabId);
+      });
+    });
+
+    // Add button
+    const addBtn = document.getElementById('panel-tab-add');
+    if (addBtn) {
+      addBtn.addEventListener('click', () => {
+        const menu = document.getElementById('panel-tab-menu');
+        if (menu) {
+          menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+      });
+    }
+
+    // Close all button
+    const closeAllBtn = document.getElementById('panel-tab-close-all');
+    if (closeAllBtn) {
+      closeAllBtn.addEventListener('click', () => {
+        this._closeAllPanelTabs();
+      });
+    }
+
+    // Menu item clicks
+    container.querySelectorAll('.panel-tab-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._openPanelTab(item.dataset.panelType);
+        const menu = document.getElementById('panel-tab-menu');
+        if (menu) menu.style.display = 'none';
+      });
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#panel-tab-add') && !e.target.closest('#panel-tab-menu')) {
+        const menu = document.getElementById('panel-tab-menu');
+        if (menu) menu.style.display = 'none';
+      }
+    }, { once: true });
+  }
+
+  /**
+   * Show context menu for a panel tab
+   */
+  _showPanelTabContextMenu(e, tabId) {
+    const tab = this.panelTabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    // Remove existing context menu
+    document.querySelectorAll('.panel-tab-context-menu').forEach(m => m.remove());
+
+    const menu = document.createElement('div');
+    menu.className = 'panel-tab-context-menu';
+    menu.innerHTML = `
+      <div class="context-menu-item" data-action="pin">
+        <i class="ph ${tab.isPinned ? 'ph-push-pin-slash' : 'ph-push-pin'}"></i>
+        ${tab.isPinned ? 'Unpin Tab' : 'Pin Tab'}
+      </div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item" data-action="close">
+        <i class="ph ph-x"></i>
+        Close
+      </div>
+      <div class="context-menu-item" data-action="close-others">
+        <i class="ph ph-x-square"></i>
+        Close Others
+      </div>
+      <div class="context-menu-item" data-action="close-all">
+        <i class="ph ph-x-circle"></i>
+        Close All
+      </div>
+    `;
+
+    menu.style.position = 'fixed';
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    menu.style.zIndex = '10000';
+
+    document.body.appendChild(menu);
+
+    // Handle menu actions
+    menu.querySelectorAll('.context-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const action = item.dataset.action;
+        switch (action) {
+          case 'pin':
+            this._togglePanelTabPin(tabId);
+            break;
+          case 'close':
+            this._closePanelTab(tabId);
+            break;
+          case 'close-others':
+            this.panelTabs.forEach(t => {
+              if (t.id !== tabId && !t.isPinned) {
+                this._closePanelTab(t.id);
+              }
+            });
+            break;
+          case 'close-all':
+            this._closeAllPanelTabs();
+            break;
+        }
+        menu.remove();
+      });
+    });
+
+    // Close menu on click outside
+    setTimeout(() => {
+      document.addEventListener('click', () => menu.remove(), { once: true });
+    }, 0);
+  }
+
+  /**
+   * Render the content for the active panel tab
+   */
+  _renderPanelTabContent() {
+    const container = document.getElementById('panel-tab-content');
+    if (!container) return;
+
+    if (!this.activePanelTabId || this.panelTabs.length === 0) {
+      container.innerHTML = `
+        <div class="panel-tab-empty">
+          <i class="ph ph-browser"></i>
+          <h3>No panels open</h3>
+          <p>Click the + button to open a panel, or choose from the quick actions below:</p>
+          <div class="panel-tab-quick-actions">
+            ${Object.values(this.panelTabTypes).map(type => `
+              <button class="panel-tab-quick-action" data-panel-type="${type.id}">
+                <i class="ph ${type.icon}"></i>
+                ${type.label}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `;
+
+      // Attach quick action handlers
+      container.querySelectorAll('.panel-tab-quick-action').forEach(btn => {
+        btn.addEventListener('click', () => {
+          this._openPanelTab(btn.dataset.panelType);
+        });
+      });
+      return;
+    }
+
+    const activeTab = this.panelTabs.find(t => t.id === this.activePanelTabId);
+    if (!activeTab) return;
+
+    // Render content based on tab type
+    switch (activeTab.type) {
+      case 'overview':
+        this._renderOverviewPanelContent(container);
+        break;
+      case 'source':
+        this._renderSourcePanelContent(container);
+        break;
+      case 'transforms':
+        this._renderTransformsPanelContent(container);
+        break;
+      case 'fields':
+        this._renderFieldsPanelContent(container);
+        break;
+      case 'exports':
+        this._renderExportsPanelContent(container);
+        break;
+      case 'lenses':
+        this._renderLensesPanelContent(container);
+        break;
+      case 'recordTypes':
+        this._renderRecordTypesPanelContent(container);
+        break;
+      default:
+        container.innerHTML = '<div class="panel-tab-unknown">Unknown panel type</div>';
+    }
+  }
+
+  /**
+   * Render Data Overview panel content
+   */
+  _renderOverviewPanelContent(container) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="panel-tab-error">No set selected</div>';
+      return;
+    }
+
+    const fields = set.fields || [];
+    const records = set.records || [];
+    const views = set.views || [];
+    const recordTypeAnalysis = this._analyzeRecordTypesForSet(set);
+    const completeness = this._calculateSetCompleteness(set);
+
+    container.innerHTML = `
+      <div class="panel-content overview-panel">
+        <div class="panel-content-header">
+          <h3><i class="ph ph-chart-bar"></i> Data Overview</h3>
+        </div>
+        <div class="panel-content-body">
+          <div class="overview-stats-grid">
+            <div class="overview-stat-card">
+              <div class="overview-stat-value">${records.length.toLocaleString()}</div>
+              <div class="overview-stat-label">Records</div>
+            </div>
+            <div class="overview-stat-card">
+              <div class="overview-stat-value">${fields.length}</div>
+              <div class="overview-stat-label">Fields</div>
+            </div>
+            <div class="overview-stat-card">
+              <div class="overview-stat-value">${views.length}</div>
+              <div class="overview-stat-label">Views</div>
+            </div>
+            <div class="overview-stat-card ${recordTypeAnalysis ? 'highlight' : ''}">
+              <div class="overview-stat-value">${recordTypeAnalysis ? recordTypeAnalysis.types.length : 1}</div>
+              <div class="overview-stat-label">Record Types</div>
+            </div>
+          </div>
+          <div class="overview-completeness">
+            <div class="overview-completeness-header">
+              <span>Data Completeness</span>
+              <span class="overview-completeness-value">${completeness}%</span>
+            </div>
+            <div class="overview-completeness-bar">
+              <div class="overview-completeness-fill" style="width: ${completeness}%"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render Source panel content
+   */
+  _renderSourcePanelContent(container) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="panel-tab-error">No set selected</div>';
+      return;
+    }
+
+    const inputSources = this._getSetInputSources(set);
+    const sourceInfo = this._getSourceDisplayInfo(set);
+
+    container.innerHTML = `
+      <div class="panel-content source-panel">
+        <div class="panel-content-header">
+          <h3><i class="ph ph-download-simple"></i> Source</h3>
+          ${inputSources.length > 0 ? `
+            <button class="panel-action-btn" id="source-panel-view">View</button>
+          ` : ''}
+        </div>
+        <div class="panel-content-body">
+          ${inputSources.length > 0 ? inputSources.map(source => `
+            <div class="source-item" data-source-id="${source.id || ''}" data-set-id="${source.setId || ''}">
+              <div class="source-item-icon">
+                <i class="ph ${source.icon}"></i>
+              </div>
+              <div class="source-item-details">
+                <div class="source-item-name">${this._escapeHtml(source.name)}</div>
+                <div class="source-item-meta">
+                  ${sourceInfo.type ? `<span class="source-badge">${sourceInfo.type}</span>` : ''}
+                  <span>${source.meta}</span>
+                </div>
+              </div>
+            </div>
+          `).join('') : `
+            <div class="panel-empty-state">
+              <i class="ph ph-file-dashed"></i>
+              <span>No source tracked</span>
+            </div>
+          `}
+          <button class="panel-add-btn" id="source-panel-add">
+            <i class="ph ph-plus"></i> Add Source
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    document.getElementById('source-panel-view')?.addEventListener('click', () => {
+      const source = inputSources[0];
+      if (source?.id) {
+        this._selectSource(source.id);
+      } else if (source?.setId) {
+        this._selectSet(source.setId, 'detail');
+      }
+    });
+
+    document.getElementById('source-panel-add')?.addEventListener('click', () => {
+      this._showImportDialog();
+    });
+
+    container.querySelectorAll('.source-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const sourceId = item.dataset.sourceId;
+        const setId = item.dataset.setId;
+        if (sourceId && this.sources?.find(s => s.id === sourceId)) {
+          this._selectSource(sourceId);
+        } else if (setId && this.sets?.find(s => s.id === setId)) {
+          this._selectSet(setId, 'detail');
+        }
+      });
+    });
+  }
+
+  /**
+   * Render Transformations panel content
+   */
+  _renderTransformsPanelContent(container) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="panel-tab-error">No set selected</div>';
+      return;
+    }
+
+    const transformations = this._getSetTransformations(set);
+    const fields = set.fields || [];
+
+    container.innerHTML = `
+      <div class="panel-content transforms-panel">
+        <div class="panel-content-header">
+          <h3><i class="ph ph-gear"></i> Transformations</h3>
+        </div>
+        <div class="panel-content-body">
+          ${transformations.length > 0 ? `
+            <div class="transforms-list">
+              ${transformations.map(t => `
+                <div class="transform-item">
+                  ${t.badge}
+                  <div class="transform-text">
+                    <strong>${this._escapeHtml(t.name)}</strong>
+                    <small>${this._escapeHtml(t.description)}</small>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="transform-item">
+              <span class="op-badge direct">INS</span>
+              <div class="transform-text">
+                <strong>Direct Import</strong>
+                <small>No transformations applied</small>
+              </div>
+            </div>
+          `}
+          <div class="transforms-schema-link">
+            <span>Schema: <strong>${fields.length} fields</strong></span>
+            <button class="panel-action-btn" id="transforms-view-fields">
+              View Fields →
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('transforms-view-fields')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+  }
+
+  /**
+   * Render Field Overview panel content
+   */
+  _renderFieldsPanelContent(container) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="panel-tab-error">No set selected</div>';
+      return;
+    }
+
+    const fieldStats = this._calculateFieldStats(set);
+
+    container.innerHTML = `
+      <div class="panel-content fields-panel">
+        <div class="panel-content-header">
+          <h3><i class="ph ph-columns"></i> Field Overview</h3>
+          <button class="panel-action-btn" id="fields-panel-manage">
+            Manage Fields →
+          </button>
+        </div>
+        <div class="panel-content-body">
+          <div class="fields-grid">
+            ${fieldStats.map(field => `
+              <div class="field-item" data-field-id="${field.id}">
+                <div class="field-name" title="${this._escapeHtml(field.name)}">${this._escapeHtml(field.name)}</div>
+                <div class="field-type">
+                  <i class="ph ${this._getFieldTypeIcon(field.type)}"></i>
+                  ${field.type}
+                </div>
+                <div class="field-completeness">
+                  <div class="field-completeness-fill ${field.completeness < 50 ? 'danger' : field.completeness < 80 ? 'warning' : ''}"
+                       style="width: ${field.completeness}%"></div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('fields-panel-manage')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+
+    container.querySelectorAll('.field-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._selectSet(set.id, 'fields');
+      });
+    });
+  }
+
+  /**
+   * Render Exports panel content
+   */
+  _renderExportsPanelContent(container) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="panel-tab-error">No set selected</div>';
+      return;
+    }
+
+    const outputs = this._getSetOutputs(set);
+
+    container.innerHTML = `
+      <div class="panel-content exports-panel">
+        <div class="panel-content-header">
+          <h3><i class="ph ph-export"></i> Exports</h3>
+        </div>
+        <div class="panel-content-body">
+          ${outputs.exports.length > 0 ? `
+            <div class="exports-list">
+              ${outputs.exports.map(exp => `
+                <div class="export-item">
+                  <i class="ph ${exp.icon}"></i>
+                  <div class="export-item-info">
+                    <div class="export-item-name">${this._escapeHtml(exp.name)}</div>
+                    <div class="export-item-meta">${exp.date}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="panel-empty-state">
+              <i class="ph ph-export"></i>
+              <span>No exports yet</span>
+            </div>
+          `}
+          <button class="panel-add-btn" id="exports-panel-export">
+            <i class="ph ph-export"></i> Export Now
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('exports-panel-export')?.addEventListener('click', () => {
+      this._showExportDialog(set.id);
+    });
+  }
+
+  /**
+   * Render Lenses panel content
+   */
+  _renderLensesPanelContent(container) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="panel-tab-error">No set selected</div>';
+      return;
+    }
+
+    const outputs = this._getSetOutputs(set);
+
+    container.innerHTML = `
+      <div class="panel-content lenses-panel">
+        <div class="panel-content-header">
+          <h3><i class="ph ph-git-branch"></i> Lenses</h3>
+        </div>
+        <div class="panel-content-body">
+          ${outputs.derivedSets.length > 0 ? `
+            <div class="lenses-list">
+              ${outputs.derivedSets.map(ds => `
+                <div class="lens-item" data-set-id="${ds.id}">
+                  <i class="ph ${ds.icon}"></i>
+                  <div class="lens-item-info">
+                    <div class="lens-item-name">${this._escapeHtml(ds.name)}</div>
+                    <div class="lens-item-meta">${ds.relation}</div>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="panel-empty-state">
+              <i class="ph ph-git-branch"></i>
+              <span>No lenses</span>
+            </div>
+          `}
+          <button class="panel-add-btn" id="lenses-panel-create">
+            <i class="ph ph-git-branch"></i> Create Lens
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('lenses-panel-create')?.addEventListener('click', () => {
+      this._showLensCreationFlow();
+    });
+
+    container.querySelectorAll('.lens-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const setId = item.dataset.setId;
+        if (setId) {
+          this._selectSet(setId, 'detail');
+        }
+      });
+    });
+  }
+
+  /**
+   * Render Record Types panel content
+   */
+  _renderRecordTypesPanelContent(container) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="panel-tab-error">No set selected</div>';
+      return;
+    }
+
+    const recordTypeAnalysis = this._analyzeRecordTypesForSet(set);
+
+    if (!recordTypeAnalysis) {
+      container.innerHTML = `
+        <div class="panel-content record-types-panel">
+          <div class="panel-content-header">
+            <h3><i class="ph ph-stack"></i> Record Types</h3>
+          </div>
+          <div class="panel-content-body">
+            <div class="panel-empty-state">
+              <i class="ph ph-stack"></i>
+              <span>Single record type detected</span>
+              <small>This set contains uniform records</small>
+            </div>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="panel-content record-types-panel">
+        <div class="panel-content-header">
+          <h3><i class="ph ph-stack"></i> Record Types</h3>
+          <button class="panel-action-btn" id="record-types-split-all">
+            Create All Views
+          </button>
+        </div>
+        <div class="panel-content-body">
+          <div class="record-types-info">
+            This set contains <strong>${recordTypeAnalysis.types.length}</strong> different record types
+            based on the <code>${this._escapeHtml(recordTypeAnalysis.typeField)}</code> field.
+          </div>
+          <div class="record-types-grid">
+            ${recordTypeAnalysis.types.map(type => `
+              <div class="record-type-item" data-type-value="${this._escapeHtml(type.value)}">
+                <div class="record-type-name">${this._escapeHtml(type.label)}</div>
+                <div class="record-type-count">${type.count} records</div>
+                <button class="record-type-view-btn" data-type-value="${this._escapeHtml(type.value)}">
+                  <i class="ph ph-eye"></i> View
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('record-types-split-all')?.addEventListener('click', () => {
+      this._createAllRecordTypeViews(set, recordTypeAnalysis);
+    });
+
+    container.querySelectorAll('.record-type-view-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const typeValue = btn.dataset.typeValue;
+        if (typeValue) {
+          this._createRecordTypeView(set, recordTypeAnalysis, typeValue);
+        }
+      });
+    });
+
+    container.querySelectorAll('.record-type-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const typeValue = item.dataset.typeValue;
+        if (typeValue) {
+          this._createRecordTypeView(set, recordTypeAnalysis, typeValue);
+        }
+      });
     });
   }
 
