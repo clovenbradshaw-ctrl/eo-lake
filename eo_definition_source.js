@@ -517,6 +517,187 @@ function createHUDAffordableHousingDefinition(options = {}) {
 }
 
 // ============================================================================
+// SECTION IV-B: EO Lake Internal Term Definitions
+// ============================================================================
+
+/**
+ * Create an EO Lake "Source" definition
+ * Source is the GIVEN layer - immutable raw imported data
+ */
+function createSourceDefinition(options = {}) {
+  return new DefinitionSource({
+    term: {
+      term: options.term || 'source',
+      label: options.label || 'Source',
+      asWritten: 'Source',
+      definitionText: 'A Source is immutable raw data imported from external files (CSV, JSON, Excel, ICS). Sources represent the GIVEN layer - external reality frozen at import time. Source data cannot be edited; it preserves the original form of imported data with full provenance tracking including file hash, import timestamp, and origin metadata.',
+      categories: [
+        'GIVEN layer (external reality)',
+        'Immutable after import',
+        'Contains raw records and inferred schema',
+        'Tracks file identity and provenance'
+      ]
+    },
+    authority: {
+      name: 'EO Lake',
+      shortName: 'EO',
+      uri: null,
+      type: AuthorityType.STANDARDS_BODY
+    },
+    source: {
+      title: 'EO Lake Data Model',
+      citation: 'eo_ontology.js',
+      section: 'SourceConfig',
+      url: null,
+      type: SourceDocumentType.STANDARD
+    },
+    validity: {
+      from: '2024-01-01'
+    },
+    jurisdiction: {
+      geographic: null,
+      programs: ['EO Lake']
+    }
+  });
+}
+
+/**
+ * Create an EO Lake "Set" definition
+ * Set is the MEANT layer - first interpretive container
+ */
+function createSetDefinition(options = {}) {
+  return new DefinitionSource({
+    term: {
+      term: options.term || 'set',
+      label: options.label || 'Set',
+      asWritten: 'Set',
+      definitionText: 'A Set is a typed data collection representing the MEANT layer - the first interpretive layer over raw Source data. Sets contain a schema with field definitions, records derived from a Source, and can have multiple Lenses for different views. Sets are editable and support field types like text, number, date, select, and more.',
+      categories: [
+        'MEANT layer (interpretation)',
+        'Derived from Source via constraint',
+        'Contains schema with typed fields',
+        'Holds records and child Lenses'
+      ]
+    },
+    authority: {
+      name: 'EO Lake',
+      shortName: 'EO',
+      uri: null,
+      type: AuthorityType.STANDARDS_BODY
+    },
+    source: {
+      title: 'EO Lake Data Model',
+      citation: 'eo_view_hierarchy.js',
+      section: 'SetConfig',
+      url: null,
+      type: SourceDocumentType.STANDARD
+    },
+    validity: {
+      from: '2024-01-01'
+    },
+    jurisdiction: {
+      geographic: null,
+      programs: ['EO Lake']
+    }
+  });
+}
+
+/**
+ * Create an EO Lake "Lens" definition
+ * Lens is a record-type subset within a Set
+ */
+function createLensDefinition(options = {}) {
+  return new DefinitionSource({
+    term: {
+      term: options.term || 'lens',
+      label: options.label || 'Lens',
+      asWritten: 'Lens',
+      definitionText: 'A Lens is a filtered subset of a Set scoped to a specific record type. Lenses use field-based selectors to filter records (e.g., Type = "Task") and can have their own refined schema with field overrides. A record can belong to multiple Lenses. Each Lens can have multiple Views (Grid, Cards, Kanban, etc.) for different display modes.',
+      categories: [
+        'Scoped to record type within Set',
+        'Uses field_match selector for filtering',
+        'Supports schema field overrides',
+        'Contains multiple View configurations'
+      ]
+    },
+    authority: {
+      name: 'EO Lake',
+      shortName: 'EO',
+      uri: null,
+      type: AuthorityType.STANDARDS_BODY
+    },
+    source: {
+      title: 'EO Lake Data Model',
+      citation: 'eo_view_hierarchy.js',
+      section: 'LensConfig',
+      url: null,
+      type: SourceDocumentType.STANDARD
+    },
+    validity: {
+      from: '2024-01-01'
+    },
+    jurisdiction: {
+      geographic: null,
+      programs: ['EO Lake']
+    }
+  });
+}
+
+/**
+ * Create an EO Lake "View" definition
+ * View is a display configuration for presenting data
+ */
+function createViewDefinition(options = {}) {
+  return new DefinitionSource({
+    term: {
+      term: options.term || 'view',
+      label: options.label || 'View',
+      asWritten: 'View',
+      definitionText: 'A View is a display configuration that determines how records are presented. Views belong to a Lens or Set and define the visual layout: Grid (tabular rows), Cards (visual entities), Kanban (status columns), Timeline (chronological), Calendar (date-positioned), or Graph (relationships). Views control field visibility, sorting, grouping, and display options.',
+      categories: [
+        'Display configuration only',
+        'Types: Grid, Cards, Kanban, Timeline, Calendar, Graph',
+        'Controls field visibility and ordering',
+        'Defines grouping and sorting options'
+      ]
+    },
+    authority: {
+      name: 'EO Lake',
+      shortName: 'EO',
+      uri: null,
+      type: AuthorityType.STANDARDS_BODY
+    },
+    source: {
+      title: 'EO Lake Data Model',
+      citation: 'eo_view_hierarchy.js',
+      section: 'LensConfig.lensType',
+      url: null,
+      type: SourceDocumentType.STANDARD
+    },
+    validity: {
+      from: '2024-01-01'
+    },
+    jurisdiction: {
+      geographic: null,
+      programs: ['EO Lake']
+    }
+  });
+}
+
+/**
+ * Create all EO Lake term definitions
+ * @returns {DefinitionSource[]} Array of all EO Lake term definitions
+ */
+function createEOLakeTermDefinitions() {
+  return [
+    createSourceDefinition(),
+    createSetDefinition(),
+    createLensDefinition(),
+    createViewDefinition()
+  ];
+}
+
+// ============================================================================
 // SECTION V: Utilities
 // ============================================================================
 
@@ -602,10 +783,17 @@ if (typeof window !== 'undefined') {
   window.EO.AuthorityType = AuthorityType;
   window.EO.SourceDocumentType = SourceDocumentType;
 
-  // Factory functions
+  // Factory functions - Regulatory definitions
   window.EO.createHUDHomelessnessDefinition = createHUDHomelessnessDefinition;
   window.EO.createCensusPovertyDefinition = createCensusPovertyDefinition;
   window.EO.createHUDAffordableHousingDefinition = createHUDAffordableHousingDefinition;
+
+  // Factory functions - EO Lake internal terms
+  window.EO.createSourceDefinition = createSourceDefinition;
+  window.EO.createSetDefinition = createSetDefinition;
+  window.EO.createLensDefinition = createLensDefinition;
+  window.EO.createViewDefinition = createViewDefinition;
+  window.EO.createEOLakeTermDefinitions = createEOLakeTermDefinitions;
 
   // Utilities
   window.EO.sortDefinitionsByAuthority = sortDefinitionsByAuthority;
@@ -622,9 +810,17 @@ if (typeof module !== 'undefined' && module.exports) {
     DefinitionSourceTemplate,
     AuthorityType,
     SourceDocumentType,
+    // Regulatory definitions
     createHUDHomelessnessDefinition,
     createCensusPovertyDefinition,
     createHUDAffordableHousingDefinition,
+    // EO Lake internal terms
+    createSourceDefinition,
+    createSetDefinition,
+    createLensDefinition,
+    createViewDefinition,
+    createEOLakeTermDefinitions,
+    // Utilities
     sortDefinitionsByAuthority,
     findDefinitionsByTerm,
     findDefinitionsByAuthority,

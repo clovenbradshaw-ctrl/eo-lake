@@ -1257,6 +1257,17 @@ class EODataWorkbench {
     sampleProject.sourceIds.push(sourceId);
     sampleProject.setIds.push(set.id);
 
+    // Step 6: Create EO Lake term definitions (Source, Set, Lens, View)
+    // These define the core concepts of the data model
+    if (typeof window !== 'undefined' && window.EO && window.EO.createEOLakeTermDefinitions) {
+      const eoLakeDefinitions = window.EO.createEOLakeTermDefinitions();
+      eoLakeDefinitions.forEach(def => {
+        if (!this.definitions) this.definitions = [];
+        this.definitions.push(def);
+        sampleProject.definitionIds.push(def.id);
+      });
+    }
+
     // Select the sample project so user is always in a project context
     this.currentProjectId = sampleProject.id;
 
