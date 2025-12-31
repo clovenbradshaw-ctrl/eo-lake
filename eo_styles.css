@@ -1782,6 +1782,89 @@ html, body {
 }
 
 /* ========================================
+   Lens Items (Sub-objects of Sets)
+   ======================================== */
+
+.set-lens-container {
+  margin: 4px 0;
+}
+
+.set-lens-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: var(--transition-fast);
+  background: rgba(139, 92, 246, 0.08);
+  border-left: 2px solid rgba(139, 92, 246, 0.3);
+}
+
+.set-lens-header:hover {
+  background: rgba(139, 92, 246, 0.15);
+  color: var(--text-primary);
+}
+
+.set-lens-header.active {
+  background: rgba(139, 92, 246, 0.2);
+  color: var(--text-primary);
+  border-left-color: rgba(139, 92, 246, 0.6);
+}
+
+.set-lens-header i {
+  font-size: 13px;
+  color: #8b5cf6;
+}
+
+.lens-expand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.lens-expand-icon i {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.set-lens-container.expanded .lens-expand-icon {
+  transform: rotate(90deg);
+}
+
+.lens-item-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.lens-views-list {
+  display: none;
+  padding-left: 16px;
+  margin-top: 2px;
+}
+
+.set-lens-container.expanded .lens-views-list {
+  display: block;
+}
+
+.lens-view-item {
+  padding-left: 12px;
+}
+
+.lens-view-item i {
+  color: #a78bfa;
+}
+
+/* ========================================
    Set Dashboard View (Horizontal Layout)
    ======================================== */
 

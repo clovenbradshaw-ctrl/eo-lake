@@ -313,6 +313,27 @@ function createSet(name, icon = 'ph-table') {
     views: [
       createView('All Records', 'table')
     ],
+    lenses: [], // Lenses are sub-objects of sets, pivoted around a particular field
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+/**
+ * Create a new Lens (sub-object of a set pivoted around a field value)
+ * Lenses filter records by a field value and can have their own views
+ */
+function createLens(name, setId, pivotFieldId, pivotValue, icon = 'ph-funnel') {
+  return {
+    id: generateId(),
+    name,
+    setId,
+    icon,
+    pivotFieldId,  // The field to pivot on
+    pivotValue,    // The value to filter by
+    views: [
+      createView('All Records', 'table')
+    ],
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -2036,6 +2057,49 @@ class EODataWorkbench {
         </div>
       `;
 
+      // Render nested lenses (sub-objects of this set)
+      const lenses = set.lenses || [];
+      const lensesHtml = lenses.map(lens => {
+        const isActiveLens = this.currentLensId === lens.id;
+        const lensRecordCount = this._getLensRecordCount(set, lens);
+        const isLensExpanded = this.expandedLenses?.[lens.id];
+
+        // Render views within this lens
+        const lensViewsHtml = (lens.views || []).map(view => {
+          const isActiveView = view.id === this.currentViewId && isActiveLens;
+          const viewIcon = viewTypeIcons[view.type] || 'ph-eye';
+          return `
+            <div class="set-view-item lens-view-item ${isActiveView ? 'active' : ''}"
+                 data-view-id="${view.id}"
+                 data-lens-id="${lens.id}"
+                 data-set-id="${set.id}"
+                 title="${this._escapeHtml(view.name)} (${view.type})">
+              <i class="ph ${viewIcon}"></i>
+              <span>${this._escapeHtml(view.name)}</span>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="set-lens-container ${isLensExpanded ? 'expanded' : ''}" data-lens-id="${lens.id}" data-set-id="${set.id}">
+            <div class="set-lens-header ${isActiveLens ? 'active' : ''}"
+                 data-lens-id="${lens.id}"
+                 data-set-id="${set.id}"
+                 title="Lens: ${this._escapeHtml(lens.name)} · ${lensRecordCount} records">
+              <div class="lens-expand-icon">
+                <i class="ph ph-caret-right"></i>
+              </div>
+              <i class="ph ${lens.icon || 'ph-funnel'}"></i>
+              <span>${this._escapeHtml(lens.name)}</span>
+              <span class="lens-item-count">${lensRecordCount}</span>
+            </div>
+            <div class="lens-views-list">
+              ${lensViewsHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+
       return `
         <div class="set-item-container ${isExpanded ? 'expanded' : ''} ${stabilityClass}" data-set-id="${set.id}">
           <div class="set-item-header ${isActiveSet && !this.showingSetFields ? 'active' : ''}"
@@ -2056,6 +2120,7 @@ class EODataWorkbench {
           </div>
           <div class="set-views-list">
             ${fieldsItem}
+            ${lensesHtml}
             ${viewsHtml}
             <button class="set-add-view-btn" data-set-id="${set.id}">
               <i class="ph ph-plus"></i>
@@ -2144,6 +2209,47 @@ class EODataWorkbench {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         this._showViewTypePicker(btn.dataset.setId, btn);
+      });
+    });
+
+    // Lens header click - toggle expansion and select lens
+    container.querySelectorAll('.set-lens-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        const lensId = header.dataset.lensId;
+        const setId = header.dataset.setId;
+        const container = header.closest('.set-lens-container');
+
+        // If clicking on expand arrow, just toggle expansion
+        if (e.target.closest('.lens-expand-icon')) {
+          if (!this.expandedLenses) this.expandedLenses = {};
+          this.expandedLenses[lensId] = !this.expandedLenses[lensId];
+          container?.classList.toggle('expanded');
+          return;
+        }
+
+        // Otherwise select the lens
+        this.currentLensId = lensId;
+        this.currentSetId = setId;
+        if (!this.expandedLenses) this.expandedLenses = {};
+        this.expandedLenses[lensId] = true;
+        this._renderSidebar();
+        this._renderView();
+      });
+    });
+
+    // Lens view item click
+    container.querySelectorAll('.lens-view-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const viewId = item.dataset.viewId;
+        const lensId = item.dataset.lensId;
+        const setId = item.dataset.setId;
+
+        this.currentLensId = lensId;
+        this.currentSetId = setId;
+        this.currentViewId = viewId;
+        this._renderSidebar();
+        this._renderView();
       });
     });
   }
@@ -3152,6 +3258,130 @@ class EODataWorkbench {
       this._selectSet(set.id);
       this._showToast('Filtered set created', 'success');
     });
+  }
+
+  /**
+   * Show lens creation flow - creates a lens as a sub-object of the current set
+   * Lenses pivot around a particular field value to show a subset of records
+   */
+  _showLensCreationFlow() {
+    const currentSet = this.getCurrentSet();
+    if (!currentSet) {
+      this._showToast('Select a set first to create a lens', 'warning');
+      return;
+    }
+
+    // Get select fields that can be used for pivoting
+    const selectFields = (currentSet.fields || []).filter(f =>
+      f.type === 'select' || f.type === 'multiselect' || f.type === 'text'
+    );
+
+    if (selectFields.length === 0) {
+      this._showToast('No suitable fields found for creating a lens. Add a select or text field first.', 'warning');
+      return;
+    }
+
+    // Build field options HTML
+    const fieldOptionsHtml = selectFields.map(field => `
+      <option value="${field.id}">${this._escapeHtml(field.name)} (${field.type})</option>
+    `).join('');
+
+    const html = `
+      <div class="lens-creation-flow">
+        <div class="form-group">
+          <label>Lens Name</label>
+          <input type="text" id="lens-name" class="form-input" placeholder="e.g., Bug Reports">
+        </div>
+        <div class="form-group">
+          <label>Pivot Field</label>
+          <select id="lens-pivot-field" class="form-select">
+            ${fieldOptionsHtml}
+          </select>
+          <p class="form-hint">Select the field to filter records by</p>
+        </div>
+        <div class="form-group">
+          <label>Pivot Value</label>
+          <select id="lens-pivot-value" class="form-select">
+            <option value="">-- Select a value --</option>
+          </select>
+          <p class="form-hint">Records with this value will be shown in the lens</p>
+        </div>
+      </div>
+    `;
+
+    this._showModal('Create Lens', html, () => {
+      const name = document.getElementById('lens-name')?.value?.trim();
+      const pivotFieldId = document.getElementById('lens-pivot-field')?.value;
+      const pivotValue = document.getElementById('lens-pivot-value')?.value;
+
+      if (!name) {
+        this._showToast('Please enter a name for the lens', 'warning');
+        return;
+      }
+      if (!pivotFieldId || !pivotValue) {
+        this._showToast('Please select a pivot field and value', 'warning');
+        return;
+      }
+
+      // Create the lens
+      const lens = createLens(name, currentSet.id, pivotFieldId, pivotValue);
+
+      // Initialize lenses array if needed
+      if (!currentSet.lenses) {
+        currentSet.lenses = [];
+      }
+      currentSet.lenses.push(lens);
+
+      this._saveData();
+      this._renderSidebar();
+      this._showToast(`Lens "${name}" created`, 'success');
+    });
+
+    // Populate pivot values when field changes
+    setTimeout(() => {
+      const fieldSelect = document.getElementById('lens-pivot-field');
+      const valueSelect = document.getElementById('lens-pivot-value');
+
+      const updatePivotValues = () => {
+        const fieldId = fieldSelect?.value;
+        const field = currentSet.fields?.find(f => f.id === fieldId);
+
+        if (!field || !valueSelect) return;
+
+        // Get unique values for this field from records
+        const values = new Set();
+        (currentSet.records || []).forEach(r => {
+          const val = r.values?.[fieldId];
+          if (val !== null && val !== undefined && val !== '') {
+            if (Array.isArray(val)) {
+              val.forEach(v => values.add(v));
+            } else {
+              values.add(val);
+            }
+          }
+        });
+
+        // Also include options from select field config
+        if (field.options?.options) {
+          field.options.options.forEach(opt => {
+            if (typeof opt === 'string') {
+              values.add(opt);
+            } else if (opt?.value) {
+              values.add(opt.value);
+            }
+          });
+        }
+
+        // Build options
+        valueSelect.innerHTML = '<option value="">-- Select a value --</option>' +
+          Array.from(values).sort().map(v => `
+            <option value="${this._escapeHtml(String(v))}">${this._escapeHtml(String(v))}</option>
+          `).join('');
+      };
+
+      fieldSelect?.addEventListener('change', updatePivotValues);
+      updatePivotValues(); // Initial population
+    }, 0);
   }
 
   /**
@@ -13525,6 +13755,24 @@ class EODataWorkbench {
   }
 
   /**
+   * Get the count of records that match a lens's filter criteria
+   */
+  _getLensRecordCount(set, lens) {
+    if (!set || !lens) return 0;
+    const records = set.records || [];
+    const pivotFieldId = lens.pivotFieldId;
+    const pivotValue = lens.pivotValue;
+
+    return records.filter(r => {
+      const val = r.values?.[pivotFieldId];
+      if (Array.isArray(val)) {
+        return val.includes(pivotValue);
+      }
+      return val === pivotValue;
+    }).length;
+  }
+
+  /**
    * Get source display info
    */
   _getSourceDisplayInfo(set) {
@@ -13636,9 +13884,9 @@ class EODataWorkbench {
       this._showExportDialog(set.id);
     });
 
-    // Create derived set button
+    // Create lens button
     document.getElementById('set-dashboard-create-derived')?.addEventListener('click', () => {
-      this._showFilterSetCreationFlow();
+      this._showLensCreationFlow();
     });
 
     // Source item clicks
