@@ -163,7 +163,7 @@
         </div>
 
         <!-- Panel 1: SOURCES (Given - Physical Origins) -->
-        <div class="nav-panel sources-panel" data-panel="sources">
+        <div class="nav-panel sources-panel given-panel" data-panel="sources">
           <div class="nav-panel-header">
             <div class="nav-panel-title">
               <i class="ph ph-download-simple"></i>
@@ -181,14 +181,14 @@
           </div>
         </div>
 
-        <!-- Panel 2: DEFINITIONS (Column/Key Schemas from URIs) - Moved before Sets -->
-        <div class="nav-panel definitions-panel" data-panel="definitions">
+        <!-- Panel 2: DEFINITIONS (Column/Key Schemas from URIs) - MEANT: Semantic layer -->
+        <div class="nav-panel definitions-panel meant-panel" data-panel="definitions">
           <div class="nav-panel-header" data-collapsible="true">
             <div class="nav-panel-title">
               <i class="ph ph-caret-right nav-panel-collapse-icon"></i>
               <i class="ph ph-book-open"></i>
               <span>Definitions</span>
-              <span class="nav-panel-badge dictionary-badge">TERMS</span>
+              <span class="nav-panel-badge dictionary-badge">MEANT</span>
               <span class="nav-panel-count-badge" id="definitions-count-badge" style="display: none;">0</span>
             </div>
             <div class="nav-panel-actions">
@@ -202,8 +202,8 @@
           </div>
         </div>
 
-        <!-- Panel 3: SETS (Data Collections) -->
-        <div class="nav-panel sets-panel" data-panel="sets">
+        <!-- Panel 3: SETS (Data Collections) - Hybrid: GIVEN structure + MEANT interpretation -->
+        <div class="nav-panel sets-panel hybrid-panel" data-panel="sets">
           <div class="nav-panel-header">
             <div class="nav-panel-title">
               <i class="ph ph-database"></i>
@@ -221,14 +221,14 @@
           </div>
         </div>
 
-        <!-- Panel 4: EXPORTS (Immutable Snapshot Captures) -->
-        <div class="nav-panel exports-panel" data-panel="exports">
+        <!-- Panel 4: EXPORTS (Immutable Snapshot Captures) - GIVEN: Frozen in time -->
+        <div class="nav-panel exports-panel given-panel" data-panel="exports">
           <div class="nav-panel-header" data-collapsible="true">
             <div class="nav-panel-title">
               <i class="ph ph-caret-right nav-panel-collapse-icon"></i>
               <i class="ph ph-export"></i>
               <span>Exports</span>
-              <span class="nav-panel-badge export-badge">SNAPSHOT</span>
+              <span class="nav-panel-badge export-badge">GIVEN</span>
               <span class="nav-panel-count-badge" id="exports-count-badge" style="display: none;">0</span>
             </div>
             <div class="nav-panel-actions">
@@ -357,6 +357,29 @@
           </div>
         </div>
       </header>
+
+      <!-- Architecture Chain Header (SOURCE → SET → LENS → VIEW) -->
+      <div class="architecture-chain" id="architecture-chain">
+        <div class="chain-step source" data-step="source" id="chain-step-source">
+          <i class="ph ph-download-simple"></i>
+          <span class="chain-step-name" id="chain-source-name">No Source</span>
+        </div>
+        <i class="ph ph-arrow-right chain-arrow"></i>
+        <div class="chain-step set" data-step="set" id="chain-step-set">
+          <i class="ph ph-database"></i>
+          <span class="chain-step-name" id="chain-set-name">No Set</span>
+        </div>
+        <i class="ph ph-arrow-right chain-arrow"></i>
+        <div class="chain-step lens" data-step="lens" id="chain-step-lens">
+          <i class="ph ph-funnel"></i>
+          <span class="chain-step-name" id="chain-lens-name">All Records</span>
+        </div>
+        <i class="ph ph-arrow-right chain-arrow"></i>
+        <div class="chain-step view active" data-step="view" id="chain-step-view">
+          <i class="ph ph-eye"></i>
+          <span class="chain-step-name" id="chain-view-name">Grid</span>
+        </div>
+      </div>
 
       <!-- Bulk Actions Toolbar (shown when records selected) -->
       <div class="bulk-actions-toolbar" id="bulk-actions-toolbar" style="display: none;">
@@ -555,20 +578,43 @@
     </div>
   </div>
 
-  <!-- Fields Panel (Show/Hide & Reorder) -->
+  <!-- Schema Panel (Structure & Meaning - renamed from Fields) -->
   <div class="fields-panel" id="fields-panel" style="display: none;">
     <div class="fields-panel-header">
-      <h4><i class="ph ph-columns"></i> Fields</h4>
+      <h4><i class="ph ph-blueprint"></i> Schema</h4>
       <button class="fields-panel-close" id="fields-panel-close">
         <i class="ph ph-x"></i>
       </button>
     </div>
+    <!-- Schema Tabs: Structure (GIVEN) vs Meaning (MEANT) -->
+    <div class="schema-tabs" id="schema-tabs">
+      <button class="schema-tab structure active" data-tab="structure">
+        <i class="ph ph-tree-structure"></i>
+        <span>Structure</span>
+      </button>
+      <button class="schema-tab meaning" data-tab="meaning">
+        <i class="ph ph-book-open"></i>
+        <span>Meaning</span>
+      </button>
+    </div>
     <div class="fields-panel-body">
-      <div class="fields-panel-description">
-        Drag to reorder fields. Toggle visibility with the eye icon.
+      <!-- Structure Tab: Name, type, source mapping (GIVEN) -->
+      <div class="schema-tab-content" id="schema-structure-content">
+        <div class="fields-panel-description">
+          <i class="ph ph-lock-simple"></i> Structure is GIVEN: Field names, types, and source mappings.
+        </div>
+        <div class="fields-list" id="fields-list">
+          <!-- Field items rendered dynamically -->
+        </div>
       </div>
-      <div class="fields-list" id="fields-list">
-        <!-- Field items rendered dynamically -->
+      <!-- Meaning Tab: Definition bindings, URI, explanation (MEANT) -->
+      <div class="schema-tab-content hidden" id="schema-meaning-content">
+        <div class="fields-panel-description">
+          <i class="ph ph-pencil-simple"></i> Meaning is MEANT: Semantic definitions, URIs, and interpretations.
+        </div>
+        <div class="schema-meaning-list" id="schema-meaning-list">
+          <!-- Meaning items rendered dynamically -->
+        </div>
       </div>
     </div>
     <div class="fields-panel-footer">
@@ -982,6 +1028,38 @@
   <!-- Principles Transparency Panel Container -->
   <div id="principles-panel" class="principles-panel"></div>
 
+  <!-- Architecture Mini-Map (collapsible) -->
+  <div class="architecture-minimap" id="architecture-minimap">
+    <div class="minimap-header">
+      <span>Architecture</span>
+      <button class="minimap-toggle" id="minimap-toggle" title="Toggle mini-map">
+        <i class="ph ph-caret-down"></i>
+      </button>
+    </div>
+    <div class="minimap-content" id="minimap-content">
+      <div class="minimap-item source" id="minimap-source">
+        <i class="ph ph-download-simple"></i>
+        <span>SOURCE</span>
+        <span class="minimap-label">(GIVEN)</span>
+      </div>
+      <div class="minimap-item set" id="minimap-set">
+        <i class="ph ph-database"></i>
+        <span>SET</span>
+        <span class="minimap-label">(SCHEMA)</span>
+      </div>
+      <div class="minimap-item lens" id="minimap-lens">
+        <i class="ph ph-funnel"></i>
+        <span>LENS</span>
+        <span class="minimap-label">(SLICE)</span>
+      </div>
+      <div class="minimap-item view active" id="minimap-view">
+        <i class="ph ph-eye"></i>
+        <span>VIEW</span>
+        <span class="minimap-label">(WORK)</span>
+      </div>
+    </div>
+  </div>
+
   <!-- Scripts - Core EO Modules (Strict EO-Aligned) -->
   <script src="eo_types.js"></script>         <!-- Core Types: EpistemicType, GroundingKind, Frame, Supersession -->
   <script src="eo_operators.js"></script>     <!-- EO Operators: Entry, Restrictive, Shape, Compute, etc. -->
@@ -1072,6 +1150,30 @@
         themeToggle.addEventListener('click', toggleTheme);
         // Update UI to reflect current theme
         updateThemeToggleUI(getCurrentTheme());
+      }
+
+      // Initialize mini-map toggle
+      const minimapToggle = document.getElementById('minimap-toggle');
+      if (minimapToggle) {
+        minimapToggle.addEventListener('click', () => {
+          const minimap = document.getElementById('architecture-minimap');
+          const icon = minimapToggle.querySelector('i');
+          minimap.classList.toggle('collapsed');
+          if (minimap.classList.contains('collapsed')) {
+            icon.className = 'ph ph-caret-up';
+          } else {
+            icon.className = 'ph ph-caret-down';
+          }
+          // Save preference
+          localStorage.setItem('eo-lake-minimap-collapsed', minimap.classList.contains('collapsed'));
+        });
+        // Restore saved preference
+        if (localStorage.getItem('eo-lake-minimap-collapsed') === 'true') {
+          const minimap = document.getElementById('architecture-minimap');
+          const icon = minimapToggle.querySelector('i');
+          minimap.classList.add('collapsed');
+          icon.className = 'ph ph-caret-up';
+        }
       }
 
       // Initialize the main application

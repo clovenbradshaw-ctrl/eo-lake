@@ -1509,12 +1509,29 @@ class EODataWorkbench {
     document.getElementById('sort-apply')?.addEventListener('click', () => this._applySorts());
     document.getElementById('sort-clear')?.addEventListener('click', () => this._clearSorts());
 
-    // Fields panel (visibility & reordering)
+    // Fields/Schema panel (visibility & reordering)
     document.getElementById('btn-fields')?.addEventListener('click', () => this._toggleFieldsPanel());
     document.getElementById('fields-panel-close')?.addEventListener('click', () => this._hideFieldsPanel());
     document.getElementById('fields-show-all')?.addEventListener('click', () => this._showAllFields());
     document.getElementById('fields-hide-all')?.addEventListener('click', () => this._hideAllFields());
     document.getElementById('fields-apply')?.addEventListener('click', () => this._hideFieldsPanel());
+
+    // Schema tabs (Structure vs Meaning)
+    document.querySelectorAll('.schema-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab;
+        // Update active tab
+        document.querySelectorAll('.schema-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        // Show/hide content
+        document.getElementById('schema-structure-content')?.classList.toggle('hidden', tabName !== 'structure');
+        document.getElementById('schema-meaning-content')?.classList.toggle('hidden', tabName !== 'meaning');
+        // Render meaning tab content if needed
+        if (tabName === 'meaning') {
+          this._renderSchemaMeaningTab();
+        }
+      });
+    });
 
     // Tools dropdown (consolidated actions)
     document.getElementById('btn-tools')?.addEventListener('click', (e) => {
@@ -2427,15 +2444,15 @@ class EODataWorkbench {
         `;
       }).join('');
 
-      // Fields item (like Airtable's "Manage Fields")
+      // Schema item (Structure & Meaning) - renamed from "Fields"
       const isFieldsActive = isActiveSet && this.showingSetFields;
       const fieldsItem = `
         <div class="set-view-item set-fields-item ${isFieldsActive ? 'active' : ''}"
              data-set-id="${set.id}"
              data-action="fields"
-             title="Manage all fields in this set">
-          <i class="ph ph-columns"></i>
-          <span>Fields</span>
+             title="Schema: Structure (GIVEN) & Meaning (MEANT)">
+          <i class="ph ph-blueprint"></i>
+          <span>Schema</span>
           <span class="view-item-count">${fieldCount}</span>
         </div>
       `;
@@ -14638,6 +14655,9 @@ class EODataWorkbench {
         focusBreadcrumb.style.display = 'none';
       }
     }
+
+    // Update the architecture chain header (SOURCE → SET → LENS → VIEW)
+    this._updateArchitectureChain();
   }
 
   /**
@@ -14680,6 +14700,118 @@ class EODataWorkbench {
     if (filled >= 4) return '◉'; // Full provenance
     if (filled >= 1) return '◐'; // Partial provenance
     return '○'; // No provenance
+  }
+
+  /**
+   * Update the architecture chain header (SOURCE → SET → LENS → VIEW)
+   * This makes the data derivation chain visible at all times
+   */
+  _updateArchitectureChain() {
+    const set = this.getCurrentSet();
+    const view = this.getCurrentView();
+    const lens = this.viewRegistry?.getLens?.(this.currentLensId);
+
+    // Get source info from set provenance
+    const prov = set?.datasetProvenance;
+    const sourceName = prov?.originalFilename || this._getProvenanceValue(prov?.provenance?.source) || 'Manual Entry';
+    const isNullSource = !prov?.originalFilename && !this._getProvenanceValue(prov?.provenance?.source);
+
+    // Update chain steps
+    const sourceStep = document.getElementById('chain-step-source');
+    const setStep = document.getElementById('chain-step-set');
+    const lensStep = document.getElementById('chain-step-lens');
+    const viewStep = document.getElementById('chain-step-view');
+
+    // Source step
+    if (sourceStep) {
+      const sourceNameEl = document.getElementById('chain-source-name');
+      if (sourceNameEl) {
+        sourceNameEl.textContent = isNullSource ? 'Manual Entry' : this._escapeHtml(this._truncate(sourceName, 20));
+      }
+      sourceStep.classList.toggle('active', this.currentSourceId !== null);
+      sourceStep.title = isNullSource
+        ? 'Source: Manual Entry (Null Source)\nAll rows added here become immutable history.'
+        : `Source: ${sourceName}`;
+    }
+
+    // Set step
+    if (setStep) {
+      const setNameEl = document.getElementById('chain-set-name');
+      if (setNameEl) {
+        setNameEl.textContent = set ? this._escapeHtml(this._truncate(set.name, 20)) : 'No Set';
+      }
+      setStep.classList.toggle('active', set !== null && !this.currentViewId);
+      setStep.title = set ? `Set: ${set.name}\n${set.records?.length || 0} records` : 'No set selected';
+    }
+
+    // Lens step
+    if (lensStep) {
+      const lensNameEl = document.getElementById('chain-lens-name');
+      if (lensNameEl) {
+        lensNameEl.textContent = lens ? this._escapeHtml(this._truncate(lens.name, 20)) : 'All Records';
+      }
+      lensStep.classList.toggle('active', lens !== null);
+      lensStep.title = lens ? `Lens: ${lens.name}\nFilters applied to restrict view` : 'All Records (no filter)';
+    }
+
+    // View step
+    if (viewStep) {
+      const viewNameEl = document.getElementById('chain-view-name');
+      if (viewNameEl) {
+        let viewDisplayName = 'Grid';
+        if (this.showingSetDetail) {
+          viewDisplayName = 'Detail';
+        } else if (this.showingSetFields) {
+          viewDisplayName = 'Schema';
+        } else if (view) {
+          viewDisplayName = view.name || view.type;
+        }
+        viewNameEl.textContent = this._escapeHtml(this._truncate(viewDisplayName, 20));
+      }
+      viewStep.classList.toggle('active', this.currentViewId !== null || this.showingSetDetail || this.showingSetFields);
+      viewStep.title = 'View: Where work happens\nAll edits tracked back to source';
+    }
+
+    // Update mini-map as well
+    this._updateArchitectureMinimap();
+  }
+
+  /**
+   * Update the architecture mini-map to reflect current navigation layer
+   */
+  _updateArchitectureMinimap() {
+    const set = this.getCurrentSet();
+    const view = this.getCurrentView();
+    const lens = this.viewRegistry?.getLens?.(this.currentLensId);
+
+    // Determine current layer
+    let currentLayer = 'view'; // default
+
+    if (this.currentSourceId) {
+      currentLayer = 'source';
+    } else if (this.currentLensId && !this.currentViewId) {
+      currentLayer = 'lens';
+    } else if (this.currentSetId && !this.currentViewId && !this.showingSetDetail && !this.showingSetFields) {
+      currentLayer = 'set';
+    }
+
+    // Update minimap items
+    const layers = ['source', 'set', 'lens', 'view'];
+    layers.forEach(layer => {
+      const el = document.getElementById(`minimap-${layer}`);
+      if (el) {
+        el.classList.toggle('active', layer === currentLayer);
+      }
+    });
+  }
+
+  /**
+   * Helper to truncate text
+   */
+  _truncate(text, maxLength) {
+    if (!text) return '';
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength - 1) + '…';
   }
 
   /**
@@ -14880,7 +15012,73 @@ class EODataWorkbench {
   // View Rendering
   // --------------------------------------------------------------------------
 
+  /**
+   * Update work zone banner to indicate if this is a structural layer or editable view
+   */
+  _updateWorkZoneBanner() {
+    // Find or create the work zone banner
+    let banner = document.getElementById('work-zone-banner');
+    const contentArea = this.elements.contentArea;
+
+    if (!contentArea) return;
+
+    // Create banner if it doesn't exist
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'work-zone-banner';
+      banner.className = 'work-zone-banner';
+      contentArea.parentNode.insertBefore(banner, contentArea);
+    }
+
+    // Determine the current work zone type
+    if (this.currentSourceId) {
+      // Viewing a source - structural layer (GIVEN)
+      banner.className = 'work-zone-banner structural';
+      banner.innerHTML = `
+        <i class="ph ph-lock-simple"></i>
+        <span><strong>Source View</strong> — This is GIVEN data. You cannot edit source records here.</span>
+        <button class="work-zone-action" onclick="getDataWorkbench()?._showSetFromSourceUI('${this.currentSourceId}')">
+          Create Set from Source
+        </button>
+      `;
+      banner.style.display = 'flex';
+    } else if (this.showingSetFields) {
+      // Viewing schema - hybrid layer
+      banner.className = 'work-zone-banner structural';
+      banner.innerHTML = `
+        <i class="ph ph-blueprint"></i>
+        <span><strong>Schema View</strong> — Structure is GIVEN, Meaning is MEANT. Configure field definitions.</span>
+      `;
+      banner.style.display = 'flex';
+    } else if (this.showingSetDetail) {
+      // Viewing set detail - structural layer
+      banner.className = 'work-zone-banner structural';
+      banner.innerHTML = `
+        <i class="ph ph-flow-arrow"></i>
+        <span><strong>Set Overview</strong> — This shows the data flow. Open a View to work with records.</span>
+        <button class="work-zone-action" onclick="getDataWorkbench()?._selectView(getDataWorkbench()?.getCurrentSet()?.views[0]?.id)">
+          Open Default View
+        </button>
+      `;
+      banner.style.display = 'flex';
+    } else if (this.currentViewId) {
+      // Viewing a view - editable layer (MEANT)
+      banner.className = 'work-zone-banner editable';
+      banner.innerHTML = `
+        <i class="ph ph-pencil-simple"></i>
+        <span><strong>View</strong> — You are editing live data. All changes are tracked back to the Source.</span>
+      `;
+      banner.style.display = 'flex';
+    } else {
+      // No specific zone
+      banner.style.display = 'none';
+    }
+  }
+
   _renderView() {
+    // Update work zone banner
+    this._updateWorkZoneBanner();
+
     // If showing set detail view (Input → Transformation → Output)
     if (this.showingSetDetail && this.currentSetId) {
       this._renderSetDetailView();
@@ -28396,6 +28594,63 @@ class EODataWorkbench {
     this._renderFieldsList();
     this._renderView();
     this._showToast('Non-primary fields hidden', 'success');
+  }
+
+  /**
+   * Render the Schema Meaning tab showing definition bindings
+   * This is the MEANT side of the Schema (as opposed to Structure which is GIVEN)
+   */
+  _renderSchemaMeaningTab() {
+    const container = document.getElementById('schema-meaning-list');
+    if (!container) return;
+
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="empty-state-small"><p>No set selected</p></div>';
+      return;
+    }
+
+    const fields = set.fields || [];
+
+    if (fields.length === 0) {
+      container.innerHTML = '<div class="empty-state-small"><p>No fields in this set</p></div>';
+      return;
+    }
+
+    container.innerHTML = fields.map(field => {
+      // Find if field has a definition binding
+      const binding = field.definitionBinding || field.semanticBinding;
+      const definition = binding ? this.definitions?.find(d => d.id === binding.definitionId) : null;
+
+      return `
+        <div class="schema-meaning-field" data-field-id="${field.id}">
+          <div class="field-header">
+            <span class="field-name">${this._escapeHtml(field.name)}</span>
+            ${definition ? `
+              <span class="field-definition-link" title="Linked to ${this._escapeHtml(definition.name)}">
+                <i class="ph ph-link"></i>
+                ${this._escapeHtml(definition.name)}
+              </span>
+            ` : `
+              <button class="btn btn-sm" onclick="getDataWorkbench()?._showDefinitionPicker('${field.id}')">
+                <i class="ph ph-plus"></i>
+                Add Meaning
+              </button>
+            `}
+          </div>
+          ${definition ? `
+            <div class="field-explanation">
+              ${definition.uri ? `<a href="${this._escapeHtml(definition.uri)}" target="_blank" title="View definition"><i class="ph ph-globe"></i> ${this._escapeHtml(definition.uri)}</a>` : ''}
+              ${definition.description ? `<p>${this._escapeHtml(definition.description)}</p>` : '<p class="text-muted">No description</p>'}
+            </div>
+          ` : `
+            <div class="field-explanation text-muted">
+              <p>No semantic definition attached. This field's meaning is implicit.</p>
+            </div>
+          `}
+        </div>
+      `;
+    }).join('');
   }
 
   // --------------------------------------------------------------------------

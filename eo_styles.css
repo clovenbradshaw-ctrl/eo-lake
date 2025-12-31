@@ -59,11 +59,21 @@
   --info-500: #3b82f6;
   --info-700: #1d4ed8;
 
-  /* EO Colors */
+  /* EO Colors - Enhanced for GIVEN vs MEANT visibility */
   --given-color: #10b981;
   --given-bg: rgba(16, 185, 129, 0.1);
+  --given-bg-panel: rgba(16, 185, 129, 0.04);
+  --given-border: rgba(16, 185, 129, 0.25);
   --meant-color: #8b5cf6;
   --meant-bg: rgba(139, 92, 246, 0.1);
+  --meant-bg-panel: rgba(139, 92, 246, 0.04);
+  --meant-border: rgba(139, 92, 246, 0.25);
+
+  /* Architecture Chain Colors */
+  --chain-source: #10b981;
+  --chain-set: #3b82f6;
+  --chain-lens: #f59e0b;
+  --chain-view: #8b5cf6;
 
   /* Field Type Colors */
   --field-text: #6b7280;
@@ -583,6 +593,106 @@ html, body {
 .nav-panel-badge.project-badge {
   background: rgba(251, 146, 60, 0.15);
   color: rgb(251, 146, 60);
+}
+
+/* ===== GIVEN vs MEANT Visual Encoding ===== */
+/* GIVEN panels: darker, muted, locked feel */
+.nav-panel.given-panel {
+  background: var(--given-bg-panel);
+  border-left: 3px solid var(--given-border);
+}
+
+.nav-panel.given-panel .nav-panel-header {
+  background: var(--given-bg-panel);
+}
+
+.nav-panel.given-panel .nav-panel-title::after {
+  content: '';
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='%2310b981'%3E%3Cpath d='M208,80H176V56a48,48,0,0,0-96,0V80H48A16,16,0,0,0,32,96V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V96A16,16,0,0,0,208,80ZM96,56a32,32,0,0,1,64,0V80H96ZM208,208H48V96H208V208Z'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  opacity: 0.7;
+}
+
+/* MEANT panels: lighter, editable, configurable feel */
+.nav-panel.meant-panel {
+  background: var(--meant-bg-panel);
+  border-left: 3px solid var(--meant-border);
+}
+
+.nav-panel.meant-panel .nav-panel-header {
+  background: var(--meant-bg-panel);
+}
+
+.nav-panel.meant-panel .nav-panel-title::after {
+  content: '';
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256' fill='%238b5cf6'%3E%3Cpath d='M227.31,73.37,182.63,28.69a16,16,0,0,0-22.63,0L36.69,152A15.86,15.86,0,0,0,32,163.31V208a16,16,0,0,0,16,16H92.69A15.86,15.86,0,0,0,104,219.31L227.31,96a16,16,0,0,0,0-22.63ZM92.69,208H48V163.31l88-88L180.69,120ZM192,108.69,147.31,64l24-24L216,84.69Z'/%3E%3C/svg%3E");
+  background-size: contain;
+  background-repeat: no-repeat;
+  opacity: 0.7;
+}
+
+/* Hybrid panels: GIVEN structure + MEANT interpretation */
+.nav-panel.hybrid-panel {
+  background: linear-gradient(90deg, var(--given-bg-panel) 0%, var(--meant-bg-panel) 100%);
+  border-left: 3px solid;
+  border-image: linear-gradient(180deg, var(--given-border) 0%, var(--meant-border) 100%) 1;
+}
+
+.nav-panel.hybrid-panel .nav-panel-header {
+  background: transparent;
+}
+
+/* Epistemic status indicator in sidebar items */
+.nav-item-epistemic {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  font-size: 9px;
+  opacity: 0.6;
+}
+
+.nav-item-epistemic.given {
+  color: var(--given-color);
+}
+
+.nav-item-epistemic.meant {
+  color: var(--meant-color);
+}
+
+/* Read-only indicator tooltip */
+.nav-panel.given-panel .nav-item:hover::after {
+  content: 'Read-only';
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  color: var(--given-color);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* Editable indicator tooltip */
+.nav-panel.meant-panel .nav-item:hover::after {
+  content: 'Editable';
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  color: var(--meant-color);
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 /* Project context indicator - shows which project items belong to */
@@ -1400,6 +1510,274 @@ html, body {
 .breadcrumb-item.active {
   color: var(--text-primary);
   font-weight: 500;
+}
+
+/* ===== Architecture Chain Header ===== */
+.architecture-chain {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-primary);
+  font-size: 11px;
+  overflow-x: auto;
+}
+
+.chain-step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.chain-step:hover {
+  background: var(--bg-hover);
+}
+
+.chain-step.active {
+  font-weight: 600;
+}
+
+.chain-step.source {
+  border-left: 2px solid var(--chain-source);
+}
+
+.chain-step.source.active {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--chain-source);
+}
+
+.chain-step.set {
+  border-left: 2px solid var(--chain-set);
+}
+
+.chain-step.set.active {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--chain-set);
+}
+
+.chain-step.lens {
+  border-left: 2px solid var(--chain-lens);
+}
+
+.chain-step.lens.active {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--chain-lens);
+}
+
+.chain-step.view {
+  border-left: 2px solid var(--chain-view);
+}
+
+.chain-step.view.active {
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--chain-view);
+}
+
+.chain-arrow {
+  color: var(--text-disabled);
+  font-size: 10px;
+}
+
+.chain-step-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  opacity: 0.7;
+}
+
+.chain-step-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Architecture Mini-Map ===== */
+.architecture-minimap {
+  position: fixed;
+  bottom: 48px;
+  right: 16px;
+  z-index: 100;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 8px;
+  font-size: 11px;
+  opacity: 0.9;
+  transition: all var(--transition-normal);
+}
+
+.architecture-minimap:hover {
+  opacity: 1;
+}
+
+.architecture-minimap.collapsed {
+  padding: 6px 8px;
+}
+
+.architecture-minimap.collapsed .minimap-content {
+  display: none;
+}
+
+.minimap-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.architecture-minimap.collapsed .minimap-header {
+  margin-bottom: 0;
+}
+
+.minimap-toggle {
+  background: none;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color var(--transition-fast);
+}
+
+.minimap-toggle:hover {
+  color: var(--text-primary);
+}
+
+.minimap-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.minimap-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  position: relative;
+}
+
+.minimap-item::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 100%;
+  width: 1px;
+  height: 6px;
+  background: var(--border-primary);
+}
+
+.minimap-item:last-child::before {
+  display: none;
+}
+
+.minimap-item.active {
+  background: var(--bg-active);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.minimap-item.source {
+  color: var(--chain-source);
+}
+
+.minimap-item.source.active {
+  background: rgba(16, 185, 129, 0.15);
+}
+
+.minimap-item.set {
+  color: var(--chain-set);
+  padding-left: 16px;
+}
+
+.minimap-item.set.active {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.minimap-item.lens {
+  color: var(--chain-lens);
+  padding-left: 26px;
+}
+
+.minimap-item.lens.active {
+  background: rgba(245, 158, 11, 0.15);
+}
+
+.minimap-item.view {
+  color: var(--chain-view);
+  padding-left: 36px;
+}
+
+.minimap-item.view.active {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+.minimap-item i {
+  font-size: 12px;
+}
+
+.minimap-label {
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  opacity: 0.7;
+}
+
+/* ===== Work Zone Indicators ===== */
+.work-zone-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.work-zone-banner.structural {
+  background: var(--given-bg);
+  color: var(--given-color);
+}
+
+.work-zone-banner.editable {
+  background: var(--meant-bg);
+  color: var(--meant-color);
+}
+
+.work-zone-banner i {
+  font-size: 14px;
+}
+
+.work-zone-banner .work-zone-action {
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.work-zone-banner .work-zone-action:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .header-center {
@@ -13625,6 +14003,261 @@ body.has-picked-up .browser-tab:hover {
 
 .definition-source-badge i {
   font-size: 12px;
+}
+
+/* ===== Definition as Linked Glossary ===== */
+.definition-glossary-item {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  border-left: 3px solid rgb(168, 85, 247);
+  margin-bottom: 8px;
+  transition: all var(--transition-fast);
+}
+
+.definition-glossary-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.definition-glossary-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.definition-glossary-icon {
+  font-size: 16px;
+  color: rgb(168, 85, 247);
+}
+
+.definition-glossary-name {
+  font-weight: 600;
+  font-size: 13px;
+  flex: 1;
+}
+
+.definition-glossary-uri {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  padding-left: 24px;
+}
+
+.definition-glossary-uri i {
+  font-size: 10px;
+}
+
+.definition-glossary-uri a {
+  color: var(--primary-500);
+  text-decoration: none;
+}
+
+.definition-glossary-uri a:hover {
+  text-decoration: underline;
+}
+
+.definition-glossary-usage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  padding-left: 24px;
+}
+
+.definition-usage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  padding: 2px 6px;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--primary-500);
+  border-radius: 3px;
+}
+
+.definition-usage-badge i {
+  font-size: 9px;
+}
+
+/* ===== Schema Tabs (Structure & Meaning) ===== */
+.schema-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.schema-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.schema-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.schema-tab.active {
+  color: var(--text-primary);
+  font-weight: 500;
+  border-bottom-color: var(--primary-500);
+}
+
+.schema-tab i {
+  font-size: 14px;
+}
+
+.schema-tab.structure {
+  border-bottom-color: transparent;
+}
+
+.schema-tab.structure.active {
+  border-bottom-color: var(--given-color);
+}
+
+.schema-tab.structure.active i {
+  color: var(--given-color);
+}
+
+.schema-tab.meaning {
+  border-bottom-color: transparent;
+}
+
+.schema-tab.meaning.active {
+  border-bottom-color: var(--meant-color);
+}
+
+.schema-tab.meaning.active i {
+  color: var(--meant-color);
+}
+
+.schema-tab-content {
+  padding: 16px;
+}
+
+.schema-tab-content.hidden {
+  display: none;
+}
+
+/* Structure tab content */
+.schema-structure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.schema-structure-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--given-border);
+}
+
+.schema-structure-field .field-name {
+  font-weight: 500;
+  flex: 1;
+}
+
+.schema-structure-field .field-type {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.schema-structure-field .field-source {
+  font-size: 10px;
+  color: var(--given-color);
+}
+
+/* Meaning tab content */
+.schema-meaning-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.schema-meaning-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--meant-border);
+}
+
+.schema-meaning-field .field-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schema-meaning-field .field-name {
+  font-weight: 500;
+}
+
+.schema-meaning-field .field-definition-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgb(168, 85, 247);
+}
+
+.schema-meaning-field .field-definition-link i {
+  font-size: 10px;
+}
+
+.schema-meaning-field .field-explanation {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding-left: 8px;
+  border-left: 2px solid var(--border-primary);
+}
+
+/* ===== Null Source Indicator ===== */
+.null-source-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: linear-gradient(90deg, var(--given-bg) 0%, transparent 100%);
+  border-left: 3px solid var(--given-color);
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.null-source-indicator i {
+  font-size: 14px;
+  color: var(--given-color);
+}
+
+.null-source-indicator .null-source-label {
+  color: var(--given-color);
+  font-weight: 600;
+}
+
+.null-source-indicator .null-source-hint {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 /* Definition Detail View */
