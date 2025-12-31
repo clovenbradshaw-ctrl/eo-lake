@@ -15948,6 +15948,9 @@ class EODataWorkbench {
                 title="${this._escapeHtml(view.name)} (${view.type})">
           <i class="ph ${icon}"></i>
           <span class="view-tab-name">${this._escapeHtml(view.name)}</span>
+          <span class="view-tab-close" data-view-id="${view.id}" title="Close tab">
+            <i class="ph ph-x"></i>
+          </span>
         </button>
       `;
     }).join('');
@@ -16019,9 +16022,22 @@ class EODataWorkbench {
     // View tab clicks
     header.querySelectorAll('.view-tab').forEach(tab => {
       tab.addEventListener('click', (e) => {
+        // Don't switch tabs if clicking on the close button
+        if (e.target.closest('.view-tab-close')) return;
         const viewId = tab.dataset.viewId;
         if (viewId && viewId !== this.currentViewId) {
           this._selectView(viewId);
+        }
+      });
+    });
+
+    // Tab close button clicks
+    header.querySelectorAll('.view-tab-close').forEach(closeBtn => {
+      closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const viewId = closeBtn.dataset.viewId;
+        if (viewId) {
+          this._tossTab(viewId);
         }
       });
     });

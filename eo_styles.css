@@ -4157,6 +4157,47 @@ body:has(.header-simplified) .view-disclosure {
   text-overflow: ellipsis;
 }
 
+.view-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  margin-left: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+
+.view-tab-close i {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.view-tab:hover .view-tab-close {
+  opacity: 1;
+}
+
+.view-tab-close:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.view-tab-close:hover i {
+  color: var(--text-primary);
+}
+
+.view-tab.active .view-tab-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.view-tab.active .view-tab-close i {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.view-tab.active .view-tab-close:hover i {
+  color: white;
+}
+
 .view-tabs-add {
   display: flex;
   align-items: center;
