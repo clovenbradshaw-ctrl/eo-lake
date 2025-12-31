@@ -214,7 +214,8 @@ class EOSyncAPI {
       console.warn('EOSyncAPI: Failed to load config', e);
     }
     return {
-      endpoint: '',
+      postEndpoint: '',
+      getEndpoint: '',
       authToken: '',
       workspaceId: 'default',
       enabled: false
@@ -280,7 +281,7 @@ class EOSyncAPI {
    * Check if sync is configured and enabled
    */
   isConfigured() {
-    return this.config.endpoint && this.config.authToken && this.config.enabled;
+    return this.config.postEndpoint && this.config.getEndpoint && this.config.authToken && this.config.enabled;
   }
 
   /**
@@ -290,7 +291,8 @@ class EOSyncAPI {
     return {
       configured: this.isConfigured(),
       enabled: this.config.enabled,
-      endpoint: this.config.endpoint,
+      postEndpoint: this.config.postEndpoint,
+      getEndpoint: this.config.getEndpoint,
       workspaceId: this.config.workspaceId,
       syncInProgress: this.syncInProgress,
       lastSync: this.lastSync,
@@ -357,9 +359,7 @@ class EOSyncAPI {
   /**
    * Make an authenticated API request with retry logic
    */
-  async _fetch(path, options = {}, retryCount = 0) {
-    const url = `${this.config.endpoint}${path}`;
-
+  async _fetch(url, options = {}, retryCount = 0) {
     const fetchOptions = {
       ...options,
       headers: {
@@ -395,7 +395,7 @@ class EOSyncAPI {
         const delay = SyncAPIConfig.RETRY_DELAYS[retryCount];
         console.log(`EOSyncAPI: Retry ${retryCount + 1} after ${delay}ms`);
         await new Promise(resolve => setTimeout(resolve, delay));
-        return this._fetch(path, options, retryCount + 1);
+        return this._fetch(url, options, retryCount + 1);
       }
       throw error;
     }
@@ -438,7 +438,7 @@ class EOSyncAPI {
       const batch = events.slice(i, i + SyncAPIConfig.PUSH_BATCH_SIZE);
 
       try {
-        const response = await this._fetch('/api/v1/events', {
+        const response = await this._fetch(this.config.postEndpoint, {
           method: 'POST',
           body: JSON.stringify({
             events: batch.map(e => this._prepareEventForSync(e)),
@@ -705,7 +705,11 @@ class EOSyncAPI {
 
     console.log(`EOSyncAPI: Pulling events`, Object.fromEntries(params));
 
-    const response = await this._fetch(`/api/v1/events?${params.toString()}`, {
+    // Build GET URL with query params
+    const getUrl = new URL(this.config.getEndpoint);
+    params.forEach((value, key) => getUrl.searchParams.append(key, value));
+
+    const response = await this._fetch(getUrl.toString(), {
       method: 'GET'
     });
 
@@ -1049,18 +1053,17 @@ class EOSyncAPI {
    * Test the connection to the API
    */
   async testConnection() {
-    if (!this.config.endpoint || !this.config.authToken) {
-      return { success: false, error: 'Endpoint and auth token required' };
+    if (!this.config.getEndpoint || !this.config.authToken) {
+      return { success: false, error: 'GET endpoint and auth token required' };
     }
 
     try {
-      // Try to fetch with limit 0 just to test auth
-      const params = new URLSearchParams({
-        workspace_id: this.config.workspaceId,
-        limit: '1'
-      });
+      // Try to fetch with limit 1 just to test auth
+      const getUrl = new URL(this.config.getEndpoint);
+      getUrl.searchParams.append('workspace_id', this.config.workspaceId);
+      getUrl.searchParams.append('limit', '1');
 
-      await this._fetch(`/api/v1/events?${params.toString()}`, { method: 'GET' });
+      await this._fetch(getUrl.toString(), { method: 'GET' });
 
       return { success: true };
     } catch (error) {

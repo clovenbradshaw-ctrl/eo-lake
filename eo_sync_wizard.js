@@ -106,16 +106,29 @@ class EOSyncWizard {
         content: (data) => `
           <div class="sync-wizard-config">
             <div class="sync-wizard-field">
-              <label for="sync-wiz-endpoint">API Endpoint</label>
+              <label for="sync-wiz-post-endpoint">POST Endpoint (Push Events)</label>
               <input
                 type="url"
-                id="sync-wiz-endpoint"
-                name="endpoint"
-                placeholder="https://api.example.com"
-                value="${data.endpoint || ''}"
+                id="sync-wiz-post-endpoint"
+                name="postEndpoint"
+                placeholder="https://api.example.com/api/v1/events"
+                value="${data.postEndpoint || ''}"
                 autocomplete="off"
               >
-              <span class="sync-wizard-hint">The base URL of your sync API server</span>
+              <span class="sync-wizard-hint">URL to POST events to your server</span>
+            </div>
+
+            <div class="sync-wizard-field">
+              <label for="sync-wiz-get-endpoint">GET Endpoint (Pull Events)</label>
+              <input
+                type="url"
+                id="sync-wiz-get-endpoint"
+                name="getEndpoint"
+                placeholder="https://api.example.com/api/v1/events"
+                value="${data.getEndpoint || ''}"
+                autocomplete="off"
+              >
+              <span class="sync-wizard-hint">URL to GET events from your server</span>
             </div>
 
             <div class="sync-wizard-field">
@@ -133,7 +146,7 @@ class EOSyncWizard {
                   <i class="ph ph-eye"></i>
                 </button>
               </div>
-              <span class="sync-wizard-hint">Authentication token for API requests</span>
+              <span class="sync-wizard-hint">Sent as Authorization: Bearer {token}</span>
             </div>
 
             <div class="sync-wizard-field">
@@ -146,8 +159,53 @@ class EOSyncWizard {
                 value="${data.workspaceId || 'default'}"
                 autocomplete="off"
               >
-              <span class="sync-wizard-hint">Identifier for this workspace on the server (optional)</span>
+              <span class="sync-wizard-hint">Sent as X-Workspace-ID header</span>
             </div>
+
+            <details class="sync-wizard-schema-details">
+              <summary><i class="ph ph-code"></i> View Expected Schema</summary>
+              <div class="sync-wizard-schema">
+                <h4>POST Request Body</h4>
+                <pre><code>{
+  "events": [{
+    "id": "evt_set_abc123",
+    "epistemic_type": "given",
+    "category": "schema|data|import|workspace|export",
+    "action": "set_define|record_create|source_import|...",
+    "actor": "sync_client",
+    "timestamp": "2024-01-01T00:00:00.000Z",
+    "logical_clock": 1704067200000,
+    "parents": [],
+    "entity_id": "set_abc123",
+    "entity_type": "set|record|source|project",
+    "payload": { ... }
+  }],
+  "workspace_id": "default"
+}</code></pre>
+
+                <h4>Expected POST Response</h4>
+                <pre><code>{
+  "success": true,
+  "accepted": [{"id": "evt_...", "status": "accepted"}],
+  "rejected": [],
+  "server_logical_clock": 123
+}</code></pre>
+
+                <h4>GET Query Parameters</h4>
+                <pre><code>?workspace_id=default
+&since_clock=0
+&limit=1000
+&cursor=...</code></pre>
+
+                <h4>Expected GET Response</h4>
+                <pre><code>{
+  "events": [...],
+  "has_more": false,
+  "next_cursor": null,
+  "latest_clock": 123
+}</code></pre>
+              </div>
+            </details>
           </div>
         `,
         onEnter: () => {
@@ -167,8 +225,12 @@ class EOSyncWizard {
           }
         },
         validate: (inputs, wizard) => {
-          if (!inputs.endpoint || !inputs.endpoint.trim()) {
-            this._showFieldError('sync-wiz-endpoint', 'API endpoint is required');
+          if (!inputs.postEndpoint || !inputs.postEndpoint.trim()) {
+            this._showFieldError('sync-wiz-post-endpoint', 'POST endpoint is required');
+            return false;
+          }
+          if (!inputs.getEndpoint || !inputs.getEndpoint.trim()) {
+            this._showFieldError('sync-wiz-get-endpoint', 'GET endpoint is required');
             return false;
           }
           if (!inputs.authToken || !inputs.authToken.trim()) {
@@ -176,15 +238,22 @@ class EOSyncWizard {
             return false;
           }
           try {
-            new URL(inputs.endpoint);
+            new URL(inputs.postEndpoint);
           } catch {
-            this._showFieldError('sync-wiz-endpoint', 'Please enter a valid URL');
+            this._showFieldError('sync-wiz-post-endpoint', 'Please enter a valid URL');
+            return false;
+          }
+          try {
+            new URL(inputs.getEndpoint);
+          } catch {
+            this._showFieldError('sync-wiz-get-endpoint', 'Please enter a valid URL');
             return false;
           }
           return true;
         },
         collectData: (inputs) => ({
-          endpoint: inputs.endpoint.trim(),
+          postEndpoint: inputs.postEndpoint.trim(),
+          getEndpoint: inputs.getEndpoint.trim(),
           authToken: inputs.authToken.trim(),
           workspaceId: inputs.workspaceId?.trim() || 'default'
         }),
@@ -514,7 +583,8 @@ class EOSyncWizard {
     try {
       // Configure the API with the new settings (but don't enable yet)
       this.syncAPI.configure({
-        endpoint: data.endpoint,
+        postEndpoint: data.postEndpoint,
+        getEndpoint: data.getEndpoint,
         authToken: data.authToken,
         workspaceId: data.workspaceId,
         enabled: false
@@ -578,7 +648,8 @@ class EOSyncWizard {
   async _completeSetup(data, wizard) {
     // Save the configuration with enabled state
     this.syncAPI.configure({
-      endpoint: data.endpoint,
+      postEndpoint: data.postEndpoint,
+      getEndpoint: data.getEndpoint,
       authToken: data.authToken,
       workspaceId: data.workspaceId,
       enabled: data.enabled
