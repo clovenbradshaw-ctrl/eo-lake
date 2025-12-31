@@ -10774,7 +10774,7 @@ class EODataWorkbench {
       return;
     }
 
-    const content = document.getElementById('content');
+    const content = this.elements.contentArea;
     if (!content) return;
 
     const fields = set.fields || [];
