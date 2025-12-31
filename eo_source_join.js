@@ -96,6 +96,13 @@ class SourceStore {
         mimeType: fileMetadata.mimeType || null
       },
 
+      // CORE_ARCHITECTURE.md: sourceType distinguishes Source types
+      // 'file' = CSV, JSON, Excel uploaded (default for imports)
+      // 'api' = External system connected
+      // 'scrape' = Web data captured
+      // 'null' = Empty origin for user-created tables
+      sourceType: config.sourceType || 'file',
+
       // Provenance (Identity/Space/Time structure)
       // See eo_source_provenance.js for full schema
       provenance: this._normalizeSourceProvenance(provenance, {
@@ -249,7 +256,14 @@ class SourceStore {
         mimeType: null
       },
 
-      // Origin distinguishes imported vs manual sources
+      // CORE_ARCHITECTURE.md: sourceType distinguishes Source types
+      // 'null' = Empty origin for user-created tables (manual entry)
+      // 'file' = CSV, JSON, Excel uploaded
+      // 'api' = External system connected
+      // 'scrape' = Web data captured
+      sourceType: 'null',
+
+      // Origin (legacy - kept for backward compatibility)
       origin: 'manual',
 
       // Provenance for manual/scratch sources

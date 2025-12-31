@@ -552,6 +552,50 @@ const GivenMode = Object.freeze({
 });
 
 // ============================================================================
+// SECTION XI: View Hierarchy Types (CORE_ARCHITECTURE.md Compliant)
+// ============================================================================
+
+/**
+ * ViewType - The visualization type for a View
+ *
+ * Views are the working environment where users see and interact with data.
+ * A View answers: "How do I want to see this Lens?"
+ */
+const ViewType = Object.freeze({
+  GRID: 'grid',           // Spreadsheet rows/columns - general editing, data review
+  CARDS: 'cards',         // Visual cards with field preview - contacts, properties
+  KANBAN: 'kanban',       // Columns by status field - workflow, task management
+  CALENDAR: 'calendar',   // Events on date grid - scheduling, deadlines
+  GRAPH: 'graph',         // Nodes and edges - relationships, networks
+  TIMELINE: 'timeline'    // Chronological ordering
+});
+
+/**
+ * PivotType - How a Lens slices the data from a Set
+ *
+ * A Lens is the data slice you're working with. Every View requires a Lens.
+ * The Lens defines *what data* you see. The View defines *how* you see it.
+ */
+const PivotType = Object.freeze({
+  NONE: null,             // Default lens - all records, all columns (pass-through)
+  FILTER: 'filter',       // Only rows matching predicate (e.g., party_type = 'landlord')
+  GROUP: 'group',         // One "row" per unique value (group by property_address)
+  EXTRACT: 'extract'      // Pull record type from JSON (WHERE _type = 'Person')
+});
+
+/**
+ * SourceType - The origin type of a Source
+ *
+ * Every piece of data traces back to a Source. This classifies how data entered.
+ */
+const SourceType = Object.freeze({
+  FILE: 'file',           // CSV, JSON, Excel uploaded
+  API: 'api',             // External system connected
+  SCRAPE: 'scrape',       // Web data captured
+  NULL: 'null'            // Empty origin for user-created tables (manual entry)
+});
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -564,6 +608,11 @@ if (typeof module !== 'undefined' && module.exports) {
     SupersessionType,
     EventCategory,
     GivenMode,
+
+    // View hierarchy types (CORE_ARCHITECTURE.md compliant)
+    ViewType,
+    PivotType,
+    SourceType,
 
     // Classes
     GroundingReference,
@@ -596,6 +645,11 @@ if (typeof window !== 'undefined') {
     EventCategory,
     GivenMode,
 
+    // View hierarchy types (CORE_ARCHITECTURE.md compliant)
+    ViewType,
+    PivotType,
+    SourceType,
+
     // Classes
     GroundingReference,
     Derivation,
@@ -623,6 +677,9 @@ if (typeof window !== 'undefined') {
   window.SupersessionType = SupersessionType;
   window.EventCategory = EventCategory;
   window.GivenMode = GivenMode;
+  window.ViewType = ViewType;
+  window.PivotType = PivotType;
+  window.SourceType = SourceType;
   window.GroundingReference = GroundingReference;
   window.Derivation = Derivation;
   window.Grounding = Grounding;

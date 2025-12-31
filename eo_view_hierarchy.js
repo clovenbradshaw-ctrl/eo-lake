@@ -42,9 +42,15 @@ const ViewEpistemicStatus = Object.freeze({
 });
 
 // ============================================================================
-// Lens Types (View Types)
+// Lens Types (DEPRECATED - Use ViewType from eo_types.js)
 // ============================================================================
 
+/**
+ * @deprecated Use ViewType from eo_types.js instead.
+ * LensType conflated data slicing with visualization. The new architecture separates:
+ * - Lens: Data slice (pivot, included fields) - see PivotType
+ * - View: Visualization (Grid, Cards, Kanban) - see ViewType
+ */
 const LensType = Object.freeze({
   GRID: 'grid',           // Tabular data display
   CARDS: 'cards',         // Visual entity browsing
@@ -54,6 +60,9 @@ const LensType = Object.freeze({
   GRAPH: 'graph'          // Relationship networks
 });
 
+/**
+ * @deprecated Use ViewTypeInfo instead
+ */
 const LensTypeInfo = {
   [LensType.GRID]: { icon: 'ph-table', label: 'Grid', description: 'Tabular data display' },
   [LensType.CARDS]: { icon: 'ph-cards', label: 'Cards', description: 'Visual entity browsing' },
@@ -61,6 +70,46 @@ const LensTypeInfo = {
   [LensType.TIMELINE]: { icon: 'ph-timeline', label: 'Timeline', description: 'Chronological ordering' },
   [LensType.CALENDAR]: { icon: 'ph-calendar-blank', label: 'Calendar', description: 'Date-positioned events' },
   [LensType.GRAPH]: { icon: 'ph-graph', label: 'Graph', description: 'Relationship networks' }
+};
+
+// ============================================================================
+// CORE_ARCHITECTURE.md Compliant Types
+// ============================================================================
+
+/**
+ * ViewTypeInfo - Metadata for view types (CORE_ARCHITECTURE.md compliant)
+ *
+ * Views are the working environment. This is where all features live:
+ * - Grid: Spreadsheet rows/columns - general editing, data review
+ * - Cards: Visual cards with field preview - contacts, properties, scanning
+ * - Kanban: Columns by status field - workflow, task management
+ * - Calendar: Events on date grid - scheduling, deadlines
+ * - Graph: Nodes and edges - relationships, networks
+ * - Timeline: Chronological ordering
+ */
+const ViewTypeInfo = {
+  grid: { icon: 'ph-table', label: 'Grid', description: 'Spreadsheet rows/columns for general editing' },
+  cards: { icon: 'ph-cards', label: 'Cards', description: 'Visual cards with field preview' },
+  kanban: { icon: 'ph-kanban', label: 'Kanban', description: 'Columns by status field' },
+  calendar: { icon: 'ph-calendar-blank', label: 'Calendar', description: 'Events on date grid' },
+  graph: { icon: 'ph-graph', label: 'Graph', description: 'Nodes and edges for relationships' },
+  timeline: { icon: 'ph-timeline', label: 'Timeline', description: 'Chronological ordering' }
+};
+
+/**
+ * PivotTypeInfo - Metadata for lens pivot types
+ *
+ * A Lens is the data slice you're working with. Pivot types:
+ * - None (null): Default lens - all records, all columns (most common)
+ * - Filter: Only rows matching predicate
+ * - Group: One "row" per unique value
+ * - Extract: Pull record type from JSON
+ */
+const PivotTypeInfo = {
+  null: { label: 'All Data', description: 'Default lens - all records, all columns' },
+  filter: { label: 'Filter', description: 'Only rows matching predicate' },
+  group: { label: 'Group By', description: 'One row per unique value' },
+  extract: { label: 'Extract', description: 'Pull record type from JSON' }
 };
 
 // ============================================================================
@@ -346,11 +395,19 @@ class WorkspaceConfig {
 
 class SetConfig {
   /**
+   * SetConfig - The flat rectangle of data with a typed schema
+   *
+   * Per CORE_ARCHITECTURE.md:
+   * - A Set always binds to at least one Source
+   * - All columns, all records from its Source(s)
+   * - You can look but not work here (browse-only staging area)
+   *
    * @param {Object} options
    * @param {string} options.id - Unique identifier
    * @param {string} options.name - Human-readable name
    * @param {string} options.workspaceId - Parent workspace ID
    * @param {Object} options.schema - Field definitions
+   * @param {Object[]} options.sourceBindings - REQUIRED: Bindings to source(s)
    * @param {Object} options.coherenceRules - Rules for coherence (Rule 6)
    * @param {string[]} options.provenance - IDs of Given events
    */
@@ -364,6 +421,10 @@ class SetConfig {
     this.workspaceId = options.workspaceId || null;
     this.icon = options.icon || 'ph-table';
 
+    // CORE_ARCHITECTURE.md: A Set always binds to at least one Source
+    // sourceBindings: [{ sourceId: "src_001", mapping: "direct" }]
+    this.sourceBindings = options.sourceBindings || [];
+
     // Schema is an interpretation of entity structure
     this.schema = {
       fields: options.schema?.fields || []
@@ -375,9 +436,10 @@ class SetConfig {
       excludeDeleted: options.coherenceRules?.excludeDeleted !== false
     };
 
-    // Rule 7: Provenance chain
+    // Rule 7: Provenance chain (derived from sourceBindings if not provided)
     this.provenance = {
-      derivedFrom: options.provenance?.derivedFrom || [],
+      derivedFrom: options.provenance?.derivedFrom ||
+        this.sourceBindings.map(b => b.sourceId),
       createdAt: options.provenance?.createdAt || new Date().toISOString(),
       createdBy: options.provenance?.createdBy || null
     };
@@ -396,6 +458,9 @@ class SetConfig {
 
     // Child lenses
     this.lensIds = options.lensIds || [];
+
+    // Child views (for migration - views can reference set directly in legacy mode)
+    this.viewIds = options.viewIds || [];
   }
 
   /**
@@ -420,6 +485,7 @@ class SetConfig {
       name: this.name,
       workspaceId: this.workspaceId,
       icon: this.icon,
+      sourceBindings: [...this.sourceBindings],
       schema: { fields: [...this.schema.fields] },
       coherenceRules: { ...this.coherenceRules },
       provenance: { ...this.provenance },
@@ -429,25 +495,36 @@ class SetConfig {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       records: this.records,
-      lensIds: [...this.lensIds]
+      lensIds: [...this.lensIds],
+      viewIds: [...this.viewIds]
     };
   }
 }
 
 // ============================================================================
-// Level 3: Lens (View Type Perspective)
+// Level 3: Lens (Data Slice - CORE_ARCHITECTURE.md Compliant)
 // ============================================================================
 
 class LensConfig {
   /**
+   * LensConfig - The data slice you're working with
+   *
+   * Per CORE_ARCHITECTURE.md:
+   * - A Lens is either Default (pass-through of entire Set) or Pivoted
+   * - Every View requires a Lens
+   * - The Lens defines *what data* you see (the View defines *how* you see it)
+   *
    * @param {Object} options
    * @param {string} options.id - Unique identifier
    * @param {string} options.name - Human-readable name
    * @param {string} options.setId - Parent set ID
-   * @param {string} options.lensType - One of LensType
-   * @param {Object} options.config - Lens-specific configuration
-   * @param {Object} options.display - Visual settings
+   * @param {boolean} options.isDefault - True if this is the default lens (auto-created with Set)
+   * @param {Object} options.pivot - Pivot configuration (null = default, pass-through)
+   * @param {string|string[]} options.includedFields - 'all' or array of field IDs
    * @param {Object} options.provenance - Provenance tracking
+   *
+   * Legacy support:
+   * @param {string} options.lensType - DEPRECATED: Use ViewConfig for view types
    */
   constructor(options) {
     // Rule 1: Explicitly typed as 'meant'
@@ -455,19 +532,41 @@ class LensConfig {
     this.viewType = 'lens';
 
     this.id = options.id || generateViewId('lens');
-    this.name = options.name || 'Untitled View';
+    this.name = options.name || 'Untitled Lens';
     this.setId = options.setId || null;
+
+    // CORE_ARCHITECTURE.md: Is this the default lens (auto-created)?
+    this.isDefault = options.isDefault || false;
+
+    // CORE_ARCHITECTURE.md: Pivot configuration
+    // null = default lens (entire Set, no pivot)
+    // { type: 'filter', predicate: {...} }
+    // { type: 'group', field: 'status' }
+    // { type: 'extract', predicate: { field: '_type', op: 'eq', value: 'Person' } }
+    this.pivot = options.pivot || null;
+
+    // CORE_ARCHITECTURE.md: Which fields are included
+    // 'all' = all fields from Set
+    // ['fld_01', 'fld_02'] = specific fields only
+    this.includedFields = options.includedFields || 'all';
+
+    // Child views (CORE_ARCHITECTURE.md: Views live under Lens)
+    this.viewIds = options.viewIds || [];
+
+    // ==== LEGACY SUPPORT (to be migrated) ====
+    // These fields support backward compatibility with old LensConfig usage
+    // where LensConfig conflated Lens (data slice) with View (visualization)
     this.lensType = options.lensType || LensType.GRID;
 
-    // Lens-specific configuration
+    // Legacy config (view-specific settings that should move to ViewConfig)
     this.config = {
-      // Common config
+      // These are Lens concerns (data filtering)
       filters: options.config?.filters || [],
       sorts: options.config?.sorts || [],
       hiddenFields: options.config?.hiddenFields || [],
       fieldOrder: options.config?.fieldOrder || [],
 
-      // Type-specific config
+      // These are View concerns (should be in ViewConfig, kept for migration)
       groupByField: options.config?.groupByField || null,
       cardTitleField: options.config?.cardTitleField || null,
       cardDescriptionField: options.config?.cardDescriptionField || null,
@@ -479,23 +578,24 @@ class LensConfig {
       ...options.config
     };
 
-    // Visual settings
+    // Legacy visual settings (should be in ViewConfig)
     this.display = {
       columnWidth: options.display?.columnWidth || 200,
       cardHeight: options.display?.cardHeight || 'auto',
       showFieldLabels: options.display?.showFieldLabels !== false
     };
+    // ==== END LEGACY SUPPORT ====
 
     // Rule 7: Provenance
     this.provenance = {
       derivedFromSet: options.setId || options.provenance?.derivedFromSet || null,
       derivedFromLens: options.provenance?.derivedFromLens || null,
-      purpose: options.provenance?.purpose || 'data_visualization'
+      purpose: options.provenance?.purpose || 'data_slice'
     };
 
     // Rule 8: Determinacy at minimal horizon
     this.frame = {
-      purpose: options.frame?.purpose || 'data_visualization',
+      purpose: options.frame?.purpose || 'data_slice',
       epistemicStatus: options.frame?.epistemicStatus || ViewEpistemicStatus.PRELIMINARY
     };
 
@@ -508,7 +608,7 @@ class LensConfig {
     this.createdAt = options.createdAt || new Date().toISOString();
     this.updatedAt = options.updatedAt || new Date().toISOString();
 
-    // Child focuses
+    // Child focuses (legacy - Focus should be absorbed into View)
     this.focusIds = options.focusIds || [];
   }
 
@@ -538,9 +638,15 @@ class LensConfig {
       id: this.id,
       name: this.name,
       setId: this.setId,
+      isDefault: this.isDefault,
+      pivot: this.pivot,
+      includedFields: this.includedFields,
+      viewIds: [...this.viewIds],
+      // Legacy fields
       lensType: this.lensType,
       config: { ...this.config },
       display: { ...this.display },
+      // Standard fields
       provenance: { ...this.provenance },
       frame: { ...this.frame },
       epistemicStatus: this.epistemicStatus,
@@ -554,11 +660,141 @@ class LensConfig {
 }
 
 // ============================================================================
-// Level 4: Focus (Filtered Perspective)
+// Level 4: View (Visualization - CORE_ARCHITECTURE.md Compliant)
+// ============================================================================
+
+class ViewConfig {
+  /**
+   * ViewConfig - The working environment (visualization of a Lens)
+   *
+   * Per CORE_ARCHITECTURE.md:
+   * - This is where you edit, filter, sort, and interact with data
+   * - A View answers: "How do I want to see this Lens?"
+   * - View types: Grid, Kanban, Calendar, Graph, Cards
+   *
+   * @param {Object} options
+   * @param {string} options.id - Unique identifier
+   * @param {string} options.name - Human-readable name
+   * @param {string} options.lensId - Parent lens ID
+   * @param {string} options.viewType - One of ViewType (grid, kanban, etc.)
+   * @param {Object} options.config - View-specific configuration
+   */
+  constructor(options) {
+    // Rule 1: Explicitly typed as 'meant'
+    this.type = 'meant';
+    this.hierarchyType = 'view';
+
+    this.id = options.id || generateViewId('view');
+    this.name = options.name || 'Untitled View';
+    this.lensId = options.lensId || null;
+
+    // CORE_ARCHITECTURE.md: View type (Grid, Kanban, Cards, Calendar, Graph)
+    this.viewType = options.viewType || 'grid';
+
+    // View-specific configuration
+    this.config = {
+      // Grid config
+      visibleFields: options.config?.visibleFields || [],
+      fieldWidths: options.config?.fieldWidths || {},
+      sort: options.config?.sort || [],
+      rowHeight: options.config?.rowHeight || 'medium',
+
+      // Kanban config
+      statusField: options.config?.statusField || null,
+      columnOrder: options.config?.columnOrder || [],
+      cardTitleField: options.config?.cardTitleField || null,
+      cardPreviewFields: options.config?.cardPreviewFields || [],
+
+      // Calendar config
+      dateField: options.config?.dateField || null,
+      endDateField: options.config?.endDateField || null,
+      eventTitleField: options.config?.eventTitleField || null,
+
+      // Graph config
+      linkFields: options.config?.linkFields || [],
+      nodeLabel: options.config?.nodeLabel || null,
+      nodeColorField: options.config?.nodeColorField || null,
+      layout: options.config?.layout || 'dagre',
+
+      // Cards config
+      cardImageField: options.config?.cardImageField || null,
+      cardDescriptionField: options.config?.cardDescriptionField || null,
+
+      // Common view config
+      filters: options.config?.filters || [],    // Temporary filters (not saved to Lens)
+      groupByField: options.config?.groupByField || null,
+      showFieldLabels: options.config?.showFieldLabels !== false,
+
+      // Additional settings
+      ...options.config
+    };
+
+    // Rule 7: Provenance
+    this.provenance = {
+      derivedFromLens: options.lensId || options.provenance?.derivedFromLens || null,
+      purpose: options.provenance?.purpose || 'data_visualization'
+    };
+
+    // Rule 9: Defeasibility
+    this.epistemicStatus = options.epistemicStatus || ViewEpistemicStatus.PRELIMINARY;
+    this.supersedes = options.supersedes || null;
+    this.supersededBy = options.supersededBy || null;
+
+    // Timestamps
+    this.createdAt = options.createdAt || new Date().toISOString();
+    this.updatedAt = options.updatedAt || new Date().toISOString();
+  }
+
+  /**
+   * Validate compliance
+   */
+  validate() {
+    const errors = [];
+
+    // Must have parent lens
+    if (!this.lensId) {
+      errors.push(new ViewHierarchyError(7, 'View must belong to a Lens'));
+    }
+
+    // Must have valid view type
+    const validViewTypes = ['grid', 'cards', 'kanban', 'calendar', 'graph', 'timeline'];
+    if (!validViewTypes.includes(this.viewType)) {
+      errors.push(new ViewHierarchyError(1, `Invalid view type: ${this.viewType}`));
+    }
+
+    return { valid: errors.length === 0, errors };
+  }
+
+  toJSON() {
+    return {
+      type: this.type,
+      hierarchyType: this.hierarchyType,
+      id: this.id,
+      name: this.name,
+      lensId: this.lensId,
+      viewType: this.viewType,
+      config: { ...this.config },
+      provenance: { ...this.provenance },
+      epistemicStatus: this.epistemicStatus,
+      supersedes: this.supersedes,
+      supersededBy: this.supersededBy,
+      createdAt: this.createdAt,
+      updatedAt: this.updatedAt
+    };
+  }
+}
+
+// ============================================================================
+// Level 5: Focus (Filtered Perspective - DEPRECATED)
+// Per CORE_ARCHITECTURE.md: Focus should be absorbed into View
+// Focus-level features (filters, sorts, limits) belong in ViewConfig.config
 // ============================================================================
 
 class FocusConfig {
   /**
+   * @deprecated Focus is being absorbed into View per CORE_ARCHITECTURE.md
+   * Use ViewConfig.config.filters instead.
+   *
    * @param {Object} options
    * @param {string} options.id - Unique identifier
    * @param {string} options.name - Human-readable name
@@ -782,6 +1018,16 @@ class ExportConfig {
 
 class ViewRegistry {
   /**
+   * ViewRegistry - Central Coordinator for the View Hierarchy
+   *
+   * Per CORE_ARCHITECTURE.md, manages the hierarchy:
+   *   PROJECT → SOURCE → SET → LENS → VIEW
+   *
+   * Key behaviors:
+   * - When a Set is created, auto-creates a default Lens
+   * - When a Lens is created, auto-creates a default Grid View
+   * - The chain SOURCE → SET → LENS → VIEW always exists
+   *
    * @param {HorizonGate} horizonGate - For perspectival access (Rule 4)
    * @param {EOEventStore} eventStore - For provenance tracking (Rule 7)
    */
@@ -794,7 +1040,8 @@ class ViewRegistry {
     this.workspaces = new Map();
     this.sets = new Map();
     this.lenses = new Map();
-    this.focuses = new Map();
+    this.views = new Map();        // CORE_ARCHITECTURE.md: Views (Level 4)
+    this.focuses = new Map();      // Deprecated - being absorbed into View
     this.exports = new Map();
 
     // Active selections
@@ -802,7 +1049,8 @@ class ViewRegistry {
     this.activeWorkspaceId = null;
     this.activeSetId = null;
     this.activeLensId = null;
-    this.activeFocusId = null;
+    this.activeViewId = null;      // CORE_ARCHITECTURE.md: Active View
+    this.activeFocusId = null;     // Deprecated
 
     // Subscribers for reactive updates
     this._subscribers = new Set();
@@ -1019,16 +1267,34 @@ class ViewRegistry {
 
   /**
    * Create a new set within a workspace
+   *
+   * Per CORE_ARCHITECTURE.md, this auto-creates:
+   * - A default Lens (pass-through, no pivot)
+   * - A default Grid View on that Lens
+   *
+   * @param {Object} config - Set configuration
+   * @param {string} workspaceId - Parent workspace ID
+   * @param {string[]} provenance - Provenance event IDs
+   * @param {Object} options - Additional options
+   * @param {boolean} options.skipAutoCreate - Skip auto-creation of default Lens/View
+   * @param {string} options.sourceId - Source ID for sourceBindings
    */
-  createSet(config, workspaceId, provenance = []) {
+  createSet(config, workspaceId, provenance = [], options = {}) {
     // Rule 7: Must have provenance
     if (!provenance || provenance.length === 0) {
       throw new ViewHierarchyError(7, 'Set requires provenance');
     }
 
+    // Build sourceBindings from provenance if not provided
+    const sourceBindings = config.sourceBindings || (options.sourceId ? [{
+      sourceId: options.sourceId,
+      mapping: 'direct'
+    }] : []);
+
     const set = new SetConfig({
       ...config,
       workspaceId,
+      sourceBindings,
       provenance: { derivedFrom: provenance, createdAt: new Date().toISOString() }
     });
 
@@ -1048,7 +1314,58 @@ class ViewRegistry {
     this._recordViewEvent('set_created', set);
     this._notify('set_created', set);
 
+    // CORE_ARCHITECTURE.md: Auto-create default Lens and View
+    if (!options.skipAutoCreate) {
+      const { lens, view } = this.createDefaultLensAndView(set);
+      // Return set with references to auto-created entities
+      return { set, defaultLens: lens, defaultView: view };
+    }
+
     return set;
+  }
+
+  /**
+   * Create default Lens and View for a Set
+   *
+   * Per CORE_ARCHITECTURE.md:
+   * - Default Lens is pass-through (no pivot, all fields)
+   * - Default View is Grid
+   */
+  createDefaultLensAndView(set) {
+    // Create default Lens
+    const lens = new LensConfig({
+      name: `All ${set.name}`,
+      setId: set.id,
+      isDefault: true,
+      pivot: null,  // No pivot = entire Set
+      includedFields: 'all',
+      provenance: { derivedFromSet: set.id }
+    });
+
+    this.lenses.set(lens.id, lens);
+    set.lensIds.push(lens.id);
+
+    this._recordViewEvent('lens_created', lens);
+    this._notify('lens_created', lens);
+
+    // Create default Grid View
+    const view = new ViewConfig({
+      name: `${set.name} Grid`,
+      lensId: lens.id,
+      viewType: 'grid',
+      config: {
+        visibleFields: set.schema?.fields?.map(f => f.id) || []
+      },
+      provenance: { derivedFromLens: lens.id }
+    });
+
+    this.views.set(view.id, view);
+    lens.viewIds.push(view.id);
+
+    this._recordViewEvent('view_created', view);
+    this._notify('view_created', view);
+
+    return { lens, view };
   }
 
   getSet(setId) {
@@ -1080,8 +1397,16 @@ class ViewRegistry {
 
   /**
    * Create a new lens for a set
+   *
+   * Per CORE_ARCHITECTURE.md, this auto-creates a default Grid View
+   * unless skipAutoCreateView is true.
+   *
+   * @param {Object} config - Lens configuration
+   * @param {string} setId - Parent set ID
+   * @param {Object} options - Additional options
+   * @param {boolean} options.skipAutoCreateView - Skip auto-creation of default View
    */
-  createLens(config, setId) {
+  createLens(config, setId, options = {}) {
     const set = this.sets.get(setId);
     if (!set) {
       throw new Error(`Set not found: ${setId}`);
@@ -1106,6 +1431,18 @@ class ViewRegistry {
     this._recordViewEvent('lens_created', lens);
     this._notify('lens_created', lens);
 
+    // CORE_ARCHITECTURE.md: Auto-create default View
+    if (!options.skipAutoCreateView) {
+      const view = this.createView({
+        name: `${lens.name} Grid`,
+        viewType: 'grid',
+        config: {
+          visibleFields: set.schema?.fields?.map(f => f.id) || []
+        }
+      }, lens.id);
+      return { lens, defaultView: view };
+    }
+
     return lens;
   }
 
@@ -1128,7 +1465,95 @@ class ViewRegistry {
   }
 
   // --------------------------------------------------------------------------
-  // Focus Operations
+  // View Operations (CORE_ARCHITECTURE.md Compliant)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Create a new view for a lens
+   *
+   * Per CORE_ARCHITECTURE.md:
+   * - Views are the working environment (where users edit, filter, sort)
+   * - View types: Grid, Kanban, Calendar, Graph, Cards
+   *
+   * @param {Object} config - View configuration
+   * @param {string} lensId - Parent lens ID
+   */
+  createView(config, lensId) {
+    const lens = this.lenses.get(lensId);
+    if (!lens) {
+      throw new Error(`Lens not found: ${lensId}`);
+    }
+
+    const view = new ViewConfig({
+      ...config,
+      lensId,
+      provenance: { derivedFromLens: lensId }
+    });
+
+    const validation = view.validate();
+    if (!validation.valid) {
+      throw validation.errors[0];
+    }
+
+    this.views.set(view.id, view);
+
+    // Update parent lens
+    lens.viewIds.push(view.id);
+
+    this._recordViewEvent('view_created', view);
+    this._notify('view_created', view);
+
+    return view;
+  }
+
+  getView(viewId) {
+    return this.views.get(viewId);
+  }
+
+  getViewsForLens(lensId) {
+    return Array.from(this.views.values())
+      .filter(v => v.lensId === lensId &&
+                   v.epistemicStatus !== ViewEpistemicStatus.SUPERSEDED);
+  }
+
+  getAllViews() {
+    return Array.from(this.views.values())
+      .filter(v => v.epistemicStatus !== ViewEpistemicStatus.SUPERSEDED);
+  }
+
+  setActiveView(viewId) {
+    if (!this.views.has(viewId)) {
+      throw new Error(`View not found: ${viewId}`);
+    }
+    this.activeViewId = viewId;
+    this._notify('view_activated', this.views.get(viewId));
+  }
+
+  /**
+   * Update a view configuration
+   */
+  updateView(viewId, updates) {
+    const view = this.views.get(viewId);
+    if (!view) {
+      throw new Error(`View not found: ${viewId}`);
+    }
+
+    // Apply updates
+    if (updates.name !== undefined) view.name = updates.name;
+    if (updates.viewType !== undefined) view.viewType = updates.viewType;
+    if (updates.config !== undefined) {
+      view.config = { ...view.config, ...updates.config };
+    }
+    view.updatedAt = new Date().toISOString();
+
+    this._recordViewEvent('view_updated', view);
+    this._notify('view_updated', view);
+
+    return view;
+  }
+
+  // --------------------------------------------------------------------------
+  // Focus Operations (DEPRECATED - being absorbed into View)
   // --------------------------------------------------------------------------
 
   /**
@@ -1507,20 +1932,22 @@ class ViewRegistry {
 
   export() {
     return {
-      version: '1.1',
+      version: '2.0',  // Updated for CORE_ARCHITECTURE.md compliance
       exportedAt: new Date().toISOString(),
       projects: Array.from(this.projects.values()).map(p => p.toJSON()),
       workspaces: Array.from(this.workspaces.values()).map(w => w.toJSON()),
       sets: Array.from(this.sets.values()).map(s => s.toJSON()),
       lenses: Array.from(this.lenses.values()).map(l => l.toJSON()),
-      focuses: Array.from(this.focuses.values()).map(f => f.toJSON()),
+      views: Array.from(this.views.values()).map(v => v.toJSON()),  // CORE_ARCHITECTURE.md
+      focuses: Array.from(this.focuses.values()).map(f => f.toJSON()),  // Deprecated
       exports: Array.from(this.exports.values()).map(e => e.toJSON()),
       active: {
         projectId: this.activeProjectId,
         workspaceId: this.activeWorkspaceId,
         setId: this.activeSetId,
         lensId: this.activeLensId,
-        focusId: this.activeFocusId
+        viewId: this.activeViewId,  // CORE_ARCHITECTURE.md
+        focusId: this.activeFocusId  // Deprecated
       }
     };
   }
@@ -1556,7 +1983,14 @@ class ViewRegistry {
       }
     }
 
-    // Import focuses
+    // Import views (CORE_ARCHITECTURE.md)
+    if (data.views) {
+      for (const v of data.views) {
+        this.views.set(v.id, new ViewConfig(v));
+      }
+    }
+
+    // Import focuses (deprecated)
     if (data.focuses) {
       for (const f of data.focuses) {
         this.focuses.set(f.id, new FocusConfig(f));
@@ -1576,7 +2010,8 @@ class ViewRegistry {
       this.activeWorkspaceId = data.active.workspaceId;
       this.activeSetId = data.active.setId;
       this.activeLensId = data.active.lensId;
-      this.activeFocusId = data.active.focusId;
+      this.activeViewId = data.active.viewId;  // CORE_ARCHITECTURE.md
+      this.activeFocusId = data.active.focusId;  // Deprecated
     }
   }
 
@@ -1589,14 +2024,16 @@ class ViewRegistry {
       workspaces: this.workspaces.size,
       sets: this.sets.size,
       lenses: this.lenses.size,
-      focuses: this.focuses.size,
+      views: this.views.size,  // CORE_ARCHITECTURE.md
+      focuses: this.focuses.size,  // Deprecated
       exports: this.exports.size,
       active: {
         projectId: this.activeProjectId,
         workspaceId: this.activeWorkspaceId,
         setId: this.activeSetId,
         lensId: this.activeLensId,
-        focusId: this.activeFocusId
+        viewId: this.activeViewId,  // CORE_ARCHITECTURE.md
+        focusId: this.activeFocusId  // Deprecated
       }
     };
   }
@@ -1623,17 +2060,31 @@ function initViewRegistry(horizonGate = null, eventStore = null) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    // Error handling
     ViewHierarchyError,
     ViewEpistemicStatus,
+
+    // Legacy types (deprecated - use ViewType/PivotType from eo_types.js)
     LensType,
     LensTypeInfo,
+
+    // CORE_ARCHITECTURE.md compliant types
+    ViewTypeInfo,
+    PivotTypeInfo,
+
+    // Utilities
     generateViewId,
+
+    // Config classes
     ProjectConfig,
     WorkspaceConfig,
     SetConfig,
     LensConfig,
-    FocusConfig,
+    ViewConfig,      // CORE_ARCHITECTURE.md
+    FocusConfig,     // Deprecated
     ExportConfig,
+
+    // Registry
     ViewRegistry,
     getViewRegistry,
     initViewRegistry
@@ -1641,17 +2092,31 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 if (typeof window !== 'undefined') {
+  // Error handling
   window.ViewHierarchyError = ViewHierarchyError;
   window.ViewEpistemicStatus = ViewEpistemicStatus;
+
+  // Legacy types (deprecated)
   window.LensType = LensType;
   window.LensTypeInfo = LensTypeInfo;
+
+  // CORE_ARCHITECTURE.md compliant types
+  window.ViewTypeInfo = ViewTypeInfo;
+  window.PivotTypeInfo = PivotTypeInfo;
+
+  // Utilities
   window.generateViewId = generateViewId;
+
+  // Config classes
   window.ProjectConfig = ProjectConfig;
   window.WorkspaceConfig = WorkspaceConfig;
   window.SetConfig = SetConfig;
   window.LensConfig = LensConfig;
-  window.FocusConfig = FocusConfig;
+  window.ViewConfig = ViewConfig;      // CORE_ARCHITECTURE.md
+  window.FocusConfig = FocusConfig;     // Deprecated
   window.ExportConfig = ExportConfig;
+
+  // Registry
   window.ViewRegistry = ViewRegistry;
   window.getViewRegistry = getViewRegistry;
   window.initViewRegistry = initViewRegistry;
