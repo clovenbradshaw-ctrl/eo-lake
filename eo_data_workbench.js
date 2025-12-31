@@ -21565,10 +21565,6 @@ class EODataWorkbench {
           `;
         }).join('')}
         <div class="detail-actions">
-          <button class="detail-action-btn" id="detail-add-field">
-            <i class="ph ph-plus-circle"></i>
-            <span>Add Field</span>
-          </button>
           <button class="detail-action-btn" id="detail-duplicate">
             <i class="ph ph-copy"></i>
             <span>Duplicate</span>
@@ -21601,12 +21597,6 @@ class EODataWorkbench {
     });
 
     // Action buttons
-    document.getElementById('detail-add-field')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('.detail-action-btn');
-      const rect = btn?.getBoundingClientRect();
-      const position = rect ? { left: rect.left, top: rect.bottom + 4 } : null;
-      this._showFieldTypePicker(e, null, position);
-    });
 
     document.getElementById('detail-duplicate')?.addEventListener('click', () => {
       this.duplicateRecord(recordId);
