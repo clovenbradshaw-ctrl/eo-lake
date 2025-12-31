@@ -1015,12 +1015,16 @@ function updateSyncStatus(status) {
 }
 
 function showSyncDetails() {
-  const workbench = getDataWorkbench();
-  if (!workbench) return;
-  const data = workbench.exportData();
-  const size = new Blob([JSON.stringify(data)]).size;
-  const sizeStr = size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`;
-  alert(`EO Lake Sync Status\n\nSets: ${data.sets?.length || 0}\nTotal Records: ${data.sets?.reduce((sum, s) => sum + s.records.length, 0) || 0}\nData Size: ${sizeStr}\nStorage: localStorage\nStatus: Synced`);
+  // Use the sync wizard if available
+  if (typeof window.showSyncWizard === 'function' && typeof window.getEOSyncAPI === 'function') {
+    const syncAPI = window.getEOSyncAPI();
+    if (syncAPI) {
+      window.showSyncWizard(syncAPI);
+      return;
+    }
+  }
+  // Fallback: open settings modal with sync section visible
+  showSettingsModal();
 }
 
 // ============================================================================
@@ -1034,13 +1038,70 @@ function showSettingsModal() {
   const modalFooter = document.getElementById('modal-footer');
   if (!modal || !modalBody) return;
 
+  // Get sync status for display
+  let syncStatusHtml = '';
+  if (typeof window.getEOSyncAPI === 'function') {
+    const syncAPI = window.getEOSyncAPI();
+    if (syncAPI) {
+      const status = syncAPI.getStatus();
+      const config = syncAPI.config || {};
+
+      if (status.configured && status.enabled) {
+        const hostname = config.endpoint ? (() => { try { return new URL(config.endpoint).hostname; } catch { return config.endpoint; } })() : 'Unknown';
+        syncStatusHtml = `
+          <div class="settings-sync-status settings-sync-enabled">
+            <div class="settings-sync-indicator">
+              <i class="ph ph-cloud-check"></i>
+              <span>Cloud sync enabled</span>
+            </div>
+            <div class="settings-sync-details">
+              <span>Server: ${hostname}</span>
+              ${status.lastSync ? `<span>Last sync: ${formatTimeAgo(status.lastSync.timestamp)}</span>` : ''}
+            </div>
+          </div>
+        `;
+      } else if (status.configured) {
+        syncStatusHtml = `
+          <div class="settings-sync-status settings-sync-disabled">
+            <div class="settings-sync-indicator">
+              <i class="ph ph-cloud-slash"></i>
+              <span>Cloud sync configured but disabled</span>
+            </div>
+          </div>
+        `;
+      } else {
+        syncStatusHtml = `
+          <div class="settings-sync-status settings-sync-not-configured">
+            <div class="settings-sync-indicator">
+              <i class="ph ph-cloud"></i>
+              <span>Cloud sync not configured</span>
+            </div>
+            <p class="settings-sync-hint">Set up cloud sync to backup and sync your data across devices.</p>
+          </div>
+        `;
+      }
+    }
+  }
+
   modalTitle.textContent = 'Settings';
   modalBody.innerHTML = `
     <div class="form-group">
-      <label class="form-label">Import Data</label>
+      <label class="form-label"><i class="ph ph-cloud-arrow-up"></i> Cloud Sync</label>
+      ${syncStatusHtml}
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;">
+        <button class="btn btn-primary" id="settings-configure-sync">
+          <i class="ph ph-gear"></i> Configure Sync
+        </button>
+        <button class="btn btn-secondary" id="settings-sync-now" style="display: none;">
+          <i class="ph ph-arrows-clockwise"></i> Sync Now
+        </button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label"><i class="ph ph-file-csv"></i> Import Data</label>
       <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;">
-        <button class="btn btn-primary" onclick="closeModal(); setTimeout(showImportModal, 100);">
-          <i class="ph ph-file-csv"></i> Import CSV / JSON
+        <button class="btn btn-secondary" onclick="closeModal(); setTimeout(showImportModal, 100);">
+          <i class="ph ph-download-simple"></i> Import CSV / JSON
         </button>
       </div>
       <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
@@ -1048,19 +1109,79 @@ function showSettingsModal() {
       </p>
     </div>
     <div class="form-group">
-      <label class="form-label">Data Management</label>
+      <label class="form-label"><i class="ph ph-database"></i> Data Management</label>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <button class="btn btn-secondary" onclick="exportAllData()"><i class="ph ph-export"></i> Export JSON</button>
         <button class="btn btn-danger" onclick="clearAllData()"><i class="ph ph-trash"></i> Clear All</button>
       </div>
     </div>
     <div class="form-group">
-      <label class="form-label">About</label>
+      <label class="form-label"><i class="ph ph-info"></i> About</label>
       <div style="font-size: 12px; color: var(--text-muted);">EO Lake v1.0.0<br>Data Workbench with EO Sync</div>
     </div>
   `;
   modalFooter.innerHTML = '<button class="btn btn-secondary" onclick="closeModal()">Close</button>';
   modal.classList.add('active');
+
+  // Setup sync button handlers
+  const configureSyncBtn = document.getElementById('settings-configure-sync');
+  const syncNowBtn = document.getElementById('settings-sync-now');
+
+  if (configureSyncBtn) {
+    configureSyncBtn.addEventListener('click', () => {
+      closeModal();
+      setTimeout(() => {
+        if (typeof window.showSyncWizard === 'function' && typeof window.getEOSyncAPI === 'function') {
+          const syncAPI = window.getEOSyncAPI();
+          if (syncAPI) {
+            window.showSyncWizard(syncAPI);
+          }
+        }
+      }, 100);
+    });
+  }
+
+  // Show/enable sync now button if configured and enabled
+  if (typeof window.getEOSyncAPI === 'function') {
+    const syncAPI = window.getEOSyncAPI();
+    if (syncAPI) {
+      const status = syncAPI.getStatus();
+      if (status.configured && status.enabled && syncNowBtn) {
+        syncNowBtn.style.display = 'inline-flex';
+        syncNowBtn.addEventListener('click', async () => {
+          syncNowBtn.disabled = true;
+          syncNowBtn.innerHTML = '<i class="ph ph-arrows-clockwise spinning"></i> Syncing...';
+          try {
+            await syncAPI.sync();
+            syncNowBtn.innerHTML = '<i class="ph ph-check-circle"></i> Synced!';
+            setTimeout(() => {
+              syncNowBtn.disabled = false;
+              syncNowBtn.innerHTML = '<i class="ph ph-arrows-clockwise"></i> Sync Now';
+            }, 2000);
+          } catch (err) {
+            syncNowBtn.innerHTML = '<i class="ph ph-x-circle"></i> Failed';
+            setTimeout(() => {
+              syncNowBtn.disabled = false;
+              syncNowBtn.innerHTML = '<i class="ph ph-arrows-clockwise"></i> Sync Now';
+            }, 2000);
+          }
+        });
+      }
+    }
+  }
+}
+
+function formatTimeAgo(timestamp) {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} minutes ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)} days ago`;
+
+  return date.toLocaleDateString();
 }
 
 function closeModal() {

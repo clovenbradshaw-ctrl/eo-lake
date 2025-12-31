@@ -777,5 +777,6 @@ if (typeof window !== 'undefined') {
   window.EOSyncAPI = EOSyncAPI;
   window.SyncAPIConfig = SyncAPIConfig;
   window.getSyncAPI = getSyncAPI;
+  window.getEOSyncAPI = getSyncAPI; // Alias for consistent naming
   window.initSyncAPI = initSyncAPI;
 }
