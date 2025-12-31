@@ -618,6 +618,28 @@ function showExportDialog(options) {
               </div>
             </div>
           </label>
+
+          <label class="export-format-option">
+            <input type="radio" name="export-format" value="schema-tracked">
+            <div class="format-card">
+              <i class="ph ph-book-open"></i>
+              <div class="format-info">
+                <span class="format-name">Schema-Tracked</span>
+                <span class="format-desc">Data + field definitions + value vocabularies</span>
+              </div>
+            </div>
+          </label>
+
+          <label class="export-format-option">
+            <input type="radio" name="export-format" value="provenance-tracked">
+            <div class="format-card">
+              <i class="ph ph-git-branch"></i>
+              <div class="format-info">
+                <span class="format-name">Provenance-Tracked</span>
+                <span class="format-desc">Full history with transformation chain</span>
+              </div>
+            </div>
+          </label>
         </div>
       </div>
 
@@ -706,6 +728,35 @@ function showExportDialog(options) {
             blob = ExcelExporter.export({ name, fields, records });
           }
           fullFilename = `${filename}.xlsx`;
+          break;
+
+        case 'schema-tracked':
+          // Use the SchemaTrackedExporter
+          if (window.SchemaTrackedExporter) {
+            const set = options.set || { id: options.setId, name, fields, records };
+            const schemaExport = window.SchemaTrackedExporter.createExport(set, {
+              agent: options.agent || 'user'
+            });
+            blob = window.SchemaTrackedExporter.toBlob(schemaExport);
+            fullFilename = `${filename}_schema-tracked.json`;
+          } else {
+            throw new Error('Schema-tracked exporter not available');
+          }
+          break;
+
+        case 'provenance-tracked':
+          // Use the SchemaTrackedExporter for provenance export
+          if (window.SchemaTrackedExporter) {
+            const set = options.set || { id: options.setId, name, fields, records };
+            const source = options.source || null;
+            const provExport = window.SchemaTrackedExporter.createProvenanceExport(set, source, {
+              agent: options.agent || 'user'
+            });
+            blob = window.SchemaTrackedExporter.toBlob(provExport);
+            fullFilename = `${filename}_provenance-tracked.json`;
+          } else {
+            throw new Error('Provenance-tracked exporter not available');
+          }
           break;
 
         default:
