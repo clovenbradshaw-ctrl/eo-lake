@@ -7259,7 +7259,7 @@ mark.search-highlight {
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-xl);
   width: 90%;
-  max-width: 560px;
+  max-width: 720px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;

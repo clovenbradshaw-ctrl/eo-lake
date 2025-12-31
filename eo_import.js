@@ -3753,7 +3753,7 @@ importStyles.textContent = `
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 120px;
+    max-width: 180px;
   }
 
   .sample-table-wrapper {
@@ -3773,7 +3773,7 @@ importStyles.textContent = `
     text-align: left;
     border-bottom: 1px solid var(--border-primary);
     white-space: nowrap;
-    max-width: 200px;
+    max-width: 280px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -4030,7 +4030,7 @@ importStyles.textContent = `
   }
 
   .type-bar-label {
-    width: 100px;
+    width: 140px;
     font-size: 13px;
     font-weight: 500;
     color: var(--text-primary);
