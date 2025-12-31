@@ -894,6 +894,10 @@ class EODataWorkbench {
     this.tabListDropdownOpen = false;
     this.tabContextMenuOpen = false;
 
+    // Activity stream - complete history of all actions
+    this.activityLog = []; // Array of activity objects for the activity stream
+    this.maxActivityLogSize = 500;
+
     // Pick Up state - for grabbing data from various sources
     this.pickedUp = null; // Currently picked up item { type, data, source }
   }
@@ -1136,6 +1140,13 @@ class EODataWorkbench {
     document.getElementById('tossed-panel-done')?.addEventListener('click', () => this._hideTossedPanel());
     document.getElementById('tossed-clear-all')?.addEventListener('click', () => this._clearAllTossedItems());
 
+    // Activity stream panel
+    document.getElementById('nav-activity-stream')?.addEventListener('click', () => this._showActivityPanel());
+    document.getElementById('activity-panel-close')?.addEventListener('click', () => this._hideActivityPanel());
+    document.getElementById('activity-panel-done')?.addEventListener('click', () => this._hideActivityPanel());
+    document.getElementById('activity-filter-type')?.addEventListener('change', () => this._renderActivityPanel());
+    document.getElementById('activity-filter-action')?.addEventListener('change', () => this._renderActivityPanel());
+
     // Floating Add-Field button
     document.getElementById('add-field-fab')?.addEventListener('click', (e) => {
       this._showAddFieldMenu(e.target.closest('button'));
@@ -1304,6 +1315,12 @@ class EODataWorkbench {
         this.currentViewId = parsed.currentViewId;
         this.lastViewPerSet = parsed.lastViewPerSet || {};
 
+        // Load tossed items (for trash bin / recovery)
+        this.tossedItems = parsed.tossedItems || [];
+
+        // Load activity log (for activity stream)
+        this.activityLog = parsed.activityLog || [];
+
         // Load records for current set immediately if using lazy loading
         if (this._useLazyLoading && this.currentSetId) {
           this._loadSetRecords(this.currentSetId);
@@ -1375,7 +1392,9 @@ class EODataWorkbench {
         sets: setsToSave,
         currentSetId: this.currentSetId,
         currentViewId: this.currentViewId,
-        lastViewPerSet: this.lastViewPerSet
+        lastViewPerSet: this.lastViewPerSet,
+        tossedItems: this.tossedItems || [], // Save tossed items for recovery
+        activityLog: this.activityLog || [] // Save activity log for activity stream
       }));
 
       // Also create EO events if connected
@@ -1821,6 +1840,14 @@ class EODataWorkbench {
     // Switch to the new view
     this.currentViewId = newView.id;
     this.lastViewPerSet[this.currentSetId] = newView.id;
+
+    // Record activity for activity stream
+    this._recordActivity({
+      action: 'create',
+      entityType: 'view',
+      name: name,
+      details: `${type} view in "${set.name}"`
+    });
 
     // Re-render
     this._renderSidebar();
@@ -2889,6 +2916,14 @@ class EODataWorkbench {
     this.currentSetId = newSet.id;
     this.currentViewId = newSet.views[0]?.id;
     this.lastViewPerSet[newSet.id] = this.currentViewId;
+
+    // Record activity for activity stream
+    this._recordActivity({
+      action: 'create',
+      entityType: 'set',
+      name: newSet.name,
+      details: `${records.length} records, ${fields.length} fields`
+    });
 
     // Save and render
     this._saveData();
@@ -9118,17 +9153,68 @@ class EODataWorkbench {
 
     this._showConfirmModal(
       'Delete Selected Sources',
-      `Are you sure you want to delete ${selectedIds.length} source${selectedIds.length !== 1 ? 's' : ''}?\n\n${sourceNames}${moreText}\n\nThis action cannot be undone.`,
+      `Are you sure you want to delete ${selectedIds.length} source${selectedIds.length !== 1 ? 's' : ''}?\n\n${sourceNames}${moreText}\n\nSources will be moved to the toss bin for recovery.`,
       () => {
+        const deletedSources = [];
         selectedIds.forEach(id => {
+          const source = this.sources?.find(s => s.id === id);
+          if (!source) return;
+
+          // Find derived sets for this source
+          const derivedSets = this.sets.filter(set => {
+            const prov = set.datasetProvenance;
+            return prov?.sourceId === id ||
+                   prov?.originalFilename?.toLowerCase() === source?.name?.toLowerCase();
+          });
+
+          // Add to tossed items (nothing is ever deleted per Rule 9)
+          this.tossedItems.unshift({
+            type: 'source',
+            source: JSON.parse(JSON.stringify(source)), // Deep clone
+            derivedSetIds: derivedSets.map(s => s.id),
+            tossedAt: new Date().toISOString()
+          });
+          if (this.tossedItems.length > this.maxTossedItems) {
+            this.tossedItems.pop();
+          }
+
+          // Register as ghost if ghost registry is available
+          if (typeof getGhostRegistry === 'function') {
+            const ghostRegistry = getGhostRegistry();
+            const tombstoneEvent = {
+              id: `tombstone_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`,
+              timestamp: new Date().toISOString(),
+              actor: 'user',
+              payload: {
+                action: 'tombstone',
+                targetId: id,
+                reason: 'User deleted source (bulk)',
+                targetSnapshot: {
+                  type: 'source',
+                  payload: {
+                    name: source.name,
+                    recordCount: source.records?.length || source.recordCount || 0,
+                    derivedSetCount: derivedSets.length
+                  }
+                }
+              },
+              context: { workspace: 'default' }
+            };
+            ghostRegistry.registerGhost(id, tombstoneEvent, {
+              entityType: 'source',
+              workspace: 'default'
+            });
+          }
+
           // Remove from sources array
           const index = this.sources?.findIndex(s => s.id === id);
           if (index !== undefined && index >= 0) {
             this.sources.splice(index, 1);
+            deletedSources.push(source);
           }
           // Also remove from source store if available
           if (this.sourceStore) {
-            this.sourceStore.delete(id);
+            this.sourceStore.sources.delete(id);
           }
         });
 
@@ -9136,7 +9222,8 @@ class EODataWorkbench {
         this.fileExplorerSelectedSource = null;
         this._saveData();
         this._renderFileExplorer();
-        this._showToast(`Deleted ${selectedIds.length} source${selectedIds.length !== 1 ? 's' : ''}`, 'success');
+        this._updateTossedBadge();
+        this._showToast(`Tossed ${deletedSources.length} source${deletedSources.length !== 1 ? 's' : ''}`, 'info');
       },
       'Delete',
       'danger'
@@ -17735,6 +17822,17 @@ class EODataWorkbench {
       this._createEOEvent('record_created', { recordId: record.id, values });
     }
 
+    // Record activity for activity stream
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+    const recordName = primaryField ? (values[primaryField.id] || 'New Record') : 'New Record';
+    this._recordActivity({
+      action: 'create',
+      entityType: 'record',
+      name: recordName,
+      details: `In set "${set.name}"`,
+      reverseData: { type: 'create_record', recordId: record.id, setId: set.id }
+    });
+
     this._saveData();
     this._renderView();
 
@@ -17758,6 +17856,19 @@ class EODataWorkbench {
         record: { ...record, values: { ...record.values } },
         setId: set.id
       });
+    }
+
+    // Add to tossed items (nothing is ever deleted per Rule 9)
+    this.tossedItems.unshift({
+      type: 'record',
+      record: JSON.parse(JSON.stringify(record)), // Deep clone
+      setId: set.id,
+      setName: set.name,
+      recordIndex: index,
+      tossedAt: new Date().toISOString()
+    });
+    if (this.tossedItems.length > this.maxTossedItems) {
+      this.tossedItems.pop();
     }
 
     // Create EO event
@@ -17796,6 +17907,31 @@ class EODataWorkbench {
 
     this._saveData();
     this._renderView();
+    this._updateTossedBadge();
+
+    // Show undo toast with countdown
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+    const recordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Record';
+    this._showToast(`Tossed record "${recordName}"`, 'info', {
+      countdown: 5000,
+      action: {
+        label: 'Undo',
+        callback: () => {
+          // Restore the record
+          const tossedIndex = this.tossedItems.findIndex(
+            t => t.type === 'record' && t.record.id === record.id
+          );
+          if (tossedIndex !== -1) {
+            this.tossedItems.splice(tossedIndex, 1);
+            set.records.splice(index, 0, record);
+            this._saveData();
+            this._renderView();
+            this._updateTossedBadge();
+            this._showToast(`Restored record "${recordName}"`, 'success');
+          }
+        }
+      }
+    });
   }
 
   duplicateRecord(recordId) {
@@ -22644,6 +22780,313 @@ class EODataWorkbench {
       entityType,
       workspace: 'default'
     });
+  }
+
+  // --------------------------------------------------------------------------
+  // Activity Stream Panel
+  // --------------------------------------------------------------------------
+
+  /**
+   * Record an activity in the activity log
+   * @param {Object} activity - Activity object with action, type, name, details, and optional reverseData
+   */
+  _recordActivity(activity) {
+    const activityEntry = {
+      id: `act_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      ...activity
+    };
+
+    this.activityLog.unshift(activityEntry);
+
+    // Trim to max size
+    if (this.activityLog.length > this.maxActivityLogSize) {
+      this.activityLog = this.activityLog.slice(0, this.maxActivityLogSize);
+    }
+
+    // Save activity log
+    this._saveData();
+  }
+
+  _showActivityPanel() {
+    const panel = document.getElementById('activity-panel');
+    if (panel) {
+      panel.style.display = 'flex';
+      this._renderActivityPanel();
+    }
+  }
+
+  _hideActivityPanel() {
+    const panel = document.getElementById('activity-panel');
+    if (panel) {
+      panel.style.display = 'none';
+    }
+  }
+
+  _renderActivityPanel() {
+    const tableBody = document.getElementById('activity-table-body');
+    const tableContainer = document.getElementById('activity-table-container');
+    const emptyEl = document.getElementById('activity-empty');
+    const countEl = document.getElementById('activity-count');
+
+    if (!tableBody) return;
+
+    // Get filter values
+    const typeFilter = document.getElementById('activity-filter-type')?.value || 'all';
+    const actionFilter = document.getElementById('activity-filter-action')?.value || 'all';
+
+    // Collect all activities from multiple sources
+    const allActivities = this._collectAllActivities();
+
+    // Filter activities
+    let filtered = allActivities;
+    if (typeFilter !== 'all') {
+      filtered = filtered.filter(a => a.entityType === typeFilter);
+    }
+    if (actionFilter !== 'all') {
+      filtered = filtered.filter(a => a.action === actionFilter);
+    }
+
+    // Update count
+    if (countEl) {
+      countEl.textContent = `${filtered.length} ${filtered.length === 1 ? 'activity' : 'activities'}`;
+    }
+
+    if (filtered.length === 0) {
+      tableContainer.style.display = 'none';
+      emptyEl.style.display = 'flex';
+      return;
+    }
+
+    tableContainer.style.display = 'block';
+    emptyEl.style.display = 'none';
+
+    // Render table rows
+    tableBody.innerHTML = filtered.slice(0, 100).map(activity => {
+      const timeAgo = this._formatTimeAgo(activity.timestamp);
+      const actionBadge = this._getActivityActionBadge(activity.action);
+      const typeBadge = this._getActivityTypeBadge(activity.entityType);
+      const canUndo = activity.canReverse && activity.reverseData;
+
+      return `
+        <tr data-activity-id="${activity.id}">
+          <td class="activity-col-time">${timeAgo}</td>
+          <td class="activity-col-action">${actionBadge}</td>
+          <td class="activity-col-type">${typeBadge}</td>
+          <td class="activity-col-name">
+            <span class="activity-name" title="${this._escapeHtml(activity.name || '')}">${this._escapeHtml(activity.name || 'Untitled')}</span>
+          </td>
+          <td class="activity-col-details">
+            <span class="activity-details" title="${this._escapeHtml(activity.details || '')}">${this._escapeHtml(activity.details || '')}</span>
+          </td>
+          <td class="activity-col-actions">
+            ${canUndo ? `<button class="activity-undo-btn" data-activity-id="${activity.id}" title="Reverse this action">Undo</button>` : ''}
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // Add event listeners for undo buttons
+    tableBody.querySelectorAll('.activity-undo-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const activityId = btn.dataset.activityId;
+        this._reverseActivity(activityId);
+      });
+    });
+  }
+
+  /**
+   * Collect all activities from multiple sources
+   */
+  _collectAllActivities() {
+    const activities = [];
+
+    // 1. Add tossed items as delete activities
+    this.tossedItems.forEach(item => {
+      const name = this._getTossedItemName(item);
+      activities.push({
+        id: `toss_${item.tossedAt}_${item.type}`,
+        timestamp: item.tossedAt,
+        action: 'delete',
+        entityType: item.type,
+        name: name,
+        details: this._getTossedItemMeta(item),
+        canReverse: true,
+        reverseData: { type: 'restore_tossed', item }
+      });
+    });
+
+    // 2. Add activities from activity log (recorded activities)
+    this.activityLog.forEach(act => {
+      activities.push({
+        ...act,
+        canReverse: !!act.reverseData
+      });
+    });
+
+    // 3. Add field events from current set's event stream
+    const set = this.getCurrentSet();
+    if (set?.eventStream) {
+      set.eventStream.forEach(event => {
+        const actionMap = {
+          'field.created': 'create',
+          'field.deleted': 'delete',
+          'field.restored': 'restore',
+          'field.renamed': 'update',
+          'field.type_changed': 'update',
+          'field.description_changed': 'update',
+          'field.definition_linked': 'update',
+          'field.definition_unlinked': 'update',
+          'field.duplicated': 'create'
+        };
+        const action = actionMap[event.type] || 'update';
+
+        activities.push({
+          id: event.id,
+          timestamp: event.timestamp,
+          action: action,
+          entityType: 'field',
+          name: event.target?.fieldName || event.changes?.name || 'Field',
+          details: this._getFieldEventDetails(event),
+          canReverse: false
+        });
+      });
+    }
+
+    // Sort by timestamp (newest first)
+    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    return activities;
+  }
+
+  _getFieldEventDetails(event) {
+    if (!event.changes) return event.type.replace('field.', '');
+
+    const parts = [];
+    if (event.changes.name) {
+      if (typeof event.changes.name === 'object') {
+        parts.push(`renamed: "${event.changes.name.from}" → "${event.changes.name.to}"`);
+      } else {
+        parts.push(`name: ${event.changes.name}`);
+      }
+    }
+    if (event.changes.type) {
+      if (typeof event.changes.type === 'object') {
+        parts.push(`type: ${event.changes.type.from} → ${event.changes.type.to}`);
+      } else {
+        parts.push(`type: ${event.changes.type}`);
+      }
+    }
+    if (event.changes.description) {
+      parts.push('description updated');
+    }
+    return parts.join(', ') || event.type.replace('field.', '');
+  }
+
+  _getActivityActionBadge(action) {
+    const badges = {
+      create: '<span class="activity-action-badge create"><i class="ph ph-plus"></i> Created</span>',
+      update: '<span class="activity-action-badge update"><i class="ph ph-pencil-simple"></i> Updated</span>',
+      delete: '<span class="activity-action-badge delete"><i class="ph ph-trash"></i> Deleted</span>',
+      restore: '<span class="activity-action-badge restore"><i class="ph ph-arrow-counter-clockwise"></i> Restored</span>'
+    };
+    return badges[action] || `<span class="activity-action-badge">${action}</span>`;
+  }
+
+  _getActivityTypeBadge(entityType) {
+    const icons = {
+      source: 'ph-file-csv',
+      set: 'ph-table',
+      view: 'ph-eye',
+      field: 'ph-columns',
+      record: 'ph-rows'
+    };
+    const icon = icons[entityType] || 'ph-circle';
+    return `<span class="activity-type-badge"><i class="ph ${icon}"></i> ${entityType}</span>`;
+  }
+
+  /**
+   * Reverse an activity (undo it)
+   */
+  _reverseActivity(activityId) {
+    // Find the activity
+    const allActivities = this._collectAllActivities();
+    const activity = allActivities.find(a => a.id === activityId);
+
+    if (!activity || !activity.reverseData) {
+      this._showToast('Cannot undo this action', 'warning');
+      return;
+    }
+
+    const reverseData = activity.reverseData;
+
+    switch (reverseData.type) {
+      case 'restore_tossed':
+        // Find and restore the tossed item
+        const tossedIndex = this.tossedItems.findIndex(t => {
+          if (reverseData.item.type === 'source') return t.source?.id === reverseData.item.source?.id;
+          if (reverseData.item.type === 'set') return t.set?.id === reverseData.item.set?.id;
+          if (reverseData.item.type === 'view') return t.view?.id === reverseData.item.view?.id;
+          if (reverseData.item.type === 'field') return t.field?.id === reverseData.item.field?.id;
+          if (reverseData.item.type === 'record') return t.record?.id === reverseData.item.record?.id;
+          return false;
+        });
+        if (tossedIndex !== -1) {
+          this._restoreTossedItem(tossedIndex);
+          // Record the restore activity
+          this._recordActivity({
+            action: 'restore',
+            entityType: reverseData.item.type,
+            name: this._getTossedItemName(reverseData.item),
+            details: 'Restored from activity stream'
+          });
+        }
+        break;
+
+      case 'delete_record':
+        // Re-delete a restored record
+        if (reverseData.recordId) {
+          this.deleteRecord(reverseData.recordId, true);
+        }
+        break;
+
+      case 'create_record':
+        // Delete a created record
+        if (reverseData.recordId && reverseData.setId) {
+          const set = this.sets.find(s => s.id === reverseData.setId);
+          if (set) {
+            const index = set.records.findIndex(r => r.id === reverseData.recordId);
+            if (index !== -1) {
+              set.records.splice(index, 1);
+              this._saveData();
+              this._renderView();
+              this._showToast('Record removed', 'success');
+            }
+          }
+        }
+        break;
+
+      case 'update_field':
+        // Revert field update
+        if (reverseData.setId && reverseData.fieldId && reverseData.previousValue !== undefined) {
+          const set = this.sets.find(s => s.id === reverseData.setId);
+          const field = set?.fields.find(f => f.id === reverseData.fieldId);
+          if (field && reverseData.property) {
+            field[reverseData.property] = reverseData.previousValue;
+            this._saveData();
+            this._renderView();
+            this._showToast('Field reverted', 'success');
+          }
+        }
+        break;
+
+      default:
+        this._showToast('Cannot undo this action type', 'warning');
+        return;
+    }
+
+    this._renderActivityPanel();
   }
 
   // --------------------------------------------------------------------------

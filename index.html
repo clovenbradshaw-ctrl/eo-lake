@@ -252,6 +252,10 @@
           <span>Tossed</span>
           <span class="tossed-badge" id="tossed-count-badge" style="display: none;">0</span>
         </div>
+        <div class="nav-item" id="nav-activity-stream" title="View activity stream">
+          <i class="ph ph-list-bullets"></i>
+          <span>Activity</span>
+        </div>
         <div class="nav-item" id="nav-keyboard-shortcuts" title="Keyboard Shortcuts (?)">
           <i class="ph ph-keyboard"></i>
           <span>Shortcuts</span>
@@ -600,6 +604,64 @@
     <div class="tossed-panel-footer">
       <button class="btn btn-secondary" id="tossed-clear-all">Clear All</button>
       <button class="btn btn-primary" id="tossed-panel-done">Done</button>
+    </div>
+  </div>
+
+  <!-- Activity Stream Panel -->
+  <div class="activity-panel" id="activity-panel" style="display: none;">
+    <div class="activity-panel-header">
+      <h4><i class="ph ph-list-bullets"></i> Activity Stream</h4>
+      <button class="activity-panel-close" id="activity-panel-close">
+        <i class="ph ph-x"></i>
+      </button>
+    </div>
+    <div class="activity-panel-body">
+      <div class="activity-panel-description">
+        Complete history of all actions in this workspace. Click on an action to reverse it.
+      </div>
+      <div class="activity-filters">
+        <select id="activity-filter-type" class="activity-filter-select">
+          <option value="all">All Types</option>
+          <option value="record">Records</option>
+          <option value="field">Fields</option>
+          <option value="set">Sets</option>
+          <option value="view">Views</option>
+          <option value="source">Sources</option>
+        </select>
+        <select id="activity-filter-action" class="activity-filter-select">
+          <option value="all">All Actions</option>
+          <option value="create">Created</option>
+          <option value="update">Updated</option>
+          <option value="delete">Deleted</option>
+          <option value="restore">Restored</option>
+        </select>
+      </div>
+      <div class="activity-table-container" id="activity-table-container">
+        <table class="activity-table" id="activity-table">
+          <thead>
+            <tr>
+              <th class="activity-col-time">Time</th>
+              <th class="activity-col-action">Action</th>
+              <th class="activity-col-type">Type</th>
+              <th class="activity-col-name">Name</th>
+              <th class="activity-col-details">Details</th>
+              <th class="activity-col-actions">Undo</th>
+            </tr>
+          </thead>
+          <tbody id="activity-table-body">
+            <!-- Activity rows rendered dynamically -->
+          </tbody>
+        </table>
+      </div>
+      <div class="activity-empty" id="activity-empty" style="display: none;">
+        <i class="ph ph-clock-counter-clockwise"></i>
+        <p>No activity recorded</p>
+        <span>Actions you perform will appear here</span>
+      </div>
+    </div>
+    <div class="activity-panel-footer">
+      <span class="activity-count" id="activity-count">0 activities</span>
+      <button class="btn btn-primary" id="activity-panel-done">Done</button>
     </div>
   </div>
 
