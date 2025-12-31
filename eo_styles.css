@@ -1513,15 +1513,9 @@ html, body {
 }
 
 /* ===== Architecture Chain Header ===== */
+/* Hidden: Redundant with breadcrumb and shows confusing "No Source/No Set" labels */
 .architecture-chain {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-primary);
-  font-size: 11px;
-  overflow-x: auto;
+  display: none;
 }
 
 .chain-step {
