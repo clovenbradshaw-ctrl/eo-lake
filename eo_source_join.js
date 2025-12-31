@@ -6740,8 +6740,8 @@ class DataPipelineUI {
 
     const distinctValues = Object.keys(valueCounts);
 
-    // Need at least 2 distinct values to be meaningful
-    if (distinctValues.length < 2 || distinctValues.length > 20) return;
+    // Need at least 1 distinct value to show type info (was 2, now showing even single types)
+    if (distinctValues.length < 1 || distinctValues.length > 20) return;
 
     // Determine relevant fields for each type (fields with at least 10% population)
     const allFieldNames = this._selectedFields.map(f => f.name);
@@ -6788,19 +6788,43 @@ class DataPipelineUI {
     const selectedCount = values.filter(v => v.createView).length;
     const mode = this._recordTypeMode;
     const isActive = mode !== 'none';
+    const hasMultipleTypes = values.length >= 2;
+    const totalRecords = values.reduce((sum, v) => sum + v.count, 0);
+    const maxCount = Math.max(...values.map(v => v.count));
 
     return `
       <div class="subtypes-section">
         <div class="subtypes-header">
           <div class="subtypes-title">
             <i class="ph ph-stack"></i>
-            <span>Record Types Detected</span>
+            <span>Record Types</span>
           </div>
         </div>
         <div class="subtypes-info">
-          Found <strong>${values.length}</strong> types in <code>${this._escapeHtml(fieldName)}</code> field
+          Found <strong>${values.length}</strong> type${values.length !== 1 ? 's' : ''} in <code>${this._escapeHtml(fieldName)}</code> field
         </div>
 
+        <!-- Type Distribution Bars (always shown) -->
+        <div class="type-distribution">
+          ${values.slice(0, 10).map(v => {
+            const pct = (v.count / maxCount) * 100;
+            return `
+            <div class="type-bar-row">
+              <span class="type-bar-label" title="${this._escapeHtml(v.name)}">
+                <i class="${this._getIconForSubtype(v.name)}"></i>
+                ${this._escapeHtml(this._formatSubtypeName(v.name))}
+              </span>
+              <div class="type-bar-track">
+                <div class="type-bar-fill" style="width: ${pct}%"></div>
+              </div>
+              <span class="type-bar-count">${v.count}</span>
+            </div>
+          `;}).join('')}
+          ${values.length > 10 ? `<div class="type-bar-more">+${values.length - 10} more types</div>` : ''}
+        </div>
+
+        ${hasMultipleTypes ? `
+        <!-- Lens/View Options (only when 2+ types) -->
         <div class="subtypes-mode-selector">
           <label class="mode-option ${mode === 'lenses' ? 'selected' : ''}" title="Create lenses - type-scoped subsets with independent schemas">
             <input type="radio" name="record-type-mode" value="lenses" ${mode === 'lenses' ? 'checked' : ''}>
@@ -6853,6 +6877,7 @@ class DataPipelineUI {
         <div class="subtypes-summary">
           ${this._getSubtypesSummaryText(mode, selectedCount)}
         </div>
+        ` : ''}
       </div>
     `;
   }
