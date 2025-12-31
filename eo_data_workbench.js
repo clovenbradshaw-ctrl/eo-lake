@@ -1382,10 +1382,23 @@ class EODataWorkbench {
       this._showExportsExplorer();
     });
 
-    // Definitions panel title click - show definitions panel
+    // Panel title click handlers - clicking panel names opens explorer views
+    // Projects panel title click - show projects explorer
+    const projectsPanel = document.querySelector('.projects-panel .nav-panel-title');
+    projectsPanel?.addEventListener('click', () => {
+      this._showProjectsExplorer();
+    });
+
+    // Sources panel title click - show file explorer
+    const sourcesPanel = document.querySelector('.sources-panel .nav-panel-title');
+    sourcesPanel?.addEventListener('click', () => {
+      this._showFileExplorer();
+    });
+
+    // Definitions panel title click - show definitions explorer
     const definitionsPanel = document.querySelector('.definitions-panel .nav-panel-title');
     definitionsPanel?.addEventListener('click', () => {
-      this._showDefinitionsPanel();
+      this._showDefinitionsExplorer();
     });
 
     // Sets panel title click - show sets table view
@@ -4883,6 +4896,238 @@ class EODataWorkbench {
         this._showProjectContextMenu(e, item.dataset.projectId);
       });
     });
+  }
+
+  /**
+   * Show projects as a table view in the main content area
+   * Each row represents a project with its metadata
+   */
+  _showProjectsExplorer() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    // Get all active projects
+    const activeProjects = (this.projects || []).filter(p => p.status !== 'archived');
+
+    // Sort by creation date (newest first)
+    const sortedProjects = activeProjects.sort((a, b) => {
+      if (!a.createdAt) return 1;
+      if (!b.createdAt) return -1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    // Clear other selections
+    this.currentSourceId = null;
+    this.currentDefinitionId = null;
+    this.currentSetId = null;
+    this.currentViewId = null;
+
+    // Clear selections in sidebar
+    document.querySelectorAll('.project-item, .source-item, .set-item').forEach(item => {
+      item.classList.remove('active');
+    });
+
+    // Update breadcrumb
+    this._updateBreadcrumb({
+      workspace: this._getCurrentWorkspaceName(),
+      set: 'Projects',
+      view: 'Explorer'
+    });
+
+    // Build the projects table HTML
+    contentArea.innerHTML = `
+      <div class="sources-table-view projects-table-view">
+        <!-- Header -->
+        <div class="sources-table-header">
+          <div class="sources-table-title">
+            <div class="sources-table-icon">
+              <i class="ph ph-folder-simple-dashed"></i>
+            </div>
+            <div class="sources-table-info">
+              <h2>
+                <span>Projects</span>
+                <span class="org-badge" style="margin-left: 8px; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--accent-gray, #6b7280); color: white;">
+                  ORG
+                </span>
+              </h2>
+              <div class="sources-table-meta">
+                ${sortedProjects.length} project${sortedProjects.length !== 1 ? 's' : ''} in workspace
+              </div>
+            </div>
+          </div>
+          <div class="sources-table-actions">
+            <button class="source-action-btn" id="projects-table-new-btn" title="Create new project">
+              <i class="ph ph-plus"></i>
+              <span>New Project</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="sources-table-toolbar">
+          <div class="sources-table-search">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" id="projects-table-search" placeholder="Search projects...">
+          </div>
+          <div class="sources-table-count">
+            ${sortedProjects.length} project${sortedProjects.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="sources-table-container">
+          ${sortedProjects.length > 0 ? `
+            <table class="sources-table projects-table">
+              <thead>
+                <tr>
+                  <th class="col-icon"></th>
+                  <th class="col-name">Name</th>
+                  <th class="col-sources">Sources</th>
+                  <th class="col-definitions">Definitions</th>
+                  <th class="col-sets">Sets</th>
+                  <th class="col-exports">Exports</th>
+                  <th class="col-created">Created</th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${sortedProjects.map(project => {
+                  const icon = project.icon || 'ph-folder-simple-dashed';
+                  const color = project.color || '#6b7280';
+                  const sourceCount = project.sourceIds?.length || 0;
+                  const definitionCount = project.definitionIds?.length || 0;
+                  const setCount = project.setIds?.length || 0;
+                  const exportCount = project.exportIds?.length || 0;
+                  const createdDate = project.createdAt ? new Date(project.createdAt).toLocaleDateString() : 'Unknown';
+
+                  return `
+                    <tr class="sources-table-row projects-table-row" data-project-id="${project.id}">
+                      <td class="col-icon">
+                        <i class="ph ${icon}" style="color: ${color};"></i>
+                      </td>
+                      <td class="col-name">
+                        <span class="project-name-text" style="color: ${color}; font-weight: 600;">${this._escapeHtml(project.name)}</span>
+                      </td>
+                      <td class="col-sources">${sourceCount}</td>
+                      <td class="col-definitions">${definitionCount}</td>
+                      <td class="col-sets">${setCount}</td>
+                      <td class="col-exports">${exportCount}</td>
+                      <td class="col-created">${createdDate}</td>
+                      <td class="col-actions">
+                        <button class="sources-table-action-btn" data-action="select" title="Select project">
+                          <i class="ph ph-check"></i>
+                        </button>
+                        <button class="sources-table-action-btn" data-action="rename" title="Rename project">
+                          <i class="ph ph-pencil"></i>
+                        </button>
+                        <button class="sources-table-action-btn sources-table-delete-btn" data-action="delete" title="Delete project">
+                          <i class="ph ph-trash"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          ` : `
+            <div class="sources-table-empty">
+              <i class="ph ph-folder-simple-dashed"></i>
+              <p>No projects created yet</p>
+              <button class="btn-primary" id="projects-table-first-create">
+                <i class="ph ph-plus"></i>
+                Create your first project
+              </button>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    this._attachProjectsTableHandlers(sortedProjects);
+  }
+
+  /**
+   * Attach event handlers for projects table view
+   */
+  _attachProjectsTableHandlers(projects) {
+    // New project button
+    document.getElementById('projects-table-new-btn')?.addEventListener('click', () => {
+      this._createProject();
+    });
+
+    // First create button (empty state)
+    document.getElementById('projects-table-first-create')?.addEventListener('click', () => {
+      this._createProject();
+    });
+
+    // Search
+    const searchInput = document.getElementById('projects-table-search');
+    searchInput?.addEventListener('input', (e) => {
+      this._filterProjectsTable(e.target.value);
+    });
+
+    // Row click to select project
+    document.querySelectorAll('.projects-table-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        // Ignore if clicking action buttons
+        if (e.target.closest('.sources-table-action-btn')) return;
+
+        const projectId = row.dataset.projectId;
+        this._selectProject(projectId);
+      });
+
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        this._showProjectContextMenu(e, row.dataset.projectId);
+      });
+    });
+
+    // Action buttons
+    document.querySelectorAll('.projects-table-row .sources-table-action-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const row = btn.closest('.projects-table-row');
+        const projectId = row.dataset.projectId;
+        const action = btn.dataset.action;
+
+        switch (action) {
+          case 'select':
+            this._selectProject(projectId);
+            break;
+          case 'rename':
+            this._renameProject(projectId);
+            break;
+          case 'delete':
+            if (confirm('Are you sure you want to delete this project?')) {
+              this._deleteProject(projectId);
+              this._showProjectsExplorer(); // Refresh
+            }
+            break;
+        }
+      });
+    });
+  }
+
+  /**
+   * Filter projects table by search term
+   */
+  _filterProjectsTable(searchTerm) {
+    const rows = document.querySelectorAll('.projects-table-row');
+    const term = searchTerm.toLowerCase();
+
+    rows.forEach(row => {
+      const name = row.querySelector('.project-name-text')?.textContent.toLowerCase() || '';
+      const visible = name.includes(term);
+      row.style.display = visible ? '' : 'none';
+    });
+
+    // Update count
+    const visibleRows = document.querySelectorAll('.projects-table-row:not([style*="display: none"])');
+    const countEl = document.querySelector('.projects-table-view .sources-table-count');
+    if (countEl) {
+      countEl.textContent = `${visibleRows.length} project${visibleRows.length !== 1 ? 's' : ''}`;
+    }
   }
 
   /**
