@@ -746,6 +746,13 @@ class EODataWorkbench {
       this._initSourceStore();
     }
 
+    // Create type field with choices (for different record subtypes)
+    const typeChoices = [
+      { id: generateId(), name: 'Task', color: 'blue' },
+      { id: generateId(), name: 'Bug', color: 'red' },
+      { id: generateId(), name: 'Feature Request', color: 'green' }
+    ];
+
     // Create status field with choices
     const statusChoices = [
       { id: generateId(), name: 'Backlog', color: 'gray' },
@@ -762,12 +769,20 @@ class EODataWorkbench {
       { id: generateId(), name: 'Urgent', color: 'red' }
     ];
 
-    // Create category field with choices
-    const categoryChoices = [
-      { id: generateId(), name: 'Development', color: 'purple' },
-      { id: generateId(), name: 'Design', color: 'pink' },
-      { id: generateId(), name: 'Documentation', color: 'cyan' },
-      { id: generateId(), name: 'Testing', color: 'teal' }
+    // Create severity field with choices (for Bugs)
+    const severityChoices = [
+      { id: generateId(), name: 'Minor', color: 'gray' },
+      { id: generateId(), name: 'Major', color: 'orange' },
+      { id: generateId(), name: 'Critical', color: 'red' },
+      { id: generateId(), name: 'Blocker', color: 'purple' }
+    ];
+
+    // Create business value field with choices (for Feature Requests)
+    const businessValueChoices = [
+      { id: generateId(), name: 'Nice to Have', color: 'gray' },
+      { id: generateId(), name: 'Important', color: 'blue' },
+      { id: generateId(), name: 'Critical', color: 'orange' },
+      { id: generateId(), name: 'Must Have', color: 'red' }
     ];
 
     // Helper to get date string offset from today
@@ -777,101 +792,144 @@ class EODataWorkbench {
       return date.toISOString().split('T')[0];
     };
 
-    // Sample project data - this is the GIVEN data that will live in the source
+    // Sample project data with different subtypes - this is the GIVEN data that will live in the source
+    // Each subtype has common fields (Name, Type, Status, Priority, Notes) plus type-specific fields
     const projectData = [
+      // === TASKS (4 records) ===
       {
         Name: 'User authentication system',
+        Type: typeChoices[0].name, // Task
         Status: statusChoices[2].name, // Review
         Priority: priorityChoices[2].name, // High
-        Category: categoryChoices[0].name, // Development
         'Due Date': getDate(3),
         'Estimate (hrs)': 16,
+        Assignee: 'Alice Chen',
         Completed: false,
         Notes: 'Implement OAuth2 with Google and GitHub providers. Include password reset flow.'
       },
       {
-        Name: 'Dashboard redesign',
+        Name: 'Dashboard redesign implementation',
+        Type: typeChoices[0].name, // Task
         Status: statusChoices[1].name, // In Progress
         Priority: priorityChoices[1].name, // Medium
-        Category: categoryChoices[1].name, // Design
         'Due Date': getDate(7),
         'Estimate (hrs)': 24,
+        Assignee: 'Bob Martinez',
         Completed: false,
-        Notes: 'New layout with improved data visualization. Focus on mobile responsiveness.'
+        Notes: 'Implement new layout with improved data visualization. Focus on mobile responsiveness.'
       },
       {
-        Name: 'API documentation',
-        Status: statusChoices[3].name, // Complete
-        Priority: priorityChoices[0].name, // Low
-        Category: categoryChoices[2].name, // Documentation
-        'Due Date': getDate(-2),
-        'Estimate (hrs)': 8,
-        Completed: true,
-        Notes: 'OpenAPI spec and usage examples for all public endpoints.'
-      },
-      {
-        Name: 'Performance optimization',
-        Status: statusChoices[0].name, // Backlog
-        Priority: priorityChoices[3].name, // Urgent
-        Category: categoryChoices[0].name, // Development
-        'Due Date': getDate(14),
-        'Estimate (hrs)': 32,
-        Completed: false,
-        Notes: 'Database query optimization and caching layer implementation.'
-      },
-      {
-        Name: 'Integration tests',
-        Status: statusChoices[1].name, // In Progress
-        Priority: priorityChoices[2].name, // High
-        Category: categoryChoices[3].name, // Testing
-        'Due Date': getDate(5),
-        'Estimate (hrs)': 12,
-        Completed: false,
-        Notes: 'End-to-end tests for critical user flows.'
-      },
-      {
-        Name: 'Mobile app wireframes',
-        Status: statusChoices[3].name, // Complete
-        Priority: priorityChoices[1].name, // Medium
-        Category: categoryChoices[1].name, // Design
-        'Due Date': getDate(-5),
-        'Estimate (hrs)': 6,
-        Completed: true,
-        Notes: 'Initial wireframes approved by stakeholders.'
-      },
-      {
-        Name: 'Database migration',
+        Name: 'Database migration to PostgreSQL 16',
+        Type: typeChoices[0].name, // Task
         Status: statusChoices[0].name, // Backlog
         Priority: priorityChoices[1].name, // Medium
-        Category: categoryChoices[0].name, // Development
         'Due Date': getDate(21),
         'Estimate (hrs)': 20,
+        Assignee: 'Carol Wu',
         Completed: false,
         Notes: 'Migrate from PostgreSQL 12 to 16. Plan for zero-downtime deployment.'
       },
       {
-        Name: 'User onboarding flow',
-        Status: statusChoices[2].name, // Review
+        Name: 'API documentation update',
+        Type: typeChoices[0].name, // Task
+        Status: statusChoices[3].name, // Complete
+        Priority: priorityChoices[0].name, // Low
+        'Due Date': getDate(-2),
+        'Estimate (hrs)': 8,
+        Assignee: 'David Kim',
+        Completed: true,
+        Notes: 'OpenAPI spec and usage examples for all public endpoints.'
+      },
+      // === BUGS (3 records) ===
+      {
+        Name: 'Login fails on Safari browser',
+        Type: typeChoices[1].name, // Bug
+        Status: statusChoices[1].name, // In Progress
         Priority: priorityChoices[2].name, // High
-        Category: categoryChoices[1].name, // Design
-        'Due Date': getDate(2),
-        'Estimate (hrs)': 10,
-        Completed: false,
-        Notes: 'Interactive tutorial and tooltips for new users.'
+        Severity: severityChoices[2].name, // Critical
+        'Reported By': 'QA Team',
+        'Affected Version': '2.3.1',
+        'Steps to Reproduce': '1. Open Safari 17+\n2. Navigate to login page\n3. Enter valid credentials\n4. Click Login button\n5. Page hangs indefinitely',
+        Notes: 'Appears to be related to the new session handling code.'
+      },
+      {
+        Name: 'Dashboard charts not rendering on mobile',
+        Type: typeChoices[1].name, // Bug
+        Status: statusChoices[0].name, // Backlog
+        Priority: priorityChoices[1].name, // Medium
+        Severity: severityChoices[1].name, // Major
+        'Reported By': 'Customer Support',
+        'Affected Version': '2.3.0',
+        'Steps to Reproduce': '1. Open app on mobile device\n2. Navigate to dashboard\n3. Charts show blank area',
+        Notes: 'Affects iOS and Android. Desktop works fine.'
+      },
+      {
+        Name: 'Export CSV truncates long text fields',
+        Type: typeChoices[1].name, // Bug
+        Status: statusChoices[2].name, // Review
+        Priority: priorityChoices[0].name, // Low
+        Severity: severityChoices[0].name, // Minor
+        'Reported By': 'Alice Chen',
+        'Affected Version': '2.2.5',
+        'Steps to Reproduce': '1. Create record with notes > 500 chars\n2. Export to CSV\n3. Open CSV, text is cut off',
+        Notes: 'Workaround: use JSON export instead.'
+      },
+      // === FEATURE REQUESTS (3 records) ===
+      {
+        Name: 'Dark mode support',
+        Type: typeChoices[2].name, // Feature Request
+        Status: statusChoices[1].name, // In Progress
+        Priority: priorityChoices[2].name, // High
+        'Business Value': businessValueChoices[2].name, // Critical
+        'Requested By': 'Marketing Team',
+        'Target Release': 'v3.0',
+        Notes: 'Users have been requesting dark mode. Should follow system preferences by default.'
+      },
+      {
+        Name: 'Bulk import from Excel',
+        Type: typeChoices[2].name, // Feature Request
+        Status: statusChoices[0].name, // Backlog
+        Priority: priorityChoices[1].name, // Medium
+        'Business Value': businessValueChoices[1].name, // Important
+        'Requested By': 'Enterprise Sales',
+        'Target Release': 'v3.1',
+        Notes: 'Large customers need to import thousands of records from Excel. Current CSV import is too slow.'
+      },
+      {
+        Name: 'Two-factor authentication',
+        Type: typeChoices[2].name, // Feature Request
+        Status: statusChoices[2].name, // Review
+        Priority: priorityChoices[3].name, // Urgent
+        'Business Value': businessValueChoices[3].name, // Must Have
+        'Requested By': 'Security Team',
+        'Target Release': 'v2.5',
+        Notes: 'Required for SOC2 compliance. Support TOTP and SMS options.'
       }
     ];
 
     // Step 1: Create the backing SOURCE (GIVEN layer) with sample data
     const sourceId = generateId();
     const sourceFields = [
+      // Common fields (all types)
       { name: 'Name', type: 'text' },
+      { name: 'Type', type: 'text' },
       { name: 'Status', type: 'text' },
       { name: 'Priority', type: 'text' },
-      { name: 'Category', type: 'text' },
+      { name: 'Notes', type: 'text' },
+      // Task-specific fields
       { name: 'Due Date', type: 'date' },
       { name: 'Estimate (hrs)', type: 'number' },
+      { name: 'Assignee', type: 'text' },
       { name: 'Completed', type: 'boolean' },
-      { name: 'Notes', type: 'text' }
+      // Bug-specific fields
+      { name: 'Severity', type: 'text' },
+      { name: 'Reported By', type: 'text' },
+      { name: 'Affected Version', type: 'text' },
+      { name: 'Steps to Reproduce', type: 'text' },
+      // Feature Request-specific fields
+      { name: 'Business Value', type: 'text' },
+      { name: 'Requested By', type: 'text' },
+      { name: 'Target Release', type: 'text' }
     ];
 
     const source = {
@@ -884,6 +942,17 @@ class EODataWorkbench {
       schema: {
         fields: sourceFields,
         inferenceDecisions: null
+      },
+      // Multi-record type analysis - this source contains different record types
+      multiRecordAnalysis: {
+        typeField: 'Type',
+        types: [
+          { value: 'Task', count: 4, specificFields: ['Due Date', 'Estimate (hrs)', 'Assignee', 'Completed'] },
+          { value: 'Bug', count: 3, specificFields: ['Severity', 'Reported By', 'Affected Version', 'Steps to Reproduce'] },
+          { value: 'Feature Request', count: 3, specificFields: ['Business Value', 'Requested By', 'Target Release'] }
+        ],
+        commonFields: ['Name', 'Type', 'Status', 'Priority', 'Notes'],
+        divergenceScore: 0.65 // High divergence - many type-specific fields
       },
       fileIdentity: {
         originalFilename: null,
@@ -926,33 +995,67 @@ class EODataWorkbench {
     const set = createSet('Projects');
 
     // Create fields with choices - these are the INTERPRETED field definitions
+    // Common fields
+    const typeField = createField('Type', FieldTypes.SELECT, { choices: typeChoices });
     const statusField = createField('Status', FieldTypes.SELECT, { choices: statusChoices });
     const priorityField = createField('Priority', FieldTypes.SELECT, { choices: priorityChoices });
-    const categoryField = createField('Category', FieldTypes.SELECT, { choices: categoryChoices });
+    const notesField = createField('Notes', FieldTypes.LONG_TEXT);
+
+    // Task-specific fields
     const dueDateField = createField('Due Date', FieldTypes.DATE);
     const estimateField = createField('Estimate (hrs)', FieldTypes.NUMBER, { precision: 1 });
+    const assigneeField = createField('Assignee', FieldTypes.TEXT);
     const completedField = createField('Completed', FieldTypes.CHECKBOX);
-    const notesField = createField('Notes', FieldTypes.LONG_TEXT);
+
+    // Bug-specific fields
+    const severityField = createField('Severity', FieldTypes.SELECT, { choices: severityChoices });
+    const reportedByField = createField('Reported By', FieldTypes.TEXT);
+    const affectedVersionField = createField('Affected Version', FieldTypes.TEXT);
+    const stepsToReproduceField = createField('Steps to Reproduce', FieldTypes.LONG_TEXT);
+
+    // Feature Request-specific fields
+    const businessValueField = createField('Business Value', FieldTypes.SELECT, { choices: businessValueChoices });
+    const requestedByField = createField('Requested By', FieldTypes.TEXT);
+    const targetReleaseField = createField('Target Release', FieldTypes.TEXT);
 
     // Add sourceColumn mapping to each field for grounding
     const nameField = set.fields[0];
     nameField.sourceColumn = 'Name';
+    typeField.sourceColumn = 'Type';
     statusField.sourceColumn = 'Status';
     priorityField.sourceColumn = 'Priority';
-    categoryField.sourceColumn = 'Category';
+    notesField.sourceColumn = 'Notes';
     dueDateField.sourceColumn = 'Due Date';
     estimateField.sourceColumn = 'Estimate (hrs)';
+    assigneeField.sourceColumn = 'Assignee';
     completedField.sourceColumn = 'Completed';
-    notesField.sourceColumn = 'Notes';
+    severityField.sourceColumn = 'Severity';
+    reportedByField.sourceColumn = 'Reported By';
+    affectedVersionField.sourceColumn = 'Affected Version';
+    stepsToReproduceField.sourceColumn = 'Steps to Reproduce';
+    businessValueField.sourceColumn = 'Business Value';
+    requestedByField.sourceColumn = 'Requested By';
+    targetReleaseField.sourceColumn = 'Target Release';
 
     set.fields.push(
+      typeField,
       statusField,
       priorityField,
-      categoryField,
+      notesField,
+      // Task-specific
       dueDateField,
       estimateField,
+      assigneeField,
       completedField,
-      notesField
+      // Bug-specific
+      severityField,
+      reportedByField,
+      affectedVersionField,
+      stepsToReproduceField,
+      // Feature Request-specific
+      businessValueField,
+      requestedByField,
+      targetReleaseField
     );
 
     // Helper to find choice ID by name
@@ -964,14 +1067,26 @@ class EODataWorkbench {
     // Step 3: Create records that REFERENCE source data (not duplicate it)
     projectData.forEach((project, index) => {
       const values = {
+        // Common fields
         [nameField.id]: project.Name,
+        [typeField.id]: findChoiceId(typeChoices, project.Type),
         [statusField.id]: findChoiceId(statusChoices, project.Status),
         [priorityField.id]: findChoiceId(priorityChoices, project.Priority),
-        [categoryField.id]: findChoiceId(categoryChoices, project.Category),
-        [dueDateField.id]: project['Due Date'],
-        [estimateField.id]: project['Estimate (hrs)'],
-        [completedField.id]: project.Completed,
-        [notesField.id]: project.Notes
+        [notesField.id]: project.Notes,
+        // Task-specific fields (may be undefined for other types)
+        [dueDateField.id]: project['Due Date'] || null,
+        [estimateField.id]: project['Estimate (hrs)'] || null,
+        [assigneeField.id]: project.Assignee || null,
+        [completedField.id]: project.Completed ?? null,
+        // Bug-specific fields
+        [severityField.id]: findChoiceId(severityChoices, project.Severity),
+        [reportedByField.id]: project['Reported By'] || null,
+        [affectedVersionField.id]: project['Affected Version'] || null,
+        [stepsToReproduceField.id]: project['Steps to Reproduce'] || null,
+        // Feature Request-specific fields
+        [businessValueField.id]: findChoiceId(businessValueChoices, project['Business Value']),
+        [requestedByField.id]: project['Requested By'] || null,
+        [targetReleaseField.id]: project['Target Release'] || null
       };
       const record = createRecord(set.id, values);
       // Link record back to source via _sourceIndex
@@ -1000,8 +1115,115 @@ class EODataWorkbench {
       provenance: source.provenance
     };
 
-    // Add a Kanban view for status-based workflow
-    set.views.push(createView('Kanban', 'kanban', {
+    // Step 5: Create record type views (lenses) for each subtype
+    // Each lens filters to a specific type and shows only relevant fields
+
+    // Define hidden fields for each lens (fields not relevant to that type)
+    const taskHiddenFields = [severityField.id, reportedByField.id, affectedVersionField.id, stepsToReproduceField.id, businessValueField.id, requestedByField.id, targetReleaseField.id];
+    const bugHiddenFields = [dueDateField.id, estimateField.id, assigneeField.id, completedField.id, businessValueField.id, requestedByField.id, targetReleaseField.id];
+    const featureHiddenFields = [dueDateField.id, estimateField.id, assigneeField.id, completedField.id, severityField.id, reportedByField.id, affectedVersionField.id, stepsToReproduceField.id];
+
+    // Tasks lens with multiple views
+    set.views.push(createView('Tasks', 'table', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Task'), enabled: true }],
+      hiddenFields: taskHiddenFields
+    }, {
+      recordType: 'Task',
+      recordCount: 4,
+      isRecordTypeView: true,
+      icon: 'ph-check-square'
+    }));
+
+    set.views.push(createView('Tasks - Kanban', 'kanban', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Task'), enabled: true }],
+      hiddenFields: taskHiddenFields,
+      groupByFieldId: statusField.id
+    }, {
+      recordType: 'Task',
+      recordCount: 4,
+      isRecordTypeView: true,
+      icon: 'ph-check-square'
+    }));
+
+    set.views.push(createView('Tasks - Calendar', 'calendar', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Task'), enabled: true }],
+      hiddenFields: taskHiddenFields,
+      dateFieldId: dueDateField.id
+    }, {
+      recordType: 'Task',
+      recordCount: 4,
+      isRecordTypeView: true,
+      icon: 'ph-check-square'
+    }));
+
+    // Bugs lens with multiple views
+    set.views.push(createView('Bugs', 'table', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Bug'), enabled: true }],
+      hiddenFields: bugHiddenFields
+    }, {
+      recordType: 'Bug',
+      recordCount: 3,
+      isRecordTypeView: true,
+      icon: 'ph-bug'
+    }));
+
+    set.views.push(createView('Bugs - By Severity', 'kanban', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Bug'), enabled: true }],
+      hiddenFields: bugHiddenFields,
+      groupByFieldId: severityField.id
+    }, {
+      recordType: 'Bug',
+      recordCount: 3,
+      isRecordTypeView: true,
+      icon: 'ph-bug'
+    }));
+
+    set.views.push(createView('Bugs - Cards', 'cards', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Bug'), enabled: true }],
+      hiddenFields: bugHiddenFields,
+      cardTitleField: nameField.id
+    }, {
+      recordType: 'Bug',
+      recordCount: 3,
+      isRecordTypeView: true,
+      icon: 'ph-bug'
+    }));
+
+    // Feature Requests lens with multiple views
+    set.views.push(createView('Features', 'table', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Feature Request'), enabled: true }],
+      hiddenFields: featureHiddenFields
+    }, {
+      recordType: 'Feature Request',
+      recordCount: 3,
+      isRecordTypeView: true,
+      icon: 'ph-lightbulb'
+    }));
+
+    set.views.push(createView('Features - By Value', 'kanban', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Feature Request'), enabled: true }],
+      hiddenFields: featureHiddenFields,
+      groupByFieldId: businessValueField.id
+    }, {
+      recordType: 'Feature Request',
+      recordCount: 3,
+      isRecordTypeView: true,
+      icon: 'ph-lightbulb'
+    }));
+
+    set.views.push(createView('Features - Cards', 'cards', {
+      filters: [{ fieldId: typeField.id, operator: 'is', filterValue: findChoiceId(typeChoices, 'Feature Request'), enabled: true }],
+      hiddenFields: featureHiddenFields,
+      cardTitleField: nameField.id
+    }, {
+      recordType: 'Feature Request',
+      recordCount: 3,
+      isRecordTypeView: true,
+      icon: 'ph-lightbulb'
+    }));
+
+    // Add a global Kanban view for status-based workflow (all types)
+    set.views.push(createView('All - Kanban', 'kanban', {
       groupByFieldId: statusField.id
     }));
 
