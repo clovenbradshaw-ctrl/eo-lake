@@ -13914,9 +13914,18 @@ class EODataWorkbench {
         }
       }
 
+      // Look up pretty name from definitions if the type value is a definition ID
+      let label = typeVal;
+      if (typeof typeVal === 'string' && typeVal.startsWith('id_')) {
+        const definition = this.definitions?.find(d => d.id === typeVal);
+        if (definition?.name) {
+          label = definition.name;
+        }
+      }
+
       return {
         value: typeVal,
-        label: typeVal,
+        label: label,
         count: data.count,
         specificFields: specificFields
       };
@@ -13942,7 +13951,7 @@ class EODataWorkbench {
     );
 
     if (existingView) {
-      this._showToast(`View for "${typeValue}" already exists`, 'info');
+      this._showToast(`View for "${typeInfo.label}" already exists`, 'info');
       this._selectView(existingView.id);
       return;
     }
@@ -13974,7 +13983,7 @@ class EODataWorkbench {
     });
 
     // Create the view
-    const view = createView(typeValue, 'table', {
+    const view = createView(typeInfo.label, 'table', {
       filters: [filter],
       hiddenFields: hiddenFields
     }, {
