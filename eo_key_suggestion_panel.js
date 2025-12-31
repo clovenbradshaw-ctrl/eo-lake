@@ -1,14 +1,22 @@
 /**
- * EO Key Suggestion Panel - Auto-Import Key Definition Suggestions
+ * EO Definition Population Panel - Manage Stub Definitions
  *
- * Generates and presents key definition suggestions for imported/sample data.
- * Allows users to approve or reject suggestions before applying them.
+ * All keys appear in definitions by default as stubs. This panel helps
+ * populate those stub definitions with actual values from:
+ * - API lookups (Wikidata, eCFR, Federal Register)
+ * - Manual entry
+ * - Marking as local-only (no external definition needed)
  *
  * Features:
- * - Automatic suggestion generation based on field names and types
- * - Batch approval/rejection interface
- * - Integration with semantic suggestion engine
- * - Pending suggestions queue with persistence
+ * - Shows stub definitions that need population
+ * - Displays API suggestions with confidence scores
+ * - One-click population from best API suggestion
+ * - Manual entry form for custom definitions
+ * - Mark as local-only for internal/project-specific terms
+ * - Batch operations for efficiency
+ *
+ * MIGRATION NOTE: This replaces the old "suggestion approval" workflow.
+ * Now definitions exist immediately and need to be *populated*, not *approved*.
  */
 
 // ============================================================================
@@ -1373,13 +1381,835 @@ function injectKeySuggestionStyles() {
 }
 
 // ============================================================================
-// SECTION VI: Singleton Instances & Exports
+// SECTION VI: Definition Population Store
+// ============================================================================
+
+/**
+ * DefinitionPopulationStore - Manages stub definitions that need population
+ * This replaces KeySuggestionStore for the new "keys in definitions by default" pattern
+ */
+class DefinitionPopulationStore {
+  constructor() {
+    this.definitions = new Map(); // definitionId -> DefinitionSource
+    this.eventTarget = typeof EventTarget !== 'undefined' ? new EventTarget() : null;
+  }
+
+  /**
+   * Add stub definitions for tracking
+   * @param {DefinitionSource[]} definitions - Array of stub definitions
+   */
+  addDefinitions(definitions) {
+    for (const def of definitions) {
+      this.definitions.set(def.id, def);
+    }
+    this._emit('definitions:added', { count: definitions.length });
+  }
+
+  /**
+   * Get all definitions that need population
+   * @returns {DefinitionSource[]}
+   */
+  getDefinitionsNeedingPopulation() {
+    return Array.from(this.definitions.values()).filter(d =>
+      d.status === 'stub' || d.status === 'partial'
+    );
+  }
+
+  /**
+   * Get all definitions grouped by source
+   * @returns {Map<string, DefinitionSource[]>}
+   */
+  getDefinitionsBySource() {
+    const bySource = new Map();
+    for (const def of this.definitions.values()) {
+      const sourceId = def.discoveredFrom?.sourceId || 'unknown';
+      if (!bySource.has(sourceId)) {
+        bySource.set(sourceId, []);
+      }
+      bySource.get(sourceId).push(def);
+    }
+    return bySource;
+  }
+
+  /**
+   * Get count of definitions needing population
+   * @returns {number}
+   */
+  getPopulationNeededCount() {
+    return this.getDefinitionsNeedingPopulation().length;
+  }
+
+  /**
+   * Get count of definitions with API suggestions
+   * @returns {number}
+   */
+  getDefinitionsWithSuggestionsCount() {
+    return Array.from(this.definitions.values()).filter(d =>
+      d.apiSuggestions && d.apiSuggestions.length > 0
+    ).length;
+  }
+
+  /**
+   * Populate a definition from an API suggestion
+   * @param {string} definitionId - Definition ID
+   * @param {Object} suggestion - The suggestion to use
+   */
+  populateFromSuggestion(definitionId, suggestion) {
+    const def = this.definitions.get(definitionId);
+    if (!def) return null;
+
+    // Use the DefinitionSource method to populate
+    const populatedDef = def.populateFromSuggestion(suggestion);
+    this.definitions.set(definitionId, populatedDef);
+
+    this._emit('definition:populated', {
+      definitionId,
+      method: 'api_suggestion',
+      suggestion
+    });
+
+    return populatedDef;
+  }
+
+  /**
+   * Mark a definition as local-only
+   * @param {string} definitionId - Definition ID
+   * @param {string} notes - Optional notes
+   */
+  markAsLocalOnly(definitionId, notes = null) {
+    const def = this.definitions.get(definitionId);
+    if (!def) return null;
+
+    const updatedDef = def.markAsLocalOnly(notes);
+    this.definitions.set(definitionId, updatedDef);
+
+    this._emit('definition:local-only', { definitionId, notes });
+
+    return updatedDef;
+  }
+
+  /**
+   * Auto-populate all definitions with high-confidence suggestions
+   * @param {number} minConfidence - Minimum confidence threshold (0-1)
+   * @returns {number} - Count of definitions populated
+   */
+  autoPopulateHighConfidence(minConfidence = 0.8) {
+    let count = 0;
+    for (const def of this.getDefinitionsNeedingPopulation()) {
+      if (def.apiSuggestions?.length > 0) {
+        const bestSuggestion = def.getBestSuggestion();
+        if (bestSuggestion && (bestSuggestion.confidence || 0) >= minConfidence) {
+          this.populateFromSuggestion(def.id, bestSuggestion);
+          count++;
+        }
+      }
+    }
+
+    this._emit('definitions:auto-populated', { count, minConfidence });
+    return count;
+  }
+
+  /**
+   * Get a definition by ID
+   * @param {string} definitionId
+   * @returns {DefinitionSource|null}
+   */
+  get(definitionId) {
+    return this.definitions.get(definitionId) || null;
+  }
+
+  /**
+   * Remove a definition
+   * @param {string} definitionId
+   */
+  remove(definitionId) {
+    this.definitions.delete(definitionId);
+    this._emit('definition:removed', { definitionId });
+  }
+
+  /**
+   * Clear all definitions
+   */
+  clear() {
+    this.definitions.clear();
+    this._emit('definitions:cleared', {});
+  }
+
+  /**
+   * Emit event
+   * @private
+   */
+  _emit(eventName, detail) {
+    if (this.eventTarget) {
+      try {
+        this.eventTarget.dispatchEvent(new CustomEvent(eventName, { detail }));
+      } catch (e) {
+        // EventTarget not available
+      }
+    }
+  }
+
+  /**
+   * Subscribe to events
+   */
+  on(eventName, handler) {
+    if (this.eventTarget) {
+      this.eventTarget.addEventListener(eventName, handler);
+    }
+    return () => {
+      if (this.eventTarget) {
+        this.eventTarget.removeEventListener(eventName, handler);
+      }
+    };
+  }
+}
+
+// ============================================================================
+// SECTION VII: Definition Population Panel UI
+// ============================================================================
+
+/**
+ * DefinitionPopulationPanel - UI for populating stub definitions
+ * Replaces KeySuggestionPanel for the new workflow
+ */
+class DefinitionPopulationPanel {
+  constructor(options = {}) {
+    this.store = options.store || getDefinitionPopulationStore();
+    this.container = options.container || null;
+    this.workbench = options.workbench || null;
+    this.isVisible = false;
+
+    // Event handlers
+    this._onDefinitionsAdded = this._onDefinitionsAdded.bind(this);
+    this._onDefinitionPopulated = this._onDefinitionPopulated.bind(this);
+
+    // Subscribe to store events
+    this.store.on('definitions:added', this._onDefinitionsAdded);
+    this.store.on('definition:populated', this._onDefinitionPopulated);
+  }
+
+  /**
+   * Show the panel
+   */
+  show(sourceId = null) {
+    this.currentSourceId = sourceId;
+    this.isVisible = true;
+    this.render();
+  }
+
+  /**
+   * Hide the panel
+   */
+  hide() {
+    this.isVisible = false;
+    if (this.container) {
+      this.container.innerHTML = '';
+    }
+  }
+
+  /**
+   * Render the panel
+   */
+  render() {
+    if (!this.container) return;
+
+    const needingPopulation = this.store.getDefinitionsNeedingPopulation();
+    const withSuggestions = this.store.getDefinitionsWithSuggestionsCount();
+
+    if (needingPopulation.length === 0) {
+      this.container.innerHTML = `
+        <div class="definition-population-panel empty">
+          <div class="panel-header">
+            <h3>
+              <i class="ph ph-book-open"></i>
+              Definition Population
+            </h3>
+            <button class="btn-icon close-btn" title="Close">
+              <i class="ph ph-x"></i>
+            </button>
+          </div>
+          <div class="panel-content">
+            <div class="empty-state">
+              <i class="ph ph-check-circle"></i>
+              <p>All definitions are populated</p>
+              <span class="hint">No stub definitions need attention</span>
+            </div>
+          </div>
+        </div>
+      `;
+      this._attachCloseHandler();
+      return;
+    }
+
+    this.container.innerHTML = `
+      <div class="definition-population-panel">
+        <div class="panel-header">
+          <h3>
+            <i class="ph ph-book-open"></i>
+            Definition Population
+            <span class="badge">${needingPopulation.length}</span>
+          </h3>
+          <button class="btn-icon close-btn" title="Close">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+
+        <div class="panel-description">
+          <i class="ph ph-info"></i>
+          <span>These keys need definitions. Select from API suggestions or enter manually.</span>
+        </div>
+
+        ${withSuggestions > 0 ? `
+          <div class="panel-actions">
+            <button class="btn btn-sm btn-primary auto-populate-btn">
+              <i class="ph ph-lightning"></i>
+              Auto-populate ${withSuggestions} with suggestions
+            </button>
+            <button class="btn btn-sm btn-outline mark-all-local-btn">
+              <i class="ph ph-house"></i>
+              Mark all as local
+            </button>
+          </div>
+        ` : `
+          <div class="panel-actions">
+            <button class="btn btn-sm btn-outline mark-all-local-btn">
+              <i class="ph ph-house"></i>
+              Mark all as local-only
+            </button>
+          </div>
+        `}
+
+        <div class="definitions-list">
+          ${this._renderDefinitionsList(needingPopulation)}
+        </div>
+      </div>
+    `;
+
+    this._attachEventHandlers();
+  }
+
+  /**
+   * Render the definitions list
+   * @private
+   */
+  _renderDefinitionsList(definitions) {
+    // Group by source
+    const bySource = new Map();
+    for (const def of definitions) {
+      const sourceId = def.discoveredFrom?.sourceId || 'unknown';
+      const sourceName = def.discoveredFrom?.sourceName || 'Unknown Source';
+      const key = `${sourceId}|${sourceName}`;
+      if (!bySource.has(key)) {
+        bySource.set(key, { sourceId, sourceName, definitions: [] });
+      }
+      bySource.get(key).definitions.push(def);
+    }
+
+    let html = '';
+    for (const [key, group] of bySource) {
+      html += `
+        <div class="definition-group" data-source-id="${group.sourceId}">
+          <div class="group-header">
+            <i class="ph ph-database"></i>
+            <span class="source-name">${group.sourceName}</span>
+            <span class="count">${group.definitions.length} definition${group.definitions.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="group-items">
+            ${group.definitions.map(d => this._renderDefinitionItem(d)).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    return html || '<p class="no-definitions">No definitions need population</p>';
+  }
+
+  /**
+   * Render a single definition item
+   * @private
+   */
+  _renderDefinitionItem(def) {
+    const hasSuggestions = def.apiSuggestions && def.apiSuggestions.length > 0;
+    const bestSuggestion = hasSuggestions ? def.getBestSuggestion() : null;
+    const confidence = bestSuggestion ? Math.round((bestSuggestion.confidence || 0.5) * 100) : 0;
+    const confidenceClass = confidence >= 70 ? 'high' : confidence >= 50 ? 'medium' : 'low';
+
+    return `
+      <div class="definition-item" data-definition-id="${def.id}">
+        <div class="item-main">
+          <div class="item-icon">
+            <i class="ph ${hasSuggestions ? 'ph-lightbulb' : 'ph-question'}"></i>
+          </div>
+          <div class="item-content">
+            <div class="item-header">
+              <span class="term-name">${def.term.term}</span>
+              <span class="term-label">${def.term.label || ''}</span>
+              ${hasSuggestions ? `
+                <span class="confidence ${confidenceClass}">${confidence}%</span>
+              ` : ''}
+            </div>
+            ${hasSuggestions && bestSuggestion ? `
+              <div class="suggestion-preview">
+                <span class="suggestion-source">${bestSuggestion.source}</span>
+                ${bestSuggestion.authority?.name ? `
+                  <span class="suggestion-authority">${bestSuggestion.authority.shortName || bestSuggestion.authority.name}</span>
+                ` : ''}
+                ${bestSuggestion.definitionText ? `
+                  <span class="suggestion-text">"${bestSuggestion.definitionText.substring(0, 80)}..."</span>
+                ` : ''}
+              </div>
+            ` : `
+              <div class="no-suggestions">
+                <span>No API suggestions found</span>
+              </div>
+            `}
+          </div>
+        </div>
+        <div class="item-actions">
+          ${hasSuggestions ? `
+            <button class="btn-icon btn-accept" title="Accept best suggestion"
+                    data-action="accept" data-definition-id="${def.id}">
+              <i class="ph ph-check"></i>
+            </button>
+            ${def.apiSuggestions.length > 1 ? `
+              <button class="btn-icon btn-more" title="View all ${def.apiSuggestions.length} suggestions"
+                      data-action="view-more" data-definition-id="${def.id}">
+                <i class="ph ph-dots-three"></i>
+              </button>
+            ` : ''}
+          ` : ''}
+          <button class="btn-icon btn-manual" title="Enter manually"
+                  data-action="manual" data-definition-id="${def.id}">
+            <i class="ph ph-pencil"></i>
+          </button>
+          <button class="btn-icon btn-local" title="Mark as local-only"
+                  data-action="local" data-definition-id="${def.id}">
+            <i class="ph ph-house"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Attach close handler
+   * @private
+   */
+  _attachCloseHandler() {
+    const closeBtn = this.container?.querySelector('.close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => this.hide());
+    }
+  }
+
+  /**
+   * Attach all event handlers
+   * @private
+   */
+  _attachEventHandlers() {
+    if (!this.container) return;
+
+    this._attachCloseHandler();
+
+    // Auto-populate button
+    const autoPopulateBtn = this.container.querySelector('.auto-populate-btn');
+    if (autoPopulateBtn) {
+      autoPopulateBtn.addEventListener('click', () => {
+        const count = this.store.autoPopulateHighConfidence(0.7);
+        this._showFeedback(`Auto-populated ${count} definitions`, 'success');
+        setTimeout(() => this.render(), 500);
+      });
+    }
+
+    // Mark all as local button
+    const markAllLocalBtn = this.container.querySelector('.mark-all-local-btn');
+    if (markAllLocalBtn) {
+      markAllLocalBtn.addEventListener('click', () => {
+        const defs = this.store.getDefinitionsNeedingPopulation();
+        for (const def of defs) {
+          this.store.markAsLocalOnly(def.id);
+        }
+        this._showFeedback(`Marked ${defs.length} as local-only`, 'success');
+        setTimeout(() => this.render(), 500);
+      });
+    }
+
+    // Individual action buttons
+    this.container.querySelectorAll('[data-action="accept"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const defId = btn.dataset.definitionId;
+        const def = this.store.get(defId);
+        if (def?.apiSuggestions?.length > 0) {
+          this.store.populateFromSuggestion(defId, def.getBestSuggestion());
+          this._animateRemove(defId);
+        }
+      });
+    });
+
+    this.container.querySelectorAll('[data-action="local"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const defId = btn.dataset.definitionId;
+        this.store.markAsLocalOnly(defId);
+        this._animateRemove(defId);
+      });
+    });
+
+    this.container.querySelectorAll('[data-action="manual"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const defId = btn.dataset.definitionId;
+        this._showManualEntryForm(defId);
+      });
+    });
+
+    this.container.querySelectorAll('[data-action="view-more"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const defId = btn.dataset.definitionId;
+        this._showSuggestionsList(defId);
+      });
+    });
+  }
+
+  /**
+   * Animate item removal
+   * @private
+   */
+  _animateRemove(definitionId) {
+    const item = this.container?.querySelector(`[data-definition-id="${definitionId}"].definition-item`);
+    if (item) {
+      item.classList.add('populated-out');
+      setTimeout(() => this.render(), 300);
+    }
+  }
+
+  /**
+   * Show manual entry form (placeholder - could be expanded)
+   * @private
+   */
+  _showManualEntryForm(definitionId) {
+    // TODO: Show a modal or inline form for manual entry
+    console.log('Manual entry for:', definitionId);
+    alert('Manual entry form coming soon. For now, use the Definition Source Builder.');
+  }
+
+  /**
+   * Show all suggestions for a definition
+   * @private
+   */
+  _showSuggestionsList(definitionId) {
+    // TODO: Show a dropdown or modal with all suggestions
+    const def = this.store.get(definitionId);
+    if (def?.apiSuggestions) {
+      console.log('All suggestions for', def.term.term, ':', def.apiSuggestions);
+    }
+  }
+
+  /**
+   * Show feedback message
+   * @private
+   */
+  _showFeedback(message, type = 'info') {
+    const panel = this.container?.querySelector('.definition-population-panel');
+    if (!panel) return;
+
+    const feedback = document.createElement('div');
+    feedback.className = `feedback-message ${type}`;
+    feedback.innerHTML = `
+      <i class="ph ${type === 'success' ? 'ph-check-circle' : 'ph-info'}"></i>
+      <span>${message}</span>
+    `;
+
+    panel.insertBefore(feedback, panel.firstChild.nextSibling);
+
+    setTimeout(() => {
+      feedback.classList.add('fade-out');
+      setTimeout(() => feedback.remove(), 300);
+    }, 2000);
+  }
+
+  /**
+   * Event handler
+   * @private
+   */
+  _onDefinitionsAdded(event) {
+    if (this.isVisible) {
+      this.render();
+    }
+  }
+
+  /**
+   * Event handler
+   * @private
+   */
+  _onDefinitionPopulated(event) {
+    // Could show notification or update UI
+  }
+
+  /**
+   * Destroy the panel
+   */
+  destroy() {
+    this.hide();
+  }
+}
+
+// ============================================================================
+// SECTION VIII: CSS Styles (Updated)
+// ============================================================================
+
+/**
+ * Inject CSS styles for the definition population panel
+ */
+function injectDefinitionPopulationStyles() {
+  if (document.getElementById('definition-population-styles')) return;
+
+  const styles = document.createElement('style');
+  styles.id = 'definition-population-styles';
+  styles.textContent = `
+    /* Definition Population Panel - extends key-suggestion-panel styles */
+    .definition-population-panel {
+      background: var(--bg-primary, #ffffff);
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      display: flex;
+      flex-direction: column;
+      max-height: 80vh;
+      overflow: hidden;
+    }
+
+    .definition-population-panel .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      border-bottom: 1px solid var(--border-color, #e5e7eb);
+    }
+
+    .definition-population-panel .panel-header h3 {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .definition-population-panel .panel-header .badge {
+      background: var(--warning-color, #f59e0b);
+      color: white;
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 12px;
+    }
+
+    .definition-population-panel .panel-description {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--bg-secondary, #f9fafb);
+      font-size: 13px;
+      color: var(--text-secondary, #6b7280);
+    }
+
+    .definition-population-panel .panel-actions {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color, #e5e7eb);
+    }
+
+    .definition-population-panel .definitions-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .definition-group {
+      margin-bottom: 12px;
+    }
+
+    .definition-group .group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--bg-secondary, #f9fafb);
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .definition-group .group-header .count {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--text-secondary, #6b7280);
+    }
+
+    .definition-item {
+      display: flex;
+      align-items: flex-start;
+      padding: 12px;
+      margin: 4px 0;
+      border-radius: 6px;
+      background: var(--bg-primary, #ffffff);
+      border: 1px solid var(--border-color, #e5e7eb);
+      transition: all 0.2s ease;
+    }
+
+    .definition-item:hover {
+      border-color: var(--primary-color, #3b82f6);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .definition-item.populated-out {
+      animation: slideOutRight 0.3s ease forwards;
+      background: #dcfce7;
+    }
+
+    .definition-item .item-main {
+      display: flex;
+      gap: 12px;
+      flex: 1;
+    }
+
+    .definition-item .item-icon {
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: var(--bg-secondary, #f3f4f6);
+      color: var(--warning-color, #f59e0b);
+      flex-shrink: 0;
+    }
+
+    .definition-item .item-icon i {
+      font-size: 18px;
+    }
+
+    .definition-item .item-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .definition-item .item-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .definition-item .term-name {
+      font-weight: 600;
+      color: var(--text-primary, #1f2937);
+      font-family: monospace;
+    }
+
+    .definition-item .term-label {
+      font-size: 12px;
+      color: var(--text-secondary, #6b7280);
+    }
+
+    .definition-item .confidence {
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 500;
+      margin-left: auto;
+    }
+
+    .definition-item .confidence.high { background: #dcfce7; color: #166534; }
+    .definition-item .confidence.medium { background: #fef3c7; color: #92400e; }
+    .definition-item .confidence.low { background: #f3f4f6; color: #6b7280; }
+
+    .definition-item .suggestion-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-secondary, #6b7280);
+    }
+
+    .definition-item .suggestion-preview span {
+      padding: 2px 6px;
+      background: var(--bg-secondary, #f3f4f6);
+      border-radius: 4px;
+    }
+
+    .definition-item .suggestion-source {
+      color: var(--primary-color, #3b82f6);
+      font-weight: 500;
+    }
+
+    .definition-item .suggestion-text {
+      font-style: italic;
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .definition-item .no-suggestions {
+      font-size: 12px;
+      color: var(--text-secondary, #9ca3af);
+      font-style: italic;
+    }
+
+    .definition-item .item-actions {
+      display: flex;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .definition-item .btn-accept { color: #16a34a; }
+    .definition-item .btn-accept:hover { background: #dcfce7; }
+
+    .definition-item .btn-manual { color: #3b82f6; }
+    .definition-item .btn-manual:hover { background: #dbeafe; }
+
+    .definition-item .btn-local { color: #8b5cf6; }
+    .definition-item .btn-local:hover { background: #ede9fe; }
+
+    .definition-item .btn-more { color: #6b7280; }
+    .definition-item .btn-more:hover { background: #f3f4f6; }
+
+    /* Empty state */
+    .definition-population-panel.empty .panel-content {
+      padding: 40px 20px;
+      text-align: center;
+    }
+
+    .definition-population-panel .empty-state {
+      color: var(--text-secondary, #6b7280);
+    }
+
+    .definition-population-panel .empty-state i {
+      font-size: 48px;
+      color: #16a34a;
+      margin-bottom: 12px;
+    }
+
+    .definition-population-panel .empty-state p {
+      margin: 0 0 4px;
+      font-weight: 500;
+      color: var(--text-primary, #1f2937);
+    }
+  `;
+
+  document.head.appendChild(styles);
+}
+
+// ============================================================================
+// SECTION IX: Singleton Instances & Exports
 // ============================================================================
 
 // Singleton instances
 let _keySuggestionStore = null;
 let _keySuggestionGenerator = null;
 let _keySuggestionPanel = null;
+let _definitionPopulationStore = null;
+let _definitionPopulationPanel = null;
 
 /**
  * Get or create the suggestion store singleton
@@ -1449,9 +2279,110 @@ async function autoImportSuggestions(source, options = {}) {
   return suggestions;
 }
 
+// ============================================================================
+// Definition Population Functions (New API)
+// ============================================================================
+
+/**
+ * Get or create the definition population store singleton
+ * @returns {DefinitionPopulationStore}
+ */
+function getDefinitionPopulationStore() {
+  if (!_definitionPopulationStore) {
+    _definitionPopulationStore = new DefinitionPopulationStore();
+  }
+  return _definitionPopulationStore;
+}
+
+/**
+ * Initialize or get the definition population panel
+ * @param {Object} options
+ * @returns {DefinitionPopulationPanel}
+ */
+function initDefinitionPopulationPanel(options = {}) {
+  if (!_definitionPopulationPanel) {
+    _definitionPopulationPanel = new DefinitionPopulationPanel(options);
+  }
+  if (options.container) {
+    _definitionPopulationPanel.container = options.container;
+  }
+  if (options.workbench) {
+    _definitionPopulationPanel.workbench = options.workbench;
+  }
+  return _definitionPopulationPanel;
+}
+
+/**
+ * Add stub definitions from import and optionally show the panel
+ * This is the new entry point for the "keys in definitions by default" workflow
+ *
+ * @param {DefinitionSource[]} stubDefinitions - Stub definitions from import
+ * @param {Object} options - Options
+ * @returns {number} - Count of definitions added
+ */
+function addStubDefinitionsForPopulation(stubDefinitions, options = {}) {
+  const store = getDefinitionPopulationStore();
+  store.addDefinitions(stubDefinitions);
+
+  if (stubDefinitions.length > 0 && options.showPanel !== false) {
+    injectDefinitionPopulationStyles();
+
+    if (options.container) {
+      const panel = initDefinitionPopulationPanel({
+        container: options.container,
+        workbench: options.workbench
+      });
+      panel.show();
+    }
+  }
+
+  return stubDefinitions.length;
+}
+
+/**
+ * Create a badge showing count of definitions needing population
+ * @param {Object} options
+ * @returns {HTMLElement}
+ */
+function createDefinitionPopulationBadge(options = {}) {
+  const store = getDefinitionPopulationStore();
+  const count = store.getPopulationNeededCount();
+
+  if (count === 0) return null;
+
+  const badge = document.createElement('span');
+  badge.className = 'definition-population-badge';
+  badge.innerHTML = `
+    <i class="ph ph-book-open"></i>
+    <span class="count">${count}</span>
+  `;
+  badge.title = `${count} definitions need population`;
+
+  // Apply inline styles for standalone use
+  badge.style.cssText = `
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: #fef3c7;
+    color: #92400e;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+  `;
+
+  if (options.onClick) {
+    badge.addEventListener('click', options.onClick);
+  }
+
+  return badge;
+}
+
 // Export for browser
 if (typeof window !== 'undefined') {
   window.EOKeySuggestions = {
+    // Legacy suggestion workflow
     KeySuggestionStore,
     KeySuggestionGenerator,
     KeySuggestionPanel,
@@ -1461,13 +2392,23 @@ if (typeof window !== 'undefined') {
     autoImportSuggestions,
     createSuggestionBadge,
     createSuggestionBanner,
-    injectKeySuggestionStyles
+    injectKeySuggestionStyles,
+
+    // NEW: Definition population workflow (keys in definitions by default)
+    DefinitionPopulationStore,
+    DefinitionPopulationPanel,
+    getDefinitionPopulationStore,
+    initDefinitionPopulationPanel,
+    addStubDefinitionsForPopulation,
+    createDefinitionPopulationBadge,
+    injectDefinitionPopulationStyles
   };
 }
 
 // Export for Node.js/ES modules
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    // Legacy suggestion workflow
     KeySuggestionStore,
     KeySuggestionGenerator,
     KeySuggestionPanel,
@@ -1477,6 +2418,15 @@ if (typeof module !== 'undefined' && module.exports) {
     autoImportSuggestions,
     createSuggestionBadge,
     createSuggestionBanner,
-    injectKeySuggestionStyles
+    injectKeySuggestionStyles,
+
+    // NEW: Definition population workflow (keys in definitions by default)
+    DefinitionPopulationStore,
+    DefinitionPopulationPanel,
+    getDefinitionPopulationStore,
+    initDefinitionPopulationPanel,
+    addStubDefinitionsForPopulation,
+    createDefinitionPopulationBadge,
+    injectDefinitionPopulationStyles
   };
 }

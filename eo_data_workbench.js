@@ -2229,12 +2229,38 @@ class EODataWorkbench {
 
   /**
    * Trigger key definition suggestions for a source
+   * Updated to support new "keys in definitions by default" workflow
+   *
    * @param {Object} source - Source object with schema
+   * @param {DefinitionSource[]} stubDefinitions - Optional stub definitions from import
    * @private
    */
-  _triggerKeySuggestions(source) {
+  _triggerKeySuggestions(source, stubDefinitions = null) {
     if (!source || !window.EOKeySuggestions) return;
 
+    // NEW: If stub definitions provided, use the new definition population workflow
+    if (stubDefinitions && stubDefinitions.length > 0) {
+      const {
+        addStubDefinitionsForPopulation,
+        injectDefinitionPopulationStyles
+      } = window.EOKeySuggestions;
+
+      if (addStubDefinitionsForPopulation) {
+        injectDefinitionPopulationStyles();
+        addStubDefinitionsForPopulation(stubDefinitions, {
+          showPanel: false,
+          workbench: this
+        });
+
+        // Show notification for definitions needing population
+        setTimeout(() => {
+          this._showDefinitionPopulationNotification(stubDefinitions.length, source.id);
+        }, 1000);
+        return;
+      }
+    }
+
+    // LEGACY: Fall back to old suggestion workflow
     const { autoImportSuggestions, injectKeySuggestionStyles } = window.EOKeySuggestions;
 
     // Inject styles
@@ -2258,6 +2284,112 @@ class EODataWorkbench {
         console.warn('Key suggestion generation failed:', error);
       }
     }, 500);
+  }
+
+  /**
+   * Show notification for definitions needing population
+   * @param {number} count - Number of stub definitions
+   * @param {string} sourceId - Source ID
+   * @private
+   */
+  _showDefinitionPopulationNotification(count, sourceId) {
+    if (!window.EOKeySuggestions || count === 0) return;
+
+    const { getDefinitionPopulationStore } = window.EOKeySuggestions;
+    const store = getDefinitionPopulationStore?.();
+    const withSuggestions = store?.getDefinitionsWithSuggestionsCount() || 0;
+
+    // Create notification banner
+    const banner = document.createElement('div');
+    banner.className = 'definition-population-banner';
+    banner.innerHTML = `
+      <div class="banner-icon">
+        <i class="ph ph-book-open"></i>
+      </div>
+      <div class="banner-content">
+        <strong>${count} new definitions created</strong>
+        <span>${withSuggestions > 0 ?
+          `${withSuggestions} have API suggestions ready` :
+          'Click to populate with definitions'}</span>
+      </div>
+      <button class="btn btn-sm btn-primary">
+        <i class="ph ph-pencil"></i>
+        Populate Definitions
+      </button>
+      <button class="btn-icon banner-close">
+        <i class="ph ph-x"></i>
+      </button>
+    `;
+
+    // Style the banner
+    banner.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+      border: 1px solid #f59e0b;
+      border-radius: 8px;
+      margin: 8px 16px;
+      animation: slideIn 0.3s ease;
+    `;
+
+    // Handle click to show panel
+    const openBtn = banner.querySelector('.btn-primary');
+    openBtn.addEventListener('click', () => {
+      this._showDefinitionPopulationPanel(sourceId);
+      banner.remove();
+    });
+
+    // Handle close
+    const closeBtn = banner.querySelector('.banner-close');
+    closeBtn.addEventListener('click', () => {
+      banner.classList.add('fade-out');
+      setTimeout(() => banner.remove(), 300);
+    });
+
+    // Insert at top of content area
+    const contentArea = document.getElementById('content-area');
+    if (contentArea) {
+      const existingBanner = contentArea.querySelector('.definition-population-banner');
+      if (existingBanner) existingBanner.remove();
+      contentArea.insertBefore(banner, contentArea.firstChild);
+    }
+  }
+
+  /**
+   * Show the definition population panel
+   * @param {string} sourceId - Optional source ID to focus on
+   */
+  _showDefinitionPopulationPanel(sourceId = null) {
+    if (!window.EOKeySuggestions) return;
+
+    const {
+      initDefinitionPopulationPanel,
+      injectDefinitionPopulationStyles
+    } = window.EOKeySuggestions;
+
+    if (!initDefinitionPopulationPanel) {
+      // Fall back to suggestion panel
+      this._showKeySuggestionPanel(sourceId);
+      return;
+    }
+
+    // Inject styles
+    injectDefinitionPopulationStyles();
+
+    // Show the overlay
+    const overlay = this._getOrCreatePanelOverlay();
+    overlay.classList.add('visible');
+
+    // Initialize panel with container
+    const panelContainer = overlay.querySelector('.panel-container');
+    const panel = initDefinitionPopulationPanel({
+      container: panelContainer,
+      workbench: this
+    });
+
+    panel.show(sourceId);
   }
 
   /**

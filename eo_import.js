@@ -1167,7 +1167,35 @@ class ImportOrchestrator {
         console.error('ImportOrchestrator: No workbench reference - source will NOT be visible!');
       }
 
-      // Step 7: Trigger definition lookups for imported keys (async, non-blocking)
+      // Step 7a: Create stub definitions for all fields (keys in definitions by default)
+      let stubDefinitions = [];
+      if (options.createStubDefinitions !== false) {
+        this._emitProgress('progress', {
+          phase: 'creating_stub_definitions',
+          percentage: 85
+        });
+
+        try {
+          stubDefinitions = this._createStubDefinitions(source, options);
+          console.log('ImportOrchestrator: Created', stubDefinitions.length, 'stub definitions');
+
+          // Link fields to their stub definitions
+          if (stubDefinitions.length > 0) {
+            source.schema.fields = source.schema.fields.map(field => {
+              const stubDef = stubDefinitions.find(d => d.term.term === field.name);
+              if (stubDef) {
+                field.definitionId = stubDef.id;
+              }
+              return field;
+            });
+          }
+        } catch (stubError) {
+          console.warn('ImportOrchestrator: Stub definition creation failed (non-fatal):', stubError);
+        }
+      }
+
+      // Step 7b: Trigger definition lookups for imported keys (async, non-blocking)
+      // This populates stub definitions with API suggestions
       let definitionLookupResult = null;
       if (options.enableDefinitionLookup !== false) {
         this._emitProgress('progress', {
@@ -1176,7 +1204,7 @@ class ImportOrchestrator {
         });
 
         try {
-          definitionLookupResult = await this._triggerDefinitionLookup(source, options);
+          definitionLookupResult = await this._triggerDefinitionLookup(source, stubDefinitions, options);
           if (definitionLookupResult) {
             // Re-save with enriched data
             if (typeof this.workbench._saveData === 'function') {
@@ -1195,9 +1223,14 @@ class ImportOrchestrator {
         fieldCount: schema.fields.length,
         duration: Date.now() - startTime,
         mode: 'source_only',
+        stubDefinitions: {
+          created: stubDefinitions.length,
+          needPopulation: stubDefinitions.length
+        },
         definitionLookup: definitionLookupResult ? {
           keysLookedUp: definitionLookupResult.summary?.totalKeys || 0,
-          keysWithMatches: definitionLookupResult.summary?.keysWithMatches || 0
+          keysWithMatches: definitionLookupResult.summary?.keysWithMatches || 0,
+          definitionsWithSuggestions: definitionLookupResult.summary?.definitionsWithSuggestions || 0
         } : null
       });
 
@@ -1207,6 +1240,7 @@ class ImportOrchestrator {
         schema: schema,
         recordCount: source.recordCount,
         fieldCount: schema.fields.length,
+        stubDefinitions: stubDefinitions,
         definitionLookup: definitionLookupResult
       };
 
@@ -2097,16 +2131,50 @@ class ImportOrchestrator {
   }
 
   /**
+   * Create stub definitions for all fields in a source
+   * Implements the "keys in definitions by default" pattern
+   *
+   * @param {Object} source - The imported source object
+   * @param {Object} options - Options
+   * @returns {DefinitionSource[]} - Array of stub definitions
+   */
+  _createStubDefinitions(source, options = {}) {
+    const createStubDefinitionsForSource = typeof window !== 'undefined' &&
+      window.EO?.createStubDefinitionsForSource;
+
+    if (!createStubDefinitionsForSource) {
+      console.log('ImportOrchestrator: createStubDefinitionsForSource not available');
+      return [];
+    }
+
+    const stubDefinitions = createStubDefinitionsForSource(source);
+
+    // Store stub definitions in the Definitions set if available
+    if (this.workbench?.definitionStore) {
+      for (const def of stubDefinitions) {
+        this.workbench.definitionStore.add(def);
+      }
+    } else if (this.workbench?.sources) {
+      // Alternative: store in source's local definitions
+      source.stubDefinitions = stubDefinitions;
+    }
+
+    return stubDefinitions;
+  }
+
+  /**
    * Trigger definition lookups for imported keys
    *
    * Calls external APIs (Wikidata, eCFR, Federal Register) to find
    * definition details for each key/field in the imported source.
+   * Now populates stub definitions with apiSuggestions instead of creating new suggestions.
    *
    * @param {Object} source - The imported source object
+   * @param {DefinitionSource[]} stubDefinitions - The stub definitions to populate
    * @param {Object} options - Import options
    * @returns {Promise<Object|null>} - Lookup results or null if unavailable
    */
-  async _triggerDefinitionLookup(source, options = {}) {
+  async _triggerDefinitionLookup(source, stubDefinitions = [], options = {}) {
     // Check if KeyDefinitionLookup is available
     const getEnricher = typeof window !== 'undefined' && window.EO?.getImportDefinitionEnricher;
     if (!getEnricher) {
@@ -2135,12 +2203,62 @@ class ImportOrchestrator {
 
       const results = enricher.getSourceLookupResults(source);
 
+      // NEW: Attach API results to stub definitions as apiSuggestions
+      let definitionsWithSuggestions = 0;
+      if (results?.keys && stubDefinitions.length > 0) {
+        for (const keyResult of results.keys) {
+          const stubDef = stubDefinitions.find(d => d.term.term === keyResult.key);
+          if (stubDef && (keyResult.matches?.length > 0 || keyResult.regulatoryMatches?.length > 0)) {
+            // Build API suggestions from lookup results
+            const apiSuggestions = [];
+
+            // Add concept matches as suggestions
+            for (const match of (keyResult.matches || [])) {
+              apiSuggestions.push({
+                source: match.source || 'wikidata',
+                uri: match.uri || match.id,
+                confidence: keyResult.confidence || 0.5,
+                authority: keyResult.suggestedDefinition?.authority || null,
+                validity: keyResult.suggestedDefinition?.validity || null,
+                jurisdiction: keyResult.suggestedDefinition?.jurisdiction || null,
+                definitionText: match.description || null,
+                label: match.label || null
+              });
+            }
+
+            // Add regulatory matches as suggestions
+            for (const match of (keyResult.regulatoryMatches || [])) {
+              apiSuggestions.push({
+                source: match.source || 'ecfr',
+                uri: match.url || null,
+                confidence: (keyResult.confidence || 0.5) + 0.1, // Regulatory slightly higher
+                authority: keyResult.suggestedDefinition?.authority || null,
+                validity: keyResult.suggestedDefinition?.validity || null,
+                jurisdiction: keyResult.suggestedDefinition?.jurisdiction || null,
+                definitionText: match.snippet || null,
+                citation: match.citation || null
+              });
+            }
+
+            if (apiSuggestions.length > 0) {
+              stubDef.apiSuggestions = apiSuggestions;
+              stubDef.updatedAt = new Date().toISOString();
+              definitionsWithSuggestions++;
+            }
+          }
+        }
+      }
+
       if (results) {
+        results.summary = results.summary || {};
+        results.summary.definitionsWithSuggestions = definitionsWithSuggestions;
+
         console.log('ImportOrchestrator: Definition lookup complete', {
           totalKeys: results.summary?.totalKeys,
           keysWithMatches: results.summary?.keysWithMatches,
           keysWithAuthority: results.summary?.keysWithAuthority,
-          keysWithRegulatory: results.summary?.keysWithRegulatory
+          keysWithRegulatory: results.summary?.keysWithRegulatory,
+          definitionsWithSuggestions
         });
       }
 

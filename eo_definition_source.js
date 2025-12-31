@@ -33,6 +33,29 @@ const AuthorityType = Object.freeze({
 });
 
 /**
+ * DefinitionStatus - Lifecycle status of a definition
+ * Keys appear in definitions by default as stubs, then get populated
+ */
+const DefinitionStatus = Object.freeze({
+  STUB: 'stub',           // Auto-created from key, needs population
+  PARTIAL: 'partial',     // Some fields populated, incomplete
+  COMPLETE: 'complete',   // All required fields populated
+  VERIFIED: 'verified',   // Reviewed and confirmed by user
+  LOCAL_ONLY: 'local_only' // No external definition needed
+});
+
+/**
+ * PopulationMethod - How the definition values were populated
+ */
+const PopulationMethod = Object.freeze({
+  PENDING: 'pending',       // Not yet populated
+  API_LOOKUP: 'api_lookup', // Auto-populated from API
+  MANUAL: 'manual',         // User entered manually
+  IMPORTED: 'imported',     // Came from data import
+  SELECTED: 'selected'      // User selected from API suggestions
+});
+
+/**
  * SourceDocumentType - The type of source document
  */
 const SourceDocumentType = Object.freeze({
@@ -70,9 +93,9 @@ function isValidSourceDocumentType(type) {
 const DefinitionSourceSchema = Object.freeze({
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "DefinitionSource",
-  "description": "A regulatory, legal, or policy definition from an authoritative source",
+  "description": "A regulatory, legal, or policy definition from an authoritative source. All keys appear as definitions by default (as stubs), then get populated via API or manual entry.",
   "type": "object",
-  "required": ["term", "authority", "source", "validity"],
+  "required": ["term"],
   "properties": {
     "term": {
       "type": "object",
@@ -151,6 +174,47 @@ const DefinitionSourceSchema = Object.freeze({
           "description": "Specific programs this applies to (e.g., ['CoC Program', 'ESG Program'])"
         }
       }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["stub", "partial", "complete", "verified", "local_only"],
+      "description": "Lifecycle status of the definition. Keys appear as 'stub' by default and get populated over time.",
+      "default": "stub"
+    },
+    "populationMethod": {
+      "type": "string",
+      "enum": ["pending", "api_lookup", "manual", "imported", "selected"],
+      "description": "How the definition values were populated",
+      "default": "pending"
+    },
+    "discoveredFrom": {
+      "type": "object",
+      "description": "Origin of this definition - the source/field where the key was first discovered",
+      "properties": {
+        "sourceId": { "type": "string", "description": "ID of the data source" },
+        "sourceName": { "type": "string", "description": "Name of the data source" },
+        "fieldId": { "type": "string", "description": "ID of the field in the source" },
+        "fieldName": { "type": "string", "description": "Name of the field" },
+        "fieldType": { "type": "string", "description": "Data type of the field" },
+        "discoveredAt": { "type": "string", "format": "date-time", "description": "When the key was discovered" }
+      }
+    },
+    "apiSuggestions": {
+      "type": "array",
+      "description": "API lookup results available for user selection",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string", "description": "API source (wikidata, ecfr, etc.)" },
+          "uri": { "type": "string", "description": "URI of the matched entity" },
+          "confidence": { "type": "number", "description": "Match confidence 0-1" },
+          "authority": { "type": "object", "description": "Suggested authority info" },
+          "validity": { "type": "object", "description": "Suggested validity info" },
+          "jurisdiction": { "type": "object", "description": "Suggested jurisdiction info" },
+          "definitionText": { "type": "string", "description": "Definition text from source" },
+          "citation": { "type": "string", "description": "Citation if available" }
+        }
+      }
     }
   }
 });
@@ -202,15 +266,26 @@ const DefinitionSourceTemplate = Object.freeze({
 
 /**
  * DefinitionSource - A regulatory, legal, or policy definition
+ *
+ * All keys appear in definitions by default as stubs. The lifecycle is:
+ * 1. stub -> created automatically when key is discovered
+ * 2. partial -> some fields populated via API or manual entry
+ * 3. complete -> all required fields populated
+ * 4. verified -> reviewed and confirmed by user
+ * 5. local_only -> no external definition needed (local term)
  */
 class DefinitionSource {
   /**
    * Create a new DefinitionSource
    * @param {Object} data - The definition source data
+   * @param {Object} options - Options for creation
+   * @param {boolean} options.allowStub - Allow stub definitions without full validation
    */
-  constructor(data) {
-    // Validate required fields
-    const errors = DefinitionSource.validate(data);
+  constructor(data, options = {}) {
+    const allowStub = options.allowStub || data.status === DefinitionStatus.STUB || data.status === 'stub';
+
+    // Validate required fields (relaxed for stubs)
+    const errors = DefinitionSource.validate(data, { allowStub });
     if (errors.length > 0) {
       throw new Error(`Invalid DefinitionSource: ${errors.join(', ')}`);
     }
@@ -218,31 +293,48 @@ class DefinitionSource {
     // Generate unique ID
     this.id = data.id || `defsrc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Term (required)
+    // NEW: Status and population tracking
+    this.status = data.status || DefinitionStatus.STUB;
+    this.populationMethod = data.populationMethod || PopulationMethod.PENDING;
+
+    // NEW: Discovery origin - where this key was first found
+    this.discoveredFrom = data.discoveredFrom ? {
+      sourceId: data.discoveredFrom.sourceId || null,
+      sourceName: data.discoveredFrom.sourceName || null,
+      fieldId: data.discoveredFrom.fieldId || null,
+      fieldName: data.discoveredFrom.fieldName || null,
+      fieldType: data.discoveredFrom.fieldType || null,
+      discoveredAt: data.discoveredFrom.discoveredAt || new Date().toISOString()
+    } : null;
+
+    // NEW: API suggestions for user selection
+    this.apiSuggestions = Array.isArray(data.apiSuggestions) ? [...data.apiSuggestions] : [];
+
+    // Term (required - even for stubs)
     this.term = {
       term: data.term.term,
-      label: data.term.label || null,
+      label: data.term.label || this._generateLabel(data.term.term),
       asWritten: data.term.asWritten || null,
       definitionText: data.term.definitionText || null,
       categories: Array.isArray(data.term.categories) ? [...data.term.categories] : null
     };
 
-    // Authority (required)
-    this.authority = {
-      name: data.authority.name,
+    // Authority (optional for stubs)
+    this.authority = data.authority ? {
+      name: data.authority.name || null,
       shortName: data.authority.shortName || null,
       uri: data.authority.uri || null,
-      type: data.authority.type
-    };
+      type: data.authority.type || null
+    } : null;
 
-    // Source document (required)
-    this.source = {
-      title: data.source?.title || null,
-      citation: data.source.citation,
-      section: data.source?.section || null,
-      url: data.source?.url || null,
-      type: data.source?.type || null
-    };
+    // Source document (optional for stubs)
+    this.source = data.source ? {
+      title: data.source.title || null,
+      citation: data.source.citation || null,
+      section: data.source.section || null,
+      url: data.source.url || null,
+      type: data.source.type || null
+    } : null;
 
     // Version (optional)
     this.version = data.version ? {
@@ -250,13 +342,13 @@ class DefinitionSource {
       published: data.version.published || null
     } : null;
 
-    // Validity (required)
-    this.validity = {
-      from: data.validity.from,
+    // Validity (optional for stubs)
+    this.validity = data.validity ? {
+      from: data.validity.from || null,
       to: data.validity.to || null,
       supersedes: data.validity.supersedes || null,
       supersededBy: data.validity.supersededBy || null
-    };
+    } : null;
 
     // Jurisdiction (optional)
     this.jurisdiction = data.jurisdiction ? {
@@ -267,30 +359,50 @@ class DefinitionSource {
     // Metadata
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || new Date().toISOString();
+  }
 
-    Object.freeze(this.term);
-    Object.freeze(this.authority);
-    Object.freeze(this.source);
-    if (this.version) Object.freeze(this.version);
-    Object.freeze(this.validity);
-    if (this.jurisdiction) Object.freeze(this.jurisdiction);
+  /**
+   * Generate a label from a term name (snake_case -> Title Case)
+   * @private
+   */
+  _generateLabel(term) {
+    if (!term) return null;
+    return term
+      .replace(/[_-]/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(' ')
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
   }
 
   /**
    * Validate a definition source object
    * @param {Object} data - The data to validate
+   * @param {Object} options - Validation options
+   * @param {boolean} options.allowStub - Allow stub definitions (only require term)
    * @returns {string[]} Array of validation error messages
    */
-  static validate(data) {
+  static validate(data, options = {}) {
     const errors = [];
+    const allowStub = options.allowStub || data.status === 'stub' || data.status === DefinitionStatus.STUB;
 
-    // Term validation
+    // Term validation (always required)
     if (!data.term) {
       errors.push('missing term object');
     } else if (!data.term.term) {
       errors.push('missing term.term');
     }
 
+    // For stubs, only term is required - other fields are optional
+    if (allowStub) {
+      // Validate authority type if provided
+      if (data.authority?.type && !isValidAuthorityType(data.authority.type)) {
+        errors.push(`invalid authority.type: ${data.authority.type}`);
+      }
+      return errors;
+    }
+
+    // Full validation for non-stub definitions
     // Authority validation
     if (!data.authority) {
       errors.push('missing authority object');
@@ -320,6 +432,124 @@ class DefinitionSource {
     }
 
     return errors;
+  }
+
+  /**
+   * Check if this definition is a stub (needs population)
+   * @returns {boolean}
+   */
+  isStub() {
+    return this.status === DefinitionStatus.STUB || this.status === 'stub';
+  }
+
+  /**
+   * Check if this definition needs population
+   * @returns {boolean}
+   */
+  needsPopulation() {
+    return this.status === DefinitionStatus.STUB ||
+           this.status === DefinitionStatus.PARTIAL ||
+           this.status === 'stub' ||
+           this.status === 'partial';
+  }
+
+  /**
+   * Check if this definition has API suggestions available
+   * @returns {boolean}
+   */
+  hasApiSuggestions() {
+    return this.apiSuggestions && this.apiSuggestions.length > 0;
+  }
+
+  /**
+   * Get the best API suggestion (highest confidence)
+   * @returns {Object|null}
+   */
+  getBestSuggestion() {
+    if (!this.hasApiSuggestions()) return null;
+    return this.apiSuggestions.reduce((best, current) =>
+      (current.confidence || 0) > (best.confidence || 0) ? current : best
+    );
+  }
+
+  /**
+   * Add an API suggestion
+   * @param {Object} suggestion - The suggestion to add
+   */
+  addApiSuggestion(suggestion) {
+    if (!this.apiSuggestions) {
+      this.apiSuggestions = [];
+    }
+    this.apiSuggestions.push(suggestion);
+    this.updatedAt = new Date().toISOString();
+  }
+
+  /**
+   * Populate this definition from an API suggestion
+   * @param {Object} suggestion - The suggestion to use
+   * @returns {DefinitionSource} - New definition with populated fields
+   */
+  populateFromSuggestion(suggestion) {
+    const data = this.toJSON();
+
+    // Merge suggestion data
+    if (suggestion.authority) {
+      data.authority = { ...data.authority, ...suggestion.authority };
+    }
+    if (suggestion.validity) {
+      data.validity = { ...data.validity, ...suggestion.validity };
+    }
+    if (suggestion.jurisdiction) {
+      data.jurisdiction = { ...data.jurisdiction, ...suggestion.jurisdiction };
+    }
+    if (suggestion.definitionText) {
+      data.term = { ...data.term, definitionText: suggestion.definitionText };
+    }
+    if (suggestion.citation) {
+      data.source = data.source || {};
+      data.source.citation = suggestion.citation;
+    }
+
+    // Update status and method
+    data.status = this._calculateStatus(data);
+    data.populationMethod = PopulationMethod.SELECTED;
+    data.updatedAt = new Date().toISOString();
+
+    return new DefinitionSource(data, { allowStub: true });
+  }
+
+  /**
+   * Calculate status based on populated fields
+   * @private
+   */
+  _calculateStatus(data) {
+    const hasAuthority = data.authority?.name && data.authority?.type;
+    const hasSource = data.source?.citation || data.source?.title;
+    const hasValidity = data.validity?.from;
+    const hasDefinitionText = data.term?.definitionText;
+
+    if (hasAuthority && hasSource && hasValidity && hasDefinitionText) {
+      return DefinitionStatus.COMPLETE;
+    } else if (hasAuthority || hasSource || hasValidity || hasDefinitionText) {
+      return DefinitionStatus.PARTIAL;
+    }
+    return DefinitionStatus.STUB;
+  }
+
+  /**
+   * Mark this definition as local-only (no external definition needed)
+   * @param {string} notes - Optional notes about why it's local-only
+   * @returns {DefinitionSource}
+   */
+  markAsLocalOnly(notes = null) {
+    const data = this.toJSON();
+    data.status = DefinitionStatus.LOCAL_ONLY;
+    data.populationMethod = PopulationMethod.MANUAL;
+    if (notes) {
+      data.term = { ...data.term, definitionText: notes };
+    }
+    data.updatedAt = new Date().toISOString();
+    return new DefinitionSource(data, { allowStub: true });
   }
 
   /**
@@ -365,16 +595,21 @@ class DefinitionSource {
   toJSON() {
     const obj = {
       id: this.id,
+      status: this.status,
+      populationMethod: this.populationMethod,
       term: { ...this.term },
-      authority: { ...this.authority },
-      source: { ...this.source },
-      validity: { ...this.validity },
       createdAt: this.createdAt,
       updatedAt: this.updatedAt
     };
 
+    // Include optional objects if they exist
+    if (this.authority) obj.authority = { ...this.authority };
+    if (this.source) obj.source = { ...this.source };
+    if (this.validity) obj.validity = { ...this.validity };
     if (this.version) obj.version = { ...this.version };
     if (this.jurisdiction) obj.jurisdiction = { ...this.jurisdiction };
+    if (this.discoveredFrom) obj.discoveredFrom = { ...this.discoveredFrom };
+    if (this.apiSuggestions?.length > 0) obj.apiSuggestions = [...this.apiSuggestions];
 
     // Remove null values for cleaner output
     const clean = (o) => {
@@ -516,6 +751,63 @@ function createHUDAffordableHousingDefinition(options = {}) {
   });
 }
 
+/**
+ * Create a stub definition from a field/key
+ * This is the primary factory for the "keys in definitions by default" pattern
+ *
+ * @param {Object} options
+ * @param {string} options.term - The key/field name (required)
+ * @param {string} options.label - Human readable label (auto-generated if not provided)
+ * @param {string} options.fieldType - Data type of the field
+ * @param {Object} options.discoveredFrom - Origin source/field info
+ * @returns {DefinitionSource}
+ */
+function createStubDefinition(options = {}) {
+  if (!options.term) {
+    throw new Error('createStubDefinition requires a term');
+  }
+
+  return new DefinitionSource({
+    status: DefinitionStatus.STUB,
+    populationMethod: PopulationMethod.PENDING,
+    term: {
+      term: options.term,
+      label: options.label || null, // Will be auto-generated in constructor
+      definitionText: null,
+      asWritten: null,
+      categories: null
+    },
+    discoveredFrom: options.discoveredFrom || null,
+    apiSuggestions: []
+  }, { allowStub: true });
+}
+
+/**
+ * Create stub definitions for all fields in a source
+ * @param {Object} source - Source object with schema.fields
+ * @returns {DefinitionSource[]}
+ */
+function createStubDefinitionsForSource(source) {
+  if (!source?.schema?.fields) {
+    return [];
+  }
+
+  return source.schema.fields.map(field => {
+    return createStubDefinition({
+      term: field.name,
+      fieldType: field.type,
+      discoveredFrom: {
+        sourceId: source.id,
+        sourceName: source.name,
+        fieldId: field.id || field.name,
+        fieldName: field.name,
+        fieldType: field.type,
+        discoveredAt: new Date().toISOString()
+      }
+    });
+  });
+}
+
 // ============================================================================
 // SECTION V: Utilities
 // ============================================================================
@@ -589,6 +881,77 @@ function getCurrentDefinitions(definitions) {
   return definitions.filter(d => d.isCurrent());
 }
 
+/**
+ * Get definitions that need population (stub or partial status)
+ * @param {DefinitionSource[]} definitions
+ * @returns {DefinitionSource[]}
+ */
+function getDefinitionsNeedingPopulation(definitions) {
+  return definitions.filter(d => d.needsPopulation());
+}
+
+/**
+ * Get stub definitions only
+ * @param {DefinitionSource[]} definitions
+ * @returns {DefinitionSource[]}
+ */
+function getStubDefinitions(definitions) {
+  return definitions.filter(d => d.isStub());
+}
+
+/**
+ * Get definitions with API suggestions available
+ * @param {DefinitionSource[]} definitions
+ * @returns {DefinitionSource[]}
+ */
+function getDefinitionsWithSuggestions(definitions) {
+  return definitions.filter(d => d.hasApiSuggestions());
+}
+
+/**
+ * Get definitions by status
+ * @param {DefinitionSource[]} definitions
+ * @param {string} status - DefinitionStatus value
+ * @returns {DefinitionSource[]}
+ */
+function getDefinitionsByStatus(definitions, status) {
+  return definitions.filter(d => d.status === status);
+}
+
+/**
+ * Get definitions discovered from a specific source
+ * @param {DefinitionSource[]} definitions
+ * @param {string} sourceId - Source ID
+ * @returns {DefinitionSource[]}
+ */
+function getDefinitionsFromSource(definitions, sourceId) {
+  return definitions.filter(d => d.discoveredFrom?.sourceId === sourceId);
+}
+
+/**
+ * Count definitions by status
+ * @param {DefinitionSource[]} definitions
+ * @returns {Object} - { stub: n, partial: n, complete: n, verified: n, local_only: n }
+ */
+function countDefinitionsByStatus(definitions) {
+  const counts = {
+    stub: 0,
+    partial: 0,
+    complete: 0,
+    verified: 0,
+    local_only: 0
+  };
+
+  for (const def of definitions) {
+    const status = def.status || 'stub';
+    if (counts[status] !== undefined) {
+      counts[status]++;
+    }
+  }
+
+  return counts;
+}
+
 // ============================================================================
 // SECTION VI: Exports
 // ============================================================================
@@ -599,19 +962,31 @@ if (typeof window !== 'undefined') {
   window.EO.DefinitionSource = DefinitionSource;
   window.EO.DefinitionSourceSchema = DefinitionSourceSchema;
   window.EO.DefinitionSourceTemplate = DefinitionSourceTemplate;
+
+  // Enumerations
   window.EO.AuthorityType = AuthorityType;
   window.EO.SourceDocumentType = SourceDocumentType;
+  window.EO.DefinitionStatus = DefinitionStatus;
+  window.EO.PopulationMethod = PopulationMethod;
 
   // Factory functions
   window.EO.createHUDHomelessnessDefinition = createHUDHomelessnessDefinition;
   window.EO.createCensusPovertyDefinition = createCensusPovertyDefinition;
   window.EO.createHUDAffordableHousingDefinition = createHUDAffordableHousingDefinition;
+  window.EO.createStubDefinition = createStubDefinition;
+  window.EO.createStubDefinitionsForSource = createStubDefinitionsForSource;
 
   // Utilities
   window.EO.sortDefinitionsByAuthority = sortDefinitionsByAuthority;
   window.EO.findDefinitionsByTerm = findDefinitionsByTerm;
   window.EO.findDefinitionsByAuthority = findDefinitionsByAuthority;
   window.EO.getCurrentDefinitions = getCurrentDefinitions;
+  window.EO.getDefinitionsNeedingPopulation = getDefinitionsNeedingPopulation;
+  window.EO.getStubDefinitions = getStubDefinitions;
+  window.EO.getDefinitionsWithSuggestions = getDefinitionsWithSuggestions;
+  window.EO.getDefinitionsByStatus = getDefinitionsByStatus;
+  window.EO.getDefinitionsFromSource = getDefinitionsFromSource;
+  window.EO.countDefinitionsByStatus = countDefinitionsByStatus;
 }
 
 // Export for Node.js/ES modules
@@ -622,12 +997,22 @@ if (typeof module !== 'undefined' && module.exports) {
     DefinitionSourceTemplate,
     AuthorityType,
     SourceDocumentType,
+    DefinitionStatus,
+    PopulationMethod,
     createHUDHomelessnessDefinition,
     createCensusPovertyDefinition,
     createHUDAffordableHousingDefinition,
+    createStubDefinition,
+    createStubDefinitionsForSource,
     sortDefinitionsByAuthority,
     findDefinitionsByTerm,
     findDefinitionsByAuthority,
-    getCurrentDefinitions
+    getCurrentDefinitions,
+    getDefinitionsNeedingPopulation,
+    getStubDefinitions,
+    getDefinitionsWithSuggestions,
+    getDefinitionsByStatus,
+    getDefinitionsFromSource,
+    countDefinitionsByStatus
   };
 }
