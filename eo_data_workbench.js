@@ -12619,6 +12619,30 @@ class EODataWorkbench {
       onComplete: (result) => {
         // Add the new set to our sets array
         this.sets.push(result.set);
+
+        // Record activity for set creation from import
+        const lensCount = result.set.lenses?.length || 0;
+        const lensDetails = lensCount > 0 ? `, ${lensCount} lens${lensCount > 1 ? 'es' : ''}` : '';
+        this._recordActivity({
+          action: 'create',
+          entityType: 'set',
+          name: result.set.name,
+          details: `${result.set.records.length} records, ${result.set.fields.length} fields${lensDetails} (from import)`
+        });
+
+        // Record activity for each lens created from the import
+        if (result.set.lenses && result.set.lenses.length > 0) {
+          for (const lens of result.set.lenses) {
+            const memberCount = lens.memberRecordIds?.length || 0;
+            this._recordActivity({
+              action: 'create',
+              entityType: 'lens',
+              name: lens.name,
+              details: `${memberCount} records in set "${result.set.name}" (from import)`
+            });
+          }
+        }
+
         this._saveData();
         this._renderSidebar();
         this._selectSet(result.set.id);
