@@ -5215,6 +5215,32 @@ class EODataWorkbench {
         </div>
 
         <div class="import-tab-content" id="tab-uri">
+          <!-- Search Section -->
+          <div class="form-group">
+            <label class="form-label">Search for Definition</label>
+            <div class="uri-search-container">
+              <div class="uri-search-row">
+                <select id="uri-search-source" class="form-input uri-search-source">
+                  <option value="wikidata">Wikidata</option>
+                  <option value="schema">Schema.org</option>
+                  <option value="lov">LOV (Linked Open Vocabularies)</option>
+                  <option value="dbpedia">DBpedia</option>
+                </select>
+                <input type="text" id="uri-search-query" class="form-input uri-search-input"
+                       placeholder="Search for concepts, types, properties...">
+                <button type="button" id="uri-search-btn" class="btn btn-secondary uri-search-btn">
+                  <i class="ph ph-magnifying-glass"></i>
+                </button>
+              </div>
+              <div id="uri-search-results" class="uri-search-results" style="display: none;"></div>
+            </div>
+            <span class="form-hint">Search knowledge bases for URIs, or enter one directly below</span>
+          </div>
+
+          <div class="form-divider">
+            <span>or enter URI directly</span>
+          </div>
+
           <div class="form-group">
             <label for="definition-uri" class="form-label">Definition URI</label>
             <input type="url" id="definition-uri" class="form-input"
@@ -5265,7 +5291,7 @@ class EODataWorkbench {
       }
     });
 
-    // Tab switching
+    // Tab switching and search setup
     setTimeout(() => {
       document.querySelectorAll('.import-tab').forEach(tab => {
         tab.addEventListener('click', () => {
@@ -5276,7 +5302,218 @@ class EODataWorkbench {
           });
         });
       });
+
+      // URI search functionality
+      const searchBtn = document.getElementById('uri-search-btn');
+      const searchInput = document.getElementById('uri-search-query');
+
+      const performSearch = () => {
+        const query = searchInput?.value?.trim();
+        const source = document.getElementById('uri-search-source')?.value;
+        if (query) {
+          this._searchDefinitionUri(query, source);
+        }
+      };
+
+      searchBtn?.addEventListener('click', performSearch);
+      searchInput?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          performSearch();
+        }
+      });
     }, 0);
+  }
+
+  /**
+   * Search for definition URIs from various knowledge bases
+   */
+  async _searchDefinitionUri(query, source) {
+    const resultsContainer = document.getElementById('uri-search-results');
+    if (!resultsContainer) return;
+
+    resultsContainer.style.display = 'block';
+    resultsContainer.innerHTML = `
+      <div class="uri-search-loading">
+        <i class="ph ph-spinner ph-spin"></i>
+        <span>Searching ${source}...</span>
+      </div>
+    `;
+
+    try {
+      let results = [];
+
+      switch (source) {
+        case 'wikidata':
+          results = await this._searchWikidata(query);
+          break;
+        case 'schema':
+          results = await this._searchSchemaOrg(query);
+          break;
+        case 'lov':
+          results = await this._searchLOV(query);
+          break;
+        case 'dbpedia':
+          results = await this._searchDBpedia(query);
+          break;
+        default:
+          results = await this._searchWikidata(query);
+      }
+
+      this._renderUriSearchResults(results, resultsContainer);
+    } catch (error) {
+      console.error('URI search failed:', error);
+      resultsContainer.innerHTML = `
+        <div class="uri-search-error">
+          <i class="ph ph-warning"></i>
+          <span>Search failed: ${this._escapeHtml(error.message)}</span>
+        </div>
+      `;
+    }
+  }
+
+  /**
+   * Search Wikidata for entities
+   */
+  async _searchWikidata(query) {
+    const url = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(query)}&language=en&limit=10&format=json&origin=*`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    return (data.search || []).map(item => ({
+      uri: `http://www.wikidata.org/entity/${item.id}`,
+      label: item.label || item.id,
+      description: item.description || '',
+      source: 'Wikidata',
+      id: item.id,
+      type: 'entity'
+    }));
+  }
+
+  /**
+   * Search Schema.org types and properties
+   */
+  async _searchSchemaOrg(query) {
+    // Schema.org doesn't have a direct search API, so we use a predefined list
+    // of common types and filter locally
+    const schemaTypes = [
+      { name: 'Person', desc: 'A person (alive, dead, undead, or fictional)' },
+      { name: 'Organization', desc: 'An organization such as a school, NGO, corporation, club, etc.' },
+      { name: 'Place', desc: 'Entities that have a somewhat fixed, physical extension' },
+      { name: 'Event', desc: 'An event happening at a certain time and location' },
+      { name: 'Product', desc: 'Any offered product or service' },
+      { name: 'CreativeWork', desc: 'The most generic kind of creative work' },
+      { name: 'Action', desc: 'An action performed by a direct agent' },
+      { name: 'Thing', desc: 'The most generic type of item' },
+      { name: 'PostalAddress', desc: 'The mailing address' },
+      { name: 'GeoCoordinates', desc: 'The geographic coordinates of a place or event' },
+      { name: 'MonetaryAmount', desc: 'A monetary value or range' },
+      { name: 'QuantitativeValue', desc: 'A point value or interval for product characteristics' },
+      { name: 'PropertyValue', desc: 'A property-value pair' },
+      { name: 'Dataset', desc: 'A body of structured information' },
+      { name: 'DataCatalog', desc: 'A collection of datasets' },
+      { name: 'GovernmentOrganization', desc: 'A governmental organization or agency' },
+      { name: 'EducationalOrganization', desc: 'An educational organization' },
+      { name: 'MedicalEntity', desc: 'The most generic type of entity related to health and medicine' },
+      { name: 'DefinedTerm', desc: 'A word, name, acronym, phrase, etc. with a formal definition' },
+      { name: 'CategoryCode', desc: 'A Category Code' }
+    ];
+
+    const lowerQuery = query.toLowerCase();
+    return schemaTypes
+      .filter(t => t.name.toLowerCase().includes(lowerQuery) || t.desc.toLowerCase().includes(lowerQuery))
+      .map(t => ({
+        uri: `https://schema.org/${t.name}`,
+        label: t.name,
+        description: t.desc,
+        source: 'Schema.org',
+        id: t.name,
+        type: 'type'
+      }));
+  }
+
+  /**
+   * Search Linked Open Vocabularies (LOV)
+   */
+  async _searchLOV(query) {
+    const url = `https://lov.linkeddata.es/dataset/lov/api/v2/term/search?q=${encodeURIComponent(query)}&type=class&type=property`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    return (data.results || []).slice(0, 10).map(item => ({
+      uri: item.uri?.[0] || item.prefixedName?.[0] || '',
+      label: item.localName?.[0] || item.prefixedName?.[0] || 'Unknown',
+      description: item['vocabulary.prefix']?.[0] ? `From vocabulary: ${item['vocabulary.prefix'][0]}` : '',
+      source: 'LOV',
+      id: item.localName?.[0] || '',
+      type: item['@type']?.includes('http://www.w3.org/2002/07/owl#Class') ? 'class' : 'property'
+    }));
+  }
+
+  /**
+   * Search DBpedia for resources
+   */
+  async _searchDBpedia(query) {
+    const url = `https://lookup.dbpedia.org/api/search?query=${encodeURIComponent(query)}&format=json&maxResults=10`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    return (data.docs || []).map(item => ({
+      uri: item.resource?.[0] || '',
+      label: item.label?.[0] || 'Unknown',
+      description: item.comment?.[0]?.substring(0, 150) + (item.comment?.[0]?.length > 150 ? '...' : '') || '',
+      source: 'DBpedia',
+      id: item.resource?.[0]?.split('/').pop() || '',
+      type: 'resource'
+    }));
+  }
+
+  /**
+   * Render URI search results
+   */
+  _renderUriSearchResults(results, container) {
+    if (results.length === 0) {
+      container.innerHTML = `
+        <div class="uri-search-empty">
+          <i class="ph ph-magnifying-glass"></i>
+          <span>No results found. Try a different search term.</span>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="uri-search-results-list">
+        ${results.map((r, i) => `
+          <div class="uri-search-result-item" data-index="${i}">
+            <div class="uri-result-header">
+              <span class="uri-result-label">${this._escapeHtml(r.label)}</span>
+              <span class="uri-result-source">${this._escapeHtml(r.source)}</span>
+            </div>
+            <div class="uri-result-description">${this._escapeHtml(r.description)}</div>
+            <div class="uri-result-uri">${this._escapeHtml(r.uri)}</div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    // Add click handlers
+    container.querySelectorAll('.uri-search-result-item').forEach((item, index) => {
+      item.addEventListener('click', () => {
+        const result = results[index];
+        if (result) {
+          // Populate the URI field
+          const uriInput = document.getElementById('definition-uri');
+          const nameInput = document.getElementById('definition-name-uri');
+          if (uriInput) uriInput.value = result.uri;
+          if (nameInput && !nameInput.value) nameInput.value = result.label;
+
+          // Highlight selected
+          container.querySelectorAll('.uri-search-result-item').forEach(el => el.classList.remove('selected'));
+          item.classList.add('selected');
+        }
+      });
+    });
   }
 
   /**
