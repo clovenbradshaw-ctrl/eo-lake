@@ -3956,7 +3956,7 @@ class EODataWorkbench {
         <div class="nav-empty-state">
           <i class="ph ph-file-arrow-down"></i>
           <span>No data imported yet</span>
-          <button class="btn-link" id="btn-first-import">Import CSV, JSON, or ICS</button>
+          <button class="btn-link" id="btn-first-import">Import data</button>
         </div>
       `;
       container.querySelector('#btn-first-import')?.addEventListener('click', () => {

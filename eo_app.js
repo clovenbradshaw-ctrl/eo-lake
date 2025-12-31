@@ -838,7 +838,7 @@ function searchCommands(query) {
   const commands = [
     { id: 'new_record', name: 'New Record', desc: 'Create a new record', icon: 'ph-plus', action: 'newRecord' },
     { id: 'new_set', name: 'New Set', desc: 'Create a new data set', icon: 'ph-table-plus', action: 'newSet' },
-    { id: 'import', name: 'Import Data', desc: 'Import CSV or JSON file', icon: 'ph-download', action: 'import' },
+    { id: 'import', name: 'Import Data', desc: 'Import spreadsheet or data file', icon: 'ph-download', action: 'import' },
     { id: 'filter', name: 'Add Filter', desc: 'Create a focus/filter', icon: 'ph-funnel', action: 'filter' },
     { id: 'createExport', name: 'Create Export', desc: 'Download and record immutable export', icon: 'ph-export', action: 'createExport' },
     { id: 'settings', name: 'Settings', desc: 'Open settings', icon: 'ph-gear', action: 'settings' }

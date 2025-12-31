@@ -2558,12 +2558,12 @@ function showImportModal() {
   modalTitle.textContent = 'Import Data';
 
   const acceptTypes = ExcelParser.isAvailable()
-    ? '.csv,.json,.xlsx,.xls,.ics'
-    : '.csv,.json,.ics';
+    ? '.csv,.tsv,.json,.xlsx,.xls,.numbers,.ods,.ics'
+    : '.csv,.tsv,.json,.ics';
 
   const dropzoneText = ExcelParser.isAvailable()
-    ? 'Drop CSV, JSON, Excel, or ICS file here'
-    : 'Drop CSV, JSON, or ICS file here';
+    ? 'Drop spreadsheet or data file here'
+    : 'Drop CSV, TSV, JSON, or ICS file here';
 
   modalBody.innerHTML = `
     <div class="import-container">
@@ -2905,7 +2905,7 @@ function initImportHandlers() {
     dropzone.classList.remove('dragover');
 
     const file = e.dataTransfer.files[0];
-    const validExtensions = ['.csv', '.json', '.xlsx', '.xls', '.ics'];
+    const validExtensions = ['.csv', '.tsv', '.json', '.xlsx', '.xls', '.numbers', '.ods', '.ics'];
     if (file && validExtensions.some(ext => file.name.toLowerCase().endsWith(ext))) {
       await handleFileSelect(file);
     }
@@ -3087,21 +3087,23 @@ function initImportHandlers() {
       `;
 
       // Read raw file content for preservation and analysis
-      const isExcel = file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls');
+      const fileName = file.name.toLowerCase();
+      const isSpreadsheet = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') ||
+                           fileName.endsWith('.numbers') || fileName.endsWith('.ods');
 
-      if (isExcel) {
-        // Handle Excel files
+      if (isSpreadsheet) {
+        // Handle spreadsheet files (Excel, Numbers, ODS)
         if (!ExcelParser.isAvailable()) {
-          throw new Error('Excel support requires the SheetJS library');
+          throw new Error('Spreadsheet support requires the SheetJS library');
         }
         const buffer = await readFileAsArrayBuffer(file);
-        rawFileContent = buffer; // Store as binary for Excel
+        rawFileContent = buffer; // Store as binary for spreadsheet
         const excelParser = new ExcelParser();
         const excelData = excelParser.parse(buffer);
 
-        // For Excel, use first sheet for preview (or combine all)
+        // For spreadsheet files, use first sheet for preview (or combine all)
         if (excelData.sheets.length === 0) {
-          throw new Error('No data found in Excel file');
+          throw new Error('No data found in spreadsheet file');
         }
 
         // Combine all sheets for preview
@@ -3110,7 +3112,7 @@ function initImportHandlers() {
           fileName: file.name,
           fileSize: file.size,
           isCSV: false,
-          isExcel: true,
+          isSpreadsheet: true,
           sheets: excelData.sheets,
           headers: firstSheet.headers,
           schema: new SchemaInferrer().inferSchema(firstSheet.headers, firstSheet.rows),
@@ -3138,7 +3140,7 @@ function initImportHandlers() {
       // Update file icon
       const fileIcon = document.getElementById('preview-file-icon');
       const fileNameLower = file.name.toLowerCase();
-      if (isExcel) {
+      if (isSpreadsheet) {
         fileIcon.className = 'ph ph-file-xls';
       } else if (fileNameLower.endsWith('.ics')) {
         fileIcon.className = 'ph ph-calendar-blank';
