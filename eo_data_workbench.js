@@ -10765,7 +10765,7 @@ class EODataWorkbench {
 
   /**
    * Render the Set Fields Panel (like Airtable's "Manage Fields")
-   * Shows all unique fields across the set with full management capabilities
+   * Full-width table view with comprehensive field management
    */
   _renderSetFieldsPanel() {
     const set = this.getCurrentSet();
@@ -10779,6 +10779,11 @@ class EODataWorkbench {
 
     const fields = set.fields || [];
     const recordCount = set.records?.length || 0;
+
+    // Initialize event stream if not present
+    if (!set.eventStream) {
+      set.eventStream = [];
+    }
 
     // Field type icons mapping
     const fieldTypeIcons = {
@@ -10822,104 +10827,330 @@ class EODataWorkbench {
       'json': 'JSON'
     };
 
-    // Count how many views use each field (for usage stats)
+    // Calculate field usage statistics
     const views = set.views || [];
-    const fieldUsage = {};
-    fields.forEach(f => {
-      fieldUsage[f.id] = views.filter(v =>
-        !v.config?.hiddenFields?.includes(f.id)
-      ).length;
-    });
+    const fieldUsage = this._calculateFieldUsage(set);
 
-    // Build fields list HTML
-    const fieldsHtml = fields.map((field, index) => {
+    // Get last modification info for each field
+    const fieldLastModified = this._getFieldLastModified(set);
+
+    // Build table rows HTML
+    const tableRowsHtml = fields.map((field, index) => {
       const icon = fieldTypeIcons[field.type] || 'ph-question';
       const typeName = fieldTypeNames[field.type] || field.type;
       const isPrimary = field.isPrimary || index === 0;
-      const usage = fieldUsage[field.id];
-      const usageText = usage === views.length
-        ? 'All views'
-        : `${usage}/${views.length} views`;
+      const usage = fieldUsage[field.id] || { views: 0, formulas: 0, total: 0 };
+      const lastMod = fieldLastModified[field.id];
+      const definitionRef = field.definitionRef;
+
+      // Format last modified
+      const lastModText = lastMod ? this._formatRelativeTime(lastMod.timestamp) : '—';
+      const lastModActor = lastMod?.actor?.name || '';
+
+      // Usage summary
+      const usageParts = [];
+      if (usage.views > 0) usageParts.push(`${usage.views} View${usage.views > 1 ? 's' : ''}`);
+      if (usage.formulas > 0) usageParts.push(`${usage.formulas} Formula${usage.formulas > 1 ? 's' : ''}`);
+      const usageText = usageParts.length > 0 ? usageParts.join(' · ') : '—';
 
       return `
-        <div class="fields-panel-row" data-field-id="${field.id}">
-          <div class="fields-panel-drag-handle">
-            <i class="ph ph-dots-six-vertical"></i>
-          </div>
-          <div class="fields-panel-icon">
-            <i class="ph ${icon}"></i>
-          </div>
-          <div class="fields-panel-info">
-            <div class="fields-panel-name">
-              ${this._escapeHtml(field.name)}
-              ${isPrimary ? '<span class="fields-panel-primary-badge">Primary</span>' : ''}
+        <tr data-field-id="${field.id}" class="field-row">
+          <td class="col-checkbox">
+            <input type="checkbox" class="field-checkbox" data-field-id="${field.id}" ${isPrimary ? 'disabled' : ''}>
+          </td>
+          <td class="col-name">
+            <div class="field-name-cell">
+              <div class="field-type-icon">
+                <i class="ph ${icon}"></i>
+              </div>
+              <span class="field-name-text">${this._escapeHtml(field.name)}</span>
+              ${isPrimary ? '<span class="field-primary-badge">Primary</span>' : ''}
             </div>
-            <div class="fields-panel-meta">
-              <span class="fields-panel-type">${typeName}</span>
-              <span class="fields-panel-usage">${usageText}</span>
+          </td>
+          <td class="col-type">
+            <div class="field-type-cell">
+              <i class="ph ${icon}"></i>
+              <span>${typeName}</span>
             </div>
-          </div>
-          <div class="fields-panel-actions">
-            <button class="fields-panel-action-btn" data-action="edit" title="Edit field">
-              <i class="ph ph-pencil-simple"></i>
-            </button>
-            <button class="fields-panel-action-btn" data-action="duplicate" title="Duplicate field">
-              <i class="ph ph-copy"></i>
-            </button>
-            ${!isPrimary ? `
-              <button class="fields-panel-action-btn fields-panel-delete-btn" data-action="delete" title="Delete field">
-                <i class="ph ph-trash"></i>
+          </td>
+          <td class="col-description">
+            <div class="field-description-cell ${!field.description ? 'empty' : ''}" data-field-id="${field.id}">
+              ${field.description ? this._escapeHtml(field.description) : '<span class="add-description">Add description</span>'}
+            </div>
+          </td>
+          <td class="col-definition">
+            <div class="field-definition-cell">
+              ${definitionRef ? `
+                <span class="field-definition-badge linked" data-field-id="${field.id}" title="${this._escapeHtml(definitionRef.uri || '')}">
+                  <i class="ph ph-link"></i>
+                  ${this._escapeHtml(this._getDefinitionName(definitionRef.definitionId) || 'Linked')}
+                </span>
+              ` : `
+                <button class="link-definition-btn" data-field-id="${field.id}">
+                  <i class="ph ph-plus"></i> Link
+                </button>
+              `}
+            </div>
+          </td>
+          <td class="col-field-id">
+            <div class="field-id-cell">
+              <span>${field.id}</span>
+              <button class="field-id-copy" data-field-id="${field.id}" title="Copy field ID">
+                <i class="ph ph-copy"></i>
               </button>
-            ` : ''}
-          </div>
-        </div>
+            </div>
+          </td>
+          <td class="col-used-by">
+            <div class="field-used-by-cell" data-field-id="${field.id}">
+              ${usage.total > 0 ? `
+                <span class="usage-badge" data-field-id="${field.id}">
+                  <i class="ph ph-stack"></i>
+                  ${usageText}
+                </span>
+              ` : '<span style="color: var(--text-muted);">—</span>'}
+            </div>
+          </td>
+          <td class="col-modified">
+            <div class="field-modified-cell">
+              <span class="modified-time">${lastModText}</span>
+              ${lastModActor ? `<span class="modified-actor">${this._escapeHtml(lastModActor)}</span>` : ''}
+            </div>
+          </td>
+          <td class="col-actions">
+            <div class="field-actions-cell">
+              <button class="field-actions-menu-btn" data-field-id="${field.id}">
+                <i class="ph ph-dots-three"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
       `;
     }).join('');
 
     content.innerHTML = `
       <div class="fields-panel-container">
+        <!-- Header -->
         <div class="fields-panel-header">
-          <div class="fields-panel-title">
-            <i class="ph ph-columns"></i>
-            <h2>Fields</h2>
+          <div class="fields-panel-header-left">
+            <button class="fields-panel-back-btn" id="fields-panel-back">
+              <i class="ph ph-arrow-left"></i>
+              Back
+            </button>
+            <div class="fields-panel-title">
+              <span class="fields-panel-title-set">${this._escapeHtml(set.name)}</span>
+              <span class="fields-panel-title-divider">›</span>
+              <span>Fields</span>
+            </div>
+          </div>
+          <div class="fields-panel-header-right">
             <span class="fields-panel-count">${fields.length} fields</span>
-          </div>
-          <div class="fields-panel-subtitle">
-            Manage all fields in "${this._escapeHtml(set.name)}" · ${recordCount.toLocaleString()} records
-          </div>
-        </div>
-
-        <div class="fields-panel-toolbar">
-          <button class="fields-panel-add-btn" id="fields-panel-add-field">
-            <i class="ph ph-plus"></i>
-            <span>Add field</span>
-          </button>
-          <div class="fields-panel-search">
-            <i class="ph ph-magnifying-glass"></i>
-            <input type="text" placeholder="Search fields..." id="fields-panel-search-input">
-          </div>
-        </div>
-
-        <div class="fields-panel-list" id="fields-panel-list">
-          ${fieldsHtml}
-        </div>
-
-        ${fields.length === 0 ? `
-          <div class="fields-panel-empty">
-            <i class="ph ph-columns"></i>
-            <p>No fields yet</p>
-            <button class="fields-panel-empty-add-btn" id="fields-panel-empty-add">
+            <button class="fields-panel-add-btn" id="fields-panel-add-field">
               <i class="ph ph-plus"></i>
-              Add your first field
+              <span>Add field</span>
             </button>
           </div>
-        ` : ''}
+        </div>
 
-        <div class="fields-panel-footer">
-          <div class="fields-panel-help">
-            <i class="ph ph-info"></i>
-            <span>Fields define the structure of your data. Each field has a type that determines what kind of data it can store.</span>
+        <!-- Toolbar -->
+        <div class="fields-panel-toolbar">
+          <div class="fields-panel-search">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" placeholder="Find a field..." id="fields-panel-search-input">
           </div>
+          <div class="fields-panel-filters">
+            <button class="fields-panel-filter" id="filter-type" data-filter="type">
+              Type: All
+              <i class="ph ph-caret-down"></i>
+            </button>
+            <button class="fields-panel-filter" id="filter-definition" data-filter="definition">
+              Definition: All
+              <i class="ph ph-caret-down"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bulk actions bar (hidden by default) -->
+        <div class="fields-panel-bulk-bar" id="fields-panel-bulk-bar">
+          <span class="fields-panel-bulk-count" id="bulk-count">0 selected</span>
+          <div class="fields-panel-bulk-actions">
+            <button class="fields-panel-bulk-btn" id="bulk-link-definition">
+              <i class="ph ph-link"></i>
+              Link definition
+            </button>
+            <button class="fields-panel-bulk-btn danger" id="bulk-delete">
+              <i class="ph ph-trash"></i>
+              Delete
+            </button>
+          </div>
+        </div>
+
+        <!-- Table -->
+        <div class="fields-panel-table-wrapper">
+          ${fields.length > 0 ? `
+            <table class="fields-panel-table">
+              <thead>
+                <tr>
+                  <th class="col-checkbox">
+                    <input type="checkbox" class="field-checkbox" id="select-all-fields">
+                  </th>
+                  <th class="col-name sortable" data-sort="name">
+                    Name
+                    <i class="ph ph-caret-up-down sort-icon"></i>
+                  </th>
+                  <th class="col-type sortable" data-sort="type">
+                    Field type
+                    <i class="ph ph-caret-up-down sort-icon"></i>
+                  </th>
+                  <th class="col-description">Description</th>
+                  <th class="col-definition">Definition</th>
+                  <th class="col-field-id">Field ID</th>
+                  <th class="col-used-by">Used by</th>
+                  <th class="col-modified sortable" data-sort="modified">
+                    Last modified
+                    <i class="ph ph-caret-up-down sort-icon"></i>
+                  </th>
+                  <th class="col-actions"></th>
+                </tr>
+              </thead>
+              <tbody id="fields-table-body">
+                ${tableRowsHtml}
+              </tbody>
+            </table>
+          ` : `
+            <div class="fields-panel-empty">
+              <i class="ph ph-columns"></i>
+              <p>No fields yet</p>
+              <button class="fields-panel-empty-add-btn" id="fields-panel-empty-add">
+                <i class="ph ph-plus"></i>
+                Add your first field
+              </button>
+            </div>
+          `}
+        </div>
+      </div>
+
+      <!-- Actions dropdown (positioned dynamically) -->
+      <div class="field-actions-dropdown" id="field-actions-dropdown">
+        <button class="field-action-item" data-action="edit">
+          <i class="ph ph-pencil-simple"></i>
+          Edit field
+        </button>
+        <button class="field-action-item" data-action="duplicate">
+          <i class="ph ph-copy"></i>
+          Duplicate
+        </button>
+        <button class="field-action-item" data-action="link-definition">
+          <i class="ph ph-link"></i>
+          Link definition
+        </button>
+        <div class="field-action-divider"></div>
+        <button class="field-action-item" data-action="history">
+          <i class="ph ph-clock-counter-clockwise"></i>
+          View history
+        </button>
+        <button class="field-action-item" data-action="copy-id">
+          <i class="ph ph-clipboard"></i>
+          Copy field ID
+        </button>
+        <div class="field-action-divider"></div>
+        <button class="field-action-item danger" data-action="delete">
+          <i class="ph ph-trash"></i>
+          Delete field
+        </button>
+      </div>
+
+      <!-- Filter dropdowns -->
+      <div class="filter-dropdown" id="filter-type-dropdown">
+        <div class="filter-dropdown-item selected" data-value="all">
+          All types
+          <i class="ph ph-check"></i>
+        </div>
+        ${Object.entries(fieldTypeNames).map(([type, name]) => `
+          <div class="filter-dropdown-item" data-value="${type}">
+            <i class="ph ${fieldTypeIcons[type]}"></i>
+            ${name}
+            <i class="ph ph-check"></i>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="filter-dropdown" id="filter-definition-dropdown">
+        <div class="filter-dropdown-item selected" data-value="all">
+          All
+          <i class="ph ph-check"></i>
+        </div>
+        <div class="filter-dropdown-item" data-value="linked">
+          <i class="ph ph-link"></i>
+          Has definition
+          <i class="ph ph-check"></i>
+        </div>
+        <div class="filter-dropdown-item" data-value="unlinked">
+          <i class="ph ph-link-break"></i>
+          No definition
+          <i class="ph ph-check"></i>
+        </div>
+      </div>
+
+      <!-- History panel (slide-out) -->
+      <div class="field-history-overlay" id="field-history-overlay"></div>
+      <div class="field-history-panel" id="field-history-panel">
+        <div class="field-history-header">
+          <div class="field-history-header-left">
+            <div>
+              <div class="field-history-title" id="history-field-name">Field History</div>
+              <div class="field-history-subtitle" id="history-field-type">—</div>
+            </div>
+          </div>
+          <button class="field-history-close-btn" id="close-history-panel">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+        <div class="field-history-toolbar">
+          <button class="field-history-filter active" data-filter="all">All changes</button>
+          <button class="field-history-filter" data-filter="rename">Renames</button>
+          <button class="field-history-filter" data-filter="type">Type changes</button>
+        </div>
+        <div class="field-history-content" id="field-history-content">
+          <!-- History timeline will be rendered here -->
+        </div>
+      </div>
+
+      <!-- Definition link modal -->
+      <div class="definition-link-modal" id="definition-link-modal">
+        <div class="definition-link-modal-overlay"></div>
+        <div class="definition-link-modal-content">
+          <div class="definition-link-header">
+            <span class="definition-link-title">Link to Definition</span>
+            <button class="definition-link-close" id="close-definition-modal">
+              <i class="ph ph-x"></i>
+            </button>
+          </div>
+          <div class="definition-link-search">
+            <input type="text" placeholder="Search definitions and terms..." id="definition-search-input">
+          </div>
+          <div class="definition-link-list" id="definition-link-list">
+            <!-- Definition items will be rendered here -->
+          </div>
+          <div class="definition-link-footer">
+            <div class="definition-link-footer-left">
+              <button class="definition-link-unlink-btn" id="unlink-definition-btn" style="display: none;">
+                <i class="ph ph-link-break"></i>
+                Unlink
+              </button>
+            </div>
+            <div class="definition-link-footer-right">
+              <button class="definition-link-cancel-btn" id="cancel-definition-link">Cancel</button>
+              <button class="definition-link-save-btn" id="save-definition-link" disabled>Link</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Usage popover -->
+      <div class="usage-popover" id="usage-popover">
+        <div class="usage-popover-header">Field Usage</div>
+        <div class="usage-popover-content" id="usage-popover-content">
+          <!-- Usage details will be rendered here -->
         </div>
       </div>
     `;
@@ -10929,9 +11160,149 @@ class EODataWorkbench {
   }
 
   /**
+   * Calculate comprehensive field usage statistics
+   */
+  _calculateFieldUsage(set) {
+    const usage = {};
+    const fields = set.fields || [];
+    const views = set.views || [];
+
+    fields.forEach(field => {
+      const fieldUsage = {
+        views: 0,
+        viewsList: [],
+        formulas: 0,
+        formulasList: [],
+        rollups: 0,
+        rollupsList: [],
+        filters: 0,
+        filtersList: [],
+        sorts: 0,
+        sortsList: [],
+        total: 0
+      };
+
+      // Count views where field is visible
+      views.forEach(view => {
+        const hiddenFields = view.config?.hiddenFields || [];
+        if (!hiddenFields.includes(field.id)) {
+          fieldUsage.views++;
+          fieldUsage.viewsList.push({ id: view.id, name: view.name });
+        }
+
+        // Check if used in filters
+        const filters = view.config?.filters || [];
+        filters.forEach(filter => {
+          if (filter.fieldId === field.id) {
+            fieldUsage.filters++;
+            fieldUsage.filtersList.push({ viewId: view.id, viewName: view.name });
+          }
+        });
+
+        // Check if used in sorts
+        const sorts = view.config?.sorts || [];
+        sorts.forEach(sort => {
+          if (sort.fieldId === field.id) {
+            fieldUsage.sorts++;
+            fieldUsage.sortsList.push({ viewId: view.id, viewName: view.name });
+          }
+        });
+      });
+
+      // Check if referenced in formula fields
+      fields.forEach(f => {
+        if (f.type === 'formula' && f.options?.formula) {
+          // Simple check for field reference in formula
+          if (f.options.formula.includes(field.id) || f.options.formula.includes(field.name)) {
+            fieldUsage.formulas++;
+            fieldUsage.formulasList.push({ id: f.id, name: f.name });
+          }
+        }
+        if (f.type === 'rollup' && f.options?.rollupFieldId === field.id) {
+          fieldUsage.rollups++;
+          fieldUsage.rollupsList.push({ id: f.id, name: f.name });
+        }
+      });
+
+      fieldUsage.total = fieldUsage.views + fieldUsage.formulas + fieldUsage.rollups;
+      usage[field.id] = fieldUsage;
+    });
+
+    return usage;
+  }
+
+  /**
+   * Get last modification info for each field from event stream
+   */
+  _getFieldLastModified(set) {
+    const lastMod = {};
+    const events = set.eventStream || [];
+
+    // Process events in reverse to get most recent first
+    const fieldEvents = events
+      .filter(e => e.type?.startsWith('field.'))
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    fieldEvents.forEach(event => {
+      const fieldId = event.target?.fieldId;
+      if (fieldId && !lastMod[fieldId]) {
+        lastMod[fieldId] = {
+          timestamp: event.timestamp,
+          type: event.type,
+          actor: event.actor
+        };
+      }
+    });
+
+    return lastMod;
+  }
+
+  /**
+   * Get definition name by ID
+   */
+  _getDefinitionName(definitionId) {
+    const definitions = this.definitions || [];
+    const def = definitions.find(d => d.id === definitionId);
+    return def?.name || null;
+  }
+
+  /**
+   * Format relative time (e.g., "2 hours ago", "Yesterday")
+   */
+  _formatRelativeTime(timestamp) {
+    if (!timestamp) return '—';
+
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffSecs < 60) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+
+    // Format as date
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  }
+
+  /**
    * Attach event handlers for the fields panel
    */
   _attachFieldsPanelEventHandlers() {
+    // Track selected fields for bulk operations
+    this._selectedFieldIds = new Set();
+    this._currentFieldsFilter = { type: 'all', definition: 'all' };
+
+    // Back button
+    document.getElementById('fields-panel-back')?.addEventListener('click', () => {
+      this._navigateToSetView();
+    });
+
     // Add field button
     document.getElementById('fields-panel-add-field')?.addEventListener('click', () => {
       this._showAddFieldModal();
@@ -10943,46 +11314,1237 @@ class EODataWorkbench {
 
     // Search input
     document.getElementById('fields-panel-search-input')?.addEventListener('input', (e) => {
-      const term = e.target.value.toLowerCase();
-      document.querySelectorAll('.fields-panel-row').forEach(row => {
-        const name = row.querySelector('.fields-panel-name')?.textContent.toLowerCase() || '';
-        const type = row.querySelector('.fields-panel-type')?.textContent.toLowerCase() || '';
-        const matches = name.includes(term) || type.includes(term);
-        row.style.display = matches ? '' : 'none';
+      this._filterFieldsTable();
+    });
+
+    // Select all checkbox
+    document.getElementById('select-all-fields')?.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      document.querySelectorAll('.field-row .field-checkbox:not(:disabled)').forEach(cb => {
+        cb.checked = checked;
+        const fieldId = cb.dataset.fieldId;
+        if (checked) {
+          this._selectedFieldIds.add(fieldId);
+        } else {
+          this._selectedFieldIds.delete(fieldId);
+        }
+        cb.closest('tr')?.classList.toggle('selected', checked);
+      });
+      this._updateBulkBar();
+    });
+
+    // Individual field checkboxes
+    document.querySelectorAll('.field-row .field-checkbox').forEach(cb => {
+      cb.addEventListener('change', (e) => {
+        e.stopPropagation();
+        const fieldId = cb.dataset.fieldId;
+        if (cb.checked) {
+          this._selectedFieldIds.add(fieldId);
+        } else {
+          this._selectedFieldIds.delete(fieldId);
+        }
+        cb.closest('tr')?.classList.toggle('selected', cb.checked);
+        this._updateBulkBar();
+        this._updateSelectAllCheckbox();
       });
     });
 
-    // Field row actions
-    document.querySelectorAll('.fields-panel-row').forEach(row => {
-      const fieldId = row.dataset.fieldId;
-
-      // Row click - edit field
+    // Field row click - edit field
+    document.querySelectorAll('.field-row').forEach(row => {
       row.addEventListener('click', (e) => {
-        if (!e.target.closest('.fields-panel-action-btn') && !e.target.closest('.fields-panel-drag-handle')) {
-          this._showEditFieldModal(fieldId);
+        // Don't trigger if clicking on interactive elements
+        if (e.target.closest('.field-checkbox') ||
+            e.target.closest('.field-actions-menu-btn') ||
+            e.target.closest('.field-id-copy') ||
+            e.target.closest('.link-definition-btn') ||
+            e.target.closest('.field-definition-badge') ||
+            e.target.closest('.usage-badge') ||
+            e.target.closest('.add-description')) {
+          return;
+        }
+        const fieldId = row.dataset.fieldId;
+        this._showEditFieldModal(fieldId);
+      });
+    });
+
+    // Actions menu buttons
+    document.querySelectorAll('.field-actions-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fieldId = btn.dataset.fieldId;
+        this._showFieldActionsMenu(fieldId, btn);
+      });
+    });
+
+    // Actions dropdown items
+    const actionsDropdown = document.getElementById('field-actions-dropdown');
+    actionsDropdown?.querySelectorAll('.field-action-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const action = item.dataset.action;
+        const fieldId = actionsDropdown.dataset.fieldId;
+        this._hideFieldActionsMenu();
+        this._handleFieldAction(action, fieldId);
+      });
+    });
+
+    // Copy field ID buttons
+    document.querySelectorAll('.field-id-copy').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fieldId = btn.dataset.fieldId;
+        this._copyToClipboard(fieldId);
+        this._showToast('Field ID copied to clipboard');
+      });
+    });
+
+    // Link definition buttons
+    document.querySelectorAll('.link-definition-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fieldId = btn.dataset.fieldId;
+        this._showDefinitionLinkModal(fieldId);
+      });
+    });
+
+    // Definition badges (view linked definition)
+    document.querySelectorAll('.field-definition-badge').forEach(badge => {
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fieldId = badge.dataset.fieldId;
+        this._showDefinitionLinkModal(fieldId);
+      });
+    });
+
+    // Add description
+    document.querySelectorAll('.add-description').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const cell = el.closest('.field-description-cell');
+        const fieldId = cell?.dataset.fieldId;
+        if (fieldId) {
+          this._showEditDescriptionInline(fieldId, cell);
+        }
+      });
+    });
+
+    // Description cells (edit on click)
+    document.querySelectorAll('.field-description-cell:not(.empty)').forEach(cell => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fieldId = cell.dataset.fieldId;
+        this._showEditDescriptionInline(fieldId, cell);
+      });
+    });
+
+    // Usage badges (show popover)
+    document.querySelectorAll('.usage-badge').forEach(badge => {
+      badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const fieldId = badge.dataset.fieldId;
+        this._showUsagePopover(fieldId, badge);
+      });
+    });
+
+    // Filter buttons
+    document.getElementById('filter-type')?.addEventListener('click', (e) => {
+      this._showFilterDropdown('type', e.target.closest('.fields-panel-filter'));
+    });
+
+    document.getElementById('filter-definition')?.addEventListener('click', (e) => {
+      this._showFilterDropdown('definition', e.target.closest('.fields-panel-filter'));
+    });
+
+    // Filter dropdown items
+    document.querySelectorAll('.filter-dropdown .filter-dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const dropdown = item.closest('.filter-dropdown');
+        const filterType = dropdown.id.replace('filter-', '').replace('-dropdown', '');
+        const value = item.dataset.value;
+        this._applyFilter(filterType, value);
+        this._hideAllDropdowns();
+      });
+    });
+
+    // Bulk actions
+    document.getElementById('bulk-delete')?.addEventListener('click', () => {
+      this._bulkDeleteFields();
+    });
+
+    document.getElementById('bulk-link-definition')?.addEventListener('click', () => {
+      this._showDefinitionLinkModal(Array.from(this._selectedFieldIds));
+    });
+
+    // History panel
+    document.getElementById('close-history-panel')?.addEventListener('click', () => {
+      this._hideHistoryPanel();
+    });
+
+    document.getElementById('field-history-overlay')?.addEventListener('click', () => {
+      this._hideHistoryPanel();
+    });
+
+    // History filter buttons
+    document.querySelectorAll('.field-history-filter').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.field-history-filter').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const filter = btn.dataset.filter;
+        this._filterHistoryEvents(filter);
+      });
+    });
+
+    // Definition link modal
+    document.getElementById('close-definition-modal')?.addEventListener('click', () => {
+      this._hideDefinitionLinkModal();
+    });
+
+    document.getElementById('cancel-definition-link')?.addEventListener('click', () => {
+      this._hideDefinitionLinkModal();
+    });
+
+    document.querySelector('.definition-link-modal-overlay')?.addEventListener('click', () => {
+      this._hideDefinitionLinkModal();
+    });
+
+    document.getElementById('save-definition-link')?.addEventListener('click', () => {
+      this._saveDefinitionLink();
+    });
+
+    document.getElementById('unlink-definition-btn')?.addEventListener('click', () => {
+      this._unlinkDefinition();
+    });
+
+    document.getElementById('definition-search-input')?.addEventListener('input', (e) => {
+      this._filterDefinitionsList(e.target.value);
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.field-actions-dropdown') && !e.target.closest('.field-actions-menu-btn')) {
+        this._hideFieldActionsMenu();
+      }
+      if (!e.target.closest('.filter-dropdown') && !e.target.closest('.fields-panel-filter')) {
+        this._hideAllDropdowns();
+      }
+      if (!e.target.closest('.usage-popover') && !e.target.closest('.usage-badge')) {
+        this._hideUsagePopover();
+      }
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this._hideFieldActionsMenu();
+        this._hideAllDropdowns();
+        this._hideUsagePopover();
+        this._hideHistoryPanel();
+        this._hideDefinitionLinkModal();
+      }
+    });
+  }
+
+  /**
+   * Navigate back to set view
+   */
+  _navigateToSetView() {
+    const set = this.getCurrentSet();
+    if (set) {
+      this.currentView = 'table';
+      this._renderView();
+    }
+  }
+
+  /**
+   * Filter fields table based on search and filters
+   */
+  _filterFieldsTable() {
+    const searchTerm = document.getElementById('fields-panel-search-input')?.value.toLowerCase() || '';
+    const typeFilter = this._currentFieldsFilter?.type || 'all';
+    const defFilter = this._currentFieldsFilter?.definition || 'all';
+    const set = this.getCurrentSet();
+
+    document.querySelectorAll('.field-row').forEach(row => {
+      const fieldId = row.dataset.fieldId;
+      const field = set?.fields?.find(f => f.id === fieldId);
+      if (!field) return;
+
+      // Search filter
+      const name = field.name?.toLowerCase() || '';
+      const type = field.type?.toLowerCase() || '';
+      const description = field.description?.toLowerCase() || '';
+      const matchesSearch = !searchTerm ||
+        name.includes(searchTerm) ||
+        type.includes(searchTerm) ||
+        description.includes(searchTerm);
+
+      // Type filter
+      const matchesType = typeFilter === 'all' || field.type === typeFilter;
+
+      // Definition filter
+      let matchesDef = true;
+      if (defFilter === 'linked') {
+        matchesDef = !!field.definitionRef;
+      } else if (defFilter === 'unlinked') {
+        matchesDef = !field.definitionRef;
+      }
+
+      row.style.display = (matchesSearch && matchesType && matchesDef) ? '' : 'none';
+    });
+  }
+
+  /**
+   * Update bulk actions bar visibility and count
+   */
+  _updateBulkBar() {
+    const bulkBar = document.getElementById('fields-panel-bulk-bar');
+    const countEl = document.getElementById('bulk-count');
+    const count = this._selectedFieldIds?.size || 0;
+
+    if (bulkBar) {
+      bulkBar.classList.toggle('visible', count > 0);
+    }
+    if (countEl) {
+      countEl.textContent = `${count} selected`;
+    }
+  }
+
+  /**
+   * Update select all checkbox state
+   */
+  _updateSelectAllCheckbox() {
+    const selectAll = document.getElementById('select-all-fields');
+    if (!selectAll) return;
+
+    const allCheckboxes = document.querySelectorAll('.field-row .field-checkbox:not(:disabled)');
+    const checkedCount = document.querySelectorAll('.field-row .field-checkbox:checked').length;
+
+    selectAll.checked = checkedCount > 0 && checkedCount === allCheckboxes.length;
+    selectAll.indeterminate = checkedCount > 0 && checkedCount < allCheckboxes.length;
+  }
+
+  /**
+   * Show field actions dropdown menu
+   */
+  _showFieldActionsMenu(fieldId, buttonEl) {
+    const dropdown = document.getElementById('field-actions-dropdown');
+    if (!dropdown || !buttonEl) return;
+
+    // Store current field ID
+    dropdown.dataset.fieldId = fieldId;
+
+    // Check if this is the primary field
+    const set = this.getCurrentSet();
+    const field = set?.fields?.find(f => f.id === fieldId);
+    const isPrimary = field?.isPrimary || set?.fields?.[0]?.id === fieldId;
+
+    // Hide delete option for primary field
+    const deleteBtn = dropdown.querySelector('[data-action="delete"]');
+    if (deleteBtn) {
+      deleteBtn.style.display = isPrimary ? 'none' : '';
+    }
+
+    // Position dropdown
+    const rect = buttonEl.getBoundingClientRect();
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    dropdown.style.left = `${rect.right - dropdown.offsetWidth}px`;
+
+    // Show dropdown
+    dropdown.classList.add('visible');
+  }
+
+  /**
+   * Hide field actions menu
+   */
+  _hideFieldActionsMenu() {
+    document.getElementById('field-actions-dropdown')?.classList.remove('visible');
+  }
+
+  /**
+   * Handle field action from dropdown menu
+   */
+  _handleFieldAction(action, fieldId) {
+    switch (action) {
+      case 'edit':
+        this._showEditFieldModal(fieldId);
+        break;
+      case 'duplicate':
+        this._duplicateFieldWithHistory(fieldId);
+        break;
+      case 'link-definition':
+        this._showDefinitionLinkModal(fieldId);
+        break;
+      case 'history':
+        this._showFieldHistory(fieldId);
+        break;
+      case 'copy-id':
+        this._copyToClipboard(fieldId);
+        this._showToast('Field ID copied to clipboard');
+        break;
+      case 'delete':
+        this._confirmDeleteField(fieldId);
+        break;
+    }
+  }
+
+  /**
+   * Show filter dropdown
+   */
+  _showFilterDropdown(filterType, buttonEl) {
+    this._hideAllDropdowns();
+
+    const dropdown = document.getElementById(`filter-${filterType}-dropdown`);
+    if (!dropdown || !buttonEl) return;
+
+    const rect = buttonEl.getBoundingClientRect();
+    dropdown.style.top = `${rect.bottom + 4}px`;
+    dropdown.style.left = `${rect.left}px`;
+    dropdown.classList.add('visible');
+  }
+
+  /**
+   * Hide all dropdowns
+   */
+  _hideAllDropdowns() {
+    document.querySelectorAll('.filter-dropdown').forEach(d => d.classList.remove('visible'));
+  }
+
+  /**
+   * Apply filter
+   */
+  _applyFilter(filterType, value) {
+    if (!this._currentFieldsFilter) {
+      this._currentFieldsFilter = { type: 'all', definition: 'all' };
+    }
+    this._currentFieldsFilter[filterType] = value;
+
+    // Update button text
+    const btn = document.getElementById(`filter-${filterType}`);
+    if (btn) {
+      const labels = {
+        type: { all: 'Type: All' },
+        definition: { all: 'Definition: All', linked: 'Has definition', unlinked: 'No definition' }
+      };
+
+      let label = labels[filterType]?.[value];
+      if (!label && filterType === 'type') {
+        const typeNames = {
+          'text': 'Text', 'long_text': 'Long text', 'number': 'Number',
+          'select': 'Select', 'multi_select': 'Multi-select', 'date': 'Date',
+          'checkbox': 'Checkbox', 'link': 'Link', 'attachment': 'Attachment',
+          'url': 'URL', 'email': 'Email', 'phone': 'Phone', 'formula': 'Formula',
+          'rollup': 'Rollup', 'count': 'Count', 'autonumber': 'Auto #', 'json': 'JSON'
+        };
+        label = `Type: ${typeNames[value] || value}`;
+      }
+
+      btn.innerHTML = `${label} <i class="ph ph-caret-down"></i>`;
+      btn.classList.toggle('active', value !== 'all');
+    }
+
+    // Update dropdown selection
+    const dropdown = document.getElementById(`filter-${filterType}-dropdown`);
+    dropdown?.querySelectorAll('.filter-dropdown-item').forEach(item => {
+      item.classList.toggle('selected', item.dataset.value === value);
+    });
+
+    // Apply filter
+    this._filterFieldsTable();
+  }
+
+  /**
+   * Copy text to clipboard
+   */
+  _copyToClipboard(text) {
+    navigator.clipboard.writeText(text).catch(() => {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    });
+  }
+
+  /**
+   * Show usage popover
+   */
+  _showUsagePopover(fieldId, anchorEl) {
+    const popover = document.getElementById('usage-popover');
+    const content = document.getElementById('usage-popover-content');
+    if (!popover || !content || !anchorEl) return;
+
+    const set = this.getCurrentSet();
+    const usage = this._calculateFieldUsage(set)[fieldId];
+    if (!usage) return;
+
+    // Build usage content
+    let html = '';
+
+    if (usage.viewsList.length > 0) {
+      html += `<div class="usage-popover-section">
+        <div class="usage-popover-section-title">Views (${usage.views})</div>
+        ${usage.viewsList.map(v => `
+          <div class="usage-popover-item">
+            <i class="ph ph-table"></i>
+            ${this._escapeHtml(v.name)}
+          </div>
+        `).join('')}
+      </div>`;
+    }
+
+    if (usage.formulasList.length > 0) {
+      html += `<div class="usage-popover-section">
+        <div class="usage-popover-section-title">Formulas (${usage.formulas})</div>
+        ${usage.formulasList.map(f => `
+          <div class="usage-popover-item">
+            <i class="ph ph-function"></i>
+            ${this._escapeHtml(f.name)}
+          </div>
+        `).join('')}
+      </div>`;
+    }
+
+    if (usage.rollupsList.length > 0) {
+      html += `<div class="usage-popover-section">
+        <div class="usage-popover-section-title">Rollups (${usage.rollups})</div>
+        ${usage.rollupsList.map(r => `
+          <div class="usage-popover-item">
+            <i class="ph ph-sigma"></i>
+            ${this._escapeHtml(r.name)}
+          </div>
+        `).join('')}
+      </div>`;
+    }
+
+    if (usage.filtersList.length > 0) {
+      html += `<div class="usage-popover-section">
+        <div class="usage-popover-section-title">Filters (${usage.filters})</div>
+        ${usage.filtersList.map(f => `
+          <div class="usage-popover-item">
+            <i class="ph ph-funnel"></i>
+            ${this._escapeHtml(f.viewName)}
+          </div>
+        `).join('')}
+      </div>`;
+    }
+
+    content.innerHTML = html || '<p style="padding: 16px; text-align: center; color: var(--text-muted);">Not used anywhere</p>';
+
+    // Position popover
+    const rect = anchorEl.getBoundingClientRect();
+    popover.style.top = `${rect.bottom + 8}px`;
+    popover.style.left = `${Math.max(8, rect.left - 100)}px`;
+    popover.classList.add('visible');
+  }
+
+  /**
+   * Hide usage popover
+   */
+  _hideUsagePopover() {
+    document.getElementById('usage-popover')?.classList.remove('visible');
+  }
+
+  /**
+   * Show inline description editor
+   */
+  _showEditDescriptionInline(fieldId, cell) {
+    const set = this.getCurrentSet();
+    const field = set?.fields?.find(f => f.id === fieldId);
+    if (!field || !cell) return;
+
+    const currentDesc = field.description || '';
+
+    // Create inline input
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentDesc;
+    input.placeholder = 'Add description...';
+    input.style.cssText = `
+      width: 100%;
+      padding: 4px 8px;
+      border: 1px solid var(--primary-400);
+      border-radius: 4px;
+      font-size: 13px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      outline: none;
+    `;
+
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+
+    const saveDescription = () => {
+      const newDesc = input.value.trim();
+      if (newDesc !== currentDesc) {
+        this._updateFieldDescription(fieldId, newDesc);
+      }
+      // Re-render the cell
+      cell.innerHTML = newDesc
+        ? this._escapeHtml(newDesc)
+        : '<span class="add-description">Add description</span>';
+      cell.classList.toggle('empty', !newDesc);
+
+      // Re-attach click handler
+      if (!newDesc) {
+        cell.querySelector('.add-description')?.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._showEditDescriptionInline(fieldId, cell);
+        });
+      }
+    };
+
+    input.addEventListener('blur', saveDescription);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        input.blur();
+      }
+      if (e.key === 'Escape') {
+        input.value = currentDesc;
+        input.blur();
+      }
+    });
+  }
+
+  /**
+   * Update field description
+   */
+  _updateFieldDescription(fieldId, description) {
+    const set = this.getCurrentSet();
+    const field = set?.fields?.find(f => f.id === fieldId);
+    if (!field) return;
+
+    const oldDescription = field.description;
+    field.description = description;
+
+    // Record event
+    this._recordFieldEvent(fieldId, 'field.description_changed', {
+      description: { from: oldDescription || '', to: description }
+    });
+
+    this._saveData();
+  }
+
+  /**
+   * Bulk delete fields
+   */
+  _bulkDeleteFields() {
+    const count = this._selectedFieldIds?.size || 0;
+    if (count === 0) return;
+
+    const confirmed = confirm(`Are you sure you want to delete ${count} field${count > 1 ? 's' : ''}? This action cannot be undone.`);
+    if (!confirmed) return;
+
+    const fieldIds = Array.from(this._selectedFieldIds);
+    fieldIds.forEach(fieldId => {
+      this._deleteField(fieldId);
+    });
+
+    this._selectedFieldIds.clear();
+    this._renderSetFieldsPanel();
+    this._showToast(`${count} field${count > 1 ? 's' : ''} deleted`);
+  }
+
+  /**
+   * Record a field event to the event stream
+   */
+  _recordFieldEvent(fieldId, eventType, changes, metadata = {}) {
+    const set = this.getCurrentSet();
+    if (!set) return null;
+
+    const field = set.fields?.find(f => f.id === fieldId);
+
+    // Initialize event stream if needed
+    if (!set.eventStream) {
+      set.eventStream = [];
+    }
+
+    const event = {
+      id: `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      type: eventType,
+      timestamp: new Date().toISOString(),
+      actor: {
+        type: 'user',
+        name: 'User' // In a real app, this would be the current user
+      },
+      target: {
+        setId: set.id,
+        fieldId: fieldId,
+        fieldName: field?.name || 'Unknown'
+      },
+      changes: changes,
+      metadata: {
+        source: 'field_manager',
+        ...metadata
+      }
+    };
+
+    set.eventStream.push(event);
+    return event;
+  }
+
+  /**
+   * Get current actor (user info)
+   */
+  _getCurrentActor() {
+    return {
+      type: 'user',
+      name: 'User'
+    };
+  }
+
+  /**
+   * Show field history panel
+   */
+  _showFieldHistory(fieldId) {
+    const set = this.getCurrentSet();
+    const field = set?.fields?.find(f => f.id === fieldId);
+    if (!field) return;
+
+    // Store current field for history panel
+    this._currentHistoryFieldId = fieldId;
+
+    // Update header
+    document.getElementById('history-field-name').textContent = field.name;
+    document.getElementById('history-field-type').textContent = this._getFieldTypeName(field.type);
+
+    // Render history
+    this._renderFieldHistory(fieldId);
+
+    // Show panel
+    document.getElementById('field-history-overlay')?.classList.add('visible');
+    document.getElementById('field-history-panel')?.classList.add('visible');
+  }
+
+  /**
+   * Hide field history panel
+   */
+  _hideHistoryPanel() {
+    document.getElementById('field-history-overlay')?.classList.remove('visible');
+    document.getElementById('field-history-panel')?.classList.remove('visible');
+    this._currentHistoryFieldId = null;
+  }
+
+  /**
+   * Render field history timeline
+   */
+  _renderFieldHistory(fieldId, filter = 'all') {
+    const set = this.getCurrentSet();
+    const content = document.getElementById('field-history-content');
+    if (!content || !set) return;
+
+    // Get events for this field
+    let events = (set.eventStream || [])
+      .filter(e => e.target?.fieldId === fieldId)
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    // Apply filter
+    if (filter !== 'all') {
+      const filterMap = {
+        'rename': ['field.renamed'],
+        'type': ['field.type_changed'],
+        'definition': ['field.definition_linked', 'field.definition_unlinked']
+      };
+      const allowedTypes = filterMap[filter] || [];
+      events = events.filter(e => allowedTypes.includes(e.type));
+    }
+
+    if (events.length === 0) {
+      content.innerHTML = `
+        <div class="history-empty">
+          <i class="ph ph-clock-counter-clockwise"></i>
+          <p>No history recorded yet</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Group events by date
+    const groupedEvents = {};
+    events.forEach(event => {
+      const date = new Date(event.timestamp);
+      const dateKey = this._formatDateKey(date);
+      if (!groupedEvents[dateKey]) {
+        groupedEvents[dateKey] = [];
+      }
+      groupedEvents[dateKey].push(event);
+    });
+
+    // Build timeline HTML
+    let html = '<div class="history-timeline">';
+
+    for (const [dateKey, dateEvents] of Object.entries(groupedEvents)) {
+      html += `
+        <div class="history-date-group">
+          <div class="history-date-header">
+            <div class="history-date-dot"></div>
+            <span class="history-date-text">${dateKey}</span>
+          </div>
+          <div class="history-events">
+      `;
+
+      dateEvents.forEach(event => {
+        const eventInfo = this._getEventDisplayInfo(event);
+        const time = new Date(event.timestamp).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+
+        html += `
+          <div class="history-event" data-event-type="${event.type}">
+            <div class="history-event-header">
+              <div class="history-event-icon ${eventInfo.iconClass}">
+                <i class="ph ${eventInfo.icon}"></i>
+              </div>
+              <span class="history-event-type">${eventInfo.label}</span>
+              <span class="history-event-time">${time}</span>
+            </div>
+            <div class="history-event-actor">${event.actor?.name || 'System'}</div>
+            ${eventInfo.changesHtml ? `
+              <div class="history-event-changes">
+                ${eventInfo.changesHtml}
+              </div>
+            ` : ''}
+          </div>
+        `;
+      });
+
+      html += '</div></div>';
+    }
+
+    html += '</div>';
+    content.innerHTML = html;
+  }
+
+  /**
+   * Format date for grouping
+   */
+  _formatDateKey(date) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const eventDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+    if (eventDate.getTime() === today.getTime()) {
+      return 'Today';
+    } else if (eventDate.getTime() === yesterday.getTime()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    }
+  }
+
+  /**
+   * Get display info for an event
+   */
+  _getEventDisplayInfo(event) {
+    const info = {
+      icon: 'ph-clock',
+      iconClass: '',
+      label: 'Changed',
+      changesHtml: ''
+    };
+
+    switch (event.type) {
+      case 'field.created':
+        info.icon = 'ph-plus-circle';
+        info.iconClass = 'created';
+        info.label = 'Field created';
+        if (event.changes?.type) {
+          info.changesHtml = `<div class="history-change-row">
+            <span class="history-change-label">Type:</span>
+            <span class="history-change-to">${this._getFieldTypeName(event.changes.type)}</span>
+          </div>`;
+        }
+        break;
+
+      case 'field.renamed':
+        info.icon = 'ph-pencil-simple';
+        info.iconClass = 'renamed';
+        info.label = 'Renamed';
+        if (event.changes?.name) {
+          info.changesHtml = `<div class="history-change-row">
+            <span class="history-change-from">${this._escapeHtml(event.changes.name.from)}</span>
+            <span class="history-change-arrow">→</span>
+            <span class="history-change-to">${this._escapeHtml(event.changes.name.to)}</span>
+          </div>`;
+        }
+        break;
+
+      case 'field.type_changed':
+        info.icon = 'ph-swap';
+        info.iconClass = 'type-changed';
+        info.label = 'Type changed';
+        if (event.changes?.type) {
+          info.changesHtml = `<div class="history-change-row">
+            <span class="history-change-from">${this._getFieldTypeName(event.changes.type.from)}</span>
+            <span class="history-change-arrow">→</span>
+            <span class="history-change-to">${this._getFieldTypeName(event.changes.type.to)}</span>
+          </div>`;
+        }
+        break;
+
+      case 'field.description_changed':
+        info.icon = 'ph-text-aa';
+        info.iconClass = 'renamed';
+        info.label = 'Description updated';
+        if (event.changes?.description) {
+          const from = event.changes.description.from || '(empty)';
+          const to = event.changes.description.to || '(empty)';
+          info.changesHtml = `<div class="history-change-row">
+            <span class="history-change-from">${this._escapeHtml(from)}</span>
+            <span class="history-change-arrow">→</span>
+            <span class="history-change-to">${this._escapeHtml(to)}</span>
+          </div>`;
+        }
+        break;
+
+      case 'field.definition_linked':
+        info.icon = 'ph-link';
+        info.iconClass = 'definition';
+        info.label = 'Linked to definition';
+        if (event.changes?.definition) {
+          info.changesHtml = `<div class="history-change-row">
+            <span class="history-change-label">Definition:</span>
+            <span class="history-change-to">${this._escapeHtml(event.changes.definition.name || 'Unknown')}</span>
+          </div>`;
+          if (event.changes.definition.uri) {
+            info.changesHtml += `<div class="history-change-row">
+              <span class="history-change-label">URI:</span>
+              <span style="font-family: var(--font-mono); font-size: 11px;">${this._escapeHtml(event.changes.definition.uri)}</span>
+            </div>`;
+          }
+        }
+        break;
+
+      case 'field.definition_unlinked':
+        info.icon = 'ph-link-break';
+        info.iconClass = 'deleted';
+        info.label = 'Definition unlinked';
+        break;
+
+      case 'field.options_changed':
+        info.icon = 'ph-sliders';
+        info.iconClass = 'options';
+        info.label = 'Options updated';
+        break;
+
+      case 'field.deleted':
+        info.icon = 'ph-trash';
+        info.iconClass = 'deleted';
+        info.label = 'Field deleted';
+        break;
+
+      case 'field.restored':
+        info.icon = 'ph-arrow-counter-clockwise';
+        info.iconClass = 'restored';
+        info.label = 'Field restored';
+        break;
+
+      case 'field.duplicated':
+        info.icon = 'ph-copy';
+        info.iconClass = 'created';
+        info.label = 'Field duplicated';
+        if (event.changes?.sourceField) {
+          info.changesHtml = `<div class="history-change-row">
+            <span class="history-change-label">From:</span>
+            <span class="history-change-to">${this._escapeHtml(event.changes.sourceField)}</span>
+          </div>`;
+        }
+        break;
+    }
+
+    return info;
+  }
+
+  /**
+   * Get field type display name
+   */
+  _getFieldTypeName(type) {
+    const typeNames = {
+      'text': 'Single line text',
+      'long_text': 'Long text',
+      'number': 'Number',
+      'select': 'Single select',
+      'multi_select': 'Multiple select',
+      'date': 'Date',
+      'checkbox': 'Checkbox',
+      'link': 'Link to another record',
+      'attachment': 'Attachment',
+      'url': 'URL',
+      'email': 'Email',
+      'phone': 'Phone',
+      'formula': 'Formula',
+      'rollup': 'Rollup',
+      'count': 'Count',
+      'autonumber': 'Auto number',
+      'json': 'JSON'
+    };
+    return typeNames[type] || type || 'Unknown';
+  }
+
+  /**
+   * Filter history events
+   */
+  _filterHistoryEvents(filter) {
+    if (this._currentHistoryFieldId) {
+      this._renderFieldHistory(this._currentHistoryFieldId, filter);
+    }
+  }
+
+  /**
+   * Duplicate a field with history tracking
+   */
+  _duplicateFieldWithHistory(fieldId) {
+    const set = this.getCurrentSet();
+    const field = set?.fields?.find(f => f.id === fieldId);
+    if (!field) return;
+
+    const newField = createField(`${field.name} (copy)`, field.type, { ...field.options });
+    if (field.description) {
+      newField.description = field.description;
+    }
+    set.fields.push(newField);
+
+    // Copy values to new field
+    set.records?.forEach(record => {
+      if (record.values[fieldId] !== undefined) {
+        record.values[newField.id] = JSON.parse(JSON.stringify(record.values[fieldId]));
+      }
+    });
+
+    // Record event for the new field
+    this._recordFieldEvent(newField.id, 'field.duplicated', {
+      sourceField: field.name,
+      sourceFieldId: fieldId,
+      type: field.type
+    });
+
+    this._saveData();
+    this._renderSetFieldsPanel();
+    this._showToast(`Duplicated field "${field.name}"`, 'success');
+  }
+
+  /**
+   * Show definition link modal
+   */
+  _showDefinitionLinkModal(fieldIdOrIds) {
+    const fieldIds = Array.isArray(fieldIdOrIds) ? fieldIdOrIds : [fieldIdOrIds];
+    this._definitionLinkFieldIds = fieldIds;
+    this._selectedDefinitionTerm = null;
+
+    const set = this.getCurrentSet();
+    const field = fieldIds.length === 1 ? set?.fields?.find(f => f.id === fieldIds[0]) : null;
+
+    // Update unlink button visibility
+    const unlinkBtn = document.getElementById('unlink-definition-btn');
+    if (unlinkBtn) {
+      unlinkBtn.style.display = (field?.definitionRef) ? '' : 'none';
+    }
+
+    // Render definitions list
+    this._renderDefinitionsList();
+
+    // Show modal
+    document.getElementById('definition-link-modal')?.classList.add('visible');
+
+    // Focus search
+    setTimeout(() => {
+      document.getElementById('definition-search-input')?.focus();
+    }, 100);
+  }
+
+  /**
+   * Hide definition link modal
+   */
+  _hideDefinitionLinkModal() {
+    document.getElementById('definition-link-modal')?.classList.remove('visible');
+    this._definitionLinkFieldIds = null;
+    this._selectedDefinitionTerm = null;
+  }
+
+  /**
+   * Render definitions list in modal
+   */
+  _renderDefinitionsList(searchTerm = '') {
+    const list = document.getElementById('definition-link-list');
+    if (!list) return;
+
+    const definitions = this.definitions || [];
+    const search = searchTerm.toLowerCase();
+
+    if (definitions.length === 0) {
+      list.innerHTML = `
+        <div class="definition-link-empty">
+          <i class="ph ph-books"></i>
+          <p>No definitions available</p>
+          <p style="font-size: 12px; margin-top: 4px;">Import a definition from the DICT panel first</p>
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+
+    definitions.forEach(def => {
+      const terms = def.terms || [];
+      const matchingTerms = terms.filter(term =>
+        !search ||
+        term.name?.toLowerCase().includes(search) ||
+        term.description?.toLowerCase().includes(search) ||
+        def.name?.toLowerCase().includes(search)
+      );
+
+      if (matchingTerms.length === 0 && search) return;
+
+      html += `
+        <div class="definition-link-section">
+          <div class="definition-link-section-title">${this._escapeHtml(def.name)} (${terms.length} terms)</div>
+          ${(search ? matchingTerms : terms).map(term => `
+            <div class="definition-link-item" data-definition-id="${def.id}" data-term-id="${term.id}">
+              <div class="definition-link-item-icon">
+                <i class="ph ph-tag"></i>
+              </div>
+              <div class="definition-link-item-info">
+                <div class="definition-link-item-name">${this._escapeHtml(term.name)}</div>
+                ${term.description ? `<div class="definition-link-item-meta">${this._escapeHtml(term.description)}</div>` : ''}
+                ${term.uri ? `<div class="definition-link-item-uri">${this._escapeHtml(term.uri)}</div>` : ''}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    });
+
+    if (!html) {
+      html = `
+        <div class="definition-link-empty">
+          <i class="ph ph-magnifying-glass"></i>
+          <p>No matching terms found</p>
+        </div>
+      `;
+    }
+
+    list.innerHTML = html;
+
+    // Attach click handlers
+    list.querySelectorAll('.definition-link-item').forEach(item => {
+      item.addEventListener('click', () => {
+        // Toggle selection
+        list.querySelectorAll('.definition-link-item').forEach(i => i.classList.remove('selected'));
+        item.classList.add('selected');
+
+        this._selectedDefinitionTerm = {
+          definitionId: item.dataset.definitionId,
+          termId: item.dataset.termId
+        };
+
+        // Enable save button
+        document.getElementById('save-definition-link').disabled = false;
+      });
+    });
+  }
+
+  /**
+   * Filter definitions list
+   */
+  _filterDefinitionsList(searchTerm) {
+    this._renderDefinitionsList(searchTerm);
+  }
+
+  /**
+   * Save definition link
+   */
+  _saveDefinitionLink() {
+    if (!this._selectedDefinitionTerm || !this._definitionLinkFieldIds) return;
+
+    const { definitionId, termId } = this._selectedDefinitionTerm;
+    const definitions = this.definitions || [];
+    const definition = definitions.find(d => d.id === definitionId);
+    const term = definition?.terms?.find(t => t.id === termId);
+
+    if (!definition || !term) return;
+
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    // Apply to all selected fields
+    this._definitionLinkFieldIds.forEach(fieldId => {
+      const field = set.fields?.find(f => f.id === fieldId);
+      if (!field) return;
+
+      const oldRef = field.definitionRef;
+
+      // Update field
+      field.definitionRef = {
+        definitionId: definitionId,
+        termId: termId,
+        uri: term.uri || null,
+        lastSyncedAt: new Date().toISOString()
+      };
+
+      // Record event
+      this._recordFieldEvent(fieldId, 'field.definition_linked', {
+        definition: {
+          id: definitionId,
+          name: definition.name,
+          termId: termId,
+          termName: term.name,
+          uri: term.uri
+        },
+        previousDefinition: oldRef ? {
+          id: oldRef.definitionId,
+          termId: oldRef.termId
+        } : null
+      });
+    });
+
+    this._saveData();
+    this._hideDefinitionLinkModal();
+    this._renderSetFieldsPanel();
+
+    const count = this._definitionLinkFieldIds.length;
+    this._showToast(`Linked ${count} field${count > 1 ? 's' : ''} to "${term.name}"`);
+  }
+
+  /**
+   * Unlink definition from field
+   */
+  _unlinkDefinition() {
+    if (!this._definitionLinkFieldIds) return;
+
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    this._definitionLinkFieldIds.forEach(fieldId => {
+      const field = set.fields?.find(f => f.id === fieldId);
+      if (!field || !field.definitionRef) return;
+
+      // Record event before removing
+      this._recordFieldEvent(fieldId, 'field.definition_unlinked', {
+        previousDefinition: {
+          definitionId: field.definitionRef.definitionId,
+          termId: field.definitionRef.termId,
+          uri: field.definitionRef.uri
         }
       });
 
-      // Action buttons
-      row.querySelectorAll('.fields-panel-action-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const action = btn.dataset.action;
-
-          switch (action) {
-            case 'edit':
-              this._showEditFieldModal(fieldId);
-              break;
-            case 'duplicate':
-              this._duplicateField(fieldId);
-              break;
-            case 'delete':
-              this._confirmDeleteField(fieldId);
-              break;
-          }
-        });
-      });
+      // Remove definition ref
+      delete field.definitionRef;
     });
+
+    this._saveData();
+    this._hideDefinitionLinkModal();
+    this._renderSetFieldsPanel();
+
+    const count = this._definitionLinkFieldIds.length;
+    this._showToast(`Unlinked definition from ${count} field${count > 1 ? 's' : ''}`);
   }
 
   /**
@@ -15262,6 +16824,13 @@ class EODataWorkbench {
     const field = createField(name, type, options);
 
     set.fields.push(field);
+
+    // Record field history event
+    this._recordFieldEvent(field.id, 'field.created', {
+      name: name,
+      type: type
+    });
+
     this._saveData();
     this._renderView();
 
@@ -15303,6 +16872,12 @@ class EODataWorkbench {
       this.tossedItems.pop();
     }
 
+    // Record field history event before deletion
+    this._recordFieldEvent(fieldId, 'field.deleted', {
+      name: field.name,
+      type: field.type
+    });
+
     set.fields.splice(index, 1);
 
     // Remove field values from all records
@@ -15337,6 +16912,12 @@ class EODataWorkbench {
                 }
               });
             }
+            // Record restore event
+            this._recordFieldEvent(fieldId, 'field.restored', {
+              name: field.name,
+              type: field.type
+            });
+
             this._saveData();
             this._renderView();
             this._updateTossedBadge();
@@ -15352,7 +16933,16 @@ class EODataWorkbench {
     const field = set?.fields.find(f => f.id === fieldId);
     if (!field) return;
 
+    const oldName = field.name;
     field.name = newName;
+
+    // Record history event
+    if (oldName !== newName) {
+      this._recordFieldEvent(fieldId, 'field.renamed', {
+        name: { from: oldName, to: newName }
+      });
+    }
+
     this._saveData();
     this._renderView();
   }
@@ -15375,6 +16965,11 @@ class EODataWorkbench {
       fieldName: field.name,
       oldType: oldType,
       newType: newType
+    });
+
+    // Record field history event
+    this._recordFieldEvent(fieldId, 'field.type_changed', {
+      type: { from: oldType, to: newType }
     });
 
     // Update the field type
