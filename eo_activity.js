@@ -1,479 +1,355 @@
 /**
- * EO Activity System
+ * EO Activity System - Compact Format
  *
- * Implements the EO-compliant activity recording system where:
- * - Actions are transformations, not events
- * - Every activity is: Operator × Target × Context
- * - Operators are atomic, actions can be sequences
- * - Context is the full 9-element EO provenance
+ * Design Principle: Store simple. Expand when needed.
  *
- * Storage Architecture:
- * 1. eo_activities     - Operator applications (atomic)
- * 2. eo_contexts       - Reusable context objects
- * 3. eo_sequences      - Compound action sequences
+ * Activity storage format:
+ *   { id, ts, op, actor, target, field?, delta?, method?, source?, seq?, ctx? }
+ *
+ * The 9 operators (INS, DES, SEG, CON, SYN, ALT, SUP, REC, NUL) are the vocabulary.
+ * Context is referenced, not embedded (unless truly needed).
  */
 
 // ============================================================================
-// Activity Atom - The Fundamental Unit
+// Constants
+// ============================================================================
+
+const OPERATORS = Object.freeze({
+  INS: 'INS',  // ⊕ Assert existence
+  DES: 'DES',  // ⊙ Designate identity
+  SEG: 'SEG',  // ⊘ Scope visibility
+  CON: 'CON',  // ⊗ Connect entities
+  SYN: 'SYN',  // ≡ Synthesize identity
+  ALT: 'ALT',  // Δ Alternate world state
+  SUP: 'SUP',  // ∥ Superpose interpretations
+  REC: 'REC',  // ← Record grounding
+  NUL: 'NUL'   // ∅ Assert meaningful absence
+});
+
+const OP_SYMBOLS = Object.freeze({
+  INS: '⊕', DES: '⊙', SEG: '⊘', CON: '⊗', SYN: '≡',
+  ALT: 'Δ', SUP: '∥', REC: '←', NUL: '∅'
+});
+
+// ============================================================================
+// ID Generation
+// ============================================================================
+
+function genId(prefix = 'act') {
+  const ts = Date.now().toString(36);
+  const rand = Math.random().toString(36).substring(2, 8);
+  return `${prefix}_${ts}_${rand}`;
+}
+
+// ============================================================================
+// Core Activity Creation
 // ============================================================================
 
 /**
- * Create an activity atom - the minimal EO activity record
+ * Create a compact activity record
  *
- * EO Canonical Form: Operator(Target) ⟨ in Context ⟩
- *
- * - Operator is PRIMARY (defines the transformation)
- * - Target is the OPERAND (relational position being acted upon)
- * - Context is CONSTITUTIVE (not decorative - grounds the meaning)
- *
- * @param {Object} params
- * @param {string} params.operator - One of the 9 EO operators (NUL, DES, INS, SEG, CON, ALT, SYN, SUP, REC)
- * @param {Object} params.target - Relational position being transformed
- * @param {Object} params.context - The 9-element EO context (required, not optional)
+ * @param {string} op - Operator (INS, DES, SEG, CON, SYN, ALT, SUP, REC, NUL)
+ * @param {string|Object} target - Entity ID or { id, field }
+ * @param {string} actor - Who performed the action
  * @param {Object} options - Additional options
- * @returns {Object} Activity atom
+ * @returns {Object} Compact activity record
  */
-function createActivityAtom(params, options = {}) {
-  const { operator, target, context } = params;
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // EO VALIDATION: All three components are required
-  // "Never allow an operator without a declared target.
-  //  Never allow a target change without an operator.
-  //  Never allow either without context."
-  // ─────────────────────────────────────────────────────────────────────────
-
-  const validation = validateActivityAtom(operator, target, context);
-  if (!validation.valid) {
-    console.error('Invalid EO activity atom:', validation.errors);
-    if (options.strict) {
-      throw new Error(`Invalid EO activity: ${validation.errors.join(', ')}`);
-    }
+function createActivity(op, target, actor, options = {}) {
+  // Validate operator
+  if (!OPERATORS[op]) {
+    throw new Error(`Invalid operator: ${op}. Must be one of: ${Object.keys(OPERATORS).join(', ')}`);
   }
 
-  const atom = {
-    id: generateActivityId(),
-    type: 'activity_atom',
+  // Normalize target
+  const targetId = typeof target === 'string' ? target : (target.id || target.entityId);
+  const field = typeof target === 'object' ? (target.field || target.fieldId) : null;
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // OPERATOR (Primary) - The transformation being applied
-    // ─────────────────────────────────────────────────────────────────────────
-    operator: operator,
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // TARGET (Operand) - The relational position being acted upon
-    // Not just "object" in CRUD sense - can be entity, relationship,
-    // boundary, definition, frame, or even another operator (in REC cases)
-    // ─────────────────────────────────────────────────────────────────────────
-    target: normalizeTarget(target),
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // CONTEXT (Constitutive) - Ontological grounding, not just metadata
-    // Without context, the operator is undefined
-    // With wrong context, the action is misclassified
-    // ─────────────────────────────────────────────────────────────────────────
-    context: normalizeContext(context),
-
-    // Temporal ordering
-    timestamp: new Date().toISOString(),
-    logicalClock: options.logicalClock || Date.now(),
-
-    // Sequence membership (if part of compound action)
-    sequenceId: options.sequenceId || null,
-    sequenceIndex: options.sequenceIndex || null,
-
-    // Lineage
-    causedBy: options.causedBy || null,
-    supersedes: options.supersedes || null,
-
-    // Validation status
-    _valid: validation.valid,
-    _warnings: validation.warnings
+  const activity = {
+    id: options.id || genId('act'),
+    ts: options.ts || Date.now(),
+    op,
+    actor,
+    target: targetId
   };
 
-  return atom;
+  // Optional fields - only include if present
+  if (field) activity.field = field;
+  if (options.delta) activity.delta = options.delta;  // [prev, next]
+  if (options.method) activity.method = options.method;
+  if (options.source) activity.source = options.source;
+  if (options.seq) activity.seq = options.seq;
+  if (options.ctx) activity.ctx = options.ctx;
+  if (options.data) activity.data = options.data;  // Additional payload
+
+  return activity;
 }
 
 /**
- * Validate an activity atom
- * EO Rule: All three components (operator, target, context) are required
+ * Validate an activity record
  */
-function validateActivityAtom(operator, target, context) {
-  const result = { valid: true, errors: [], warnings: [] };
+function validateActivity(activity) {
+  const errors = [];
+  const warnings = [];
 
-  // Operator validation
-  if (!operator) {
-    result.valid = false;
-    result.errors.push('Operator is required');
-  } else if (typeof window !== 'undefined' && window.EOOperators && !window.EOOperators.isValid(operator)) {
-    result.valid = false;
-    result.errors.push(`Invalid operator: ${operator}`);
+  if (!activity.op) {
+    errors.push('Missing operator (op)');
+  } else if (!OPERATORS[activity.op]) {
+    errors.push(`Invalid operator: ${activity.op}`);
   }
 
-  // Target validation
-  if (!target) {
-    result.valid = false;
-    result.errors.push('Target is required');
+  if (!activity.target) {
+    warnings.push('Missing target');
+  }
+
+  if (!activity.actor) {
+    warnings.push('Missing actor');
+  }
+
+  if (!activity.ts) {
+    warnings.push('Missing timestamp');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings
+  };
+}
+
+// ============================================================================
+// Activity Expansion (Compact → Verbose)
+// ============================================================================
+
+/**
+ * Expand a compact activity to verbose format
+ * Used for compliance validation, display, and legacy compatibility
+ *
+ * @param {Object} activity - Compact activity record
+ * @param {Function} loadContext - Optional function to load context by ID
+ * @returns {Object} Verbose activity atom
+ */
+function expand(activity, loadContext = null) {
+  // Build context from activity fields or loaded context
+  let context;
+  if (activity.ctx && loadContext) {
+    context = loadContext(activity.ctx);
   } else {
-    if (!target.id && !target.entityId && !target.entity_id) {
-      result.warnings.push('Target has no ID - may be difficult to trace');
-    }
-    if (!target.type && !target.entityType && !target.entity_type && !target.positionType) {
-      result.warnings.push('Target has no type - classification may be ambiguous');
-    }
-  }
-
-  // Context validation
-  if (!context) {
-    result.valid = false;
-    result.errors.push('Context is required - operator meaning is undefined without context');
-  } else if (!context.$ref) {
-    // Check for at least one epistemic element (who/how/where)
-    const hasEpistemic = context.epistemic?.agent || context.epistemic?.method || context.epistemic?.source ||
-                         context.agent || context.method || context.source;
-    if (!hasEpistemic) {
-      result.warnings.push('Context has no epistemic grounding (agent/method/source)');
-    }
-  }
-
-  return result;
-}
-
-/**
- * Normalize target to standard form
- * Target = relational position being acted upon
- */
-function normalizeTarget(target) {
-  if (!target) return null;
-
-  return {
-    // Identity
-    id: target.id || target.entityId || target.entity_id || null,
-
-    // Type of relational position
-    // Can be: entity, relationship, boundary, definition, frame, operator
-    positionType: target.positionType || target.type || target.entityType || target.entity_type || 'entity',
-
-    // For sub-entity targeting
-    fieldId: target.fieldId || target.field_id || null,
-
-    // Relationship context (for CON/SEG operators)
-    relatedTo: target.relatedTo || target.targetId || null,
-    relationshipType: target.relationshipType || target.linkType || null,
-
-    // Value change tracking
-    previousValue: target.previousValue,
-    newValue: target.newValue,
-
-    // For boundary/frame targeting
-    scope: target.scope || null
-  };
-}
-
-/**
- * Generate unique activity ID
- */
-function generateActivityId() {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `act_${timestamp}_${random}`;
-}
-
-/**
- * Generate unique sequence ID
- */
-function generateSequenceId() {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `seq_${timestamp}_${random}`;
-}
-
-/**
- * Generate unique context ID
- */
-function generateContextId() {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `ctx_${timestamp}_${random}`;
-}
-
-// ============================================================================
-// Context Management
-// ============================================================================
-
-/**
- * Normalize context to standard 9-element form
- */
-function normalizeContext(context) {
-  if (!context) {
-    return createEmptyContext();
-  }
-
-  // If it's a reference, return as-is
-  if (context.$ref) {
-    return { $ref: context.$ref };
-  }
-
-  // Normalize to triadic structure
-  return {
-    // Epistemic Triad - How the claim was produced
-    epistemic: {
-      agent: context.epistemic?.agent || context.agent || null,
-      method: context.epistemic?.method || context.method || null,
-      source: context.epistemic?.source || context.source || null
-    },
-
-    // Semantic Triad - What the claim means
-    semantic: {
-      term: context.semantic?.term || context.term || null,
-      definition: context.semantic?.definition || context.definition || null,
-      jurisdiction: context.semantic?.jurisdiction || context.jurisdiction || null
-    },
-
-    // Situational Triad - When/where it holds
-    situational: {
-      scale: context.situational?.scale || context.scale || null,
-      timeframe: context.situational?.timeframe || context.timeframe || null,
-      background: context.situational?.background || context.background || null
-    }
-  };
-}
-
-/**
- * Create empty context structure
- */
-function createEmptyContext() {
-  return {
-    epistemic: { agent: null, method: null, source: null },
-    semantic: { term: null, definition: null, jurisdiction: null },
-    situational: { scale: null, timeframe: null, background: null }
-  };
-}
-
-/**
- * Create context for common scenarios
- */
-const ContextTemplates = {
-  /**
-   * User interaction via UI
-   */
-  userInteraction(userId, action) {
-    return {
+    context = {
       epistemic: {
-        agent: userId,
-        method: 'interactive_ui',
-        source: 'web_app'
+        agent: activity.actor,
+        method: activity.method || null,
+        source: activity.source || null
       },
       semantic: {
-        term: action,
+        term: null,
         definition: null,
-        jurisdiction: 'user_workspace'
+        jurisdiction: null
       },
       situational: {
-        scale: 'single_operation',
-        timeframe: new Date().toISOString(),
+        scale: null,
+        timeframe: new Date(activity.ts).toISOString(),
         background: null
       }
     };
+  }
+
+  // Build target object
+  const target = {
+    id: activity.target,
+    entityId: activity.target,
+    positionType: 'entity',
+    fieldId: activity.field || null,
+    previousValue: activity.delta ? activity.delta[0] : undefined,
+    newValue: activity.delta ? activity.delta[1] : undefined
+  };
+
+  // Merge any additional data
+  if (activity.data) {
+    Object.assign(target, activity.data);
+  }
+
+  return {
+    id: activity.id,
+    type: 'activity_atom',
+    operator: activity.op,
+    symbol: OP_SYMBOLS[activity.op],
+    target,
+    context,
+    timestamp: new Date(activity.ts).toISOString(),
+    logicalClock: activity.ts,
+    sequenceId: activity.seq || null,
+    sequenceIndex: null,
+    causedBy: null,
+    supersedes: null,
+    _valid: true,
+    _warnings: []
+  };
+}
+
+/**
+ * Compact a verbose activity to storage format
+ * Used for migration from old format
+ *
+ * @param {Object} verbose - Verbose activity atom
+ * @returns {Object} Compact activity record
+ */
+function compact(verbose) {
+  const activity = {
+    id: verbose.id,
+    ts: verbose.logicalClock || new Date(verbose.timestamp).getTime(),
+    op: verbose.operator,
+    actor: verbose.context?.epistemic?.agent,
+    target: verbose.target?.id || verbose.target?.entityId
+  };
+
+  if (verbose.target?.fieldId) {
+    activity.field = verbose.target.fieldId;
+  }
+
+  if (verbose.target?.previousValue !== undefined || verbose.target?.newValue !== undefined) {
+    activity.delta = [verbose.target.previousValue, verbose.target.newValue];
+  }
+
+  if (verbose.context?.epistemic?.method) {
+    activity.method = verbose.context.epistemic.method;
+  }
+
+  if (verbose.context?.epistemic?.source) {
+    activity.source = verbose.context.epistemic.source;
+  }
+
+  if (verbose.sequenceId) {
+    activity.seq = verbose.sequenceId;
+  }
+
+  return activity;
+}
+
+/**
+ * Detect if an activity is in old verbose format
+ */
+function isVerboseFormat(activity) {
+  return activity.type === 'activity_atom' || activity.operator !== undefined;
+}
+
+/**
+ * Migrate old verbose format to compact
+ */
+function migrate(activity) {
+  if (isVerboseFormat(activity)) {
+    return compact(activity);
+  }
+  return activity;
+}
+
+// ============================================================================
+// Activity Convenience Wrappers
+// ============================================================================
+
+const Activity = {
+  /**
+   * Assert existence (INS)
+   */
+  insert(target, actor, options = {}) {
+    return createActivity('INS', target, actor, options);
   },
 
   /**
-   * Data import
+   * Designate identity (DES)
    */
-  dataImport(importerId, filename, source) {
-    return {
-      epistemic: {
-        agent: importerId,
-        method: 'file_import',
-        source: filename
-      },
-      semantic: {
-        term: 'imported_data',
-        definition: null,
-        jurisdiction: source || 'external'
-      },
-      situational: {
-        scale: 'batch_operation',
-        timeframe: new Date().toISOString(),
-        background: 'data_ingestion'
-      }
-    };
+  designate(target, actor, name, options = {}) {
+    return createActivity('DES', target, actor, {
+      delta: [null, name],
+      ...options
+    });
   },
 
   /**
-   * System automation
+   * Scope visibility (SEG)
    */
-  systemAutomation(systemId, trigger) {
-    return {
-      epistemic: {
-        agent: systemId,
-        method: 'automated_process',
-        source: 'system'
-      },
-      semantic: {
-        term: trigger,
-        definition: null,
-        jurisdiction: 'system_internal'
-      },
-      situational: {
-        scale: 'system_operation',
-        timeframe: new Date().toISOString(),
-        background: 'automation_trigger'
-      }
-    };
+  segment(target, actor, options = {}) {
+    return createActivity('SEG', target, actor, options);
   },
 
   /**
-   * API request
+   * Connect entities (CON)
    */
-  apiRequest(clientId, endpoint) {
-    return {
-      epistemic: {
-        agent: clientId,
-        method: 'api_call',
-        source: 'external_api'
-      },
-      semantic: {
-        term: endpoint,
-        definition: null,
-        jurisdiction: 'api_scope'
-      },
-      situational: {
-        scale: 'api_request',
-        timeframe: new Date().toISOString(),
-        background: null
-      }
-    };
+  connect(target, actor, relatedTo, options = {}) {
+    return createActivity('CON', target, actor, {
+      data: { relatedTo },
+      ...options
+    });
   },
 
   /**
-   * Ghost creation (entity deletion)
+   * Synthesize identity (SYN) - merge/dedupe
    */
-  ghostCreation(actor, reason) {
-    return {
-      epistemic: {
-        agent: actor,
-        method: 'soft_delete',
-        source: 'ghost_registry'
-      },
-      semantic: {
-        term: 'ghost_creation',
-        definition: 'Entity transitioned to ghost state',
-        jurisdiction: 'data_lifecycle'
-      },
-      situational: {
-        scale: 'single_entity',
-        timeframe: new Date().toISOString(),
-        background: reason || 'deletion_requested'
-      }
-    };
+  synthesize(target, actor, mergedFrom, options = {}) {
+    return createActivity('SYN', target, actor, {
+      data: { mergedFrom },
+      ...options
+    });
   },
 
   /**
-   * Ghost resurrection (entity restoration)
+   * Alternate world state (ALT) - update/change
    */
-  ghostResurrection(actor, reason) {
-    return {
-      epistemic: {
-        agent: actor,
-        method: 'restore',
-        source: 'ghost_registry'
-      },
-      semantic: {
-        term: 'ghost_resurrection',
-        definition: 'Ghost restored to active entity',
-        jurisdiction: 'data_lifecycle'
-      },
-      situational: {
-        scale: 'single_entity',
-        timeframe: new Date().toISOString(),
-        background: reason || 'restoration_requested'
-      }
-    };
+  update(target, actor, delta, options = {}) {
+    return createActivity('ALT', target, actor, {
+      delta,
+      ...options
+    });
   },
 
   /**
-   * Haunt detection
+   * Superpose interpretations (SUP)
    */
-  hauntDetection(hauntType) {
-    return {
-      epistemic: {
-        agent: 'system',
-        method: 'automatic_detection',
-        source: 'ghost_registry'
-      },
-      semantic: {
-        term: 'haunt_detection',
-        definition: `Ghost influence detected (${hauntType})`,
-        jurisdiction: 'data_integrity'
-      },
-      situational: {
-        scale: 'relationship',
-        timeframe: new Date().toISOString(),
-        background: 'ghost_reference_check'
-      }
-    };
+  superpose(target, actor, interpretations, options = {}) {
+    return createActivity('SUP', target, actor, {
+      data: { interpretations },
+      ...options
+    });
   },
 
   /**
-   * Haunt resolution
+   * Record grounding (REC)
    */
-  hauntResolution(actor) {
-    return {
-      epistemic: {
-        agent: actor,
-        method: 'manual_resolution',
-        source: 'ghost_registry'
-      },
-      semantic: {
-        term: 'haunt_resolution',
-        definition: 'Ghost influence resolved',
-        jurisdiction: 'data_integrity'
-      },
-      situational: {
-        scale: 'relationship',
-        timeframe: new Date().toISOString(),
-        background: 'reference_cleanup'
-      }
-    };
+  record(target, actor, options = {}) {
+    return createActivity('REC', target, actor, options);
+  },
+
+  /**
+   * Assert meaningful absence (NUL) - delete/ghost
+   */
+  nullify(target, actor, reason, options = {}) {
+    return createActivity('NUL', target, actor, {
+      data: { reason },
+      ...options
+    });
   }
 };
 
 // ============================================================================
-// Ghost Activity Helpers
+// Ghost Activity Helpers (thin wrappers)
 // ============================================================================
 
-/**
- * Create activity atoms for ghost operations
- */
 const GhostActivities = {
   /**
    * Record entity ghosting (soft delete)
    */
-  ghost(entityId, entityType, actor, reason) {
-    return createActivityAtom({
-      operator: 'NUL',
-      target: {
-        entityId,
-        entityType,
-        positionType: 'entity'
-      },
-      context: ContextTemplates.ghostCreation(actor, reason)
+  ghost(entityId, actor, reason = null) {
+    return Activity.nullify(entityId, actor, reason || 'user_deletion', {
+      method: 'soft_delete'
     });
   },
 
   /**
    * Record ghost resurrection
    */
-  resurrect(ghostId, entityType, actor, reason) {
-    return createActivityAtom({
-      operator: 'INS',
-      target: {
-        entityId: ghostId,
-        entityType,
-        positionType: 'ghost'
-      },
-      context: ContextTemplates.ghostResurrection(actor, reason)
+  resurrect(entityId, actor, reason = null) {
+    return Activity.insert(entityId, actor, {
+      method: 'resurrect',
+      data: { reason: reason || 'user_resurrection', wasGhost: true }
     });
   },
 
@@ -481,14 +357,9 @@ const GhostActivities = {
    * Record haunt detection
    */
   haunt(ghostId, targetId, hauntType) {
-    return createActivityAtom({
-      operator: 'CON',
-      target: {
-        entityId: targetId,
-        relatedId: ghostId,
-        positionType: 'haunt_relationship'
-      },
-      context: ContextTemplates.hauntDetection(hauntType)
+    return Activity.connect(targetId, 'system', ghostId, {
+      method: 'haunt_detection',
+      data: { hauntType }
     });
   },
 
@@ -496,153 +367,109 @@ const GhostActivities = {
    * Record haunt resolution
    */
   resolveHaunt(ghostId, targetId, actor) {
-    return createActivityAtom({
-      operator: 'NUL',
-      target: {
-        entityId: targetId,
-        relatedId: ghostId,
-        positionType: 'haunt_relationship'
-      },
-      context: ContextTemplates.hauntResolution(actor)
+    return Activity.nullify(targetId, actor, 'haunt_resolved', {
+      method: 'haunt_resolution',
+      data: { ghostId }
     });
   }
 };
 
-/**
- * Flatten triadic context to 9 flat fields
- */
-function flattenContext(context) {
-  if (!context || context.$ref) return context;
+// ============================================================================
+// Context Management
+// ============================================================================
 
+/**
+ * Create a reusable context record
+ * Stored separately, referenced by ID
+ */
+function createContext(fields, id = null) {
   return {
-    agent: context.epistemic?.agent || null,
-    method: context.epistemic?.method || null,
-    source: context.epistemic?.source || null,
-    term: context.semantic?.term || null,
-    definition: context.semantic?.definition || null,
-    jurisdiction: context.semantic?.jurisdiction || null,
-    scale: context.situational?.scale || null,
-    timeframe: context.situational?.timeframe || null,
-    background: context.situational?.background || null
+    id: id || genId('ctx'),
+    ...fields,
+    createdAt: Date.now()
   };
 }
 
 /**
- * Count filled context elements
+ * Context templates for common scenarios
  */
-function countContextElements(context) {
-  const flat = flattenContext(context);
-  if (!flat || flat.$ref) return 0;
-  return Object.values(flat).filter(v => v != null).length;
-}
+const ContextTemplates = {
+  uiInteraction(actor) {
+    return createContext({
+      method: 'interactive_ui',
+      source: 'web_app',
+      scale: 'single_operation'
+    });
+  },
+
+  apiCall(actor, endpoint) {
+    return createContext({
+      method: 'api_call',
+      source: endpoint,
+      scale: 'api_request'
+    });
+  },
+
+  import(actor, filename) {
+    return createContext({
+      method: 'file_import',
+      source: filename,
+      scale: 'batch_operation'
+    });
+  },
+
+  system(trigger) {
+    return createContext({
+      method: 'automated_process',
+      source: 'system',
+      background: trigger
+    });
+  },
+
+  legal(jurisdiction, definition) {
+    return createContext({
+      jurisdiction,
+      definition,
+      scale: 'legal_operation'
+    });
+  }
+};
 
 // ============================================================================
 // Activity Sequences (Compound Actions)
 // ============================================================================
 
 /**
- * Create an activity sequence - a compound action made of multiple operators
- *
- * @param {Object} params
- * @param {string} params.name - Human-readable name for the sequence
- * @param {Object[]} params.atoms - Array of activity atom parameters
- * @param {Object} params.context - Shared context for all atoms
- * @returns {Object} Activity sequence with generated atoms
+ * Create an activity sequence for compound operations
  */
-function createActivitySequence(params) {
-  const { name, atoms, context } = params;
-  const sequenceId = generateSequenceId();
-
-  const sequence = {
-    id: sequenceId,
-    type: 'activity_sequence',
-    name: name,
-    timestamp: new Date().toISOString(),
-
-    // The operators in order
-    operators: atoms.map(a => a.operator),
-
-    // Check if this matches a known compound pattern
-    pattern: null,
-
-    // The individual atoms
-    atoms: [],
-
-    // Shared context (atoms can override)
-    context: normalizeContext(context),
-
-    // Sequence metadata
-    atomCount: atoms.length,
+function createSequence(name, actor, options = {}) {
+  return {
+    id: genId('seq'),
+    ts: Date.now(),
+    name,
+    actor,
+    ops: [],
+    ctx: options.ctx || null,
     completed: false,
     completedAt: null
   };
-
-  // Check for known pattern match
-  if (window.EOOperators?.matchCompound) {
-    const match = window.EOOperators.matchCompound(sequence.operators);
-    if (match) {
-      sequence.pattern = match.id;
-    }
-  }
-
-  // Generate atoms with sequence membership
-  sequence.atoms = atoms.map((atomParams, index) => {
-    const atomContext = atomParams.context
-      ? mergeContexts(context, atomParams.context)
-      : context;
-
-    return createActivityAtom(
-      {
-        operator: atomParams.operator,
-        target: atomParams.target,
-        context: atomContext
-      },
-      {
-        sequenceId: sequenceId,
-        sequenceIndex: index,
-        causedBy: index > 0 ? sequence.atoms[index - 1]?.id : null
-      }
-    );
-  });
-
-  return sequence;
 }
 
 /**
- * Merge two contexts (child overrides parent)
+ * Add an activity to a sequence
  */
-function mergeContexts(parent, child) {
-  if (!parent) return normalizeContext(child);
-  if (!child) return normalizeContext(parent);
-
-  const p = normalizeContext(parent);
-  const c = normalizeContext(child);
-
-  return {
-    epistemic: {
-      agent: c.epistemic?.agent ?? p.epistemic?.agent,
-      method: c.epistemic?.method ?? p.epistemic?.method,
-      source: c.epistemic?.source ?? p.epistemic?.source
-    },
-    semantic: {
-      term: c.semantic?.term ?? p.semantic?.term,
-      definition: c.semantic?.definition ?? p.semantic?.definition,
-      jurisdiction: c.semantic?.jurisdiction ?? p.semantic?.jurisdiction
-    },
-    situational: {
-      scale: c.situational?.scale ?? p.situational?.scale,
-      timeframe: c.situational?.timeframe ?? p.situational?.timeframe,
-      background: c.situational?.background ?? p.situational?.background
-    }
-  };
+function addToSequence(sequence, activity) {
+  activity.seq = sequence.id;
+  sequence.ops.push(activity.op);
+  return activity;
 }
 
 /**
- * Mark a sequence as completed
+ * Complete a sequence
  */
 function completeSequence(sequence) {
   sequence.completed = true;
-  sequence.completedAt = new Date().toISOString();
+  sequence.completedAt = Date.now();
   return sequence;
 }
 
@@ -650,23 +477,20 @@ function completeSequence(sequence) {
 // Activity Store
 // ============================================================================
 
-/**
- * In-memory activity store with IndexedDB persistence
- */
 class ActivityStore {
   constructor() {
-    this.activities = new Map();     // id -> activity atom
-    this.sequences = new Map();      // id -> activity sequence
-    this.contexts = new Map();       // id -> reusable context
+    this.activities = new Map();
+    this.sequences = new Map();
+    this.contexts = new Map();
 
-    // Indexes for fast querying
-    this.byOperator = new Map();     // operator -> Set<activity_id>
-    this.byEntity = new Map();       // entity_id -> Set<activity_id>
-    this.byAgent = new Map();        // agent -> Set<activity_id>
-    this.byTimestamp = [];           // sorted array for time-range queries
+    // Indexes
+    this.byOp = new Map();
+    this.byTarget = new Map();
+    this.byActor = new Map();
+    this.byTime = [];
 
     this.dbName = 'eo_activity_store';
-    this.dbVersion = 1;
+    this.dbVersion = 2;  // Bumped for new schema
     this.db = null;
   }
 
@@ -686,22 +510,51 @@ class ActivityStore {
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        const oldVersion = event.oldVersion;
 
         // Activities store
         if (!db.objectStoreNames.contains('activities')) {
           const actStore = db.createObjectStore('activities', { keyPath: 'id' });
-          actStore.createIndex('operator', 'operator', { unique: false });
-          actStore.createIndex('entityId', 'target.entityId', { unique: false });
-          actStore.createIndex('timestamp', 'timestamp', { unique: false });
-          actStore.createIndex('sequenceId', 'sequenceId', { unique: false });
-          actStore.createIndex('agent', 'context.epistemic.agent', { unique: false });
+          actStore.createIndex('op', 'op', { unique: false });
+          actStore.createIndex('target', 'target', { unique: false });
+          actStore.createIndex('actor', 'actor', { unique: false });
+          actStore.createIndex('ts', 'ts', { unique: false });
+          actStore.createIndex('seq', 'seq', { unique: false });
+        } else if (oldVersion < 2) {
+          // Migrate from old indexes
+          const tx = event.target.transaction;
+          const store = tx.objectStore('activities');
+
+          // Delete old nested indexes if they exist
+          try {
+            if (store.indexNames.contains('agent')) store.deleteIndex('agent');
+            if (store.indexNames.contains('operator')) store.deleteIndex('operator');
+            if (store.indexNames.contains('entityId')) store.deleteIndex('entityId');
+            if (store.indexNames.contains('timestamp')) store.deleteIndex('timestamp');
+            if (store.indexNames.contains('sequenceId')) store.deleteIndex('sequenceId');
+          } catch (e) {
+            console.warn('Index migration warning:', e);
+          }
+
+          // Create new flat indexes
+          if (!store.indexNames.contains('op')) {
+            store.createIndex('op', 'op', { unique: false });
+          }
+          if (!store.indexNames.contains('target')) {
+            store.createIndex('target', 'target', { unique: false });
+          }
+          if (!store.indexNames.contains('actor')) {
+            store.createIndex('actor', 'actor', { unique: false });
+          }
+          if (!store.indexNames.contains('ts')) {
+            store.createIndex('ts', 'ts', { unique: false });
+          }
         }
 
         // Sequences store
         if (!db.objectStoreNames.contains('sequences')) {
           const seqStore = db.createObjectStore('sequences', { keyPath: 'id' });
-          seqStore.createIndex('pattern', 'pattern', { unique: false });
-          seqStore.createIndex('timestamp', 'timestamp', { unique: false });
+          seqStore.createIndex('ts', 'ts', { unique: false });
         }
 
         // Contexts store
@@ -713,36 +566,32 @@ class ActivityStore {
   }
 
   /**
-   * Load data from IndexedDB into memory
+   * Load data from IndexedDB
    */
   async _loadFromDB() {
     if (!this.db) return;
 
-    // Load activities
     const activities = await this._getAllFromStore('activities');
     for (const act of activities) {
-      this.activities.set(act.id, act);
-      this._indexActivity(act);
+      // Migrate old format if needed
+      const migrated = migrate(act);
+      this.activities.set(migrated.id, migrated);
+      this._indexActivity(migrated);
     }
 
-    // Load sequences
     const sequences = await this._getAllFromStore('sequences');
     for (const seq of sequences) {
       this.sequences.set(seq.id, seq);
     }
 
-    // Load contexts
     const contexts = await this._getAllFromStore('contexts');
     for (const ctx of contexts) {
       this.contexts.set(ctx.id, ctx);
     }
 
-    console.log(`ActivityStore loaded: ${this.activities.size} activities, ${this.sequences.size} sequences`);
+    console.log(`ActivityStore loaded: ${this.activities.size} activities, ${this.sequences.size} sequences, ${this.contexts.size} contexts`);
   }
 
-  /**
-   * Get all records from an object store
-   */
   async _getAllFromStore(storeName) {
     return new Promise((resolve, reject) => {
       const tx = this.db.transaction(storeName, 'readonly');
@@ -754,9 +603,6 @@ class ActivityStore {
     });
   }
 
-  /**
-   * Save to IndexedDB
-   */
   async _saveToDB(storeName, data) {
     return new Promise((resolve, reject) => {
       const tx = this.db.transaction(storeName, 'readwrite');
@@ -773,63 +619,62 @@ class ActivityStore {
    */
   _indexActivity(activity) {
     // By operator
-    if (!this.byOperator.has(activity.operator)) {
-      this.byOperator.set(activity.operator, new Set());
+    if (!this.byOp.has(activity.op)) {
+      this.byOp.set(activity.op, new Set());
     }
-    this.byOperator.get(activity.operator).add(activity.id);
+    this.byOp.get(activity.op).add(activity.id);
 
-    // By entity
-    const entityId = activity.target?.entityId;
-    if (entityId) {
-      if (!this.byEntity.has(entityId)) {
-        this.byEntity.set(entityId, new Set());
+    // By target
+    if (activity.target) {
+      if (!this.byTarget.has(activity.target)) {
+        this.byTarget.set(activity.target, new Set());
       }
-      this.byEntity.get(entityId).add(activity.id);
+      this.byTarget.get(activity.target).add(activity.id);
     }
 
-    // By agent
-    const agent = activity.context?.epistemic?.agent;
-    if (agent) {
-      if (!this.byAgent.has(agent)) {
-        this.byAgent.set(agent, new Set());
+    // By actor
+    if (activity.actor) {
+      if (!this.byActor.has(activity.actor)) {
+        this.byActor.set(activity.actor, new Set());
       }
-      this.byAgent.get(agent).add(activity.id);
+      this.byActor.get(activity.actor).add(activity.id);
     }
 
-    // By timestamp (maintain sorted order)
-    this.byTimestamp.push({
-      id: activity.id,
-      timestamp: activity.timestamp
-    });
-    this.byTimestamp.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    // By time
+    this.byTime.push({ id: activity.id, ts: activity.ts });
+    this.byTime.sort((a, b) => a.ts - b.ts);
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // Record Methods
+  // ──────────────────────────────────────────────────────────────────────────
+
   /**
-   * Record an activity atom
+   * Record an activity
    */
-  async record(activityAtom) {
-    this.activities.set(activityAtom.id, activityAtom);
-    this._indexActivity(activityAtom);
+  async record(activity) {
+    // Ensure compact format
+    const stored = isVerboseFormat(activity) ? compact(activity) : activity;
+
+    this.activities.set(stored.id, stored);
+    this._indexActivity(stored);
 
     if (this.db) {
-      await this._saveToDB('activities', activityAtom);
+      await this._saveToDB('activities', stored);
     }
 
-    // Emit event for real-time updates
-    this._emit('activity:recorded', activityAtom);
-
-    return activityAtom;
+    this._emit('activity:recorded', stored);
+    return stored;
   }
 
   /**
-   * Record an activity sequence
+   * Record a sequence
    */
-  async recordSequence(sequence) {
+  async recordSequence(sequence, activities) {
     this.sequences.set(sequence.id, sequence);
 
-    // Record all atoms
-    for (const atom of sequence.atoms) {
-      await this.record(atom);
+    for (const activity of activities) {
+      await this.record(activity);
     }
 
     if (this.db) {
@@ -837,24 +682,20 @@ class ActivityStore {
     }
 
     this._emit('sequence:recorded', sequence);
-
     return sequence;
   }
 
   /**
-   * Save a reusable context
+   * Save a context
    */
   async saveContext(context) {
-    const id = context.id || generateContextId();
-    const contextWithId = { ...context, id };
-
-    this.contexts.set(id, contextWithId);
+    this.contexts.set(context.id, context);
 
     if (this.db) {
-      await this._saveToDB('contexts', contextWithId);
+      await this._saveToDB('contexts', context);
     }
 
-    return contextWithId;
+    return context;
   }
 
   /**
@@ -864,17 +705,6 @@ class ActivityStore {
     return this.contexts.get(contextId) || null;
   }
 
-  /**
-   * Resolve a context reference
-   */
-  resolveContext(contextOrRef) {
-    if (!contextOrRef) return createEmptyContext();
-    if (contextOrRef.$ref) {
-      return this.getContext(contextOrRef.$ref) || createEmptyContext();
-    }
-    return contextOrRef;
-  }
-
   // ──────────────────────────────────────────────────────────────────────────
   // Query Methods
   // ──────────────────────────────────────────────────────────────────────────
@@ -882,45 +712,52 @@ class ActivityStore {
   /**
    * Get activity by ID
    */
-  get(activityId) {
-    return this.activities.get(activityId) || null;
+  get(id) {
+    return this.activities.get(id) || null;
   }
 
   /**
-   * Get all activities for an operator
+   * Get expanded activity by ID
    */
-  getByOperator(operator) {
-    const ids = this.byOperator.get(operator);
+  getExpanded(id) {
+    const activity = this.get(id);
+    if (!activity) return null;
+    return expand(activity, (ctxId) => this.getContext(ctxId));
+  }
+
+  /**
+   * Get activities by operator
+   */
+  getByOperator(op) {
+    const ids = this.byOp.get(op);
     if (!ids) return [];
     return Array.from(ids).map(id => this.activities.get(id));
   }
 
   /**
-   * Get all activities for an entity
+   * Get activities by target entity
    */
   getByEntity(entityId) {
-    const ids = this.byEntity.get(entityId);
+    const ids = this.byTarget.get(entityId);
     if (!ids) return [];
     return Array.from(ids).map(id => this.activities.get(id));
   }
 
   /**
-   * Get all activities by an agent
+   * Get activities by actor
    */
-  getByAgent(agent) {
-    const ids = this.byAgent.get(agent);
+  getByActor(actor) {
+    const ids = this.byActor.get(actor);
     if (!ids) return [];
     return Array.from(ids).map(id => this.activities.get(id));
   }
 
   /**
-   * Get activities in a time range
+   * Get activities by time range
    */
-  getByTimeRange(startTime, endTime) {
-    return this.byTimestamp
-      .filter(entry => {
-        return entry.timestamp >= startTime && entry.timestamp <= endTime;
-      })
+  getByTimeRange(startTs, endTs) {
+    return this.byTime
+      .filter(entry => entry.ts >= startTs && entry.ts <= endTs)
       .map(entry => this.activities.get(entry.id));
   }
 
@@ -929,7 +766,7 @@ class ActivityStore {
    */
   getRecent(limit = 50) {
     const sorted = Array.from(this.activities.values())
-      .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      .sort((a, b) => b.ts - a.ts);
     return sorted.slice(0, limit);
   }
 
@@ -939,65 +776,40 @@ class ActivityStore {
   query(filters = {}) {
     let results = Array.from(this.activities.values());
 
-    // Filter by operator(s)
-    if (filters.operator) {
-      const ops = Array.isArray(filters.operator) ? filters.operator : [filters.operator];
-      results = results.filter(a => ops.includes(a.operator));
+    if (filters.op) {
+      const ops = Array.isArray(filters.op) ? filters.op : [filters.op];
+      results = results.filter(a => ops.includes(a.op));
     }
 
-    // Filter by entity
-    if (filters.entityId) {
-      results = results.filter(a => a.target?.entityId === filters.entityId);
+    if (filters.target) {
+      results = results.filter(a => a.target === filters.target);
     }
 
-    // Filter by entity type
-    if (filters.entityType) {
-      results = results.filter(a => a.target?.entityType === filters.entityType);
+    if (filters.actor) {
+      results = results.filter(a => a.actor === filters.actor);
     }
 
-    // Filter by agent
-    if (filters.agent) {
-      results = results.filter(a => {
-        const ctx = this.resolveContext(a.context);
-        return ctx.epistemic?.agent === filters.agent;
-      });
-    }
-
-    // Filter by method
     if (filters.method) {
-      results = results.filter(a => {
-        const ctx = this.resolveContext(a.context);
-        return ctx.epistemic?.method === filters.method;
-      });
+      results = results.filter(a => a.method === filters.method);
     }
 
-    // Filter by time range
-    if (filters.startTime) {
-      results = results.filter(a => a.timestamp >= filters.startTime);
-    }
-    if (filters.endTime) {
-      results = results.filter(a => a.timestamp <= filters.endTime);
+    if (filters.seq) {
+      results = results.filter(a => a.seq === filters.seq);
     }
 
-    // Filter by sequence membership
-    if (filters.sequenceId) {
-      results = results.filter(a => a.sequenceId === filters.sequenceId);
+    if (filters.startTs) {
+      results = results.filter(a => a.ts >= filters.startTs);
     }
 
-    // Filter dangerous operators only
-    if (filters.dangerousOnly) {
-      results = results.filter(a => {
-        return window.EOOperators?.isDangerous(a.operator);
-      });
+    if (filters.endTs) {
+      results = results.filter(a => a.ts <= filters.endTs);
     }
 
     // Sort
-    const sortBy = filters.sortBy || 'timestamp';
+    const sortBy = filters.sortBy || 'ts';
     const sortDir = filters.sortDir || 'desc';
     results.sort((a, b) => {
-      const aVal = a[sortBy] || '';
-      const bVal = b[sortBy] || '';
-      const cmp = String(aVal).localeCompare(String(bVal));
+      const cmp = (a[sortBy] || 0) - (b[sortBy] || 0);
       return sortDir === 'desc' ? -cmp : cmp;
     });
 
@@ -1010,32 +822,18 @@ class ActivityStore {
   }
 
   /**
-   * Get activity statistics
+   * Get statistics
    */
   getStats() {
     const stats = {
       totalActivities: this.activities.size,
       totalSequences: this.sequences.size,
-      byOperator: {},
-      byEntityType: {},
-      byAgent: {},
-      dangerousCount: 0
+      totalContexts: this.contexts.size,
+      byOperator: {}
     };
 
-    for (const [op, ids] of this.byOperator) {
+    for (const [op, ids] of this.byOp) {
       stats.byOperator[op] = ids.size;
-      if (window.EOOperators?.isDangerous(op)) {
-        stats.dangerousCount += ids.size;
-      }
-    }
-
-    for (const act of this.activities.values()) {
-      const entityType = act.target?.entityType || 'unknown';
-      stats.byEntityType[entityType] = (stats.byEntityType[entityType] || 0) + 1;
-
-      const ctx = this.resolveContext(act.context);
-      const agent = ctx.epistemic?.agent || 'unknown';
-      stats.byAgent[agent] = (stats.byAgent[agent] || 0) + 1;
     }
 
     return stats;
@@ -1067,114 +865,27 @@ class ActivityStore {
       }
     }
   }
-}
 
-// ============================================================================
-// Convenience Functions for Common Operations
-// ============================================================================
-
-/**
- * Create and record an activity in one call
- */
-async function recordActivity(store, operator, target, context, options = {}) {
-  const atom = createActivityAtom({ operator, target, context }, options);
-  return store.record(atom);
-}
-
-/**
- * Create common activity patterns
- */
-const ActivityPatterns = {
-  /**
-   * Create a new entity
-   */
-  create(store, entityType, entityId, name, context) {
-    return createActivitySequence({
-      name: `Create ${entityType}`,
-      atoms: [
-        { operator: 'INS', target: { entityId, entityType } },
-        { operator: 'DES', target: { entityId, entityType, newValue: name } }
-      ],
-      context
-    });
-  },
+  // ──────────────────────────────────────────────────────────────────────────
+  // Legacy Compatibility
+  // ──────────────────────────────────────────────────────────────────────────
 
   /**
-   * Update a field value
+   * Get all activities in expanded (verbose) format
+   * For legacy consumers that expect the old format
    */
-  updateField(store, entityId, fieldId, oldValue, newValue, context) {
-    return createActivityAtom({
-      operator: 'DES',
-      target: {
-        entityId,
-        entityType: 'record',
-        fieldId,
-        previousValue: oldValue,
-        newValue
-      },
-      context
-    });
-  },
-
-  /**
-   * Link two entities
-   */
-  link(store, sourceId, targetId, linkType, context) {
-    return createActivityAtom({
-      operator: 'CON',
-      target: {
-        entityId: sourceId,
-        entityType: 'link',
-        newValue: { targetId, linkType }
-      },
-      context
-    });
-  },
-
-  /**
-   * Delete/tombstone an entity
-   */
-  delete(store, entityId, entityType, context) {
-    return createActivityAtom({
-      operator: 'NUL',
-      target: { entityId, entityType },
-      context
-    });
-  },
-
-  /**
-   * Merge entities
-   */
-  merge(store, sourceIds, targetId, entityType, context) {
-    return createActivityAtom({
-      operator: 'SYN',
-      target: {
-        entityId: targetId,
-        entityType,
-        previousValue: sourceIds,
-        newValue: targetId
-      },
-      context
-    });
-  },
-
-  /**
-   * Toggle a boolean state
-   */
-  toggle(store, entityId, fieldId, oldValue, newValue, context) {
-    return createActivityAtom({
-      operator: 'ALT',
-      target: {
-        entityId,
-        entityType: 'field',
-        fieldId,
-        previousValue: oldValue,
-        newValue
-      },
-      context
-    });
+  getAllExpanded() {
+    return Array.from(this.activities.values())
+      .map(a => expand(a, (ctxId) => this.getContext(ctxId)));
   }
-};
+
+  /**
+   * Alias for legacy code
+   */
+  getByAgent(agent) {
+    return this.getByActor(agent);
+  }
+}
 
 // ============================================================================
 // Global Instance
@@ -1182,9 +893,6 @@ const ActivityPatterns = {
 
 let activityStoreInstance = null;
 
-/**
- * Get or create the global activity store instance
- */
 async function getActivityStore() {
   if (!activityStoreInstance) {
     activityStoreInstance = new ActivityStore();
@@ -1194,63 +902,159 @@ async function getActivityStore() {
 }
 
 // ============================================================================
+// Legacy API Compatibility
+// ============================================================================
+
+/**
+ * Create activity atom in OLD verbose format
+ * @deprecated Use createActivity() instead
+ */
+function createActivityAtom(params, options = {}) {
+  console.warn('createActivityAtom is deprecated. Use createActivity() for compact format.');
+
+  const activity = createActivity(
+    params.operator,
+    params.target,
+    params.context?.epistemic?.agent || params.context?.agent || 'unknown',
+    {
+      method: params.context?.epistemic?.method || params.context?.method,
+      source: params.context?.epistemic?.source || params.context?.source,
+      delta: params.target?.previousValue !== undefined
+        ? [params.target.previousValue, params.target.newValue]
+        : null,
+      seq: options.sequenceId
+    }
+  );
+
+  // Return expanded for backward compatibility
+  return expand(activity);
+}
+
+/**
+ * Legacy activity patterns
+ * @deprecated Use Activity.* instead
+ */
+const ActivityPatterns = {
+  create(store, entityType, entityId, name, context) {
+    console.warn('ActivityPatterns.create is deprecated. Use Activity.insert + Activity.designate');
+    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
+    return [
+      Activity.insert({ id: entityId }, actor, { data: { entityType } }),
+      Activity.designate({ id: entityId }, actor, name)
+    ];
+  },
+
+  updateField(store, entityId, fieldId, oldValue, newValue, context) {
+    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
+    return Activity.update({ id: entityId, field: fieldId }, actor, [oldValue, newValue]);
+  },
+
+  link(store, sourceId, targetId, linkType, context) {
+    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
+    return Activity.connect({ id: sourceId }, actor, targetId, { data: { linkType } });
+  },
+
+  delete(store, entityId, entityType, context) {
+    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
+    return Activity.nullify({ id: entityId }, actor, 'user_deletion', { data: { entityType } });
+  },
+
+  merge(store, sourceIds, targetId, entityType, context) {
+    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
+    return Activity.synthesize({ id: targetId }, actor, sourceIds, { data: { entityType } });
+  },
+
+  toggle(store, entityId, fieldId, oldValue, newValue, context) {
+    const actor = context?.epistemic?.agent || context?.agent || 'unknown';
+    return Activity.update({ id: entityId, field: fieldId }, actor, [oldValue, newValue]);
+  }
+};
+
+// ============================================================================
 // Exports
 // ============================================================================
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    createActivityAtom,
-    validateActivityAtom,
-    normalizeTarget,
-    createActivitySequence,
-    generateActivityId,
-    generateSequenceId,
-    generateContextId,
-    normalizeContext,
-    createEmptyContext,
+    // Core
+    OPERATORS,
+    OP_SYMBOLS,
+    genId,
+    createActivity,
+    validateActivity,
+
+    // Expansion
+    expand,
+    compact,
+    migrate,
+    isVerboseFormat,
+
+    // Convenience
+    Activity,
+    GhostActivities,
+
+    // Context
+    createContext,
     ContextTemplates,
-    flattenContext,
-    countContextElements,
-    mergeContexts,
+
+    // Sequences
+    createSequence,
+    addToSequence,
     completeSequence,
+
+    // Store
     ActivityStore,
-    recordActivity,
-    ActivityPatterns,
-    getActivityStore
+    getActivityStore,
+
+    // Legacy (deprecated)
+    createActivityAtom,
+    ActivityPatterns
   };
 }
 
 if (typeof window !== 'undefined') {
   window.EOActivity = {
-    createAtom: createActivityAtom,
-    validateAtom: validateActivityAtom,
-    normalizeTarget,
-    createSequence: createActivitySequence,
-    generateId: generateActivityId,
-    generateSequenceId,
-    generateContextId,
-    normalizeContext,
-    emptyContext: createEmptyContext,
+    // Core
+    OPERATORS,
+    OP_SYMBOLS,
+    genId,
+    create: createActivity,
+    validate: validateActivity,
+
+    // Expansion
+    expand,
+    compact,
+    migrate,
+
+    // Convenience
+    Activity,
+    ghost: GhostActivities,
+
+    // Context
+    createContext,
     templates: ContextTemplates,
-    flattenContext,
-    countContextElements,
-    mergeContexts,
+
+    // Sequences
+    createSequence,
+    addToSequence,
     completeSequence,
+
+    // Store
     Store: ActivityStore,
-    record: recordActivity,
-    patterns: ActivityPatterns,
     getStore: getActivityStore,
-    // Ghost activities
-    ghost: GhostActivities
+
+    // Legacy (deprecated)
+    createAtom: createActivityAtom,
+    patterns: ActivityPatterns
   };
 
-  // Expose GhostActivities globally for convenience
+  // Legacy global
   window.GhostActivities = GhostActivities;
 
   // Auto-initialize
   getActivityStore().then(store => {
     window.activityStore = store;
-    console.log('EO Activity Store initialized');
+    console.log('EO Activity Store initialized (compact format)');
   }).catch(err => {
     console.error('Failed to initialize Activity Store:', err);
   });

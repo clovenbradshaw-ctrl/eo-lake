@@ -607,6 +607,228 @@ const PayloadEstimates = {
 
 
 // =============================================================================
+// LOCAL ACTIVITY STORAGE (COMPACT FORMAT)
+// =============================================================================
+
+/**
+ * Activities are stored locally in COMPACT format.
+ * This is different from events - activities are the action log.
+ *
+ * Design Principle: Store simple. Expand when needed.
+ */
+const LocalActivitySchema = {
+  /**
+   * TABLE: activities
+   *
+   * Compact activity records. ~150-200 bytes each vs ~800+ bytes verbose.
+   */
+  activities: {
+    primaryKey: 'id',
+    columns: {
+      id: 'string',           // act_<timestamp36>_<random>
+      ts: 'integer',          // Unix timestamp (ms)
+      op: 'string',           // INS, DES, SEG, CON, SYN, ALT, SUP, REC, NUL
+      actor: 'string',        // Who performed the action
+      target: 'string',       // Entity ID
+      field: 'string?',       // Field ID (if field-level operation)
+      delta: 'json?',         // [previousValue, newValue] for changes
+      method: 'string?',      // How the action was performed
+      source: 'string?',      // External source reference
+      seq: 'string?',         // Sequence ID for compound actions
+      ctx: 'string?',         // Reference to contexts table
+      data: 'json?'           // Additional payload
+    },
+    indexes: ['op', 'target', 'actor', 'ts', 'seq']
+  },
+
+  /**
+   * TABLE: sequences
+   *
+   * Groups related activities (compound actions like joins)
+   */
+  sequences: {
+    primaryKey: 'id',
+    columns: {
+      id: 'string',           // seq_<timestamp36>_<random>
+      ts: 'integer',          // When sequence started
+      name: 'string',         // Human name ("Join Sources")
+      actor: 'string',        // Who initiated
+      ops: 'json',            // ["INS", "CON", "DES"]
+      ctx: 'string?',         // Shared context reference
+      completed: 'boolean',
+      completedAt: 'integer?'
+    },
+    indexes: ['ts']
+  },
+
+  /**
+   * TABLE: contexts
+   *
+   * Rich context for rare cases (legal, compliance)
+   * Most activities don't need this - context is sparse.
+   */
+  contexts: {
+    primaryKey: 'id',
+    columns: {
+      id: 'string',           // ctx_<timestamp36>_<random>
+      term: 'string?',        // Semantic term
+      definition: 'string?',  // What it means
+      jurisdiction: 'string?', // Legal/org scope
+      scale: 'string?',       // Operation scale
+      background: 'string?',  // Why/reasoning
+      createdAt: 'integer'
+    }
+  }
+};
+
+/**
+ * Example compact activity records:
+ */
+const ActivityExamples = {
+  // Simple field update
+  fieldUpdate: {
+    id: 'act_m5x8a1_xyz789',
+    ts: 1735643520,
+    op: 'ALT',
+    actor: 'user_789',
+    target: 'rec_123',
+    field: 'name',
+    delta: ['John', 'Jane'],
+    method: 'inline_edit'
+  },
+
+  // Create record
+  createRecord: {
+    id: 'act_m5x7k2_abc456',
+    ts: 1735643460,
+    op: 'INS',
+    actor: 'user_789',
+    target: 'rec_456',
+    method: 'api'
+  },
+
+  // Delete (ghost)
+  deleteRecord: {
+    id: 'act_m5x9b2_def789',
+    ts: 1735643580,
+    op: 'NUL',
+    actor: 'user_789',
+    target: 'rec_123',
+    method: 'soft_delete',
+    data: { reason: 'user_deletion' }
+  },
+
+  // Join sources (sequence of 3 activities)
+  joinSequence: {
+    sequence: {
+      id: 'seq_m5xa12_ghi012',
+      ts: 1735643640,
+      name: 'Join Sources',
+      actor: 'user_789',
+      ops: ['INS', 'CON', 'DES'],
+      completed: true,
+      completedAt: 1735643641
+    },
+    activities: [
+      { id: 'act_001', ts: 1735643640, op: 'INS', actor: 'user_789', target: 'set_new', seq: 'seq_m5xa12_ghi012' },
+      { id: 'act_002', ts: 1735643640, op: 'CON', actor: 'user_789', target: 'set_new', seq: 'seq_m5xa12_ghi012', method: 'left_join', data: { relatedTo: ['src_a', 'src_b'] } },
+      { id: 'act_003', ts: 1735643641, op: 'DES', actor: 'user_789', target: 'set_new', seq: 'seq_m5xa12_ghi012', delta: [null, 'Employee Details'] }
+    ]
+  },
+
+  // With rich context (legal operation)
+  legalOperation: {
+    activity: {
+      id: 'act_legal_123',
+      ts: 1735643700,
+      op: 'NUL',
+      actor: 'system',
+      target: 'filing_789',
+      method: 'expectation_check',
+      ctx: 'ctx_metro_rule'
+    },
+    context: {
+      id: 'ctx_metro_rule',
+      jurisdiction: 'Metro County Court',
+      definition: 'Per Rule 12.4',
+      term: 'filing_deadline',
+      createdAt: 1735643700
+    }
+  }
+};
+
+/**
+ * Activity → Event Bridge
+ *
+ * When syncing to cloud, compact activities are expanded to events.
+ */
+const ActivityToEventBridge = {
+  /**
+   * Convert compact activity to cloud event format
+   */
+  toEvent: `
+    function activityToEvent(activity, loadContext) {
+      return {
+        id: activity.id.replace('act_', 'evt_'),
+        logical_clock: activity.ts,
+        timestamp: new Date(activity.ts).toISOString(),
+        workspace_id: activity.workspaceId || 'default',
+        entity_id: activity.target,
+        entity_type: activity.data?.entityType || 'record',
+        epistemic_type: 'meant',
+        category: categoryFromOp(activity.op),
+        action: actionFromOp(activity.op),
+        actor: activity.actor,
+        device_id: activity.deviceId || 'unknown',
+        parents: [],  // Determined during sync
+        grounding: {
+          references: [{ kind: 'structural', eventId: activity.id }]
+        },
+        frame: activity.ctx ? loadContext(activity.ctx) : null,
+        payload: {
+          op: activity.op,
+          target: activity.target,
+          field: activity.field,
+          delta: activity.delta,
+          method: activity.method,
+          source: activity.source,
+          ...activity.data
+        }
+      };
+    }
+
+    function categoryFromOp(op) {
+      const map = {
+        INS: 'data', DES: 'schema', SEG: 'view',
+        CON: 'edge', SYN: 'data', ALT: 'data',
+        SUP: 'data', REC: 'data', NUL: 'data'
+      };
+      return map[op] || 'data';
+    }
+
+    function actionFromOp(op) {
+      const map = {
+        INS: 'create', DES: 'update', SEG: 'update',
+        CON: 'link', SYN: 'merge', ALT: 'update',
+        SUP: 'superpose', REC: 'record', NUL: 'delete'
+      };
+      return map[op] || 'update';
+    }
+  `,
+
+  /**
+   * Size comparison
+   */
+  sizeComparison: {
+    fieldUpdate: { compact: '~180 bytes', verbose: '~850 bytes', savings: '79%' },
+    createRecord: { compact: '~150 bytes', verbose: '~750 bytes', savings: '80%' },
+    deleteRecord: { compact: '~120 bytes', verbose: '~700 bytes', savings: '83%' },
+    joinSequence: { compact: '~500 bytes', verbose: '~2400 bytes', savings: '79%' }
+  }
+};
+
+
+// =============================================================================
 // CLIENT-SIDE DERIVATION
 // =============================================================================
 
@@ -678,6 +900,9 @@ if (typeof module !== 'undefined' && module.exports) {
     PartialFetchPatterns,
     WhySingleTable,
     PayloadEstimates,
+    LocalActivitySchema,
+    ActivityExamples,
+    ActivityToEventBridge,
     ClientSideDerivation
   };
 }
@@ -692,6 +917,9 @@ if (typeof window !== 'undefined') {
     PartialFetchPatterns,
     WhySingleTable,
     PayloadEstimates,
+    LocalActivitySchema,
+    ActivityExamples,
+    ActivityToEventBridge,
     ClientSideDerivation
   };
 }

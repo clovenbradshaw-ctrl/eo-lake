@@ -371,19 +371,90 @@ function fromUIAction(actionVerb) {
 }
 
 // ============================================================================
-// Operator Invocation
+// Operator Invocation - Compact Format
 // ============================================================================
 
 /**
- * Create an operator invocation
- * Semantics: operator(target, context)
- *
- * @param {string} operator - One of the 9 operators
- * @param {Object} target - What is being operated on
- * @param {Object} context - The grounding context (epistemic, semantic, situational)
- * @returns {Object} Operator invocation record
+ * Generate unique activity ID
  */
-function invoke(operator, target, context = {}) {
+function generateActivityId() {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `act_${timestamp}_${random}`;
+}
+
+/**
+ * Create an operator invocation in COMPACT format
+ * Semantics: operator(target, actor, options)
+ *
+ * Returns a compact activity record compatible with eo_activity.js
+ *
+ * @param {string} op - One of the 9 operators
+ * @param {Object} target - What is being operated on
+ * @param {Object} context - Context with agent, method, source, etc.
+ * @returns {Object} Compact activity record
+ */
+function invoke(op, target, context = {}) {
+  if (!NINE_OPERATORS[op]) {
+    throw new Error(`Invalid operator: ${op}. Must be one of: ${Object.keys(NINE_OPERATORS).join(', ')}`);
+  }
+
+  // Extract actor from context
+  const actor = context.epistemic?.agent || context.agent || 'unknown';
+
+  // Build compact activity
+  const activity = {
+    id: generateActivityId(),
+    ts: Date.now(),
+    op,
+    actor,
+    target: normalizeTargetId(target)
+  };
+
+  // Optional fields - only include if present
+  const field = target?.field || target?.fieldId;
+  if (field) activity.field = field;
+
+  // Delta for changes
+  if (target?.previousValue !== undefined || target?.newValue !== undefined) {
+    activity.delta = [target.previousValue, target.newValue];
+  }
+
+  // Method and source from context
+  const method = context.epistemic?.method || context.method;
+  if (method) activity.method = method;
+
+  const source = context.epistemic?.source || context.source;
+  if (source) activity.source = source;
+
+  // Additional data (for complex targets)
+  const dataFields = ['value', 'relatedTo', 'scope', 'conditions', 'joinType',
+                      'conflictPolicy', 'confidence', 'interpretations', 'reason'];
+  const data = {};
+  for (const f of dataFields) {
+    if (target?.[f] !== undefined) data[f] = target[f];
+  }
+  if (Object.keys(data).length > 0) activity.data = data;
+
+  return activity;
+}
+
+/**
+ * Normalize target to ID string
+ */
+function normalizeTargetId(target) {
+  if (!target) return null;
+  if (typeof target === 'string') return target;
+  return target.id || target.entityId || null;
+}
+
+/**
+ * Create an operator invocation in VERBOSE format (legacy)
+ * @deprecated Use invoke() for compact format
+ */
+function invokeVerbose(operator, target, context = {}) {
+  console.warn('invokeVerbose is deprecated. Use invoke() for compact format.');
+
   if (!NINE_OPERATORS[operator]) {
     throw new Error(`Invalid operator: ${operator}. Must be one of: ${Object.keys(NINE_OPERATORS).join(', ')}`);
   }
@@ -391,37 +462,24 @@ function invoke(operator, target, context = {}) {
   const meta = OperatorMetadata[operator];
 
   const invocation = {
-    id: generateInvocationId(),
+    id: generateActivityId(),
     operator,
     symbol: meta.symbol,
     target: normalizeTarget(target),
     context: normalizeContext(context),
     timestamp: new Date().toISOString(),
-
-    // Every invocation implicitly creates a REC
-    // (unless this IS a REC invocation)
     grounding: operator !== 'REC' ? {
       operator: 'REC',
-      target: { type: 'invocation', ref: null }, // Will be filled with this invocation's ID
+      target: { type: 'invocation', ref: null },
       context: context
     } : null
   };
 
-  // Self-reference for grounding
   if (invocation.grounding) {
     invocation.grounding.target.ref = invocation.id;
   }
 
   return invocation;
-}
-
-/**
- * Generate unique invocation ID
- */
-function generateInvocationId() {
-  const timestamp = Date.now().toString(36);
-  const random = Math.random().toString(36).substring(2, 8);
-  return `op_${timestamp}_${random}`;
 }
 
 /**
@@ -1728,8 +1786,12 @@ if (typeof module !== 'undefined' && module.exports) {
     getTechnicalOps,
     fromUIAction,
 
-    // Invocation
+    // Invocation (compact format)
     invoke,
+    normalizeTargetId,
+    invokeVerbose,  // deprecated
+
+    // Legacy (verbose format)
     normalizeTarget,
     normalizeContext,
     createEmptyContext,
@@ -1764,13 +1826,17 @@ if (typeof window !== 'undefined') {
       fromUIAction
     },
 
-    // Invocation
+    // Invocation (compact format)
     invoke,
+    normalizeTargetId,
+    invokeVerbose,  // deprecated
+
+    // Legacy (verbose format) - for backward compat
     normalizeTarget,
     normalizeContext,
     emptyContext: createEmptyContext,
 
-    // Action encoding
+    // Action encoding (returns compact activities)
     actions: ActionOperatorMapping,
     encode: encodeAction,
     getOperatorsForAction,
