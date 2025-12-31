@@ -3583,6 +3583,7 @@ class EODataWorkbench {
         warning: 'Created empty - no derivation constraint'
       };
       this.sets.push(set);
+      this._addSetToProject(set.id);
       this._saveData();
       this._renderSidebar();
       this._selectSet(set.id);
@@ -3636,6 +3637,7 @@ class EODataWorkbench {
       };
 
       this.sets.push(set);
+      this._addSetToProject(set.id);
       this._saveData();
       this._renderSidebar();
       this._selectSet(set.id);
@@ -3822,6 +3824,7 @@ class EODataWorkbench {
       set.records = records;
 
       this.sets.push(set);
+      this._addSetToProject(set.id);
       this._saveData();
       this._renderSidebar();
       this._selectSet(set.id);
@@ -12648,6 +12651,7 @@ class EODataWorkbench {
       onComplete: (result) => {
         // Add the new set to our sets array
         this.sets.push(result.set);
+        this._addSetToProject(result.set.id);
 
         // Record activity for set creation from import
         const lensCount = result.set.lenses?.length || 0;
@@ -12723,6 +12727,7 @@ class EODataWorkbench {
       onComplete: (result) => {
         // Add the new set to our sets array
         this.sets.push(result.set);
+        this._addSetToProject(result.set.id);
         this._saveData();
         this._renderSidebar();
         this._selectSet(result.set.id);
@@ -12770,6 +12775,7 @@ class EODataWorkbench {
       onComplete: (result) => {
         // Add the new joined set to our sets array
         this.sets.push(result.set);
+        this._addSetToProject(result.set.id);
         this._saveData();
         this._renderSidebar();
         this._selectSet(result.set.id);
