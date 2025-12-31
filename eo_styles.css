@@ -611,6 +611,127 @@ html, body {
   overflow-y: auto;
 }
 
+/* ========================================
+   Sets Tree Layout Rules
+   Prevent layout shifts and maintain stability
+   ======================================== */
+
+/* Sets panel layout constraints */
+.sets-panel {
+  min-width: 200px;
+  max-width: 100%;
+  contain: layout style;
+}
+
+.sets-panel .nav-panel-content {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* Set container layout rules */
+.set-item-container {
+  contain: layout;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Set header layout stability */
+.set-item-header {
+  min-height: 32px;
+  max-height: 32px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Fixed-width elements prevent reflow */
+.set-item-expand {
+  flex-shrink: 0;
+  min-width: 16px;
+  max-width: 16px;
+}
+
+.set-item-icon {
+  flex-shrink: 0;
+  min-width: 14px;
+  max-width: 14px;
+}
+
+.set-item-count {
+  flex-shrink: 0;
+  min-width: 24px;
+  text-align: right;
+}
+
+.set-item-actions {
+  flex-shrink: 0;
+  min-width: 22px;
+}
+
+/* Operator badge fixed width */
+.set-item-header .op-badge-mini {
+  flex-shrink: 0;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* Views list layout stability */
+.set-views-list {
+  contain: layout;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* View item layout rules */
+.set-view-item {
+  min-height: 26px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.set-view-item i {
+  flex-shrink: 0;
+  min-width: 13px;
+  max-width: 13px;
+}
+
+.view-item-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  text-align: right;
+}
+
+/* Add view button layout */
+.set-add-view-btn {
+  min-height: 24px;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Prevent text from causing layout shifts */
+.set-item-name,
+.set-view-item span,
+.workspace-name {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Nav panel header fixed height */
+.nav-panel-header {
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+/* Stable badge sizing */
+.nav-panel-badge {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* Workspace in Views panel */
 .workspace-group {
   margin-bottom: 4px;
