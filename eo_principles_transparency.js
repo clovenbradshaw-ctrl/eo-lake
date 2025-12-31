@@ -594,11 +594,16 @@ class EOPrinciplesTransparency {
     return `
       <div class="principles-panel-content">
         <div class="principles-panel-header">
-          <h2>
-            <i class="ph ph-book-open"></i>
-            Experience Engine Transparency
-          </h2>
-          <p class="principles-subtitle">"The append-only log is the database. Everything else is a view."</p>
+          <div class="principles-panel-header-content">
+            <h2>
+              <i class="ph ph-book-open"></i>
+              Experience Engine Transparency
+            </h2>
+            <p class="principles-subtitle">"The append-only log is the database. Everything else is a view."</p>
+          </div>
+          <button class="principles-panel-close" id="principles-panel-close" aria-label="Close">
+            <i class="ph ph-x"></i>
+          </button>
         </div>
 
         <div class="principles-tabs">
@@ -932,6 +937,12 @@ class EOPrinciplesTransparency {
     const toggle = document.getElementById('principles-toggle');
     if (toggle) {
       toggle.addEventListener('click', this.toggle);
+    }
+
+    // Close button
+    const closeBtn = document.getElementById('principles-panel-close');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => this.close());
     }
 
     // Tab buttons
