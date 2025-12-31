@@ -13152,7 +13152,18 @@ class EODataWorkbench {
       `;
     }).join('');
 
-    container.innerHTML = importDataTab + definitionsTab + setTabs;
+    // Only show Import Data / Definitions tabs when actively viewing them
+    // Don't auto-show them in the tab bar
+    let tabsHtml = '';
+    if (isViewingSource) {
+      tabsHtml += importDataTab;
+    }
+    if (isViewingDefinitions) {
+      tabsHtml += definitionsTab;
+    }
+    tabsHtml += setTabs;
+
+    container.innerHTML = tabsHtml;
 
     // Attach event handlers to tabs
     this._attachTabEventHandlers();
