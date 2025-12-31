@@ -1014,6 +1014,9 @@ class EODataWorkbench {
     sampleProject.sourceIds.push(sourceId);
     sampleProject.setIds.push(set.id);
 
+    // Select the sample project so user is always in a project context
+    this.currentProjectId = sampleProject.id;
+
     this._saveData();
   }
 
