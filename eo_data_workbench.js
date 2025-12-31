@@ -12769,41 +12769,74 @@ class EODataWorkbench {
     const container = this.elements.tabBarTabs;
     if (!container) return;
 
-    // Handle Import Data tab
-    const importDataTab = container.querySelector('.import-data-tab');
-    if (importDataTab) {
-      importDataTab.addEventListener('click', () => {
+    // Use event delegation for click handling - more robust than direct listeners
+    // Remove any existing delegated handler first to avoid duplicates
+    if (this._tabClickHandler) {
+      container.removeEventListener('click', this._tabClickHandler);
+    }
+
+    // Create delegated click handler
+    this._tabClickHandler = (e) => {
+      const tab = e.target.closest('.browser-tab');
+      if (!tab) return;
+
+      // Handle Import Data tab
+      if (tab.classList.contains('import-data-tab')) {
         this.isViewingDefinitions = false;
         this._showSourcesTableView();
         this._renderTabBar();
-      });
-    }
+        return;
+      }
 
-    // Handle Definitions tab
-    const definitionsTab = container.querySelector('.definitions-tab');
-    if (definitionsTab) {
-      definitionsTab.addEventListener('click', () => {
+      // Handle Definitions tab
+      if (tab.classList.contains('definitions-tab')) {
         this._showDefinitionsTableView();
         this._renderTabBar();
-      });
+        return;
+      }
+
+      // Handle Set tabs
+      const setId = tab.dataset.setId;
+      if (setId) {
+        this._selectSet(setId);
+      }
+    };
+
+    container.addEventListener('click', this._tabClickHandler);
+
+    // Use event delegation for double-click (rename set tab)
+    if (this._tabDblClickHandler) {
+      container.removeEventListener('dblclick', this._tabDblClickHandler);
     }
 
-    // Handle Set tabs
+    this._tabDblClickHandler = (e) => {
+      const tab = e.target.closest('.browser-tab[data-set-id]');
+      if (tab) {
+        this._renameSetTab(tab.dataset.setId);
+      }
+    };
+
+    container.addEventListener('dblclick', this._tabDblClickHandler);
+
+    // Use event delegation for context menu on set tabs
+    if (this._tabContextMenuHandler) {
+      container.removeEventListener('contextmenu', this._tabContextMenuHandler);
+    }
+
+    this._tabContextMenuHandler = (e) => {
+      const tab = e.target.closest('.browser-tab[data-set-id]');
+      if (tab) {
+        e.preventDefault();
+        this._showSetTabContextMenu(e, tab.dataset.setId);
+      }
+    };
+
+    container.addEventListener('contextmenu', this._tabContextMenuHandler);
+
+    // Attach drag and drop handlers to individual set tabs (these need direct attachment)
     container.querySelectorAll('.browser-tab[data-set-id]').forEach(tab => {
       const setId = tab.dataset.setId;
 
-      // Click to select set
-      tab.addEventListener('click', () => {
-        this._selectSet(setId);
-      });
-
-      // Right-click context menu for set
-      tab.addEventListener('contextmenu', (e) => {
-        e.preventDefault();
-        this._showSetTabContextMenu(e, setId);
-      });
-
-      // Drag and drop for reordering sets
       tab.addEventListener('dragstart', (e) => {
         e.dataTransfer.setData('text/plain', setId);
         tab.classList.add('dragging');
@@ -12846,11 +12879,6 @@ class EODataWorkbench {
           this._reorderSetTabs(draggedSetId, targetSetId, insertAfter);
         }
         tab.classList.remove('drag-over', 'drag-over-right');
-      });
-
-      // Double-click to rename set
-      tab.addEventListener('dblclick', () => {
-        this._renameSetTab(setId);
       });
     });
   }
