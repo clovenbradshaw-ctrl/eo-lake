@@ -8612,6 +8612,2177 @@ class DataPipelineUI {
 
 
 // ============================================================================
+// Source Merger - Merge/Join sources into existing sets
+// ============================================================================
+
+/**
+ * SourceMerger - Handles merging additional sources into existing sets
+ *
+ * Key Features:
+ * - Merge modes: UNION (stack records), JOIN (match on fields), APPEND (add to end)
+ * - Field mapping between source and set schemas
+ * - Preview merged results before applying
+ * - Full provenance tracking via CON derivation strategy
+ *
+ * EO-IR Compliance:
+ * - Uses CON derivation to track all merged sources
+ * - Maintains provenance chain from original sources
+ * - Creates new version of set (never modifies in place)
+ */
+class SourceMerger {
+  constructor(options = {}) {
+    this.sourceStore = options.sourceStore;
+    this.eventStore = options.eventStore;
+  }
+
+  /**
+   * Merge a source into an existing set
+   *
+   * @param {Object} config
+   * @param {Object} config.targetSet - The set to merge into
+   * @param {string} config.sourceId - Source ID to merge from
+   * @param {string} config.mergeMode - 'union' | 'join' | 'append'
+   * @param {Object[]} config.fieldMapping - Field mappings from source to set
+   * @param {Object} config.joinConfig - Join configuration (for 'join' mode)
+   * @param {string} config.actor - Who is performing the merge
+   * @returns {Object} { set, events, stats }
+   */
+  merge(config) {
+    const {
+      targetSet,
+      sourceId,
+      mergeMode = 'append',
+      fieldMapping = [],
+      joinConfig = {},
+      actor = 'user'
+    } = config;
+
+    const source = this.sourceStore.get(sourceId);
+    if (!source) {
+      throw new Error(`Source not found: ${sourceId}`);
+    }
+
+    const timestamp = new Date().toISOString();
+
+    switch (mergeMode) {
+      case 'union':
+        return this._unionMerge(targetSet, source, fieldMapping, actor, timestamp);
+      case 'join':
+        return this._joinMerge(targetSet, source, fieldMapping, joinConfig, actor, timestamp);
+      case 'append':
+      default:
+        return this._appendMerge(targetSet, source, fieldMapping, actor, timestamp);
+    }
+  }
+
+  /**
+   * Preview merge results without applying
+   *
+   * @param {Object} config - Same as merge()
+   * @param {number} limit - Max preview records
+   * @returns {Object} Preview data
+   */
+  preview(config, limit = 50) {
+    const {
+      targetSet,
+      sourceId,
+      mergeMode = 'append',
+      fieldMapping = [],
+      joinConfig = {}
+    } = config;
+
+    const source = this.sourceStore.get(sourceId);
+    if (!source) {
+      return { success: false, error: 'Source not found' };
+    }
+
+    // Map source records using field mapping
+    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, targetSet.fields);
+
+    let previewRecords = [];
+    let stats = {};
+
+    switch (mergeMode) {
+      case 'union':
+        previewRecords = [...targetSet.records, ...mappedRecords];
+        stats = {
+          existingRecords: targetSet.records.length,
+          newRecords: mappedRecords.length,
+          totalRecords: previewRecords.length
+        };
+        break;
+
+      case 'join':
+        const joinResult = this._executePreviewJoin(
+          targetSet.records,
+          mappedRecords,
+          joinConfig
+        );
+        previewRecords = joinResult;
+        stats = {
+          existingRecords: targetSet.records.length,
+          sourceRecords: mappedRecords.length,
+          matchedRecords: joinResult.length,
+          joinType: joinConfig.type || 'left'
+        };
+        break;
+
+      case 'append':
+      default:
+        previewRecords = [...targetSet.records, ...mappedRecords];
+        stats = {
+          existingRecords: targetSet.records.length,
+          appendedRecords: mappedRecords.length,
+          totalRecords: previewRecords.length
+        };
+        break;
+    }
+
+    return {
+      success: true,
+      previewRecords: previewRecords.slice(0, limit),
+      totalCount: previewRecords.length,
+      stats,
+      fieldMapping
+    };
+  }
+
+  /**
+   * Auto-map fields between source and set based on name similarity
+   *
+   * @param {Object[]} sourceFields - Source schema fields
+   * @param {Object[]} setFields - Set schema fields
+   * @returns {Object[]} Suggested field mappings
+   */
+  autoMapFields(sourceFields, setFields) {
+    const mappings = [];
+
+    for (const sourceField of sourceFields) {
+      const sourceName = sourceField.name.toLowerCase().replace(/[_\-\s]/g, '');
+
+      // Find exact match first
+      let match = setFields.find(f =>
+        f.name.toLowerCase().replace(/[_\-\s]/g, '') === sourceName
+      );
+
+      // If no exact match, try partial match
+      if (!match) {
+        match = setFields.find(f => {
+          const setName = f.name.toLowerCase().replace(/[_\-\s]/g, '');
+          return setName.includes(sourceName) || sourceName.includes(setName);
+        });
+      }
+
+      if (match) {
+        mappings.push({
+          sourceField: sourceField.name,
+          targetField: match.name,
+          confidence: match.name.toLowerCase() === sourceField.name.toLowerCase() ? 1.0 : 0.7
+        });
+      } else {
+        // No match - suggest creating new field
+        mappings.push({
+          sourceField: sourceField.name,
+          targetField: null,
+          createNew: true,
+          suggestedName: sourceField.name,
+          suggestedType: sourceField.type || 'text'
+        });
+      }
+    }
+
+    return mappings;
+  }
+
+  // --------------------------------------------------------------------------
+  // Private Methods
+  // --------------------------------------------------------------------------
+
+  _appendMerge(targetSet, source, fieldMapping, actor, timestamp) {
+    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, targetSet.fields);
+
+    // Determine if we need to add new fields
+    const newFields = this._getNewFieldsFromMapping(fieldMapping, targetSet.fields);
+
+    // Create merged records with unique IDs
+    const mergedRecords = mappedRecords.map((record, index) => ({
+      id: this._generateRecordId(),
+      setId: targetSet.id,
+      values: record.values || record,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      _sourceRecordIndex: index,
+      _mergedFrom: source.id
+    }));
+
+    // Build updated set
+    const updatedSet = {
+      ...targetSet,
+      fields: [...targetSet.fields, ...newFields],
+      records: [...targetSet.records, ...mergedRecords],
+      updatedAt: timestamp,
+      derivation: this._buildMergeDerivation(targetSet, source, 'append', fieldMapping, actor, timestamp)
+    };
+
+    // Create provenance events
+    const events = this._createMergeEvents(updatedSet, targetSet, source, 'append', actor, timestamp);
+
+    return {
+      set: updatedSet,
+      events,
+      stats: {
+        existingRecords: targetSet.records.length,
+        appendedRecords: mergedRecords.length,
+        totalRecords: updatedSet.records.length,
+        newFields: newFields.length
+      }
+    };
+  }
+
+  _unionMerge(targetSet, source, fieldMapping, actor, timestamp) {
+    // Union is similar to append but combines matching field names
+    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, targetSet.fields);
+    const newFields = this._getNewFieldsFromMapping(fieldMapping, targetSet.fields);
+
+    const mergedRecords = mappedRecords.map((record, index) => ({
+      id: this._generateRecordId(),
+      setId: targetSet.id,
+      values: record.values || record,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      _sourceRecordIndex: index,
+      _mergedFrom: source.id
+    }));
+
+    const updatedSet = {
+      ...targetSet,
+      fields: [...targetSet.fields, ...newFields],
+      records: [...targetSet.records, ...mergedRecords],
+      updatedAt: timestamp,
+      derivation: this._buildMergeDerivation(targetSet, source, 'union', fieldMapping, actor, timestamp)
+    };
+
+    const events = this._createMergeEvents(updatedSet, targetSet, source, 'union', actor, timestamp);
+
+    return {
+      set: updatedSet,
+      events,
+      stats: {
+        existingRecords: targetSet.records.length,
+        unionedRecords: mergedRecords.length,
+        totalRecords: updatedSet.records.length,
+        newFields: newFields.length
+      }
+    };
+  }
+
+  _joinMerge(targetSet, source, fieldMapping, joinConfig, actor, timestamp) {
+    const {
+      type = 'left',
+      conditions = [],
+      outputFields = null
+    } = joinConfig;
+
+    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, targetSet.fields);
+
+    // Execute the join
+    const joinedRecords = this._executeJoin(
+      targetSet.records,
+      mappedRecords,
+      conditions,
+      type
+    );
+
+    // Determine output fields - either specified or all from both sides
+    const newFields = this._getNewFieldsFromMapping(fieldMapping, targetSet.fields);
+    const allFields = [...targetSet.fields, ...newFields];
+
+    const mergedRecords = joinedRecords.map((record, index) => ({
+      id: this._generateRecordId(),
+      setId: targetSet.id,
+      values: record,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      _joinIndex: index,
+      _mergedFrom: source.id
+    }));
+
+    const updatedSet = {
+      ...targetSet,
+      fields: allFields,
+      records: mergedRecords,
+      updatedAt: timestamp,
+      derivation: this._buildMergeDerivation(targetSet, source, 'join', fieldMapping, actor, timestamp, joinConfig)
+    };
+
+    const events = this._createMergeEvents(updatedSet, targetSet, source, 'join', actor, timestamp, joinConfig);
+
+    return {
+      set: updatedSet,
+      events,
+      stats: {
+        existingRecords: targetSet.records.length,
+        sourceRecords: source.recordCount,
+        joinedRecords: mergedRecords.length,
+        joinType: type,
+        newFields: newFields.length
+      }
+    };
+  }
+
+  _mapSourceRecords(records, fieldMapping, targetFields) {
+    const targetFieldNames = new Set(targetFields.map(f => f.name));
+
+    return records.map(record => {
+      const values = {};
+
+      for (const mapping of fieldMapping) {
+        if (mapping.targetField) {
+          // Get value from source field
+          const sourceValue = record.values
+            ? record.values[mapping.sourceField]
+            : record[mapping.sourceField];
+          values[mapping.targetField] = sourceValue;
+        } else if (mapping.createNew && mapping.suggestedName) {
+          // Create new field
+          const sourceValue = record.values
+            ? record.values[mapping.sourceField]
+            : record[mapping.sourceField];
+          values[mapping.suggestedName] = sourceValue;
+        }
+      }
+
+      return { values };
+    });
+  }
+
+  _getNewFieldsFromMapping(fieldMapping, existingFields) {
+    const existingNames = new Set(existingFields.map(f => f.name));
+    const newFields = [];
+
+    for (const mapping of fieldMapping) {
+      if (mapping.createNew && mapping.suggestedName && !existingNames.has(mapping.suggestedName)) {
+        newFields.push({
+          name: mapping.suggestedName,
+          type: mapping.suggestedType || 'text',
+          addedVia: 'merge'
+        });
+        existingNames.add(mapping.suggestedName);
+      }
+    }
+
+    return newFields;
+  }
+
+  _executeJoin(leftRecords, rightRecords, conditions, joinType) {
+    if (conditions.length === 0) {
+      // No conditions - cartesian product (likely not what user wants, but handle it)
+      return leftRecords;
+    }
+
+    const primaryCondition = conditions[0];
+
+    // Build index on right side
+    const rightIndex = new Map();
+    for (let i = 0; i < rightRecords.length; i++) {
+      const record = rightRecords[i];
+      const values = record.values || record;
+      const key = String(values[primaryCondition.rightField] ?? '').toLowerCase();
+      if (!rightIndex.has(key)) {
+        rightIndex.set(key, []);
+      }
+      rightIndex.get(key).push({ record, index: i });
+    }
+
+    const result = [];
+    const matchedRightIndices = new Set();
+
+    for (let leftIdx = 0; leftIdx < leftRecords.length; leftIdx++) {
+      const leftRecord = leftRecords[leftIdx];
+      const leftValues = leftRecord.values || leftRecord;
+      const leftKey = String(leftValues[primaryCondition.leftField] ?? '').toLowerCase();
+      const candidates = rightIndex.get(leftKey) || [];
+
+      // Filter candidates by all conditions
+      const matches = candidates.filter(({ record: rightRecord }) => {
+        const rightValues = rightRecord.values || rightRecord;
+        return conditions.every(cond => {
+          const leftVal = String(leftValues[cond.leftField] ?? '').toLowerCase();
+          const rightVal = String(rightValues[cond.rightField] ?? '').toLowerCase();
+          switch (cond.operator || 'eq') {
+            case 'eq': return leftVal === rightVal;
+            case 'contains': return leftVal.includes(rightVal) || rightVal.includes(leftVal);
+            case 'starts': return leftVal.startsWith(rightVal) || rightVal.startsWith(leftVal);
+            case 'ends': return leftVal.endsWith(rightVal) || rightVal.endsWith(leftVal);
+            default: return leftVal === rightVal;
+          }
+        });
+      });
+
+      if (matches.length > 0) {
+        for (const { record: rightRecord, index: rightIdx } of matches) {
+          matchedRightIndices.add(rightIdx);
+          const rightValues = rightRecord.values || rightRecord;
+          result.push({ ...leftValues, ...rightValues });
+        }
+      } else if (joinType === 'left' || joinType === 'full') {
+        result.push({ ...leftValues });
+      }
+    }
+
+    // For right/full joins, add unmatched right records
+    if (joinType === 'right' || joinType === 'full') {
+      for (let i = 0; i < rightRecords.length; i++) {
+        if (!matchedRightIndices.has(i)) {
+          const rightRecord = rightRecords[i];
+          const rightValues = rightRecord.values || rightRecord;
+          result.push({ ...rightValues });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  _executePreviewJoin(leftRecords, rightRecords, joinConfig) {
+    return this._executeJoin(
+      leftRecords,
+      rightRecords,
+      joinConfig.conditions || [],
+      joinConfig.type || 'left'
+    );
+  }
+
+  _buildMergeDerivation(targetSet, source, mode, fieldMapping, actor, timestamp, joinConfig = null) {
+    // Get existing derivation sources
+    const existingSources = targetSet.derivation?.joinSetIds || [];
+    if (targetSet.derivation?.parentSourceId) {
+      existingSources.push(targetSet.derivation.parentSourceId);
+    }
+
+    return {
+      strategy: 'con',
+      joinSetIds: [...new Set([...existingSources, source.id])],
+      constraint: {
+        mode,
+        fieldMapping,
+        joinConfig: joinConfig || null
+      },
+      derivedBy: actor,
+      derivedAt: timestamp,
+      mergeHistory: [
+        ...(targetSet.derivation?.mergeHistory || []),
+        {
+          sourceId: source.id,
+          sourceName: source.name,
+          mode,
+          timestamp,
+          actor,
+          recordsAdded: source.recordCount
+        }
+      ]
+    };
+  }
+
+  _createMergeEvents(updatedSet, originalSet, source, mode, actor, timestamp, joinConfig = null) {
+    const events = [];
+    const mergeEventId = `evt_merge_${Date.now().toString(36)}`;
+
+    // Event: Source merged into set
+    events.push({
+      id: mergeEventId,
+      epistemicType: 'meant',
+      category: 'source_merged',
+      timestamp,
+      actor,
+      payload: {
+        setId: updatedSet.id,
+        setName: updatedSet.name,
+        sourceId: source.id,
+        sourceName: source.name,
+        mergeMode: mode,
+        recordsMerged: source.recordCount,
+        joinConfig
+      },
+      grounding: {
+        references: [
+          { id: source.id, kind: 'given' },
+          { id: originalSet.id, kind: 'meant' }
+        ],
+        frozenParams: {
+          mode,
+          sourceRecordCount: source.recordCount
+        },
+        kind: 'computational'
+      },
+      frame: {
+        claim: `Merged source "${source.name}" into set "${updatedSet.name}" using ${mode} mode`,
+        epistemicStatus: 'confirmed',
+        purpose: 'data_merge'
+      }
+    });
+
+    // Event: Set updated
+    events.push({
+      id: `evt_${updatedSet.id}_updated`,
+      epistemicType: 'meant',
+      category: 'set_updated',
+      timestamp,
+      actor,
+      payload: {
+        setId: updatedSet.id,
+        name: updatedSet.name,
+        fieldCount: updatedSet.fields.length,
+        recordCount: updatedSet.records.length,
+        mergedVia: mode
+      },
+      grounding: {
+        references: [
+          { eventId: mergeEventId, kind: 'computational' }
+        ],
+        derivation: updatedSet.derivation,
+        kind: 'computational'
+      },
+      frame: {
+        claim: `Updated set "${updatedSet.name}" with merged data`,
+        epistemicStatus: 'confirmed',
+        purpose: 'set_update'
+      }
+    });
+
+    return events;
+  }
+
+  _generateRecordId() {
+    return `rec_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`;
+  }
+}
+
+
+// ============================================================================
+// Add Source to Set UI - Modal for merging sources into sets
+// ============================================================================
+
+/**
+ * AddSourceToSetUI - Visual wizard for adding/merging sources into existing sets
+ *
+ * Features:
+ * - Select source to merge
+ * - Choose merge mode (append, union, join)
+ * - Visual field mapping interface
+ * - Preview merged results
+ * - Full provenance tracking
+ */
+class AddSourceToSetUI {
+  constructor(options = {}) {
+    this.sourceMerger = options.sourceMerger || new SourceMerger(options);
+    this.sourceStore = options.sourceStore;
+    this.container = null;
+    this._onComplete = null;
+    this._onCancel = null;
+
+    // State
+    this._targetSet = null;
+    this._selectedSourceId = null;
+    this._mergeMode = 'append';
+    this._fieldMapping = [];
+    this._joinConfig = {
+      type: 'left',
+      conditions: []
+    };
+    this._previewData = null;
+    this._step = 1; // 1: Select Source, 2: Map Fields, 3: Configure Join (optional), 4: Preview
+  }
+
+  /**
+   * Show the add source modal for a set
+   */
+  show(container, targetSet, options = {}) {
+    this.container = typeof container === 'string'
+      ? document.getElementById(container)
+      : container;
+
+    this._targetSet = targetSet;
+    this._onComplete = options.onComplete;
+    this._onCancel = options.onCancel;
+
+    // Reset state
+    this._selectedSourceId = null;
+    this._mergeMode = 'append';
+    this._fieldMapping = [];
+    this._joinConfig = { type: 'left', conditions: [] };
+    this._previewData = null;
+    this._step = 1;
+
+    this._render();
+    this._attachEventListeners();
+  }
+
+  hide() {
+    if (this.container) {
+      this.container.innerHTML = '';
+      this.container.style.display = 'none';
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Rendering
+  // --------------------------------------------------------------------------
+
+  _render() {
+    this.container.style.display = 'block';
+    this.container.innerHTML = `
+      <div class="asts-overlay">
+        <div class="asts-modal">
+          <div class="asts-header">
+            <h2><i class="ph ph-plus-circle"></i> Add Source to "${this._escapeHtml(this._targetSet.name)}"</h2>
+            <button class="asts-close-btn" id="asts-close-btn">
+              <i class="ph ph-x"></i>
+            </button>
+          </div>
+
+          <div class="asts-steps">
+            ${this._renderStepIndicators()}
+          </div>
+
+          <div class="asts-body">
+            ${this._renderCurrentStep()}
+          </div>
+
+          <div class="asts-footer">
+            ${this._renderFooterButtons()}
+          </div>
+        </div>
+      </div>
+
+      <style>
+        ${this._getStyles()}
+      </style>
+    `;
+  }
+
+  _renderStepIndicators() {
+    const steps = [
+      { num: 1, label: 'Select Source', icon: 'ph-file' },
+      { num: 2, label: 'Map Fields', icon: 'ph-arrows-left-right' },
+      { num: 3, label: 'Configure', icon: 'ph-gear' },
+      { num: 4, label: 'Preview', icon: 'ph-eye' }
+    ];
+
+    return `
+      <div class="asts-step-indicators">
+        ${steps.map(step => `
+          <div class="asts-step-indicator ${this._step === step.num ? 'active' : ''} ${this._step > step.num ? 'completed' : ''}" data-step="${step.num}">
+            <div class="asts-step-icon">
+              <i class="ph ${step.icon}"></i>
+            </div>
+            <span class="asts-step-label">${step.label}</span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  _renderCurrentStep() {
+    switch (this._step) {
+      case 1: return this._renderSelectSourceStep();
+      case 2: return this._renderMapFieldsStep();
+      case 3: return this._renderConfigureStep();
+      case 4: return this._renderPreviewStep();
+      default: return '';
+    }
+  }
+
+  _renderSelectSourceStep() {
+    const sources = this.sourceStore ? this.sourceStore.getByStatus('active') : [];
+
+    return `
+      <div class="asts-select-source-step">
+        <div class="asts-section-header">
+          <h3><i class="ph ph-database"></i> Select a Source</h3>
+          <p class="asts-hint">Choose which imported data to merge into this set</p>
+        </div>
+
+        <div class="asts-merge-mode-section">
+          <label>Merge Mode</label>
+          <div class="asts-merge-modes">
+            <button class="asts-mode-btn ${this._mergeMode === 'append' ? 'active' : ''}" data-mode="append">
+              <i class="ph ph-arrow-down"></i>
+              <span class="asts-mode-label">Append</span>
+              <span class="asts-mode-desc">Add records to the end</span>
+            </button>
+            <button class="asts-mode-btn ${this._mergeMode === 'union' ? 'active' : ''}" data-mode="union">
+              <i class="ph ph-stack"></i>
+              <span class="asts-mode-label">Union</span>
+              <span class="asts-mode-desc">Stack all records together</span>
+            </button>
+            <button class="asts-mode-btn ${this._mergeMode === 'join' ? 'active' : ''}" data-mode="join">
+              <i class="ph ph-intersect"></i>
+              <span class="asts-mode-label">Join</span>
+              <span class="asts-mode-desc">Match on key fields</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="asts-sources-list">
+          ${sources.length === 0 ? `
+            <div class="asts-empty-state">
+              <i class="ph ph-file-dashed"></i>
+              <p>No sources available</p>
+              <span>Import data first to merge into this set</span>
+            </div>
+          ` : sources.map(source => `
+            <div class="asts-source-item ${this._selectedSourceId === source.id ? 'selected' : ''}"
+                 data-source-id="${source.id}">
+              <div class="asts-source-radio">
+                ${this._selectedSourceId === source.id
+                  ? '<i class="ph-fill ph-check-circle"></i>'
+                  : '<i class="ph ph-circle"></i>'}
+              </div>
+              <div class="asts-source-icon">
+                <i class="ph ${this._getSourceIcon(source)}"></i>
+              </div>
+              <div class="asts-source-info">
+                <span class="asts-source-name">${this._escapeHtml(source.name)}</span>
+                <span class="asts-source-meta">${source.recordCount} records • ${source.schema?.fields?.length || 0} fields</span>
+              </div>
+              <div class="asts-source-badge">GIVEN</div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="asts-current-set-info">
+          <div class="asts-info-card">
+            <i class="ph ph-table"></i>
+            <div>
+              <strong>Target: ${this._escapeHtml(this._targetSet.name)}</strong>
+              <p>${this._targetSet.records?.length || 0} records • ${this._targetSet.fields?.length || 0} fields</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderMapFieldsStep() {
+    const source = this.sourceStore?.get(this._selectedSourceId);
+    if (!source) return '<div class="asts-error">Source not found</div>';
+
+    const sourceFields = source.schema?.fields || [];
+    const targetFields = this._targetSet.fields || [];
+
+    // Auto-map if not already done
+    if (this._fieldMapping.length === 0) {
+      this._fieldMapping = this.sourceMerger.autoMapFields(sourceFields, targetFields);
+    }
+
+    return `
+      <div class="asts-map-fields-step">
+        <div class="asts-section-header">
+          <h3><i class="ph ph-arrows-left-right"></i> Map Fields</h3>
+          <p class="asts-hint">Define how source fields map to set fields</p>
+          <button class="asts-auto-map-btn" id="asts-auto-map">
+            <i class="ph ph-magic-wand"></i> Auto-Map
+          </button>
+        </div>
+
+        <div class="asts-field-mapping-header">
+          <div class="asts-fm-source">Source: ${this._escapeHtml(source.name)}</div>
+          <div class="asts-fm-arrow"><i class="ph ph-arrow-right"></i></div>
+          <div class="asts-fm-target">Target: ${this._escapeHtml(this._targetSet.name)}</div>
+        </div>
+
+        <div class="asts-field-mappings" id="asts-field-mappings">
+          ${this._fieldMapping.map((mapping, index) => this._renderFieldMapping(mapping, index, targetFields)).join('')}
+        </div>
+
+        <div class="asts-unmapped-info">
+          <i class="ph ph-info"></i>
+          <span>Unmapped fields will be skipped. Fields marked as "Create New" will add new columns to the set.</span>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderFieldMapping(mapping, index, targetFields) {
+    return `
+      <div class="asts-field-mapping-row" data-index="${index}">
+        <div class="asts-fm-source-field">
+          <span class="asts-field-name">${this._escapeHtml(mapping.sourceField)}</span>
+        </div>
+
+        <div class="asts-fm-arrow">
+          <i class="ph ph-arrow-right"></i>
+        </div>
+
+        <div class="asts-fm-target-field">
+          <select class="asts-target-select" data-index="${index}">
+            <option value="">-- Skip this field --</option>
+            <option value="__create_new__" ${mapping.createNew ? 'selected' : ''}>
+              ➕ Create new field
+            </option>
+            ${targetFields.map(f => `
+              <option value="${f.name}" ${mapping.targetField === f.name ? 'selected' : ''}>
+                ${this._escapeHtml(f.name)}
+              </option>
+            `).join('')}
+          </select>
+
+          ${mapping.createNew ? `
+            <div class="asts-new-field-config">
+              <input type="text" class="asts-new-field-name" data-index="${index}"
+                     placeholder="New field name"
+                     value="${this._escapeHtml(mapping.suggestedName || mapping.sourceField)}">
+              <select class="asts-new-field-type" data-index="${index}">
+                <option value="text" ${mapping.suggestedType === 'text' ? 'selected' : ''}>Text</option>
+                <option value="number" ${mapping.suggestedType === 'number' ? 'selected' : ''}>Number</option>
+                <option value="date" ${mapping.suggestedType === 'date' ? 'selected' : ''}>Date</option>
+                <option value="boolean" ${mapping.suggestedType === 'boolean' ? 'selected' : ''}>Boolean</option>
+              </select>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="asts-fm-confidence ${mapping.confidence >= 0.8 ? 'high' : mapping.confidence >= 0.5 ? 'medium' : 'low'}">
+          ${mapping.confidence ? `${Math.round(mapping.confidence * 100)}%` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  _renderConfigureStep() {
+    if (this._mergeMode !== 'join') {
+      // For append/union, just show summary
+      return `
+        <div class="asts-configure-step">
+          <div class="asts-section-header">
+            <h3><i class="ph ph-gear"></i> Merge Configuration</h3>
+            <p class="asts-hint">Review your merge settings</p>
+          </div>
+
+          <div class="asts-config-summary">
+            <div class="asts-summary-item">
+              <span class="asts-summary-label">Merge Mode</span>
+              <span class="asts-summary-value">${this._mergeMode.charAt(0).toUpperCase() + this._mergeMode.slice(1)}</span>
+            </div>
+            <div class="asts-summary-item">
+              <span class="asts-summary-label">Fields Mapped</span>
+              <span class="asts-summary-value">${this._fieldMapping.filter(m => m.targetField || m.createNew).length} of ${this._fieldMapping.length}</span>
+            </div>
+            <div class="asts-summary-item">
+              <span class="asts-summary-label">New Fields</span>
+              <span class="asts-summary-value">${this._fieldMapping.filter(m => m.createNew).length}</span>
+            </div>
+          </div>
+
+          <div class="asts-info-card">
+            <i class="ph ph-info"></i>
+            <div>
+              <strong>${this._mergeMode === 'append' ? 'Append Mode' : 'Union Mode'}</strong>
+              <p>${this._mergeMode === 'append'
+                ? 'New records will be added to the end of the set.'
+                : 'All records from the source will be stacked with existing records.'}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // For join mode, show join configuration
+    const source = this.sourceStore?.get(this._selectedSourceId);
+    const sourceFields = source?.schema?.fields || [];
+    const targetFields = this._targetSet.fields || [];
+
+    return `
+      <div class="asts-configure-step">
+        <div class="asts-section-header">
+          <h3><i class="ph ph-intersect"></i> Configure Join</h3>
+          <p class="asts-hint">Define how to match records between source and set</p>
+        </div>
+
+        <div class="asts-join-type-section">
+          <label>Join Type</label>
+          <div class="asts-join-types">
+            ${this._renderJoinTypeOption('left', 'Left Join', 'Keep all set records, match source', 'ph-align-left')}
+            ${this._renderJoinTypeOption('inner', 'Inner Join', 'Only matching records', 'ph-intersect')}
+            ${this._renderJoinTypeOption('right', 'Right Join', 'Keep all source records, match set', 'ph-align-right')}
+            ${this._renderJoinTypeOption('full', 'Full Join', 'All records from both', 'ph-arrows-out-line-horizontal')}
+          </div>
+        </div>
+
+        <div class="asts-join-conditions">
+          <label>Join Conditions</label>
+          <p class="asts-hint">Map fields to match records between sources</p>
+
+          <div class="asts-conditions-list" id="asts-conditions-list">
+            ${this._joinConfig.conditions.length === 0 ? `
+              <div class="asts-empty-conditions">
+                <i class="ph ph-link"></i>
+                <p>No join conditions defined</p>
+                <span>Add a condition to link records</span>
+              </div>
+            ` : this._joinConfig.conditions.map((cond, i) => this._renderJoinCondition(cond, i, targetFields, sourceFields)).join('')}
+          </div>
+
+          <button class="asts-add-condition-btn" id="asts-add-condition">
+            <i class="ph ph-plus"></i> Add Join Condition
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderJoinTypeOption(value, label, desc, icon) {
+    const isSelected = this._joinConfig.type === value;
+    return `
+      <button class="asts-join-type-btn ${isSelected ? 'active' : ''}" data-type="${value}">
+        <i class="ph ${icon}"></i>
+        <span class="asts-jt-label">${label}</span>
+        <span class="asts-jt-desc">${desc}</span>
+      </button>
+    `;
+  }
+
+  _renderJoinCondition(condition, index, targetFields, sourceFields) {
+    return `
+      <div class="asts-join-condition" data-index="${index}">
+        <select class="asts-cond-left-field" data-index="${index}">
+          <option value="">Set field...</option>
+          ${targetFields.map(f => `
+            <option value="${f.name}" ${condition.leftField === f.name ? 'selected' : ''}>
+              ${this._escapeHtml(f.name)}
+            </option>
+          `).join('')}
+        </select>
+
+        <select class="asts-cond-operator" data-index="${index}">
+          <option value="eq" ${condition.operator === 'eq' ? 'selected' : ''}>=</option>
+          <option value="contains" ${condition.operator === 'contains' ? 'selected' : ''}>contains</option>
+          <option value="starts" ${condition.operator === 'starts' ? 'selected' : ''}>starts with</option>
+          <option value="ends" ${condition.operator === 'ends' ? 'selected' : ''}>ends with</option>
+        </select>
+
+        <select class="asts-cond-right-field" data-index="${index}">
+          <option value="">Source field...</option>
+          ${sourceFields.map(f => `
+            <option value="${f.name}" ${condition.rightField === f.name ? 'selected' : ''}>
+              ${this._escapeHtml(f.name)}
+            </option>
+          `).join('')}
+        </select>
+
+        <button class="asts-remove-condition" data-index="${index}">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+    `;
+  }
+
+  _renderPreviewStep() {
+    // Get preview data if not already loaded
+    if (!this._previewData) {
+      this._loadPreview();
+    }
+
+    const preview = this._previewData;
+    const source = this.sourceStore?.get(this._selectedSourceId);
+
+    return `
+      <div class="asts-preview-step">
+        <div class="asts-section-header">
+          <h3><i class="ph ph-eye"></i> Preview Merge</h3>
+          <p class="asts-hint">Review the merged result before applying</p>
+          <button class="asts-refresh-preview-btn" id="asts-refresh-preview">
+            <i class="ph ph-arrows-clockwise"></i> Refresh
+          </button>
+        </div>
+
+        ${preview ? `
+          <div class="asts-preview-stats">
+            <div class="asts-stat-card">
+              <i class="ph ph-database"></i>
+              <div>
+                <span class="asts-stat-value">${preview.stats?.existingRecords || 0}</span>
+                <span class="asts-stat-label">Existing Records</span>
+              </div>
+            </div>
+            <div class="asts-stat-card">
+              <i class="ph ph-plus"></i>
+              <div>
+                <span class="asts-stat-value">+${preview.stats?.newRecords || preview.stats?.appendedRecords || preview.stats?.unionedRecords || 0}</span>
+                <span class="asts-stat-label">New Records</span>
+              </div>
+            </div>
+            <div class="asts-stat-card">
+              <i class="ph ph-equals"></i>
+              <div>
+                <span class="asts-stat-value">${preview.totalCount || 0}</span>
+                <span class="asts-stat-label">Total After Merge</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="asts-preview-table-container">
+            <table class="asts-preview-table">
+              <thead>
+                <tr>
+                  ${this._getPreviewFields().map(f => `
+                    <th>${this._escapeHtml(f.name)}</th>
+                  `).join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${(preview.previewRecords || []).slice(0, 20).map(record => `
+                  <tr>
+                    ${this._getPreviewFields().map(f => {
+                      const value = record.values ? record.values[f.name] : record[f.name];
+                      return `<td>${this._escapeHtml(String(value ?? ''))}</td>`;
+                    }).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            ${(preview.previewRecords || []).length > 20 ? `
+              <div class="asts-preview-more">
+                Showing 20 of ${preview.totalCount} records
+              </div>
+            ` : ''}
+          </div>
+        ` : `
+          <div class="asts-loading-preview">
+            <i class="ph ph-spinner"></i>
+            <span>Loading preview...</span>
+          </div>
+        `}
+
+        <div class="asts-merge-summary">
+          <div class="asts-info-card success">
+            <i class="ph ph-check-circle"></i>
+            <div>
+              <strong>Ready to Merge</strong>
+              <p>Merging "${source?.name || 'source'}" into "${this._targetSet.name}" using ${this._mergeMode} mode.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderFooterButtons() {
+    const canGoBack = this._step > 1;
+    const canGoNext = this._canAdvance();
+    const isLastStep = this._step === 4;
+
+    return `
+      <div class="asts-footer-buttons">
+        <button class="asts-btn asts-btn-cancel" id="asts-cancel">Cancel</button>
+        <div class="asts-footer-right">
+          ${canGoBack ? `
+            <button class="asts-btn asts-btn-secondary" id="asts-back">
+              <i class="ph ph-arrow-left"></i> Back
+            </button>
+          ` : ''}
+          ${isLastStep ? `
+            <button class="asts-btn asts-btn-primary" id="asts-apply" ${!canGoNext ? 'disabled' : ''}>
+              <i class="ph ph-check"></i> Apply Merge
+            </button>
+          ` : `
+            <button class="asts-btn asts-btn-primary" id="asts-next" ${!canGoNext ? 'disabled' : ''}>
+              Next <i class="ph ph-arrow-right"></i>
+            </button>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  // --------------------------------------------------------------------------
+  // Event Handlers
+  // --------------------------------------------------------------------------
+
+  _attachEventListeners() {
+    const modal = this.container.querySelector('.asts-modal');
+    if (!modal) return;
+
+    // Close button
+    modal.querySelector('#asts-close-btn')?.addEventListener('click', () => {
+      this.hide();
+      if (this._onCancel) this._onCancel();
+    });
+
+    // Cancel button
+    modal.querySelector('#asts-cancel')?.addEventListener('click', () => {
+      this.hide();
+      if (this._onCancel) this._onCancel();
+    });
+
+    // Navigation buttons
+    modal.querySelector('#asts-back')?.addEventListener('click', () => {
+      this._step = Math.max(1, this._step - 1);
+      this._render();
+      this._attachEventListeners();
+    });
+
+    modal.querySelector('#asts-next')?.addEventListener('click', () => {
+      if (this._canAdvance()) {
+        this._step = Math.min(4, this._step + 1);
+        this._previewData = null; // Reset preview when navigating
+        this._render();
+        this._attachEventListeners();
+      }
+    });
+
+    // Apply merge button
+    modal.querySelector('#asts-apply')?.addEventListener('click', () => {
+      this._applyMerge();
+    });
+
+    // Step-specific listeners
+    this._attachStepListeners(modal);
+  }
+
+  _attachStepListeners(modal) {
+    switch (this._step) {
+      case 1:
+        // Source selection
+        modal.querySelectorAll('.asts-source-item').forEach(item => {
+          item.addEventListener('click', () => {
+            this._selectedSourceId = item.dataset.sourceId;
+            this._fieldMapping = []; // Reset field mapping
+            this._render();
+            this._attachEventListeners();
+          });
+        });
+
+        // Merge mode selection
+        modal.querySelectorAll('.asts-mode-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this._mergeMode = btn.dataset.mode;
+            this._render();
+            this._attachEventListeners();
+          });
+        });
+        break;
+
+      case 2:
+        // Auto-map button
+        modal.querySelector('#asts-auto-map')?.addEventListener('click', () => {
+          const source = this.sourceStore?.get(this._selectedSourceId);
+          if (source) {
+            this._fieldMapping = this.sourceMerger.autoMapFields(
+              source.schema?.fields || [],
+              this._targetSet.fields || []
+            );
+            this._render();
+            this._attachEventListeners();
+          }
+        });
+
+        // Target field selects
+        modal.querySelectorAll('.asts-target-select').forEach(select => {
+          select.addEventListener('change', (e) => {
+            const index = parseInt(e.target.dataset.index);
+            const value = e.target.value;
+
+            if (value === '__create_new__') {
+              this._fieldMapping[index].targetField = null;
+              this._fieldMapping[index].createNew = true;
+              this._fieldMapping[index].suggestedName = this._fieldMapping[index].sourceField;
+              this._fieldMapping[index].suggestedType = 'text';
+            } else if (value === '') {
+              this._fieldMapping[index].targetField = null;
+              this._fieldMapping[index].createNew = false;
+            } else {
+              this._fieldMapping[index].targetField = value;
+              this._fieldMapping[index].createNew = false;
+            }
+
+            this._render();
+            this._attachEventListeners();
+          });
+        });
+
+        // New field name inputs
+        modal.querySelectorAll('.asts-new-field-name').forEach(input => {
+          input.addEventListener('change', (e) => {
+            const index = parseInt(e.target.dataset.index);
+            this._fieldMapping[index].suggestedName = e.target.value;
+          });
+        });
+
+        // New field type selects
+        modal.querySelectorAll('.asts-new-field-type').forEach(select => {
+          select.addEventListener('change', (e) => {
+            const index = parseInt(e.target.dataset.index);
+            this._fieldMapping[index].suggestedType = e.target.value;
+          });
+        });
+        break;
+
+      case 3:
+        // Join type buttons
+        modal.querySelectorAll('.asts-join-type-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            this._joinConfig.type = btn.dataset.type;
+            this._render();
+            this._attachEventListeners();
+          });
+        });
+
+        // Add condition button
+        modal.querySelector('#asts-add-condition')?.addEventListener('click', () => {
+          this._joinConfig.conditions.push({
+            leftField: '',
+            rightField: '',
+            operator: 'eq'
+          });
+          this._render();
+          this._attachEventListeners();
+        });
+
+        // Condition field selects
+        modal.querySelectorAll('.asts-cond-left-field, .asts-cond-right-field, .asts-cond-operator').forEach(select => {
+          select.addEventListener('change', (e) => {
+            const index = parseInt(e.target.dataset.index);
+            if (e.target.classList.contains('asts-cond-left-field')) {
+              this._joinConfig.conditions[index].leftField = e.target.value;
+            } else if (e.target.classList.contains('asts-cond-right-field')) {
+              this._joinConfig.conditions[index].rightField = e.target.value;
+            } else {
+              this._joinConfig.conditions[index].operator = e.target.value;
+            }
+          });
+        });
+
+        // Remove condition buttons
+        modal.querySelectorAll('.asts-remove-condition').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const index = parseInt(btn.dataset.index);
+            this._joinConfig.conditions.splice(index, 1);
+            this._render();
+            this._attachEventListeners();
+          });
+        });
+        break;
+
+      case 4:
+        // Refresh preview
+        modal.querySelector('#asts-refresh-preview')?.addEventListener('click', () => {
+          this._previewData = null;
+          this._loadPreview();
+          this._render();
+          this._attachEventListeners();
+        });
+        break;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Actions
+  // --------------------------------------------------------------------------
+
+  _canAdvance() {
+    switch (this._step) {
+      case 1:
+        return this._selectedSourceId !== null;
+      case 2:
+        return this._fieldMapping.some(m => m.targetField || m.createNew);
+      case 3:
+        if (this._mergeMode === 'join') {
+          return this._joinConfig.conditions.length > 0 &&
+                 this._joinConfig.conditions.every(c => c.leftField && c.rightField);
+        }
+        return true;
+      case 4:
+        return this._previewData?.success !== false;
+      default:
+        return false;
+    }
+  }
+
+  _loadPreview() {
+    this._previewData = this.sourceMerger.preview({
+      targetSet: this._targetSet,
+      sourceId: this._selectedSourceId,
+      mergeMode: this._mergeMode,
+      fieldMapping: this._fieldMapping,
+      joinConfig: this._joinConfig
+    }, 50);
+  }
+
+  _getPreviewFields() {
+    const existingFields = this._targetSet.fields || [];
+    const newFields = this._fieldMapping
+      .filter(m => m.createNew && m.suggestedName)
+      .map(m => ({ name: m.suggestedName, type: m.suggestedType || 'text' }));
+
+    return [...existingFields, ...newFields];
+  }
+
+  _applyMerge() {
+    try {
+      const result = this.sourceMerger.merge({
+        targetSet: this._targetSet,
+        sourceId: this._selectedSourceId,
+        mergeMode: this._mergeMode,
+        fieldMapping: this._fieldMapping,
+        joinConfig: this._joinConfig,
+        actor: 'user'
+      });
+
+      this.hide();
+
+      if (this._onComplete) {
+        this._onComplete(result);
+      }
+    } catch (error) {
+      console.error('Merge failed:', error);
+      // Show error in UI
+      const errorDiv = this.container.querySelector('.asts-merge-summary');
+      if (errorDiv) {
+        errorDiv.innerHTML = `
+          <div class="asts-info-card error">
+            <i class="ph ph-warning-circle"></i>
+            <div>
+              <strong>Merge Failed</strong>
+              <p>${this._escapeHtml(error.message)}</p>
+            </div>
+          </div>
+        `;
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Utilities
+  // --------------------------------------------------------------------------
+
+  _getSourceIcon(source) {
+    const type = source.fileIdentity?.mimeType || '';
+    if (type.includes('json')) return 'ph-brackets-curly';
+    if (type.includes('csv') || type.includes('excel') || type.includes('spreadsheet')) return 'ph-file-xls';
+    return 'ph-file';
+  }
+
+  _escapeHtml(text) {
+    if (typeof text !== 'string') return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  _getStyles() {
+    return `
+      .asts-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+      }
+
+      .asts-modal {
+        background: var(--bg-primary, #1a1a2e);
+        border-radius: 12px;
+        width: 90%;
+        max-width: 800px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        border: 1px solid var(--border-color, #2a2a4a);
+      }
+
+      .asts-header {
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--border-color, #2a2a4a);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .asts-header h2 {
+        margin: 0;
+        font-size: 18px;
+        color: var(--text-primary, #fff);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .asts-header h2 i {
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-close-btn {
+        background: none;
+        border: none;
+        color: var(--text-secondary, #888);
+        cursor: pointer;
+        padding: 8px;
+        border-radius: 6px;
+        transition: all 0.2s;
+      }
+
+      .asts-close-btn:hover {
+        background: var(--bg-hover, #2a2a4a);
+        color: var(--text-primary, #fff);
+      }
+
+      .asts-steps {
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--border-color, #2a2a4a);
+      }
+
+      .asts-step-indicators {
+        display: flex;
+        gap: 16px;
+        justify-content: center;
+      }
+
+      .asts-step-indicator {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        opacity: 0.5;
+        transition: all 0.2s;
+      }
+
+      .asts-step-indicator.active {
+        opacity: 1;
+      }
+
+      .asts-step-indicator.completed {
+        opacity: 0.8;
+      }
+
+      .asts-step-icon {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--bg-secondary, #252542);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-secondary, #888);
+        border: 2px solid transparent;
+      }
+
+      .asts-step-indicator.active .asts-step-icon {
+        background: var(--accent, #6c5ce7);
+        color: white;
+        border-color: var(--accent, #6c5ce7);
+      }
+
+      .asts-step-indicator.completed .asts-step-icon {
+        background: var(--success, #00b894);
+        color: white;
+      }
+
+      .asts-step-label {
+        font-size: 12px;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-step-indicator.active .asts-step-label {
+        color: var(--text-primary, #fff);
+      }
+
+      .asts-body {
+        flex: 1;
+        padding: 24px;
+        overflow-y: auto;
+      }
+
+      .asts-section-header {
+        margin-bottom: 20px;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .asts-section-header h3 {
+        margin: 0;
+        font-size: 16px;
+        color: var(--text-primary, #fff);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+      }
+
+      .asts-hint {
+        color: var(--text-secondary, #888);
+        font-size: 13px;
+        margin: 0;
+        width: 100%;
+      }
+
+      .asts-merge-modes {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .asts-mode-btn {
+        flex: 1;
+        padding: 16px;
+        background: var(--bg-secondary, #252542);
+        border: 2px solid var(--border-color, #2a2a4a);
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s;
+        color: var(--text-primary, #fff);
+      }
+
+      .asts-mode-btn:hover {
+        border-color: var(--accent, #6c5ce7);
+      }
+
+      .asts-mode-btn.active {
+        background: rgba(108, 92, 231, 0.1);
+        border-color: var(--accent, #6c5ce7);
+      }
+
+      .asts-mode-btn i {
+        font-size: 24px;
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-mode-label {
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .asts-mode-desc {
+        font-size: 11px;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-sources-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .asts-source-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        background: var(--bg-secondary, #252542);
+        border: 2px solid transparent;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .asts-source-item:hover {
+        border-color: var(--border-color, #2a2a4a);
+      }
+
+      .asts-source-item.selected {
+        background: rgba(108, 92, 231, 0.1);
+        border-color: var(--accent, #6c5ce7);
+      }
+
+      .asts-source-radio {
+        color: var(--text-secondary, #888);
+        font-size: 18px;
+      }
+
+      .asts-source-item.selected .asts-source-radio {
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-source-icon {
+        width: 32px;
+        height: 32px;
+        background: var(--bg-primary, #1a1a2e);
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-source-info {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .asts-source-name {
+        color: var(--text-primary, #fff);
+        font-weight: 500;
+      }
+
+      .asts-source-meta {
+        font-size: 12px;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-source-badge {
+        font-size: 10px;
+        padding: 2px 6px;
+        background: rgba(0, 184, 148, 0.2);
+        color: var(--success, #00b894);
+        border-radius: 4px;
+        font-weight: 600;
+      }
+
+      .asts-current-set-info {
+        margin-top: 20px;
+      }
+
+      .asts-info-card {
+        padding: 16px;
+        background: var(--bg-secondary, #252542);
+        border-radius: 8px;
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .asts-info-card i {
+        font-size: 24px;
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-info-card strong {
+        color: var(--text-primary, #fff);
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .asts-info-card p {
+        margin: 0;
+        font-size: 13px;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-info-card.success {
+        background: rgba(0, 184, 148, 0.1);
+        border: 1px solid rgba(0, 184, 148, 0.3);
+      }
+
+      .asts-info-card.success i {
+        color: var(--success, #00b894);
+      }
+
+      .asts-info-card.error {
+        background: rgba(255, 107, 107, 0.1);
+        border: 1px solid rgba(255, 107, 107, 0.3);
+      }
+
+      .asts-info-card.error i {
+        color: var(--danger, #ff6b6b);
+      }
+
+      .asts-auto-map-btn {
+        padding: 8px 16px;
+        background: var(--bg-secondary, #252542);
+        border: 1px solid var(--border-color, #2a2a4a);
+        border-radius: 6px;
+        color: var(--text-primary, #fff);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        transition: all 0.2s;
+      }
+
+      .asts-auto-map-btn:hover {
+        background: var(--bg-hover, #2a2a4a);
+      }
+
+      .asts-field-mapping-header {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 16px;
+        background: var(--bg-secondary, #252542);
+        border-radius: 8px 8px 0 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-fm-source, .asts-fm-target {
+        flex: 1;
+      }
+
+      .asts-fm-arrow {
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-field-mappings {
+        border: 1px solid var(--border-color, #2a2a4a);
+        border-top: none;
+        border-radius: 0 0 8px 8px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+
+      .asts-field-mapping-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color, #2a2a4a);
+      }
+
+      .asts-field-mapping-row:last-child {
+        border-bottom: none;
+      }
+
+      .asts-fm-source-field {
+        flex: 1;
+        color: var(--text-primary, #fff);
+      }
+
+      .asts-fm-target-field {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .asts-target-select, .asts-new-field-name, .asts-new-field-type {
+        width: 100%;
+        padding: 8px 12px;
+        background: var(--bg-secondary, #252542);
+        border: 1px solid var(--border-color, #2a2a4a);
+        border-radius: 6px;
+        color: var(--text-primary, #fff);
+        font-size: 13px;
+      }
+
+      .asts-new-field-config {
+        display: flex;
+        gap: 8px;
+      }
+
+      .asts-new-field-name {
+        flex: 1;
+      }
+
+      .asts-new-field-type {
+        width: 100px;
+      }
+
+      .asts-fm-confidence {
+        width: 50px;
+        text-align: center;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .asts-fm-confidence.high { color: var(--success, #00b894); }
+      .asts-fm-confidence.medium { color: var(--warning, #fdcb6e); }
+      .asts-fm-confidence.low { color: var(--text-secondary, #888); }
+
+      .asts-unmapped-info {
+        margin-top: 16px;
+        padding: 12px;
+        background: rgba(108, 92, 231, 0.1);
+        border-radius: 6px;
+        font-size: 12px;
+        color: var(--text-secondary, #888);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .asts-unmapped-info i {
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-config-summary {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+
+      .asts-summary-item {
+        display: flex;
+        justify-content: space-between;
+        padding: 12px 16px;
+        background: var(--bg-secondary, #252542);
+        border-radius: 6px;
+      }
+
+      .asts-summary-label {
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-summary-value {
+        color: var(--text-primary, #fff);
+        font-weight: 600;
+      }
+
+      .asts-join-types {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+        margin-bottom: 20px;
+      }
+
+      .asts-join-type-btn {
+        padding: 12px;
+        background: var(--bg-secondary, #252542);
+        border: 2px solid var(--border-color, #2a2a4a);
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        transition: all 0.2s;
+        color: var(--text-primary, #fff);
+      }
+
+      .asts-join-type-btn:hover {
+        border-color: var(--accent, #6c5ce7);
+      }
+
+      .asts-join-type-btn.active {
+        background: rgba(108, 92, 231, 0.1);
+        border-color: var(--accent, #6c5ce7);
+      }
+
+      .asts-join-type-btn i {
+        font-size: 20px;
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-jt-label {
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .asts-jt-desc {
+        font-size: 10px;
+        color: var(--text-secondary, #888);
+        text-align: center;
+      }
+
+      .asts-conditions-list {
+        border: 1px solid var(--border-color, #2a2a4a);
+        border-radius: 8px;
+        margin-bottom: 12px;
+      }
+
+      .asts-empty-conditions {
+        padding: 24px;
+        text-align: center;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-empty-conditions i {
+        font-size: 32px;
+        margin-bottom: 8px;
+        display: block;
+      }
+
+      .asts-empty-conditions p {
+        margin: 0 0 4px 0;
+        color: var(--text-primary, #fff);
+      }
+
+      .asts-empty-conditions span {
+        font-size: 12px;
+      }
+
+      .asts-join-condition {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color, #2a2a4a);
+      }
+
+      .asts-join-condition:last-child {
+        border-bottom: none;
+      }
+
+      .asts-cond-left-field, .asts-cond-right-field {
+        flex: 1;
+        padding: 8px 12px;
+        background: var(--bg-secondary, #252542);
+        border: 1px solid var(--border-color, #2a2a4a);
+        border-radius: 6px;
+        color: var(--text-primary, #fff);
+        font-size: 13px;
+      }
+
+      .asts-cond-operator {
+        width: 100px;
+        padding: 8px;
+        background: var(--bg-secondary, #252542);
+        border: 1px solid var(--border-color, #2a2a4a);
+        border-radius: 6px;
+        color: var(--text-primary, #fff);
+        font-size: 13px;
+        text-align: center;
+      }
+
+      .asts-remove-condition {
+        padding: 8px;
+        background: none;
+        border: none;
+        color: var(--danger, #ff6b6b);
+        cursor: pointer;
+        border-radius: 4px;
+        transition: all 0.2s;
+      }
+
+      .asts-remove-condition:hover {
+        background: rgba(255, 107, 107, 0.1);
+      }
+
+      .asts-add-condition-btn {
+        padding: 10px 16px;
+        background: var(--bg-secondary, #252542);
+        border: 1px dashed var(--border-color, #2a2a4a);
+        border-radius: 6px;
+        color: var(--text-secondary, #888);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        transition: all 0.2s;
+        width: 100%;
+      }
+
+      .asts-add-condition-btn:hover {
+        border-color: var(--accent, #6c5ce7);
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-preview-stats {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .asts-stat-card {
+        padding: 16px;
+        background: var(--bg-secondary, #252542);
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .asts-stat-card i {
+        font-size: 24px;
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-stat-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--text-primary, #fff);
+        display: block;
+      }
+
+      .asts-stat-label {
+        font-size: 12px;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-preview-table-container {
+        border: 1px solid var(--border-color, #2a2a4a);
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 20px;
+      }
+
+      .asts-preview-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .asts-preview-table th {
+        padding: 10px 12px;
+        background: var(--bg-secondary, #252542);
+        color: var(--text-secondary, #888);
+        font-weight: 600;
+        text-align: left;
+        border-bottom: 1px solid var(--border-color, #2a2a4a);
+      }
+
+      .asts-preview-table td {
+        padding: 10px 12px;
+        color: var(--text-primary, #fff);
+        border-bottom: 1px solid var(--border-color, #2a2a4a);
+        max-width: 200px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .asts-preview-table tbody tr:hover {
+        background: var(--bg-hover, #2a2a4a);
+      }
+
+      .asts-preview-more {
+        padding: 12px;
+        text-align: center;
+        color: var(--text-secondary, #888);
+        font-size: 12px;
+        background: var(--bg-secondary, #252542);
+      }
+
+      .asts-loading-preview {
+        padding: 48px;
+        text-align: center;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-loading-preview i {
+        font-size: 32px;
+        animation: spin 1s linear infinite;
+        display: block;
+        margin-bottom: 12px;
+      }
+
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      .asts-refresh-preview-btn {
+        padding: 8px 16px;
+        background: var(--bg-secondary, #252542);
+        border: 1px solid var(--border-color, #2a2a4a);
+        border-radius: 6px;
+        color: var(--text-primary, #fff);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        transition: all 0.2s;
+      }
+
+      .asts-refresh-preview-btn:hover {
+        background: var(--bg-hover, #2a2a4a);
+      }
+
+      .asts-merge-summary {
+        margin-top: 20px;
+      }
+
+      .asts-footer {
+        padding: 16px 24px;
+        border-top: 1px solid var(--border-color, #2a2a4a);
+      }
+
+      .asts-footer-buttons {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .asts-footer-right {
+        display: flex;
+        gap: 12px;
+      }
+
+      .asts-btn {
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s;
+        border: none;
+      }
+
+      .asts-btn-cancel {
+        background: none;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-btn-cancel:hover {
+        color: var(--text-primary, #fff);
+      }
+
+      .asts-btn-secondary {
+        background: var(--bg-secondary, #252542);
+        color: var(--text-primary, #fff);
+        border: 1px solid var(--border-color, #2a2a4a);
+      }
+
+      .asts-btn-secondary:hover {
+        background: var(--bg-hover, #2a2a4a);
+      }
+
+      .asts-btn-primary {
+        background: var(--accent, #6c5ce7);
+        color: white;
+      }
+
+      .asts-btn-primary:hover:not(:disabled) {
+        background: var(--accent-hover, #5b4cdb);
+      }
+
+      .asts-btn-primary:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .asts-empty-state {
+        padding: 48px;
+        text-align: center;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-empty-state i {
+        font-size: 48px;
+        margin-bottom: 16px;
+        display: block;
+      }
+
+      .asts-empty-state p {
+        margin: 0 0 8px 0;
+        color: var(--text-primary, #fff);
+        font-size: 16px;
+      }
+
+      .asts-empty-state span {
+        font-size: 13px;
+      }
+    `;
+  }
+}
+
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -8625,6 +10796,8 @@ if (typeof window !== 'undefined') {
   window.FolderStore = FolderStore;
   window.AdvancedFilterBuilder = AdvancedFilterBuilder;
   window.SetJoinFilterCreator = SetJoinFilterCreator;
+  window.SourceMerger = SourceMerger;
+  window.AddSourceToSetUI = AddSourceToSetUI;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
@@ -8637,6 +10810,8 @@ if (typeof module !== 'undefined' && module.exports) {
     DataPipelineUI,
     FolderStore,
     AdvancedFilterBuilder,
-    SetJoinFilterCreator
+    SetJoinFilterCreator,
+    SourceMerger,
+    AddSourceToSetUI
   };
 }

@@ -2591,6 +2591,67 @@ class EODataWorkbench {
   }
 
   /**
+   * Show modal to add a source to an existing set
+   * @param {string} setId - The set ID to add source to
+   */
+  _showAddSourceToSetModal(setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) {
+      this._showToast('Set not found', 'error');
+      return;
+    }
+
+    // Ensure we have the AddSourceToSetUI class available
+    if (typeof AddSourceToSetUI === 'undefined') {
+      this._showToast('Source merging feature not available', 'error');
+      return;
+    }
+
+    // Create container for the modal if it doesn't exist
+    let container = document.getElementById('add-source-to-set-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'add-source-to-set-container';
+      document.body.appendChild(container);
+    }
+
+    // Create the UI instance
+    const addSourceUI = new AddSourceToSetUI({
+      sourceStore: this.sourceStore,
+      sourceMerger: new SourceMerger({
+        sourceStore: this.sourceStore,
+        eventStore: this._getOrCreateEventStore()
+      })
+    });
+
+    // Show the modal
+    addSourceUI.show(container, set, {
+      onComplete: (result) => {
+        // Update the set with merged data
+        const setIndex = this.sets.findIndex(s => s.id === setId);
+        if (setIndex !== -1) {
+          this.sets[setIndex] = result.set;
+          this.currentDataset = result.set;
+
+          // Refresh the UI
+          this._renderSetsNavFlat();
+          this._renderMainContent();
+
+          // Show success toast
+          const stats = result.stats;
+          const message = stats.joinedRecords !== undefined
+            ? `Joined ${stats.sourceRecords} records (${stats.joinedRecords} after ${stats.joinType} join)`
+            : `Added ${stats.appendedRecords || stats.unionedRecords} records to set`;
+          this._showToast(message, 'success');
+        }
+      },
+      onCancel: () => {
+        // Nothing to do on cancel
+      }
+    });
+  }
+
+  /**
    * Create views from unique column values
    * @param {string} setId - The set ID
    * @param {string} fieldId - The field ID to filter by
@@ -20751,6 +20812,7 @@ class EODataWorkbench {
 
     const set = this.sets.find(s => s.id === setId);
     const hasRecords = set && set.records && set.records.length > 0;
+    const hasSources = this.sourceStore && this.sourceStore.getByStatus('active').length > 0;
 
     menu.innerHTML = `
       <div class="context-menu-item" data-action="rename">
@@ -20762,6 +20824,10 @@ class EODataWorkbench {
         <span>Duplicate</span>
       </div>
       <div class="context-menu-divider"></div>
+      <div class="context-menu-item ${!hasSources ? 'disabled' : ''}" data-action="add-source" ${!hasSources ? 'title="Import a source first"' : ''}>
+        <i class="ph ph-plus-circle"></i>
+        <span>Add Source...</span>
+      </div>
       <div class="context-menu-item ${!hasRecords ? 'disabled' : ''}" data-action="create-views-from-column" ${!hasRecords ? 'title="Requires records in the set"' : ''}>
         <i class="ph ph-columns"></i>
         <span>Create views from column...</span>
@@ -20807,6 +20873,11 @@ class EODataWorkbench {
             break;
           case 'duplicate':
             this._duplicateSet(setId);
+            break;
+          case 'add-source':
+            if (!item.classList.contains('disabled')) {
+              this._showAddSourceToSetModal(setId);
+            }
             break;
           case 'create-views-from-column':
             if (!item.classList.contains('disabled')) {
