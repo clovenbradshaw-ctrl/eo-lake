@@ -426,8 +426,16 @@ class SetConfig {
     this.sourceBindings = options.sourceBindings || [];
 
     // Schema is an interpretation of entity structure
+    // Per CORE_ARCHITECTURE.md: Fields can have semanticBinding to Definition terms
+    // semanticBinding: { definitionId: "def_schema_org", termId: "Organization" }
     this.schema = {
-      fields: options.schema?.fields || []
+      fields: (options.schema?.fields || []).map(field => ({
+        ...field,
+        // Preserve or initialize semanticBinding
+        // Format: { definitionId: string, termId: string|null }
+        // termId can be null if bound to the whole vocabulary
+        semanticBinding: field.semanticBinding || null
+      }))
     };
 
     // Rule 6: Coherence constraints
@@ -475,6 +483,167 @@ class SetConfig {
     }
 
     return { valid: errors.length === 0, errors };
+  }
+
+  // --------------------------------------------------------------------------
+  // Semantic Binding Methods (CORE_ARCHITECTURE.md Compliance)
+  // EO Operator Norm: operator(target, context, [frame])
+  // --------------------------------------------------------------------------
+
+  /**
+   * Bind a field to a Definition term
+   *
+   * EO Operator Norm: bindField(target, context, frame)
+   * - target: The field to bind
+   * - context: The Definition and term to bind to
+   * - frame: Epistemic frame (why this binding was made)
+   *
+   * Per CORE_ARCHITECTURE.md:
+   * - Fields can optionally bind to Definition terms for semantic grounding
+   * - Binding is optional (fields remain valid without it)
+   *
+   * @param {Object} target - { fieldId: string } - ID of the field to bind
+   * @param {Object} context - { definitionId: string, termId: string|null } - Binding context
+   * @param {Object} [frame] - { actor: string, method: string, reason: string } - Epistemic frame
+   * @returns {Object} Result with success status and bound field
+   */
+  bindField(target, context, frame = {}) {
+    const { fieldId } = target;
+    const { definitionId, termId = null } = context;
+    const { actor = 'system', method = 'manual_binding', reason = null } = frame;
+
+    const field = this.schema.fields.find(f => f.id === fieldId);
+    if (!field) {
+      return { success: false, error: 'Field not found', fieldId };
+    }
+
+    field.semanticBinding = {
+      definitionId,
+      termId,
+      boundAt: new Date().toISOString(),
+      boundBy: actor,
+      method,
+      reason
+    };
+    this.updatedAt = new Date().toISOString();
+
+    return { success: true, field };
+  }
+
+  /**
+   * Remove semantic binding from a field
+   *
+   * EO Operator Norm: unbindField(target, context, frame)
+   *
+   * @param {Object} target - { fieldId: string } - ID of the field to unbind
+   * @param {Object} [context] - Context (unused, for API consistency)
+   * @param {Object} [frame] - { actor: string, reason: string } - Epistemic frame
+   * @returns {Object} Result with success status
+   */
+  unbindField(target, context = {}, frame = {}) {
+    const { fieldId } = target;
+    const { actor = 'system', reason = null } = frame;
+
+    const field = this.schema.fields.find(f => f.id === fieldId);
+    if (!field) {
+      return { success: false, error: 'Field not found', fieldId };
+    }
+
+    const previousBinding = field.semanticBinding;
+    field.semanticBinding = null;
+    this.updatedAt = new Date().toISOString();
+
+    return { success: true, field, previousBinding };
+  }
+
+  /**
+   * Get all fields with semantic bindings
+   *
+   * @returns {Array} Fields that have semantic bindings
+   */
+  getBoundFields() {
+    return this.schema.fields.filter(f => f.semanticBinding !== null);
+  }
+
+  /**
+   * Get fields bound to a specific Definition
+   *
+   * @param {string} definitionId - ID of the Definition
+   * @returns {Array} Fields bound to that Definition
+   */
+  getFieldsByDefinition(definitionId) {
+    return this.schema.fields.filter(
+      f => f.semanticBinding?.definitionId === definitionId
+    );
+  }
+
+  /**
+   * Get binding count for sidebar display
+   *
+   * Per CORE_ARCHITECTURE.md sidebar spec:
+   * "Evictions (180 records) └─ 4 bindings: 🌐🌐📋📐"
+   *
+   * @returns {number} Count of fields with semantic bindings
+   */
+  getBindingCount() {
+    return this.getBoundFields().length;
+  }
+
+  /**
+   * Add a new field to the schema
+   *
+   * EO Operator Norm: addField(target, context, frame)
+   *
+   * @param {Object} target - { setId: this.id } - The set to add field to (implicit)
+   * @param {Object} context - Field definition { name, type, isPrimary, etc. }
+   * @param {Object} [frame] - { actor: string } - Epistemic frame
+   * @returns {Object} The added field
+   */
+  addField(target, context = {}, frame = {}) {
+    // Handle legacy single-argument call: addField(fieldDef)
+    const fieldDef = context.name ? context : target;
+    const { actor = 'system' } = context.name ? frame : (context || {});
+
+    const newField = {
+      id: fieldDef.id || generateViewId('fld'),
+      name: fieldDef.name,
+      type: fieldDef.type || 'text',
+      isPrimary: fieldDef.isPrimary || false,
+      semanticBinding: fieldDef.semanticBinding || null,
+      createdAt: new Date().toISOString(),
+      createdBy: actor,
+      ...fieldDef
+    };
+    this.schema.fields.push(newField);
+    this.updatedAt = new Date().toISOString();
+    return newField;
+  }
+
+  /**
+   * Update a field in the schema
+   *
+   * EO Operator Norm: updateField(target, context, frame)
+   *
+   * @param {Object} target - { fieldId: string } - ID of the field to update
+   * @param {Object} context - Field updates to apply
+   * @param {Object} [frame] - { actor: string } - Epistemic frame
+   * @returns {Object|null} The updated field or null if not found
+   */
+  updateField(target, context = {}, frame = {}) {
+    // Handle legacy single-argument call: updateField(fieldId, updates)
+    const fieldId = typeof target === 'string' ? target : target.fieldId;
+    const updates = typeof target === 'string' ? context : context;
+    const { actor = 'system' } = frame;
+
+    const field = this.schema.fields.find(f => f.id === fieldId);
+    if (!field) return null;
+
+    Object.assign(field, updates, {
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor
+    });
+    this.updatedAt = new Date().toISOString();
+    return field;
   }
 
   toJSON() {

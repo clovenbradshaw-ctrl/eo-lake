@@ -499,8 +499,66 @@ function validateEventStructure(event) {
 
 /**
  * Standard event categories for typed events
+ *
+ * Per CORE_ARCHITECTURE.md Event Store Summary:
+ * | Category | Type | When |
+ * |----------|------|------|
+ * | project_created | meant | User creates new project |
+ * | source_created | given | File uploaded, API connected, or null source |
+ * | source_schema_modified | given | Column added/renamed |
+ * | record_created | given | Row imported or user adds row |
+ * | record_updated | given | User edits a cell |
+ * | definition_created | meant | Vocabulary imported or custom created |
+ * | semantic_binding_created | meant | Field bound to Definition term |
+ * | set_created | meant | Schema defined over a Source |
+ * | lens_created | meant | Default or pivoted slice of Set |
+ * | view_created | meant | Visualization config for a Lens |
  */
 const EventCategory = Object.freeze({
+  // ─────────────────────────────────────────────────────────────────────────
+  // CORE_ARCHITECTURE.md Event Categories
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Project (Meant - organizational container)
+  PROJECT_CREATED: 'project_created',
+  PROJECT_UPDATED: 'project_updated',
+  PROJECT_ARCHIVED: 'project_archived',
+
+  // Source (Given - immutable import origin)
+  SOURCE_CREATED: 'source_created',
+  SOURCE_SCHEMA_MODIFIED: 'source_schema_modified',
+
+  // Records (Given - data events)
+  RECORD_CREATED: 'record_created',
+  RECORD_UPDATED: 'record_updated',
+
+  // Definition (Meant - vocabulary for semantic grounding)
+  DEFINITION_CREATED: 'definition_created',
+  DEFINITION_UPDATED: 'definition_updated',
+  DEFINITION_DEPRECATED: 'definition_deprecated',
+
+  // Semantic Binding (Meant - field bound to Definition term)
+  SEMANTIC_BINDING_CREATED: 'semantic_binding_created',
+  SEMANTIC_BINDING_UPDATED: 'semantic_binding_updated',
+  SEMANTIC_BINDING_REMOVED: 'semantic_binding_removed',
+
+  // Set (Meant - schema defined over a Source)
+  SET_CREATED: 'set_created',
+  SET_UPDATED: 'set_updated',
+  SET_SCHEMA_UPDATED: 'set_schema_updated',
+
+  // Lens (Meant - data slice of Set)
+  LENS_CREATED: 'lens_created',
+  LENS_UPDATED: 'lens_updated',
+
+  // View (Meant - visualization of a Lens)
+  VIEW_CREATED: 'view_created',
+  VIEW_UPDATED: 'view_updated',
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Legacy/Extended Categories
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Given categories
   RAW_DATA: 'raw_data',
   IMPORT: 'import',

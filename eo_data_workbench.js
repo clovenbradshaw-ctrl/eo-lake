@@ -300,12 +300,29 @@ function generateId() {
 
 /**
  * Create a new Set (table/collection)
+ *
+ * Per CORE_ARCHITECTURE.md:
+ * - A Set always binds to at least one Source
+ * - Sets have typed schema with optional semantic bindings
+ * - When created, auto-creates default Lens and View
+ *
+ * @param {string} name - Set name
+ * @param {string} icon - Icon class
+ * @param {Object} options - Additional options
+ * @param {string} options.sourceId - Source ID for sourceBindings (optional for scratch sets)
+ * @param {string} options.sourceType - 'file', 'api', 'scrape', or 'null'
  */
-function createSet(name, icon = 'ph-table') {
+function createSet(name, icon = 'ph-table', options = {}) {
+  const setId = generateId();
+  const { sourceId = null, sourceType = 'null' } = options;
+
   return {
-    id: generateId(),
+    id: setId,
     name,
     icon,
+    // CORE_ARCHITECTURE.md: A Set always binds to at least one Source
+    // sourceBindings: [{ sourceId: "src_001", mapping: "direct" }]
+    sourceBindings: sourceId ? [{ sourceId, mapping: 'direct' }] : [],
     fields: [
       createField('Name', FieldTypes.TEXT, { isPrimary: true })
     ],
@@ -314,6 +331,11 @@ function createSet(name, icon = 'ph-table') {
       createView('All Records', 'table')
     ],
     lenses: [], // Lenses are sub-objects of sets, pivoted around a particular field
+    // Dataset provenance for tracking origin
+    datasetProvenance: {
+      origin: sourceType === 'null' ? 'scratch' : 'import',
+      sourceType: sourceType
+    },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -341,6 +363,10 @@ function createLens(name, setId, pivotFieldId, pivotValue, icon = 'ph-funnel') {
 
 /**
  * Create a new Field
+ *
+ * Per CORE_ARCHITECTURE.md:
+ * - Fields can have semanticBinding to Definition terms for semantic grounding
+ * - semanticBinding: { definitionId: string, termId: string|null }
  */
 function createField(name, type, options = {}) {
   const field = {
@@ -349,6 +375,9 @@ function createField(name, type, options = {}) {
     type,
     width: options.width || 200,
     isPrimary: options.isPrimary || false,
+    // CORE_ARCHITECTURE.md: Optional semantic binding to Definition term
+    // semanticBinding: { definitionId: "def_schema_org", termId: "Organization" }
+    semanticBinding: options.semanticBinding || null,
     options: {}
   };
 
