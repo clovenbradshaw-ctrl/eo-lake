@@ -450,6 +450,7 @@ class EODataWorkbench {
     this.currentSourceId = null; // Track when viewing a source (GIVEN data)
     this.currentDefinitionId = null; // Track when viewing a definition (DICT)
     this.currentExportId = null; // Track when viewing an export (FROZEN)
+    this.isViewingDefinitions = false; // Track when viewing definitions tab
     this.showingSetFields = false; // Track when showing set fields panel (like Airtable's "Manage Fields")
     this.showingSetDetail = false; // Track when showing set detail view (Input → Transformation → Output)
     this.lastViewPerSet = {}; // Remember last active view for each set
@@ -7430,6 +7431,439 @@ class EODataWorkbench {
   }
 
   // ==========================================================================
+  // Definitions Tab View - File Explorer Style
+  // ==========================================================================
+
+  /**
+   * Show definitions as a file explorer view in the main content area
+   * Triggered when clicking the Definitions tab
+   */
+  _showDefinitionsTableView() {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    // Set state flags
+    this.isViewingDefinitions = true;
+    this.currentSourceId = null;
+    this.currentSetId = null;
+    this.currentDefinitionId = null;
+
+    // Get all active definitions
+    const activeDefinitions = (this.definitions || []).filter(d => d.status !== 'archived');
+
+    // Group definitions by format type
+    const groupedByFormat = {};
+    activeDefinitions.forEach(def => {
+      const format = def.format || def.type || 'other';
+      const formatLabel = this._getDefinitionFormatLabel(format);
+      if (!groupedByFormat[formatLabel]) {
+        groupedByFormat[formatLabel] = [];
+      }
+      groupedByFormat[formatLabel].push(def);
+    });
+
+    // Sort groups and definitions within groups
+    const sortedGroups = Object.keys(groupedByFormat).sort();
+
+    // Update breadcrumb
+    this._updateBreadcrumb({
+      workspace: this._getCurrentWorkspaceName(),
+      set: 'Definitions',
+      view: 'Explorer'
+    });
+
+    // Clear set/view selection in sidebar
+    document.querySelectorAll('.set-item, .source-item, .definition-item').forEach(item => {
+      item.classList.remove('active');
+    });
+
+    // Build the file explorer HTML
+    contentArea.innerHTML = `
+      <div class="definitions-explorer-view">
+        <!-- Header -->
+        <div class="definitions-explorer-header">
+          <div class="definitions-explorer-title">
+            <div class="definitions-explorer-icon">
+              <i class="ph ph-book-open"></i>
+            </div>
+            <div class="definitions-explorer-info">
+              <h2>
+                <span>Definitions</span>
+                <span class="dict-badge">
+                  <i class="ph ph-book-bookmark"></i>
+                  DICT
+                </span>
+              </h2>
+              <div class="definitions-explorer-meta">
+                ${activeDefinitions.length} definition${activeDefinitions.length !== 1 ? 's' : ''} available
+              </div>
+            </div>
+          </div>
+          <div class="definitions-explorer-actions">
+            <button class="source-action-btn" id="defs-table-import-btn" title="Import from URI">
+              <i class="ph ph-link"></i>
+              <span>Import URI</span>
+            </button>
+            <button class="source-action-btn" id="defs-table-new-btn" title="Create new definition">
+              <i class="ph ph-plus"></i>
+              <span>New</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="definitions-explorer-toolbar">
+          <div class="definitions-explorer-search">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" id="defs-explorer-search-input" placeholder="Search definitions...">
+          </div>
+          <div class="definitions-explorer-view-toggle">
+            <button class="view-toggle-btn active" data-view="tree" title="Tree view">
+              <i class="ph ph-tree-structure"></i>
+            </button>
+            <button class="view-toggle-btn" data-view="grid" title="Grid view">
+              <i class="ph ph-grid-four"></i>
+            </button>
+          </div>
+          <div class="definitions-explorer-count">
+            ${activeDefinitions.length} definition${activeDefinitions.length !== 1 ? 's' : ''}
+          </div>
+        </div>
+
+        <!-- File Explorer Tree View -->
+        <div class="definitions-explorer-content">
+          ${activeDefinitions.length > 0 ? `
+            <div class="definitions-tree" id="definitions-tree">
+              ${sortedGroups.map(formatLabel => {
+                const defs = groupedByFormat[formatLabel];
+                const formatIcon = this._getDefinitionFormatIcon(formatLabel);
+                return `
+                  <div class="def-tree-folder expanded" data-format="${formatLabel}">
+                    <div class="def-tree-folder-header">
+                      <i class="ph ph-caret-right folder-expand-icon"></i>
+                      <i class="ph ${formatIcon} folder-type-icon"></i>
+                      <span class="def-tree-folder-name">${formatLabel}</span>
+                      <span class="def-tree-folder-count">${defs.length}</span>
+                    </div>
+                    <div class="def-tree-folder-children">
+                      ${defs.map(def => {
+                        const termCount = def.terms?.length || def.properties?.length || 0;
+                        const defIcon = this._getDefinitionIcon(def);
+                        const sourceLabel = def.sourceUri ? 'URI' : 'local';
+                        return `
+                          <div class="def-tree-item" data-definition-id="${def.id}">
+                            <div class="def-tree-item-header">
+                              <i class="ph ph-caret-right item-expand-icon"></i>
+                              <i class="ph ${defIcon} item-type-icon"></i>
+                              <span class="def-tree-item-name">${this._escapeHtml(def.name)}</span>
+                              <span class="def-tree-item-badge ${sourceLabel === 'URI' ? 'uri' : 'local'}">${sourceLabel}</span>
+                              <span class="def-tree-item-count">${termCount}</span>
+                              <div class="def-tree-item-actions">
+                                <button class="def-tree-action-btn" data-action="view" title="View definition">
+                                  <i class="ph ph-eye"></i>
+                                </button>
+                                <button class="def-tree-action-btn" data-action="apply" title="Apply to set">
+                                  <i class="ph ph-arrow-right"></i>
+                                </button>
+                                <button class="def-tree-action-btn delete" data-action="delete" title="Delete">
+                                  <i class="ph ph-trash"></i>
+                                </button>
+                              </div>
+                            </div>
+                            <div class="def-tree-item-children">
+                              ${(def.terms || def.properties || []).slice(0, 10).map(term => `
+                                <div class="def-tree-term" data-term-id="${term.id || term.name}">
+                                  <i class="ph ph-tag term-icon"></i>
+                                  <span class="def-tree-term-name">${this._escapeHtml(term.name || term.label)}</span>
+                                  <span class="def-tree-term-type">${this._escapeHtml(term.type || term.datatype || 'string')}</span>
+                                </div>
+                              `).join('')}
+                              ${(def.terms || def.properties || []).length > 10 ? `
+                                <div class="def-tree-term-more">
+                                  <i class="ph ph-dots-three"></i>
+                                  <span>+${(def.terms || def.properties || []).length - 10} more terms</span>
+                                </div>
+                              ` : ''}
+                            </div>
+                          </div>
+                        `;
+                      }).join('')}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          ` : `
+            <div class="definitions-explorer-empty">
+              <i class="ph ph-book-open"></i>
+              <p>No definitions yet</p>
+              <p class="empty-hint">Definitions help standardize your data columns and field types</p>
+              <div class="empty-actions">
+                <button class="btn-secondary" id="defs-explorer-import-empty">
+                  <i class="ph ph-link"></i>
+                  Import from URI
+                </button>
+                <button class="btn-primary" id="defs-explorer-create-empty">
+                  <i class="ph ph-plus"></i>
+                  Create Definition
+                </button>
+              </div>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach event handlers
+    this._attachDefinitionsExplorerHandlers(activeDefinitions);
+  }
+
+  /**
+   * Get format label from definition format/type
+   */
+  _getDefinitionFormatLabel(format) {
+    const formatLower = (format || '').toLowerCase();
+    if (formatLower.includes('jsonld') || formatLower.includes('json-ld')) return 'JSON-LD';
+    if (formatLower.includes('csvw') || formatLower.includes('csv')) return 'CSV Schema';
+    if (formatLower.includes('rdf')) return 'RDF';
+    if (formatLower.includes('xml')) return 'XML Schema';
+    if (formatLower.includes('owl')) return 'OWL';
+    return 'Other';
+  }
+
+  /**
+   * Get icon for definition format
+   */
+  _getDefinitionFormatIcon(formatLabel) {
+    switch (formatLabel) {
+      case 'JSON-LD': return 'ph-brackets-curly';
+      case 'CSV Schema': return 'ph-file-csv';
+      case 'RDF': return 'ph-graph';
+      case 'XML Schema': return 'ph-file-code';
+      case 'OWL': return 'ph-tree-structure';
+      default: return 'ph-folder';
+    }
+  }
+
+  /**
+   * Attach event handlers for definitions explorer view
+   */
+  _attachDefinitionsExplorerHandlers(definitions) {
+    // Import from URI button
+    document.getElementById('defs-table-import-btn')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+
+    // New definition button
+    document.getElementById('defs-table-new-btn')?.addEventListener('click', () => {
+      this._showNewDefinitionModal();
+    });
+
+    // Empty state buttons
+    document.getElementById('defs-explorer-import-empty')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+
+    document.getElementById('defs-explorer-create-empty')?.addEventListener('click', () => {
+      this._showNewDefinitionModal();
+    });
+
+    // Search input
+    const searchInput = document.getElementById('defs-explorer-search-input');
+    searchInput?.addEventListener('input', (e) => {
+      this._filterDefinitionsTree(e.target.value);
+    });
+
+    // View toggle
+    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const view = btn.dataset.view;
+        document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Future: implement grid view toggle
+        if (view === 'grid') {
+          this._renderDefinitionsExplorer(); // Use existing grid explorer
+        }
+      });
+    });
+
+    // Folder expand/collapse
+    document.querySelectorAll('.def-tree-folder-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.def-tree-action-btn')) return;
+        const folder = header.closest('.def-tree-folder');
+        folder.classList.toggle('expanded');
+      });
+    });
+
+    // Definition item expand/collapse
+    document.querySelectorAll('.def-tree-item-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.def-tree-action-btn')) return;
+        const item = header.closest('.def-tree-item');
+        item.classList.toggle('expanded');
+      });
+    });
+
+    // Definition item double-click to view detail
+    document.querySelectorAll('.def-tree-item').forEach(item => {
+      item.addEventListener('dblclick', () => {
+        const definitionId = item.dataset.definitionId;
+        this._showDefinitionDetail(definitionId);
+      });
+    });
+
+    // Action buttons
+    document.querySelectorAll('.def-tree-action-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const item = btn.closest('.def-tree-item');
+        const definitionId = item?.dataset.definitionId;
+        const action = btn.dataset.action;
+
+        if (!definitionId) return;
+
+        switch (action) {
+          case 'view':
+            this._showDefinitionDetail(definitionId);
+            break;
+          case 'apply':
+            this._showApplyDefinitionModal(definitionId);
+            break;
+          case 'delete':
+            this._deleteDefinition(definitionId);
+            break;
+        }
+      });
+    });
+  }
+
+  /**
+   * Filter definitions tree by search term
+   */
+  _filterDefinitionsTree(searchTerm) {
+    const items = document.querySelectorAll('.def-tree-item');
+    const folders = document.querySelectorAll('.def-tree-folder');
+    const term = searchTerm.toLowerCase().trim();
+    let visibleCount = 0;
+
+    items.forEach(item => {
+      const definitionId = item.dataset.definitionId;
+      const def = this.definitions.find(d => d.id === definitionId);
+      if (!def) {
+        item.style.display = 'none';
+        return;
+      }
+
+      // Search in name, description, and term names
+      const searchFields = [
+        def.name,
+        def.description,
+        ...(def.terms || def.properties || []).map(t => t.name || t.label)
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      const matches = !term || searchFields.includes(term);
+      item.style.display = matches ? '' : 'none';
+      if (matches) visibleCount++;
+    });
+
+    // Show/hide folders based on whether they have visible items
+    folders.forEach(folder => {
+      const visibleItems = folder.querySelectorAll('.def-tree-item:not([style*="display: none"])');
+      folder.style.display = visibleItems.length > 0 ? '' : 'none';
+      if (term && visibleItems.length > 0) {
+        folder.classList.add('expanded');
+      }
+    });
+
+    // Update count display
+    const countEl = document.querySelector('.definitions-explorer-count');
+    if (countEl) {
+      const total = this.definitions.filter(d => d.status !== 'archived').length;
+      countEl.textContent = term
+        ? `${visibleCount} of ${total} definition${total !== 1 ? 's' : ''}`
+        : `${total} definition${total !== 1 ? 's' : ''}`;
+    }
+  }
+
+  /**
+   * Show modal to apply definition to a set
+   */
+  _showApplyDefinitionModal(definitionId) {
+    const definition = this.definitions.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    const sets = this.sets.filter(s => s.status !== 'archived');
+
+    const html = `
+      <div class="apply-definition-form">
+        <p>Apply "<strong>${this._escapeHtml(definition.name)}</strong>" to:</p>
+        <div class="apply-definition-sets">
+          ${sets.length > 0 ? sets.map(set => `
+            <label class="apply-definition-set-option">
+              <input type="radio" name="target-set" value="${set.id}">
+              <i class="${set.icon || 'ph ph-table'}"></i>
+              <span>${this._escapeHtml(set.name)}</span>
+              <span class="set-record-count">${set.records?.length || 0} records</span>
+            </label>
+          `).join('') : `
+            <p class="no-sets-message">No sets available. Create a set first.</p>
+          `}
+        </div>
+      </div>
+    `;
+
+    this._showModal('Apply Definition', html, () => {
+      const selectedSet = document.querySelector('input[name="target-set"]:checked')?.value;
+      if (selectedSet) {
+        this._applyDefinitionToSet(definitionId, selectedSet);
+      }
+    }, {
+      confirmText: 'Apply',
+      confirmDisabled: sets.length === 0
+    });
+  }
+
+  /**
+   * Apply a definition to a set (map terms to fields)
+   */
+  _applyDefinitionToSet(definitionId, setId) {
+    const definition = this.definitions.find(d => d.id === definitionId);
+    const set = this.sets.find(s => s.id === setId);
+
+    if (!definition || !set) {
+      this._showToast('Definition or set not found', 'error');
+      return;
+    }
+
+    const terms = definition.terms || definition.properties || [];
+
+    // Map definition terms to set fields by name matching
+    let mappedCount = 0;
+    set.views?.forEach(view => {
+      view.columns?.forEach(col => {
+        const matchingTerm = terms.find(t =>
+          (t.name || t.label)?.toLowerCase() === col.key?.toLowerCase() ||
+          (t.name || t.label)?.toLowerCase() === col.name?.toLowerCase()
+        );
+        if (matchingTerm) {
+          col.definitionTerm = {
+            definitionId: definition.id,
+            termId: matchingTerm.id || matchingTerm.name,
+            termName: matchingTerm.name || matchingTerm.label,
+            type: matchingTerm.type || matchingTerm.datatype,
+            uri: matchingTerm.uri || matchingTerm['@id']
+          };
+          mappedCount++;
+        }
+      });
+    });
+
+    this._saveData();
+    this._showToast(`Applied ${mappedCount} term${mappedCount !== 1 ? 's' : ''} to "${set.name}"`, 'success');
+  }
+
+  // ==========================================================================
   // Exports Explorer - Full-featured exports browser
   // ==========================================================================
 
@@ -10172,9 +10606,11 @@ class EODataWorkbench {
 
     // Check if viewing a source (Import Data tab should be active)
     const isViewingSource = !!this.currentSourceId;
+    const isViewingDefinitions = this.isViewingDefinitions;
 
     // Count active sources for the Import Data tab badge
     const activeSourceCount = (this.sources || []).filter(s => s.status !== 'archived').length;
+    const activeDefinitionsCount = (this.definitions || []).filter(d => d.status !== 'archived').length;
 
     // Build Import Data tab (always first)
     const importDataTab = `
@@ -10189,10 +10625,23 @@ class EODataWorkbench {
       </div>
     `;
 
+    // Build Definitions tab (after Import Data)
+    const definitionsTab = `
+      <div class="browser-tab definitions-tab ${isViewingDefinitions ? 'active' : ''}"
+           data-tab-type="definitions">
+        <div class="tab-icon">
+          <i class="ph ph-book-open"></i>
+        </div>
+        <span class="tab-title">Definitions</span>
+        <span class="tab-count">${activeDefinitionsCount}</span>
+        ${isViewingDefinitions ? '<div class="tab-curve-right"></div>' : ''}
+      </div>
+    `;
+
     // Build Set tabs
     const setTabs = this.sets.map(set => {
       const recordCount = set.records?.length || 0;
-      const isActive = !isViewingSource && set.id === this.currentSetId;
+      const isActive = !isViewingSource && !isViewingDefinitions && set.id === this.currentSetId;
       return `
         <div class="browser-tab ${isActive ? 'active' : ''}"
              data-set-id="${set.id}"
@@ -10207,7 +10656,7 @@ class EODataWorkbench {
       `;
     }).join('');
 
-    container.innerHTML = importDataTab + setTabs;
+    container.innerHTML = importDataTab + definitionsTab + setTabs;
 
     // Attach event handlers to tabs
     this._attachTabEventHandlers();
@@ -10226,7 +10675,17 @@ class EODataWorkbench {
     const importDataTab = container.querySelector('.import-data-tab');
     if (importDataTab) {
       importDataTab.addEventListener('click', () => {
+        this.isViewingDefinitions = false;
         this._showSourcesTableView();
+        this._renderTabBar();
+      });
+    }
+
+    // Handle Definitions tab
+    const definitionsTab = container.querySelector('.definitions-tab');
+    if (definitionsTab) {
+      definitionsTab.addEventListener('click', () => {
+        this._showDefinitionsTableView();
         this._renderTabBar();
       });
     }
@@ -11440,6 +11899,7 @@ class EODataWorkbench {
 
     // Clear source selection when switching to a set
     this.currentSourceId = null;
+    this.isViewingDefinitions = false;
 
     // Clear search when switching sets
     this.viewSearchTerm = '';

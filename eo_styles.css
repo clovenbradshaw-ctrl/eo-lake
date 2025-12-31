@@ -15590,6 +15590,561 @@ body.has-picked-up .browser-tab:hover {
 }
 
 /* ============================================================================
+   Definitions Explorer View (Main Content Area - File Explorer Style)
+   ============================================================================ */
+
+.definitions-explorer-view {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.definitions-explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.definitions-explorer-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.definitions-explorer-icon {
+  width: 40px;
+  height: 40px;
+  background: rgba(168, 85, 247, 0.1);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.definitions-explorer-icon i {
+  font-size: 20px;
+  color: rgb(168, 85, 247);
+}
+
+.definitions-explorer-info h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.definitions-explorer-info h2 .dict-badge {
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(168, 85, 247, 0.1);
+  color: rgb(168, 85, 247);
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.definitions-explorer-info h2 .dict-badge i {
+  font-size: 10px;
+}
+
+.definitions-explorer-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.definitions-explorer-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.definitions-explorer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.definitions-explorer-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 12px;
+  width: 280px;
+}
+
+.definitions-explorer-search i {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.definitions-explorer-search input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  outline: none;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.definitions-explorer-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.definitions-explorer-view-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.view-toggle-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.view-toggle-btn:hover {
+  color: var(--text-primary);
+}
+
+.view-toggle-btn.active {
+  background: var(--primary-500);
+  color: white;
+}
+
+.definitions-explorer-count {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.definitions-explorer-content {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 24px;
+}
+
+/* Definitions Tree Structure */
+.definitions-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Folder (Format Group) */
+.def-tree-folder {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+  overflow: hidden;
+}
+
+.def-tree-folder-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  user-select: none;
+}
+
+.def-tree-folder-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.folder-expand-icon {
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.def-tree-folder.expanded .folder-expand-icon {
+  transform: rotate(90deg);
+}
+
+.folder-type-icon {
+  font-size: 16px;
+  color: rgb(168, 85, 247);
+}
+
+.def-tree-folder-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.def-tree-folder-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.def-tree-folder-children {
+  display: none;
+  flex-direction: column;
+  border-top: 1px solid var(--border-color);
+}
+
+.def-tree-folder.expanded .def-tree-folder-children {
+  display: flex;
+}
+
+/* Definition Item */
+.def-tree-item {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.def-tree-item:last-child {
+  border-bottom: none;
+}
+
+.def-tree-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px 10px 32px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.def-tree-item-header:hover {
+  background: var(--bg-hover);
+}
+
+.item-expand-icon {
+  font-size: 10px;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.def-tree-item.expanded .item-expand-icon {
+  transform: rotate(90deg);
+}
+
+.item-type-icon {
+  font-size: 14px;
+  color: rgb(168, 85, 247);
+}
+
+.def-tree-item-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.def-tree-item-badge {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.def-tree-item-badge.uri {
+  background: rgba(59, 130, 246, 0.1);
+  color: rgb(59, 130, 246);
+}
+
+.def-tree-item-badge.local {
+  background: rgba(34, 197, 94, 0.1);
+  color: rgb(34, 197, 94);
+}
+
+.def-tree-item-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 24px;
+  text-align: right;
+}
+
+.def-tree-item-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.def-tree-item-header:hover .def-tree-item-actions {
+  opacity: 1;
+}
+
+.def-tree-action-btn {
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.def-tree-action-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--primary-500);
+}
+
+.def-tree-action-btn.delete:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: rgb(239, 68, 68);
+}
+
+.def-tree-action-btn i {
+  font-size: 12px;
+}
+
+/* Term Children (nested under definition) */
+.def-tree-item-children {
+  display: none;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
+.def-tree-item.expanded .def-tree-item-children {
+  display: flex;
+}
+
+.def-tree-term {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px 6px 56px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.def-tree-term:last-child {
+  border-bottom: none;
+}
+
+.term-icon {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.def-tree-term-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.def-tree-term-type {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--bg-primary);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.def-tree-term-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px 8px 56px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.def-tree-term-more i {
+  font-size: 14px;
+}
+
+/* Empty State */
+.definitions-explorer-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
+  color: var(--text-muted);
+  gap: 12px;
+  text-align: center;
+}
+
+.definitions-explorer-empty > i {
+  font-size: 64px;
+  opacity: 0.4;
+  color: rgb(168, 85, 247);
+}
+
+.definitions-explorer-empty p {
+  font-size: 15px;
+  margin: 0;
+}
+
+.definitions-explorer-empty .empty-hint {
+  font-size: 13px;
+  max-width: 300px;
+}
+
+.definitions-explorer-empty .empty-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.definitions-explorer-empty .btn-secondary,
+.definitions-explorer-empty .btn-primary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+}
+
+/* Apply Definition Modal */
+.apply-definition-form {
+  min-width: 350px;
+}
+
+.apply-definition-form > p {
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+}
+
+.apply-definition-sets {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.apply-definition-set-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.apply-definition-set-option:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary-500);
+}
+
+.apply-definition-set-option input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary-500);
+}
+
+.apply-definition-set-option i {
+  font-size: 18px;
+  color: var(--primary-500);
+}
+
+.apply-definition-set-option span {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.apply-definition-set-option .set-record-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.no-sets-message {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 20px;
+}
+
+/* Definitions Tab Styling */
+.definitions-tab {
+  background: rgba(168, 85, 247, 0.05);
+}
+
+.definitions-tab.active {
+  border-color: rgb(168, 85, 247);
+  box-shadow: inset 0 2px 0 0 rgb(168, 85, 247);
+}
+
+.definitions-tab .tab-icon i {
+  color: rgb(168, 85, 247);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .definitions-explorer-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .definitions-explorer-toolbar {
+    flex-direction: column;
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .definitions-explorer-search {
+    width: 100%;
+  }
+
+  .definitions-explorer-view-toggle {
+    align-self: flex-end;
+  }
+
+  .definitions-explorer-content {
+    padding: 12px 16px;
+  }
+
+  .def-tree-item-header {
+    padding-left: 24px;
+  }
+
+  .def-tree-term {
+    padding-left: 40px;
+  }
+
+  .def-tree-term-more {
+    padding-left: 40px;
+  }
+}
+
+/* ============================================================================
    Source Name Edit Button
    ============================================================================ */
 
