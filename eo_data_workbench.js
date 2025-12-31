@@ -451,6 +451,7 @@ class EODataWorkbench {
     this.currentDefinitionId = null; // Track when viewing a definition (DICT)
     this.currentExportId = null; // Track when viewing an export (FROZEN)
     this.showingSetFields = false; // Track when showing set fields panel (like Airtable's "Manage Fields")
+    this.showingSetDetail = false; // Track when showing set detail view (Input → Transformation → Output)
     this.lastViewPerSet = {}; // Remember last active view for each set
     this.expandedSets = {}; // Track which sets are expanded in sidebar
     this.currentSetTagFilter = null; // Filter sets by tag in header
@@ -1924,7 +1925,19 @@ class EODataWorkbench {
         `;
       }).join('');
 
-      // Fields item at top of views list (like Airtable's "Manage Fields")
+      // Detail item (Input → Transformation → Output overview)
+      const isDetailActive = isActiveSet && this.showingSetDetail;
+      const detailItem = `
+        <div class="set-view-item set-detail-item ${isDetailActive ? 'active' : ''}"
+             data-set-id="${set.id}"
+             data-action="detail"
+             title="View set data flow: sources, transformation, and outputs">
+          <i class="ph ph-flow-arrow"></i>
+          <span>Detail</span>
+        </div>
+      `;
+
+      // Fields item (like Airtable's "Manage Fields")
       const isFieldsActive = isActiveSet && this.showingSetFields;
       const fieldsItem = `
         <div class="set-view-item set-fields-item ${isFieldsActive ? 'active' : ''}"
@@ -1939,7 +1952,7 @@ class EODataWorkbench {
 
       return `
         <div class="set-item-container ${isExpanded ? 'expanded' : ''} ${stabilityClass}" data-set-id="${set.id}">
-          <div class="set-item-header ${isActiveSet && !this.showingSetFields ? 'active' : ''}"
+          <div class="set-item-header ${isActiveSet && !this.showingSetFields && !this.showingSetDetail ? 'active' : ''}"
                data-set-id="${set.id}"
                title="${derivation.description}\n${fieldCount} fields · ${recordCount} records">
             <div class="set-item-expand">
@@ -1956,6 +1969,7 @@ class EODataWorkbench {
             </div>
           </div>
           <div class="set-views-list">
+            ${detailItem}
             ${fieldsItem}
             ${viewsHtml}
             <button class="set-add-view-btn" data-set-id="${set.id}">
@@ -2006,7 +2020,7 @@ class EODataWorkbench {
       });
     });
 
-    // View item click - select view (or Fields panel)
+    // View item click - select view (or Detail/Fields panel)
     container.querySelectorAll('.set-view-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2022,9 +2036,15 @@ class EODataWorkbench {
           }
         }
 
+        // Handle special "Detail" action
+        if (action === 'detail') {
+          this._selectSet(setId, 'detail');
+          return;
+        }
+
         // Handle special "Fields" action
         if (action === 'fields') {
-          this._selectSet(setId, true); // true = show fields panel
+          this._selectSet(setId, 'fields');
           return;
         }
 
@@ -2034,8 +2054,8 @@ class EODataWorkbench {
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        // Don't show context menu for Fields item
-        if (item.dataset.action === 'fields') return;
+        // Don't show context menu for Detail or Fields items
+        if (item.dataset.action === 'detail' || item.dataset.action === 'fields') return;
         this._showViewContextMenu(e, item.dataset.viewId, item.dataset.setId);
       });
     });
@@ -4487,6 +4507,7 @@ class EODataWorkbench {
     this.currentSetId = null;
     this.currentViewId = null;
     this.showingSetFields = false;
+    this.showingSetDetail = false;
 
     // Update sidebar selection
     document.querySelectorAll('.source-item, .set-item, .set-item-header, .set-view-item').forEach(item => {
@@ -11313,7 +11334,7 @@ class EODataWorkbench {
     }
   }
 
-  _selectSet(setId, showFieldsPanel = true) {
+  _selectSet(setId, panelMode = 'detail') {
     this.currentSetId = setId;
 
     // Clear source selection when switching to a set
@@ -11329,12 +11350,19 @@ class EODataWorkbench {
 
     const set = this.getCurrentSet();
 
-    // When clicking on set header, show fields panel by default (like Airtable)
-    if (showFieldsPanel) {
+    // When clicking on set header, show detail view by default
+    // panelMode can be: 'detail', 'fields', or 'view'
+    if (panelMode === 'detail') {
+      this.showingSetDetail = true;
+      this.showingSetFields = false;
+      this.currentViewId = null;
+    } else if (panelMode === 'fields') {
+      this.showingSetDetail = false;
       this.showingSetFields = true;
-      this.currentViewId = null; // No view selected when showing fields
+      this.currentViewId = null;
     } else {
       // Use remembered view for this set, or fall back to first view
+      this.showingSetDetail = false;
       this.showingSetFields = false;
       const rememberedViewId = this.lastViewPerSet[setId];
       const rememberedView = rememberedViewId && set?.views.find(v => v.id === rememberedViewId);
@@ -11350,7 +11378,8 @@ class EODataWorkbench {
   _selectView(viewId) {
     this.currentViewId = viewId;
 
-    // Turn off fields panel mode when selecting a view
+    // Turn off detail and fields panel mode when selecting a view
+    this.showingSetDetail = false;
     this.showingSetFields = false;
 
     // Remember this view for the current set
@@ -11440,8 +11469,15 @@ class EODataWorkbench {
 
     // View/Lens breadcrumb - CLICKABLE (shows sibling lenses)
     if (this.elements.currentViewName) {
+      // Show "Detail" when viewing the detail panel
+      if (this.showingSetDetail) {
+        this.elements.currentViewName.innerHTML = `
+          <i class="ph ph-flow-arrow"></i>
+          Detail
+          <i class="ph ph-caret-down breadcrumb-dropdown-icon"></i>
+        `;
       // Show "Fields" when viewing the fields panel
-      if (this.showingSetFields) {
+      } else if (this.showingSetFields) {
         this.elements.currentViewName.innerHTML = `
           <i class="ph ph-columns"></i>
           Fields
@@ -11693,6 +11729,12 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderView() {
+    // If showing set detail view (Input → Transformation → Output)
+    if (this.showingSetDetail && this.currentSetId) {
+      this._renderSetDetailView();
+      return;
+    }
+
     // If showing set fields panel (like Airtable's "Manage Fields")
     if (this.showingSetFields && this.currentSetId) {
       this._renderSetFieldsPanel();
@@ -11769,6 +11811,701 @@ class EODataWorkbench {
 
     // Inject view tabs header at the top of the content area
     this._injectViewTabsHeader();
+  }
+
+  /**
+   * Render the Set Detail View (Input → Transformation → Output)
+   * High-level overview of the set's data flow
+   */
+  _renderSetDetailView() {
+    const set = this.getCurrentSet();
+    if (!set) {
+      this._renderEmptyState();
+      return;
+    }
+
+    const content = this.elements.contentArea;
+    if (!content) return;
+
+    const fields = set.fields || [];
+    const records = set.records || [];
+    const views = set.views || [];
+    const derivation = this._getSetDerivationInfo(set);
+    const prov = set.datasetProvenance || {};
+
+    // Gather input sources
+    const inputSources = this._getSetInputSources(set);
+
+    // Gather transformation info
+    const transformations = this._getSetTransformations(set);
+
+    // Gather output info (exports, derived sets)
+    const outputs = this._getSetOutputs(set);
+
+    // Detect record types for splitting
+    const recordTypeAnalysis = this._analyzeRecordTypesForSet(set);
+
+    content.innerHTML = `
+      <div class="set-detail-container">
+        <div class="set-detail-header">
+          <div class="set-detail-title-row">
+            <i class="${set.icon || 'ph ph-table'}"></i>
+            <h2>${this._escapeHtml(set.name)}</h2>
+            ${derivation.badge}
+          </div>
+          <div class="set-detail-stats">
+            <span><i class="ph ph-rows"></i> ${records.length.toLocaleString()} records</span>
+            <span><i class="ph ph-columns"></i> ${fields.length} fields</span>
+            <span><i class="ph ph-eye"></i> ${views.length} views</span>
+          </div>
+          <div class="set-detail-actions">
+            <button class="set-detail-action-btn" id="set-detail-export-btn">
+              <i class="ph ph-export"></i> Export
+            </button>
+            <button class="set-detail-action-btn" id="set-detail-edit-btn">
+              <i class="ph ph-pencil-simple"></i> Edit
+            </button>
+            <button class="set-detail-action-btn danger" id="set-detail-delete-btn">
+              <i class="ph ph-trash"></i> Delete
+            </button>
+          </div>
+        </div>
+
+        <!-- INPUT SECTION -->
+        <div class="set-detail-section set-detail-input">
+          <div class="set-detail-section-header">
+            <div class="set-detail-section-title">
+              <i class="ph ph-download-simple"></i>
+              <span>Input</span>
+            </div>
+            <span class="set-detail-section-subtitle">Where this data comes from</span>
+          </div>
+          <div class="set-detail-section-content">
+            ${inputSources.length > 0 ? `
+              <div class="set-detail-sources-list">
+                ${inputSources.map(source => `
+                  <div class="set-detail-source-item" data-source-id="${source.id || ''}" data-set-id="${source.setId || ''}">
+                    <i class="ph ${source.icon}"></i>
+                    <div class="set-detail-source-info">
+                      <div class="set-detail-source-name">${this._escapeHtml(source.name)}</div>
+                      <div class="set-detail-source-meta">${source.meta}</div>
+                    </div>
+                    ${source.canView ? `
+                      <button class="set-detail-source-action" title="View source">
+                        <i class="ph ph-arrow-square-out"></i>
+                      </button>
+                    ` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            ` : `
+              <div class="set-detail-empty-state">
+                <i class="ph ph-file-dashed"></i>
+                <span>No source tracked</span>
+              </div>
+            `}
+            <button class="set-detail-add-btn" id="set-detail-add-source">
+              <i class="ph ph-plus"></i>
+              <span>Add Source</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- FLOW ARROW -->
+        <div class="set-detail-flow-arrow">
+          <i class="ph ph-arrow-down"></i>
+        </div>
+
+        <!-- TRANSFORMATION SECTION -->
+        <div class="set-detail-section set-detail-transform">
+          <div class="set-detail-section-header">
+            <div class="set-detail-section-title">
+              <i class="ph ph-gear"></i>
+              <span>Transformation</span>
+            </div>
+            <span class="set-detail-section-subtitle">How the data is shaped</span>
+          </div>
+          <div class="set-detail-section-content">
+            ${transformations.length > 0 ? `
+              <div class="set-detail-transforms-list">
+                ${transformations.map(t => `
+                  <div class="set-detail-transform-item ${t.type}">
+                    <div class="set-detail-transform-badge">${t.badge}</div>
+                    <div class="set-detail-transform-info">
+                      <div class="set-detail-transform-name">${this._escapeHtml(t.name)}</div>
+                      <div class="set-detail-transform-desc">${this._escapeHtml(t.description)}</div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : `
+              <div class="set-detail-empty-state">
+                <i class="ph ph-equals"></i>
+                <span>Direct import (no transformations)</span>
+              </div>
+            `}
+            <div class="set-detail-schema-summary">
+              <div class="set-detail-schema-header">
+                <span>Schema: ${fields.length} fields</span>
+                <button class="set-detail-link-btn" id="set-detail-view-fields">
+                  View Fields <i class="ph ph-arrow-right"></i>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FLOW ARROW -->
+        <div class="set-detail-flow-arrow">
+          <i class="ph ph-arrow-down"></i>
+        </div>
+
+        <!-- OUTPUT SECTION -->
+        <div class="set-detail-section set-detail-output">
+          <div class="set-detail-section-header">
+            <div class="set-detail-section-title">
+              <i class="ph ph-upload-simple"></i>
+              <span>Output</span>
+            </div>
+            <span class="set-detail-section-subtitle">Where this data goes</span>
+          </div>
+          <div class="set-detail-section-content">
+            <div class="set-detail-output-grid">
+              <!-- Exports -->
+              <div class="set-detail-output-column">
+                <div class="set-detail-output-label">
+                  <i class="ph ph-export"></i> Exports
+                </div>
+                ${outputs.exports.length > 0 ? `
+                  <div class="set-detail-exports-list">
+                    ${outputs.exports.map(exp => `
+                      <div class="set-detail-export-item">
+                        <i class="ph ${exp.icon}"></i>
+                        <span>${this._escapeHtml(exp.name)}</span>
+                        <span class="set-detail-export-date">${exp.date}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                ` : `
+                  <div class="set-detail-output-empty">No exports yet</div>
+                `}
+                <button class="set-detail-add-btn" id="set-detail-export-now">
+                  <i class="ph ph-export"></i>
+                  <span>Export Now</span>
+                </button>
+              </div>
+
+              <!-- Derived Sets -->
+              <div class="set-detail-output-column">
+                <div class="set-detail-output-label">
+                  <i class="ph ph-git-branch"></i> Derived Sets
+                </div>
+                ${outputs.derivedSets.length > 0 ? `
+                  <div class="set-detail-derived-list">
+                    ${outputs.derivedSets.map(ds => `
+                      <div class="set-detail-derived-item" data-set-id="${ds.id}">
+                        <i class="ph ${ds.icon}"></i>
+                        <div class="set-detail-derived-info">
+                          <span class="set-detail-derived-name">${this._escapeHtml(ds.name)}</span>
+                          <span class="set-detail-derived-type">${ds.relation}</span>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                ` : `
+                  <div class="set-detail-output-empty">No derived sets</div>
+                `}
+                <button class="set-detail-add-btn" id="set-detail-create-derived">
+                  <i class="ph ph-git-branch"></i>
+                  <span>Create Derived Set</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- RECORD TYPES SECTION (if multiple types detected) -->
+        ${recordTypeAnalysis ? `
+          <div class="set-detail-section set-detail-record-types">
+            <div class="set-detail-section-header">
+              <div class="set-detail-section-title">
+                <i class="ph ph-stack"></i>
+                <span>Record Types</span>
+              </div>
+              <span class="set-detail-section-subtitle">Split into views by type</span>
+            </div>
+            <div class="set-detail-section-content">
+              <div class="set-detail-record-types-info">
+                <p>This set contains <strong>${recordTypeAnalysis.types.length}</strong> different record types
+                   based on the <code>${this._escapeHtml(recordTypeAnalysis.typeField)}</code> field.</p>
+              </div>
+              <div class="set-detail-record-types-list">
+                ${recordTypeAnalysis.types.map(type => `
+                  <div class="set-detail-record-type-item" data-type-value="${this._escapeHtml(type.value)}">
+                    <div class="set-detail-record-type-info">
+                      <span class="set-detail-record-type-name">${this._escapeHtml(type.label)}</span>
+                      <span class="set-detail-record-type-count">${type.count} records</span>
+                      ${type.specificFields.length > 0 ? `
+                        <span class="set-detail-record-type-fields">${type.specificFields.length} specific fields</span>
+                      ` : ''}
+                    </div>
+                    <button class="set-detail-split-btn" data-type-value="${this._escapeHtml(type.value)}"
+                            title="Create view for this record type">
+                      <i class="ph ph-arrows-split"></i>
+                      <span>Create View</span>
+                    </button>
+                  </div>
+                `).join('')}
+              </div>
+              <button class="set-detail-add-btn" id="set-detail-split-all-types">
+                <i class="ph ph-arrows-split"></i>
+                <span>Create Views for All Types</span>
+              </button>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    // Attach event handlers
+    this._attachSetDetailEventHandlers(set, recordTypeAnalysis);
+  }
+
+  /**
+   * Get input sources for a set
+   */
+  _getSetInputSources(set) {
+    const sources = [];
+    const prov = set.datasetProvenance || {};
+    const derivation = set.derivation || {};
+
+    // Direct source import
+    if (prov.sourceId) {
+      const source = this.sources?.find(s => s.id === prov.sourceId);
+      sources.push({
+        id: prov.sourceId,
+        name: source?.name || prov.originalFilename || 'Unknown source',
+        icon: 'ph-file-csv',
+        meta: prov.createdVia ? `Imported via ${prov.createdVia}` : 'Imported file',
+        canView: !!source
+      });
+    } else if (prov.originalFilename) {
+      sources.push({
+        name: prov.originalFilename,
+        icon: 'ph-file',
+        meta: 'Original import file',
+        canView: false
+      });
+    }
+
+    // Parent set (for SEG/filtered sets)
+    if (derivation.parentSetId) {
+      const parentSet = this.sets?.find(s => s.id === derivation.parentSetId);
+      sources.push({
+        setId: derivation.parentSetId,
+        name: parentSet?.name || 'Parent set',
+        icon: parentSet?.icon || 'ph-table',
+        meta: 'Filtered from parent set',
+        canView: !!parentSet
+      });
+    }
+
+    // Source items (for CON/joined sets)
+    if (derivation.sourceItems?.length > 0) {
+      derivation.sourceItems.forEach(item => {
+        const itemSet = this.sets?.find(s => s.id === item.setId);
+        const itemSource = this.sources?.find(s => s.id === item.sourceId);
+        sources.push({
+          setId: item.setId,
+          id: item.sourceId,
+          name: itemSet?.name || itemSource?.name || item.name || 'Source',
+          icon: itemSet?.icon || 'ph-table',
+          meta: item.alias ? `As "${item.alias}"` : 'Joined source',
+          canView: !!(itemSet || itemSource)
+        });
+      });
+    }
+
+    // Multiple source IDs
+    if (derivation.sourceIds?.length > 0) {
+      derivation.sourceIds.forEach(sourceId => {
+        const source = this.sources?.find(s => s.id === sourceId);
+        if (source && !sources.find(s => s.id === sourceId)) {
+          sources.push({
+            id: sourceId,
+            name: source.name,
+            icon: 'ph-file-csv',
+            meta: 'Source file',
+            canView: true
+          });
+        }
+      });
+    }
+
+    return sources;
+  }
+
+  /**
+   * Get transformations applied to a set
+   */
+  _getSetTransformations(set) {
+    const transforms = [];
+    const derivation = set.derivation || {};
+
+    // Check derivation strategy
+    if (derivation.strategy === 'seg') {
+      transforms.push({
+        type: 'filter',
+        badge: '<span class="op-badge seg">SEG ｜</span>',
+        name: 'Segmented',
+        description: derivation.constraint?.filters?.length > 0
+          ? `${derivation.constraint.filters.length} filter(s) applied`
+          : 'Filtered subset'
+      });
+    }
+
+    if (derivation.strategy === 'con') {
+      transforms.push({
+        type: 'join',
+        badge: '<span class="op-badge con">CON ⋈</span>',
+        name: 'Connected',
+        description: derivation.joinConfig
+          ? `Joined on ${derivation.joinConfig.leftField || 'key'}`
+          : 'Joined from multiple sources'
+      });
+    }
+
+    if (derivation.strategy === 'alt') {
+      transforms.push({
+        type: 'transform',
+        badge: '<span class="op-badge alt">ALT ∿</span>',
+        name: 'Alternated',
+        description: 'Data transformed'
+      });
+    }
+
+    if (derivation.strategy === 'sql' || derivation.queryEventId) {
+      transforms.push({
+        type: 'query',
+        badge: '<span class="op-badge query">SQL</span>',
+        name: 'SQL Query',
+        description: 'Created via SQL/EOQL query'
+      });
+    }
+
+    // Check for computed fields
+    const formulaFields = set.fields?.filter(f => f.type === 'formula' || f.type === 'rollup' || f.type === 'count');
+    if (formulaFields?.length > 0) {
+      transforms.push({
+        type: 'computed',
+        badge: '<span class="op-badge computed">ƒx</span>',
+        name: 'Computed Fields',
+        description: `${formulaFields.length} computed field(s)`
+      });
+    }
+
+    return transforms;
+  }
+
+  /**
+   * Get outputs from a set (exports, derived sets)
+   */
+  _getSetOutputs(set) {
+    const outputs = {
+      exports: [],
+      derivedSets: []
+    };
+
+    // Find derived sets (sets that use this set as parent or source)
+    this.sets?.forEach(s => {
+      if (s.id === set.id) return;
+
+      const deriv = s.derivation || {};
+      const prov = s.datasetProvenance || {};
+
+      // Check if derived from this set
+      if (deriv.parentSetId === set.id) {
+        outputs.derivedSets.push({
+          id: s.id,
+          name: s.name,
+          icon: s.icon || 'ph-table',
+          relation: 'SEG (filtered)'
+        });
+      } else if (deriv.sourceItems?.some(item => item.setId === set.id)) {
+        outputs.derivedSets.push({
+          id: s.id,
+          name: s.name,
+          icon: s.icon || 'ph-table',
+          relation: 'CON (joined)'
+        });
+      }
+    });
+
+    // Note: Export history would need to be tracked separately
+    // For now, show empty state with action button
+
+    return outputs;
+  }
+
+  /**
+   * Analyze record types in a set for splitting
+   */
+  _analyzeRecordTypesForSet(set) {
+    const records = set.records || [];
+    const fields = set.fields || [];
+
+    if (records.length < 2) return null;
+
+    // Look for a type field
+    const typeFieldCandidates = ['type', '_type', 'recordType', 'record_type', '_recordType', 'kind', 'category'];
+
+    let typeField = null;
+    let typeFieldObj = null;
+
+    for (const candidate of typeFieldCandidates) {
+      typeFieldObj = fields.find(f => f.name.toLowerCase() === candidate.toLowerCase());
+      if (typeFieldObj) {
+        typeField = typeFieldObj.name;
+        break;
+      }
+    }
+
+    if (!typeField || !typeFieldObj) return null;
+
+    // Get unique type values
+    const typeValues = new Map();
+    const typeFieldId = typeFieldObj.id;
+
+    records.forEach(r => {
+      const val = r.values?.[typeFieldId];
+      if (val !== null && val !== undefined && val !== '') {
+        if (!typeValues.has(val)) {
+          typeValues.set(val, { count: 0, fieldsWithValues: new Set() });
+        }
+        typeValues.get(val).count++;
+
+        // Track which fields have values for this type
+        for (const field of fields) {
+          const fieldVal = r.values?.[field.id];
+          if (fieldVal !== null && fieldVal !== undefined && fieldVal !== '') {
+            typeValues.get(val).fieldsWithValues.add(field.id);
+          }
+        }
+      }
+    });
+
+    // Need at least 2 types for this to be relevant
+    if (typeValues.size < 2) return null;
+
+    // Calculate common and type-specific fields
+    const types = Array.from(typeValues.keys());
+    const allFieldIds = new Set(fields.map(f => f.id));
+
+    // Find fields common to all types
+    const commonFields = new Set(allFieldIds);
+    types.forEach(type => {
+      const typeData = typeValues.get(type);
+      for (const fieldId of allFieldIds) {
+        if (!typeData.fieldsWithValues.has(fieldId)) {
+          commonFields.delete(fieldId);
+        }
+      }
+    });
+
+    // Build type info with specific fields
+    const typeInfo = types.map(typeVal => {
+      const data = typeValues.get(typeVal);
+      const specificFields = [];
+
+      for (const fieldId of data.fieldsWithValues) {
+        if (!commonFields.has(fieldId) && fieldId !== typeFieldId) {
+          const field = fields.find(f => f.id === fieldId);
+          if (field) specificFields.push(field.name);
+        }
+      }
+
+      return {
+        value: typeVal,
+        label: typeVal,
+        count: data.count,
+        specificFields: specificFields
+      };
+    }).sort((a, b) => b.count - a.count);
+
+    return {
+      typeField: typeField,
+      typeFieldId: typeFieldId,
+      types: typeInfo
+    };
+  }
+
+  /**
+   * Attach event handlers for set detail view
+   */
+  _attachSetDetailEventHandlers(set, recordTypeAnalysis) {
+    // Export button
+    document.getElementById('set-detail-export-btn')?.addEventListener('click', () => {
+      this._showExportDialog(set.id);
+    });
+
+    // Edit button - go to fields
+    document.getElementById('set-detail-edit-btn')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+
+    // Delete button
+    document.getElementById('set-detail-delete-btn')?.addEventListener('click', () => {
+      this._confirmDeleteSet(set.id);
+    });
+
+    // View fields link
+    document.getElementById('set-detail-view-fields')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+
+    // Add source button
+    document.getElementById('set-detail-add-source')?.addEventListener('click', () => {
+      this._showImportDialog();
+    });
+
+    // Export now button
+    document.getElementById('set-detail-export-now')?.addEventListener('click', () => {
+      this._showExportDialog(set.id);
+    });
+
+    // Create derived set button
+    document.getElementById('set-detail-create-derived')?.addEventListener('click', () => {
+      this._showFilterSetCreationFlow();
+    });
+
+    // Source item clicks
+    document.querySelectorAll('.set-detail-source-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const sourceId = item.dataset.sourceId;
+        const setId = item.dataset.setId;
+
+        if (sourceId && this.sources?.find(s => s.id === sourceId)) {
+          this._selectSource(sourceId);
+        } else if (setId && this.sets?.find(s => s.id === setId)) {
+          this._selectSet(setId, 'detail');
+        }
+      });
+    });
+
+    // Derived set clicks
+    document.querySelectorAll('.set-detail-derived-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const setId = item.dataset.setId;
+        if (setId) {
+          this._selectSet(setId, 'detail');
+        }
+      });
+    });
+
+    // Record type split buttons
+    document.querySelectorAll('.set-detail-split-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const typeValue = btn.dataset.typeValue;
+        if (typeValue && recordTypeAnalysis) {
+          this._createRecordTypeView(set, recordTypeAnalysis, typeValue);
+        }
+      });
+    });
+
+    // Split all types button
+    document.getElementById('set-detail-split-all-types')?.addEventListener('click', () => {
+      if (recordTypeAnalysis) {
+        this._createAllRecordTypeViews(set, recordTypeAnalysis);
+      }
+    });
+  }
+
+  /**
+   * Create a view filtered by record type
+   */
+  _createRecordTypeView(set, analysis, typeValue) {
+    const typeInfo = analysis.types.find(t => t.value === typeValue);
+    if (!typeInfo) return;
+
+    // Check if view already exists
+    const existingView = set.views.find(v =>
+      v.metadata?.isRecordTypeView && v.metadata?.recordType === typeValue
+    );
+
+    if (existingView) {
+      this._showToast(`View for "${typeValue}" already exists`, 'info');
+      this._selectView(existingView.id);
+      return;
+    }
+
+    // Create filter for this record type
+    const filter = {
+      fieldId: analysis.typeFieldId,
+      operator: 'equals',
+      value: typeValue
+    };
+
+    // Determine which fields to hide (fields not used by this type)
+    const hiddenFields = [];
+    const allFieldIds = set.fields.map(f => f.id);
+
+    // Find fields that are specific to OTHER types (not this one)
+    analysis.types.forEach(t => {
+      if (t.value !== typeValue && t.specificFields.length > 0) {
+        t.specificFields.forEach(fieldName => {
+          const field = set.fields.find(f => f.name === fieldName);
+          if (field && !hiddenFields.includes(field.id)) {
+            // Only hide if this field is NOT used by current type
+            if (!typeInfo.specificFields.includes(fieldName)) {
+              hiddenFields.push(field.id);
+            }
+          }
+        });
+      }
+    });
+
+    // Create the view
+    const view = createView(typeValue, 'table', {
+      filters: [filter],
+      hiddenFields: hiddenFields
+    }, {
+      isRecordTypeView: true,
+      recordType: typeValue,
+      recordCount: typeInfo.count,
+      icon: 'ph-stack'
+    });
+
+    set.views.push(view);
+    this._saveData();
+    this._renderSidebar();
+    this._selectView(view.id);
+    this._showToast(`Created view for "${typeValue}"`, 'success');
+  }
+
+  /**
+   * Create views for all record types
+   */
+  _createAllRecordTypeViews(set, analysis) {
+    let created = 0;
+
+    analysis.types.forEach(typeInfo => {
+      // Check if view already exists
+      const existingView = set.views.find(v =>
+        v.metadata?.isRecordTypeView && v.metadata?.recordType === typeInfo.value
+      );
+
+      if (!existingView) {
+        this._createRecordTypeView(set, analysis, typeInfo.value);
+        created++;
+      }
+    });
+
+    if (created > 0) {
+      this._showToast(`Created ${created} record type views`, 'success');
+    } else {
+      this._showToast('All record type views already exist', 'info');
+    }
   }
 
   /**
