@@ -567,12 +567,14 @@ html, body {
   color: var(--meant-color);
 }
 
-.nav-panel-badge.dictionary-badge {
+.nav-panel-badge.dictionary-badge,
+.nav-panel-badge.terms-badge {
   background: rgba(168, 85, 247, 0.15);
   color: rgb(168, 85, 247);
 }
 
-.nav-panel-badge.export-badge {
+.nav-panel-badge.export-badge,
+.nav-panel-badge.exports-badge {
   background: rgba(34, 197, 94, 0.15);
   color: rgb(34, 197, 94);
 }

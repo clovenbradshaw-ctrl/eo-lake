@@ -993,15 +993,15 @@ class EODataWorkbench {
       }
     });
 
-    // Definitions view toggle (list vs table)
-    document.getElementById('definitions-view-toggle')?.addEventListener('click', (e) => {
+    // Lexicon view toggle (list vs table)
+    document.getElementById('lexicon-view-toggle')?.addEventListener('click', (e) => {
       const btn = e.target.closest('.view-toggle-btn');
       if (!btn) return;
       const viewMode = btn.dataset.view;
       if (!viewMode) return;
 
       // Update button states for visual feedback
-      document.querySelectorAll('#definitions-view-toggle .view-toggle-btn').forEach(b => {
+      document.querySelectorAll('#lexicon-view-toggle .view-toggle-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.view === viewMode);
       });
 
@@ -1009,22 +1009,22 @@ class EODataWorkbench {
       if (viewMode !== this.definitionsViewMode) {
         this.definitionsViewMode = viewMode;
         if (viewMode === 'table') {
-          this._showDefinitionsTableView();
+          this._showLexiconTableView();
         } else {
-          this._renderDefinitionsNav();
+          this._renderLexiconNav();
         }
       }
     });
 
-    // Exports view toggle (list vs table)
-    document.getElementById('exports-view-toggle')?.addEventListener('click', (e) => {
+    // Snapshots view toggle (list vs table)
+    document.getElementById('snapshots-view-toggle')?.addEventListener('click', (e) => {
       const btn = e.target.closest('.view-toggle-btn');
       if (!btn) return;
       const viewMode = btn.dataset.view;
       if (!viewMode) return;
 
       // Update button states for visual feedback
-      document.querySelectorAll('#exports-view-toggle .view-toggle-btn').forEach(b => {
+      document.querySelectorAll('#snapshots-view-toggle .view-toggle-btn').forEach(b => {
         b.classList.toggle('active', b.dataset.view === viewMode);
       });
 
@@ -1032,9 +1032,9 @@ class EODataWorkbench {
       if (viewMode !== this.exportsViewMode) {
         this.exportsViewMode = viewMode;
         if (viewMode === 'table') {
-          this._showExportsTableView();
+          this._showSnapshotsTableView();
         } else {
-          this._renderExportsNav();
+          this._renderSnapshotsNav();
         }
       }
     });
@@ -1044,16 +1044,21 @@ class EODataWorkbench {
       this._showSetsExplorer();
     });
 
-    document.getElementById('btn-definitions-explorer')?.addEventListener('click', () => {
-      this._showDefinitionsExplorer();
+    document.getElementById('btn-lexicon-explorer')?.addEventListener('click', () => {
+      this._showLexiconExplorer();
     });
 
-    document.getElementById('btn-exports-explorer')?.addEventListener('click', () => {
-      this._showExportsExplorer();
+    document.getElementById('btn-snapshots-explorer')?.addEventListener('click', () => {
+      this._showSnapshotsExplorer();
     });
 
-    // New export button
-    document.getElementById('btn-new-export')?.addEventListener('click', () => {
+    // New lexicon term button
+    document.getElementById('btn-new-lexicon')?.addEventListener('click', () => {
+      this._showNewDefinitionModal();
+    });
+
+    // New snapshot button
+    document.getElementById('btn-new-snapshot')?.addEventListener('click', () => {
       this._showNewExportModal();
     });
 
@@ -1620,12 +1625,12 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderSidebar() {
-    // Four-panel navigation: Sources (GIVEN) / Sets (SCHEMA) / Definitions (DICT) / Exports (FROZEN)
+    // Four-panel navigation: Sources (GIVEN) / Sets (SCHEMA) / Lexicon (TERMS) / Snapshots (EXPORTS)
     // Views are shown nested under sets in sidebar (Airtable-style)
     this._renderSourcesNav();
     this._renderSetsNavFlat();
-    this._renderDefinitionsNav();
-    this._renderExportsNav();
+    this._renderLexiconNav();
+    this._renderSnapshotsNav();
     // Update tab bar (view disclosure removed - views in sidebar only)
     this._renderTabBar();
   }
@@ -4064,19 +4069,19 @@ class EODataWorkbench {
   }
 
   // --------------------------------------------------------------------------
-  // Definitions Panel Rendering
+  // Lexicon Panel Rendering (Term Definitions)
   // --------------------------------------------------------------------------
 
   /**
-   * Render Definitions navigation panel
-   * Definitions are schema definitions for columns/keys, imported from URIs (e.g., JSON-LD, RDF)
+   * Render Lexicon navigation panel
+   * Lexicon contains term definitions for columns/keys, imported from URIs (e.g., JSON-LD, RDF)
    * They provide vocabulary and type definitions that can be applied to sets
    */
-  _renderDefinitionsNav() {
-    const container = document.getElementById('definitions-nav');
+  _renderLexiconNav() {
+    const container = document.getElementById('lexicon-nav');
     if (!container) return;
 
-    // Ensure definitions array exists
+    // Ensure definitions array exists (internally still called definitions)
     if (!Array.isArray(this.definitions)) {
       this.definitions = [];
     }
@@ -4091,22 +4096,22 @@ class EODataWorkbench {
       return new Date(b.importedAt) - new Date(a.importedAt);
     });
 
-    // Empty state - no definitions yet
+    // Empty state - no terms yet
     if (sortedDefinitions.length === 0) {
       container.innerHTML = `
         <div class="nav-empty-state">
           <i class="ph ph-book-open"></i>
-          <span>No definitions yet</span>
-          <button class="btn-link" id="btn-first-definition">Import from URI or create</button>
+          <span>No terms yet</span>
+          <button class="btn-link" id="btn-first-lexicon">Import from URI or create</button>
         </div>
       `;
-      container.querySelector('#btn-first-definition')?.addEventListener('click', () => {
+      container.querySelector('#btn-first-lexicon')?.addEventListener('click', () => {
         this._showImportDefinitionModal();
       });
       return;
     }
 
-    // Render definitions as a flat list
+    // Render terms as a flat list
     let html = '';
     for (const definition of sortedDefinitions) {
       const defIcon = this._getDefinitionIcon(definition);
@@ -4134,8 +4139,13 @@ class EODataWorkbench {
 
     container.innerHTML = html;
 
-    // Attach event handlers for definition items
+    // Attach event handlers for lexicon items
     this._attachDefinitionsNavEventHandlers(container);
+  }
+
+  // Alias for backward compatibility
+  _renderDefinitionsNav() {
+    this._renderLexiconNav();
   }
 
   /**
@@ -4181,64 +4191,64 @@ class EODataWorkbench {
   }
 
   // --------------------------------------------------------------------------
-  // Exports Panel Rendering
+  // Snapshots Panel Rendering (Immutable Exports)
   // --------------------------------------------------------------------------
 
   /**
-   * Render Exports navigation panel
-   * Exports are immutable frozen captures (downloads and records)
-   * Rule 9: Exports are immutable and can be superseded but never modified
+   * Render Snapshots navigation panel
+   * Snapshots are immutable frozen captures (exports)
+   * Rule 9: Snapshots are immutable and can be superseded but never modified
    */
-  _renderExportsNav() {
-    const container = document.getElementById('exports-nav');
+  _renderSnapshotsNav() {
+    const container = document.getElementById('snapshots-nav');
     if (!container) return;
 
-    // Ensure exports array exists
+    // Ensure exports array exists (internally still called exports)
     if (!Array.isArray(this.exports)) {
       this.exports = [];
     }
 
-    // Get all exports
-    const sortedExports = [...this.exports].sort((a, b) => {
+    // Get all snapshots
+    const sortedSnapshots = [...this.exports].sort((a, b) => {
       if (!a.createdAt) return 1;
       if (!b.createdAt) return -1;
       return new Date(b.createdAt) - new Date(a.createdAt);
     });
 
-    // Empty state - no exports yet
-    if (sortedExports.length === 0) {
+    // Empty state - no snapshots yet
+    if (sortedSnapshots.length === 0) {
       container.innerHTML = `
         <div class="nav-empty-state">
-          <i class="ph ph-export"></i>
-          <span>No exports yet</span>
-          <button class="btn-link" id="btn-first-export">Create an export</button>
+          <i class="ph ph-camera"></i>
+          <span>No snapshots yet</span>
+          <button class="btn-link" id="btn-first-snapshot">Create a snapshot</button>
         </div>
       `;
-      container.querySelector('#btn-first-export')?.addEventListener('click', () => {
+      container.querySelector('#btn-first-snapshot')?.addEventListener('click', () => {
         this._showNewExportModal();
       });
       return;
     }
 
-    // Render exports as a flat list
+    // Render snapshots as a flat list
     let html = '';
-    for (const exp of sortedExports) {
-      const exportIcon = this._getExportIcon(exp);
-      const createdDate = exp.createdAt ? new Date(exp.createdAt).toLocaleDateString() : '';
-      const isActive = this.currentExportId === exp.id;
-      const purposeLabel = exp.purpose || 'export';
+    for (const snap of sortedSnapshots) {
+      const snapIcon = this._getExportIcon(snap);
+      const createdDate = snap.createdAt ? new Date(snap.createdAt).toLocaleDateString() : '';
+      const isActive = this.currentExportId === snap.id;
+      const purposeLabel = snap.purpose || 'snapshot';
 
       html += `
         <div class="nav-item export-item ${isActive ? 'active' : ''}"
-             data-export-id="${exp.id}"
-             title="${this._escapeHtml(exp.notes || exp.name)}">
-          <i class="ph ${exportIcon} export-icon"></i>
+             data-export-id="${snap.id}"
+             title="${this._escapeHtml(snap.notes || snap.name)}">
+          <i class="ph ${snapIcon} export-icon"></i>
           <div class="export-info">
-            <span class="export-name">${this._escapeHtml(this._truncateName(exp.name, 20))}</span>
+            <span class="export-name">${this._escapeHtml(this._truncateName(snap.name, 20))}</span>
             <span class="export-meta-inline">${createdDate}</span>
           </div>
           <span class="export-purpose-badge" title="${purposeLabel}">
-            <i class="ph ph-snowflake"></i>
+            <i class="ph ph-camera"></i>
           </span>
         </div>
       `;
@@ -4246,8 +4256,13 @@ class EODataWorkbench {
 
     container.innerHTML = html;
 
-    // Attach event handlers for export items
+    // Attach event handlers for snapshot items
     this._attachExportsNavEventHandlers(container);
+  }
+
+  // Alias for backward compatibility
+  _renderExportsNav() {
+    this._renderSnapshotsNav();
   }
 
   /**
@@ -7262,29 +7277,29 @@ class EODataWorkbench {
   }
 
   // ==========================================================================
-  // Definitions Explorer - Full-featured definitions browser
+  // Lexicon Explorer - Full-featured term browser
   // ==========================================================================
 
   /**
-   * Show the Definitions Explorer in the main content area
+   * Show the Lexicon Explorer in the main content area
    */
-  _showDefinitionsExplorer() {
+  _showLexiconExplorer() {
     this.currentSourceId = null;
     this.currentSetId = null;
     this.currentExportId = null;
     this.fileExplorerMode = false;
 
     // Update breadcrumb
-    this._updateBreadcrumb('Definitions Explorer', 'ph-book-open');
+    this._updateBreadcrumb('Lexicon Explorer', 'ph-book-open');
 
-    // Render the definitions explorer
-    this._renderDefinitionsExplorer();
+    // Render the lexicon explorer
+    this._renderLexiconExplorer();
   }
 
   /**
-   * Render Definitions Explorer view
+   * Render Lexicon Explorer view
    */
-  _renderDefinitionsExplorer() {
+  _renderLexiconExplorer() {
     const contentArea = this.elements.contentArea;
     if (!contentArea) return;
 
@@ -7294,26 +7309,26 @@ class EODataWorkbench {
       <div class="file-explorer">
         <div class="file-explorer-toolbar">
           <div class="file-explorer-toolbar-left">
-            <button class="file-explorer-close-btn" id="defs-explorer-close" title="Close Definitions Explorer">
+            <button class="file-explorer-close-btn" id="lexicon-explorer-close" title="Close Lexicon Explorer">
               <i class="ph ph-x"></i>
             </button>
             <div class="file-explorer-title">
               <i class="ph ph-book-open"></i>
-              <span>Definitions Explorer</span>
-              <span class="file-explorer-badge dictionary-badge">DICT</span>
+              <span>Lexicon Explorer</span>
+              <span class="file-explorer-badge terms-badge">TERMS</span>
             </div>
           </div>
           <div class="file-explorer-toolbar-center">
             <div class="file-explorer-search">
               <i class="ph ph-magnifying-glass"></i>
-              <input type="text" id="defs-explorer-search" placeholder="Search definitions...">
+              <input type="text" id="lexicon-explorer-search" placeholder="Search terms...">
             </div>
           </div>
           <div class="file-explorer-toolbar-right">
-            <button class="nav-panel-action" id="defs-explorer-import" title="Import from URI">
+            <button class="nav-panel-action" id="lexicon-explorer-import" title="Import from URI">
               <i class="ph ph-link"></i>
             </button>
-            <button class="file-explorer-import-btn" id="defs-explorer-new">
+            <button class="file-explorer-import-btn" id="lexicon-explorer-new">
               <i class="ph ph-plus"></i>
               <span>New</span>
             </button>
@@ -7321,12 +7336,12 @@ class EODataWorkbench {
         </div>
 
         <div class="file-explorer-content" style="padding: 20px;">
-          <div class="fe-section-header">All Definitions (${definitions.length})</div>
+          <div class="fe-section-header">All Terms (${definitions.length})</div>
           ${definitions.length === 0 ? `
             <div class="nav-empty-state" style="padding: 40px;">
               <i class="ph ph-book-open"></i>
-              <span>No definitions yet</span>
-              <button class="btn-link" id="defs-explorer-create">Import from URI or create</button>
+              <span>No terms yet</span>
+              <button class="btn-link" id="lexicon-explorer-create">Import from URI or create</button>
             </div>
           ` : `
             <div class="file-explorer-grid">
@@ -7346,19 +7361,19 @@ class EODataWorkbench {
     `;
 
     // Attach event handlers
-    contentArea.querySelector('#defs-explorer-close')?.addEventListener('click', () => {
+    contentArea.querySelector('#lexicon-explorer-close')?.addEventListener('click', () => {
       this._renderView();
     });
 
-    contentArea.querySelector('#defs-explorer-new')?.addEventListener('click', () => {
+    contentArea.querySelector('#lexicon-explorer-new')?.addEventListener('click', () => {
       this._showNewDefinitionModal();
     });
 
-    contentArea.querySelector('#defs-explorer-import')?.addEventListener('click', () => {
+    contentArea.querySelector('#lexicon-explorer-import')?.addEventListener('click', () => {
       this._showImportDefinitionModal();
     });
 
-    contentArea.querySelector('#defs-explorer-create')?.addEventListener('click', () => {
+    contentArea.querySelector('#lexicon-explorer-create')?.addEventListener('click', () => {
       this._showImportDefinitionModal();
     });
 
@@ -7370,79 +7385,84 @@ class EODataWorkbench {
     });
   }
 
+  // Alias for backward compatibility
+  _showDefinitionsExplorer() {
+    this._showLexiconExplorer();
+  }
+
   // ==========================================================================
-  // Exports Explorer - Full-featured exports browser
+  // Snapshots Explorer - Full-featured snapshots browser
   // ==========================================================================
 
   /**
-   * Show the Exports Explorer in the main content area
+   * Show the Snapshots Explorer in the main content area
    */
-  _showExportsExplorer() {
+  _showSnapshotsExplorer() {
     this.currentSourceId = null;
     this.currentSetId = null;
     this.currentDefinitionId = null;
     this.fileExplorerMode = false;
 
     // Update breadcrumb
-    this._updateBreadcrumb('Exports Explorer', 'ph-export');
+    this._updateBreadcrumb('Snapshots Explorer', 'ph-camera');
 
-    // Render the exports explorer
-    this._renderExportsExplorer();
+    // Render the snapshots explorer
+    this._renderSnapshotsExplorer();
   }
 
   /**
-   * Render Exports Explorer view
+   * Render Snapshots Explorer view
    */
-  _renderExportsExplorer() {
+  _renderSnapshotsExplorer() {
     const contentArea = this.elements.contentArea;
     if (!contentArea) return;
 
-    const exports = this.exports || [];
+    const snapshots = this.exports || [];
 
     contentArea.innerHTML = `
       <div class="file-explorer">
         <div class="file-explorer-toolbar">
           <div class="file-explorer-toolbar-left">
-            <button class="file-explorer-close-btn" id="exports-explorer-close" title="Close Exports Explorer">
+            <button class="file-explorer-close-btn" id="snapshots-explorer-close" title="Close Snapshots Explorer">
               <i class="ph ph-x"></i>
             </button>
             <div class="file-explorer-title">
-              <i class="ph ph-export"></i>
-              <span>Exports Explorer</span>
-              <span class="file-explorer-badge export-badge">FROZEN</span>
+              <i class="ph ph-camera"></i>
+              <span>Snapshots Explorer</span>
+              <span class="file-explorer-badge exports-badge">EXPORTS</span>
             </div>
           </div>
           <div class="file-explorer-toolbar-center">
             <div class="file-explorer-search">
               <i class="ph ph-magnifying-glass"></i>
-              <input type="text" id="exports-explorer-search" placeholder="Search exports...">
+              <input type="text" id="snapshots-explorer-search" placeholder="Search snapshots...">
             </div>
           </div>
           <div class="file-explorer-toolbar-right">
-            <button class="file-explorer-import-btn" id="exports-explorer-new">
+            <button class="file-explorer-import-btn" id="snapshots-explorer-new">
               <i class="ph ph-plus"></i>
-              <span>New Export</span>
+              <span>New Snapshot</span>
             </button>
           </div>
         </div>
 
         <div class="file-explorer-content" style="padding: 20px;">
-          <div class="fe-section-header">All Exports (${exports.length})</div>
-          ${exports.length === 0 ? `
+          <div class="fe-section-header">All Snapshots (${snapshots.length})</div>
+          ${snapshots.length === 0 ? `
             <div class="nav-empty-state" style="padding: 40px;">
-              <i class="ph ph-export"></i>
-              <span>No exports yet</span>
-              <button class="btn-link" id="exports-explorer-create">Create your first export</button>
+              <i class="ph ph-camera"></i>
+              <span>No snapshots yet</span>
+              <button class="btn-link" id="snapshots-explorer-create">Create your first snapshot</button>
             </div>
           ` : `
             <div class="file-explorer-grid">
-              ${exports.map(exp => `
-                <div class="fe-grid-item" data-export-id="${exp.id}">
+              ${snapshots.map(snap => `
+                <div class="fe-grid-item" data-export-id="${snap.id}">
                   <div class="fe-grid-icon">
-                    <i class="ph ${this._getExportIcon(exp)}"></i>
+                    <i class="ph ${this._getExportIcon(snap)}"></i>
                   </div>
-                  <div class="fe-grid-name">${this._escapeHtml(exp.name)}</div>
-                  <div class="fe-grid-meta">${exp.createdAt ? new Date(exp.createdAt).toLocaleDateString() : 'Unknown'} • ${exp.purpose || 'export'}</div>
+                  <div class="fe-grid-name">${this._escapeHtml(snap.name)}</div>
+                  <div class="fe-grid-meta">${snap.createdAt ? new Date(snap.createdAt).toLocaleDateString() : 'Unknown'} • ${snap.purpose || 'snapshot'}</div>
                 </div>
               `).join('')}
             </div>
@@ -7452,15 +7472,15 @@ class EODataWorkbench {
     `;
 
     // Attach event handlers
-    contentArea.querySelector('#exports-explorer-close')?.addEventListener('click', () => {
+    contentArea.querySelector('#snapshots-explorer-close')?.addEventListener('click', () => {
       this._renderView();
     });
 
-    contentArea.querySelector('#exports-explorer-new')?.addEventListener('click', () => {
+    contentArea.querySelector('#snapshots-explorer-new')?.addEventListener('click', () => {
       this._showNewExportModal();
     });
 
-    contentArea.querySelector('#exports-explorer-create')?.addEventListener('click', () => {
+    contentArea.querySelector('#snapshots-explorer-create')?.addEventListener('click', () => {
       this._showNewExportModal();
     });
 
@@ -7470,6 +7490,11 @@ class EODataWorkbench {
         this._showExportDetail(exportId);
       });
     });
+  }
+
+  // Alias for backward compatibility
+  _showExportsExplorer() {
+    this._showSnapshotsExplorer();
   }
 
   // ==========================================================================
@@ -7575,9 +7600,9 @@ class EODataWorkbench {
   }
 
   /**
-   * Show definitions as a table view in the main content area
+   * Show lexicon as a table view in the main content area
    */
-  _showDefinitionsTableView() {
+  _showLexiconTableView() {
     const contentArea = this.elements.contentArea;
     if (!contentArea) return;
 
@@ -7586,7 +7611,7 @@ class EODataWorkbench {
     // Update breadcrumb
     this._updateBreadcrumb({
       workspace: this._getCurrentWorkspaceName(),
-      set: 'Definitions',
+      set: 'Lexicon',
       view: 'Table View'
     });
 
@@ -7599,18 +7624,18 @@ class EODataWorkbench {
             </div>
             <div class="sources-table-info">
               <h2>
-                <span>Definitions</span>
-                <span class="dictionary-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(168, 85, 247, 0.15); color: rgb(168, 85, 247);">
-                  DICT
+                <span>Lexicon</span>
+                <span class="terms-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(168, 85, 247, 0.15); color: rgb(168, 85, 247);">
+                  TERMS
                 </span>
               </h2>
               <div class="sources-table-meta">
-                ${definitions.length} definition${definitions.length !== 1 ? 's' : ''}
+                ${definitions.length} term${definitions.length !== 1 ? 's' : ''}
               </div>
             </div>
           </div>
           <div class="sources-table-actions">
-            <button class="source-action-btn" id="defs-table-new-btn" title="Create new definition">
+            <button class="source-action-btn" id="lexicon-table-new-btn" title="Create new term">
               <i class="ph ph-plus"></i>
               <span>New</span>
             </button>
@@ -7641,7 +7666,7 @@ class EODataWorkbench {
                     <td class="col-terms">${def.terms?.length || def.properties?.length || 0}</td>
                     <td class="col-created">${def.importedAt ? new Date(def.importedAt).toLocaleDateString() : 'Unknown'}</td>
                     <td class="col-actions">
-                      <button class="sources-table-action-btn" data-action="view" title="View definition">
+                      <button class="sources-table-action-btn" data-action="view" title="View term">
                         <i class="ph ph-eye"></i>
                       </button>
                     </td>
@@ -7652,7 +7677,7 @@ class EODataWorkbench {
           ` : `
             <div class="sources-table-empty">
               <i class="ph ph-book-open"></i>
-              <span>No definitions yet. Import from URI or create one.</span>
+              <span>No terms yet. Import from URI or create one.</span>
             </div>
           `}
         </div>
@@ -7660,7 +7685,7 @@ class EODataWorkbench {
     `;
 
     // Attach event handlers
-    contentArea.querySelector('#defs-table-new-btn')?.addEventListener('click', () => {
+    contentArea.querySelector('#lexicon-table-new-btn')?.addEventListener('click', () => {
       this._showNewDefinitionModal();
     });
 
@@ -7672,19 +7697,24 @@ class EODataWorkbench {
     });
   }
 
+  // Alias for backward compatibility
+  _showDefinitionsTableView() {
+    this._showLexiconTableView();
+  }
+
   /**
-   * Show exports as a table view in the main content area
+   * Show snapshots as a table view in the main content area
    */
-  _showExportsTableView() {
+  _showSnapshotsTableView() {
     const contentArea = this.elements.contentArea;
     if (!contentArea) return;
 
-    const exports = this.exports || [];
+    const snapshots = this.exports || [];
 
     // Update breadcrumb
     this._updateBreadcrumb({
       workspace: this._getCurrentWorkspaceName(),
-      set: 'Exports',
+      set: 'Snapshots',
       view: 'Table View'
     });
 
@@ -7693,31 +7723,30 @@ class EODataWorkbench {
         <div class="sources-table-header">
           <div class="sources-table-title">
             <div class="sources-table-icon">
-              <i class="ph ph-export"></i>
+              <i class="ph ph-camera"></i>
             </div>
             <div class="sources-table-info">
               <h2>
-                <span>Exports</span>
-                <span class="export-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.15); color: rgb(34, 197, 94);">
-                  <i class="ph ph-snowflake"></i>
-                  FROZEN
+                <span>Snapshots</span>
+                <span class="exports-badge" style="font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(34, 197, 94, 0.15); color: rgb(34, 197, 94);">
+                  EXPORTS
                 </span>
               </h2>
               <div class="sources-table-meta">
-                ${exports.length} export${exports.length !== 1 ? 's' : ''}
+                ${snapshots.length} snapshot${snapshots.length !== 1 ? 's' : ''}
               </div>
             </div>
           </div>
           <div class="sources-table-actions">
-            <button class="source-action-btn" id="exports-table-new-btn" title="Create new export">
+            <button class="source-action-btn" id="snapshots-table-new-btn" title="Create new snapshot">
               <i class="ph ph-plus"></i>
-              <span>New Export</span>
+              <span>New Snapshot</span>
             </button>
           </div>
         </div>
 
         <div class="sources-table-container">
-          ${exports.length > 0 ? `
+          ${snapshots.length > 0 ? `
             <table class="sources-table">
               <thead>
                 <tr>
@@ -7729,19 +7758,19 @@ class EODataWorkbench {
                 </tr>
               </thead>
               <tbody>
-                ${exports.map(exp => `
-                  <tr class="sources-table-row" data-export-id="${exp.id}">
+                ${snapshots.map(snap => `
+                  <tr class="sources-table-row" data-export-id="${snap.id}">
                     <td class="col-icon">
-                      <i class="ph ${this._getExportIcon(exp)}"></i>
+                      <i class="ph ${this._getExportIcon(snap)}"></i>
                     </td>
-                    <td class="col-name">${this._escapeHtml(exp.name)}</td>
-                    <td class="col-purpose">${exp.purpose || 'export'}</td>
-                    <td class="col-created">${exp.createdAt ? new Date(exp.createdAt).toLocaleDateString() : 'Unknown'}</td>
+                    <td class="col-name">${this._escapeHtml(snap.name)}</td>
+                    <td class="col-purpose">${snap.purpose || 'snapshot'}</td>
+                    <td class="col-created">${snap.createdAt ? new Date(snap.createdAt).toLocaleDateString() : 'Unknown'}</td>
                     <td class="col-actions">
-                      <button class="sources-table-action-btn" data-action="view" title="View export">
+                      <button class="sources-table-action-btn" data-action="view" title="View snapshot">
                         <i class="ph ph-eye"></i>
                       </button>
-                      <button class="sources-table-action-btn" data-action="download" title="Download export">
+                      <button class="sources-table-action-btn" data-action="download" title="Download snapshot">
                         <i class="ph ph-download-simple"></i>
                       </button>
                     </td>
@@ -7751,8 +7780,8 @@ class EODataWorkbench {
             </table>
           ` : `
             <div class="sources-table-empty">
-              <i class="ph ph-export"></i>
-              <span>No exports yet. Create an export to capture a snapshot.</span>
+              <i class="ph ph-camera"></i>
+              <span>No snapshots yet. Create a snapshot to capture the current state.</span>
             </div>
           `}
         </div>
@@ -7760,7 +7789,7 @@ class EODataWorkbench {
     `;
 
     // Attach event handlers
-    contentArea.querySelector('#exports-table-new-btn')?.addEventListener('click', () => {
+    contentArea.querySelector('#snapshots-table-new-btn')?.addEventListener('click', () => {
       this._showNewExportModal();
     });
 
@@ -7779,6 +7808,11 @@ class EODataWorkbench {
         this._showExportDetail(exportId);
       });
     });
+  }
+
+  // Alias for backward compatibility
+  _showExportsTableView() {
+    this._showSnapshotsTableView();
   }
 
   /**
