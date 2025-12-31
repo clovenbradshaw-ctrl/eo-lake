@@ -2710,10 +2710,10 @@ function showImportModal() {
         <div class="import-provenance-section">
           <div class="import-provenance-title">
             <i class="ph ph-fingerprint"></i>
-            Provenance (optional)
+            Provenance <span class="provenance-optional">(recommended)</span>
           </div>
           <div class="import-provenance-subtitle">
-            Track where this data comes from and what it means. All 9 categories help establish trustworthiness.
+            Add context about where this data comes from. The system auto-tracks file identity, timestamp, and import method.
           </div>
 
           <!-- Epistemic Triad: How was this produced? -->
@@ -3391,7 +3391,7 @@ function initImportHandlers() {
         });
       });
 
-      // Enable confirm
+      // Enable import - provenance fields are optional, system auto-tracks what it can
       confirmBtn.disabled = false;
 
     } catch (error) {
@@ -4156,7 +4156,13 @@ importStyles.textContent = `
   .import-provenance-subtitle {
     font-size: 12px;
     color: var(--text-muted);
-    margin-bottom: 16px;
+    margin-bottom: 12px;
+  }
+
+  .provenance-optional {
+    color: var(--text-muted);
+    font-weight: 400;
+    font-size: 12px;
   }
 
   .import-provenance-grid {

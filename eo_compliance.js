@@ -150,8 +150,121 @@ class EOComplianceChecker {
     audit.addResult(this.checkRule8_Determinacy());
     audit.addResult(this.checkRule9_Defeasibility());
 
+    // EO Supplementary: Data Provenance Validation
+    audit.addResult(this.checkDataProvenance());
+
     audit.complete();
     return audit;
+  }
+
+  /**
+   * EO COMPLIANCE: Data Provenance Validation
+   *
+   * All data must have auditable provenance tracing back to a source.
+   * This check validates that critical provenance fields are non-null:
+   * - Sources must have asserting_agent
+   * - Sets must have derivation with actor
+   * - Exports must have capturedBy and provenanceChain
+   */
+  checkDataProvenance() {
+    const violations = [];
+    const details = [];
+
+    // Get all sources if available via registry or event store
+    const sources = this.getSources?.() || [];
+    const sets = this.getSets?.() || [];
+    const exports = this.getExports?.() || [];
+
+    details.push(`Validating provenance for ${sources.length} sources, ${sets.length} sets, ${exports.length} exports`);
+
+    // Validate source provenance
+    for (const source of sources) {
+      if (!source.provenance?.asserting_agent && !source.provenance?.assertingAgent) {
+        violations.push({
+          sourceId: source.id,
+          type: 'source',
+          error: 'Source has no asserting_agent - cannot trace data origin'
+        });
+      }
+
+      // Check for method/mechanism
+      if (!source.provenance?.designation_mechanism && !source.provenance?.mechanism) {
+        violations.push({
+          sourceId: source.id,
+          type: 'source',
+          error: 'Source has no designation_mechanism - cannot verify how data was obtained'
+        });
+      }
+    }
+
+    // Validate set provenance
+    for (const set of sets) {
+      if (!set.derivation?.derivedBy) {
+        violations.push({
+          setId: set.id,
+          type: 'set',
+          error: 'Set has no derivedBy - cannot trace transformation author'
+        });
+      }
+
+      if (!set.derivation?.parentSourceId && set.datasetProvenance?.origin !== 'scratch') {
+        violations.push({
+          setId: set.id,
+          type: 'set',
+          error: 'Set has no parentSourceId - cannot trace data source'
+        });
+      }
+
+      // Validate field-level provenance
+      for (const field of (set.fields || [])) {
+        if (!field.provenance) {
+          violations.push({
+            setId: set.id,
+            fieldId: field.id,
+            type: 'field',
+            error: `Field "${field.name}" has no provenance - cannot trace field origin`
+          });
+        }
+      }
+    }
+
+    // Validate export provenance
+    for (const exp of exports) {
+      if (!exp.capturedBy) {
+        violations.push({
+          exportId: exp.id,
+          type: 'export',
+          error: 'Export has no capturedBy - cannot trace who created export'
+        });
+      }
+
+      if (!exp.provenanceChain?.sourceIds?.length) {
+        violations.push({
+          exportId: exp.id,
+          type: 'export',
+          error: 'Export has no provenanceChain.sourceIds - cannot trace original data source'
+        });
+      }
+    }
+
+    // Summary statistics
+    if (violations.length === 0) {
+      details.push('All data has complete provenance chains');
+    } else {
+      const byType = violations.reduce((acc, v) => {
+        acc[v.type] = (acc[v.type] || 0) + 1;
+        return acc;
+      }, {});
+      details.push(`Provenance violations by type: ${JSON.stringify(byType)}`);
+    }
+
+    return new RuleCheckResult(
+      10,  // Supplementary rule number
+      'Data Provenance (EO Compliance)',
+      violations.length === 0,
+      details,
+      violations
+    );
   }
 
   /**

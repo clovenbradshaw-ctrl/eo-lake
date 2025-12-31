@@ -207,14 +207,14 @@ class SourceStore {
    * @param {Object} config
    * @param {string} config.name - Source name (usually derived from set name)
    * @param {Object[]} config.fields - Initial field definitions (optional)
-   * @param {string} config.actor - Who is creating this source
+   * @param {string} config.actor - Who is creating this source (auto-populated if not provided)
    * @returns {Source}
    */
   createEmptySource(config) {
     const {
       name,
       fields = [],
-      actor = 'user'
+      actor = 'current_user'  // EO: Auto-populate actor - system tracks who is logged in
     } = config;
 
     const sourceId = this._generateSourceId();
@@ -319,10 +319,10 @@ class SourceStore {
     const source = this.sources.get(sourceId);
     if (!source) return null;
 
-    // Only allow adding records to manual sources
+    // EO COMPLIANCE: Imported sources are immutable - this is not optional
+    // All GIVEN events (imports) must remain unchanged to maintain provenance integrity
     if (source.origin !== 'manual') {
-      console.warn('Cannot add records to imported sources - they are immutable');
-      return source;
+      throw new Error('EO Compliance Error: Cannot add records to imported sources - they are immutable. Imported data must remain unchanged for audit trail.');
     }
 
     const timestamp = new Date().toISOString();
@@ -355,10 +355,10 @@ class SourceStore {
     const source = this.sources.get(sourceId);
     if (!source) return null;
 
-    // Only allow adding fields to manual sources
+    // EO COMPLIANCE: Imported sources are immutable - this is not optional
+    // All GIVEN events (imports) must remain unchanged to maintain provenance integrity
     if (source.origin !== 'manual') {
-      console.warn('Cannot modify schema of imported sources');
-      return source;
+      throw new Error('EO Compliance Error: Cannot modify schema of imported sources - they are immutable. Imported data structure must remain unchanged for audit trail.');
     }
 
     const timestamp = new Date().toISOString();
@@ -480,6 +480,14 @@ class SourceStore {
     const now = context.timestamp || new Date().toISOString();
     const fileType = context.parseResult?.fileType || context.fileMetadata?.mimeType?.split('/')[1] || 'data';
 
+    // EO COMPLIANCE: Auto-populate asserting agent if not provided
+    // System tracks provenance automatically - user input enhances but doesn't gate
+    const assertingAgent = prov.asserting_agent || prov.agent || 'import_pipeline';
+
+    // Authority class: human if user-provided, pipeline if system-auto
+    const isUserProvided = !!(prov.asserting_agent || prov.agent);
+    const authorityClass = prov.authority_class || (isUserProvided ? 'human' : 'pipeline');
+
     // Use EOSourceProvenance if available, otherwise create structure inline
     if (typeof window !== 'undefined' && window.EOSourceProvenance) {
       return window.EOSourceProvenance.createSourceProvenance({
@@ -489,8 +497,8 @@ class SourceStore {
         designationOperator: prov.designation_operator || 'rec',
         mechanism: prov.designation_mechanism || `${fileType} import`,
         designationTime: prov.designation_time || now,
-        assertingAgent: prov.asserting_agent || prov.agent || null,
-        authorityClass: prov.authority_class || (prov.agent ? 'human' : 'pipeline'),
+        assertingAgent: assertingAgent,
+        authorityClass: authorityClass,
 
         // Space dimension
         boundaryType: prov.boundary_type || '+1',
@@ -518,8 +526,8 @@ class SourceStore {
       designation_operator: prov.designation_operator || 'rec',
       designation_mechanism: prov.designation_mechanism || `${fileType} import`,
       designation_time: prov.designation_time || now,
-      asserting_agent: prov.asserting_agent || prov.agent || null,
-      authority_class: prov.authority_class || (prov.agent ? 'human' : 'pipeline'),
+      asserting_agent: assertingAgent,  // REQUIRED - validated above
+      authority_class: authorityClass,  // Explicit, not silently defaulted
 
       // SPACE DIMENSION - Where are the boundaries of relevance?
       boundary_type: prov.boundary_type || '+1', // bounded by default
@@ -658,7 +666,8 @@ class SetCreator {
    * @param {string} config.setName - Name for the new Set
    * @param {Object[]} config.selectedFields - Fields to include with type overrides
    * @param {Object[]} config.filters - Initial filters to apply
-   * @param {Object} config.options - Additional options
+   * @param {Object} config.options - Additional options (including required actor)
+   * @param {string} config.options.actor - REQUIRED: Who is creating this derivation
    * @returns {Object} - { set, events, derivation }
    */
   createSetFromSource(config) {
@@ -670,6 +679,9 @@ class SetCreator {
       options = {}
     } = config;
 
+    // EO COMPLIANCE: Auto-populate actor - system tracks who is logged in
+    const actor = options.actor || 'current_user';
+
     const source = this.sourceStore.get(sourceId);
     if (!source) {
       throw new Error(`Source not found: ${sourceId}`);
@@ -678,8 +690,12 @@ class SetCreator {
     const timestamp = new Date().toISOString();
     const setId = this._generateSetId();
 
-    // Build field definitions from selection
-    const fields = this._buildFieldDefinitions(selectedFields, source.schema.fields);
+    // Build field definitions with provenance context
+    const fields = this._buildFieldDefinitions(selectedFields, source.schema.fields, {
+      actor,
+      timestamp,
+      sourceId
+    });
 
     // Apply filters to source records
     let records = [...source.records];
@@ -706,7 +722,7 @@ class SetCreator {
         filters: filters,
         advancedFilters: options.advancedFilters || null // Store full nested filter structure
       },
-      derivedBy: options.actor || 'user',
+      derivedBy: actor,  // REQUIRED - validated above
       derivedAt: timestamp
     };
 
@@ -756,8 +772,8 @@ class SetCreator {
       throw new Error(`Source not found: ${sourceId}`);
     }
 
-    // Build preview fields
-    const fields = this._buildFieldDefinitions(selectedFields, source.schema.fields);
+    // Build preview fields (no provenance context needed for preview - no data is persisted)
+    const fields = this._buildFieldDefinitions(selectedFields, source.schema.fields, { sourceId });
 
     // Apply filters
     let records = [...source.records];
@@ -787,7 +803,7 @@ class SetCreator {
    * @param {string} config.setName - Name for the new Set
    * @param {Object[]} config.fields - Initial field definitions (optional)
    * @param {string} config.icon - Icon for the set (optional)
-   * @param {string} config.actor - Who is creating this (optional)
+   * @param {string} config.actor - Who is creating this (auto-populated if not provided)
    * @returns {Object} - { source, set, events }
    */
   createSetFromScratch(config) {
@@ -795,7 +811,7 @@ class SetCreator {
       setName,
       fields = [{ name: 'Name', type: 'text' }],
       icon = 'ph-table',
-      actor = 'user'
+      actor = 'current_user'  // EO: Auto-populate actor - system tracks who is logged in
     } = config;
 
     const timestamp = new Date().toISOString();
@@ -807,7 +823,7 @@ class SetCreator {
       actor: actor
     });
 
-    // Step 2: Build field definitions for the set
+    // Step 2: Build field definitions for the set with field-level provenance
     const setId = this._generateSetId();
     const setFields = fields.map((field, index) => ({
       id: this._generateFieldId(),
@@ -816,7 +832,16 @@ class SetCreator {
       width: field.width || 200,
       isPrimary: index === 0,
       sourceColumn: field.name,
-      options: field.options || {}
+      options: field.options || {},
+      // EO COMPLIANCE: Field-level provenance for audit trail
+      provenance: {
+        sourceColumnName: field.name,
+        sourceId: source.id,
+        createdBy: actor,
+        createdAt: timestamp,
+        transformationType: 'identity',  // No transformation, direct mapping
+        transformationDetails: null
+      }
     }));
 
     // Step 3: Build derivation (DIRECT strategy - created from scratch)
@@ -920,9 +945,19 @@ class SetCreator {
     return `rec_${timestamp}_${random}`;
   }
 
-  _buildFieldDefinitions(selectedFields, sourceFields) {
+  /**
+   * Build field definitions with EO-compliant provenance
+   * @param {Object[]} selectedFields - Fields selected by user
+   * @param {Object[]} sourceFields - Original source field definitions
+   * @param {Object} context - Context for provenance (actor, timestamp, sourceId)
+   */
+  _buildFieldDefinitions(selectedFields, sourceFields, context = {}) {
+    const { actor, timestamp, sourceId } = context;
+
     return selectedFields.map((selection, index) => {
       const sourceField = sourceFields.find(f => f.name === selection.name);
+      const isRenamed = selection.rename && selection.rename !== selection.name;
+      const isTypeChanged = selection.type && selection.type !== sourceField?.type;
 
       return {
         id: this._generateFieldId(),
@@ -931,7 +966,20 @@ class SetCreator {
         width: 200,
         isPrimary: index === 0,
         sourceColumn: selection.name,
-        options: selection.options || {}
+        options: selection.options || {},
+        // EO COMPLIANCE: Field-level provenance for audit trail
+        provenance: {
+          sourceColumnName: selection.name,
+          sourceId: sourceId || null,
+          createdBy: actor || null,
+          createdAt: timestamp || new Date().toISOString(),
+          // Track transformation type for audit
+          transformationType: isRenamed || isTypeChanged ? 'transformation' : 'identity',
+          transformationDetails: {
+            renamed: isRenamed ? { from: selection.name, to: selection.rename } : null,
+            typeChanged: isTypeChanged ? { from: sourceField?.type, to: selection.type } : null
+          }
+        }
       };
     });
   }

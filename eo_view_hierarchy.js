@@ -671,6 +671,8 @@ class ExportConfig {
    * @param {Object} options.viewConfig - Frozen view configuration
    * @param {Object} options.dataState - Captured data state
    * @param {Object} options.annotations - Purpose and notes
+   * @param {string} options.capturedBy - REQUIRED: Who created this export
+   * @param {Object} options.provenanceChain - Full provenance chain back to source (auto-populated if possible)
    */
   constructor(options) {
     // Rule 1: Explicitly typed as 'meant'
@@ -681,9 +683,9 @@ class ExportConfig {
     this.name = options.name || 'Export';
     this.sourceViewId = options.sourceViewId || null;
 
-    // Captured state
+    // Captured state - EO: auto-populate capturedBy if not provided
     this.capturedAt = options.capturedAt || new Date().toISOString();
-    this.capturedBy = options.capturedBy || null;
+    this.capturedBy = options.capturedBy || 'current_user';  // Auto-populate
 
     // The frozen view configuration
     this.viewConfig = options.viewConfig || null;
@@ -692,6 +694,21 @@ class ExportConfig {
     this.dataState = {
       recordIds: options.dataState?.recordIds || [],
       eventLogPosition: options.dataState?.eventLogPosition || null
+    };
+
+    // EO COMPLIANCE: Full provenance chain preserving link to original sources
+    // This ensures exports don't lose connection to where the data came from
+    this.provenanceChain = {
+      // The set this view derives from
+      setId: options.provenanceChain?.setId || null,
+      // The original source(s) the set was derived from
+      sourceIds: options.provenanceChain?.sourceIds || [],
+      // The derivation strategy used
+      derivationStrategy: options.provenanceChain?.derivationStrategy || null,
+      // Snapshot of the source provenance at export time
+      sourceProvenance: options.provenanceChain?.sourceProvenance || null,
+      // Chain of transformations applied
+      transformations: options.provenanceChain?.transformations || []
     };
 
     // Rule 9: Defeasibility through annotations
@@ -726,6 +743,16 @@ class ExportConfig {
       errors.push(new ViewHierarchyError(7, 'Export must capture view configuration'));
     }
 
+    // EO COMPLIANCE: Must have provenance chain for audit trail
+    if (!this.provenanceChain || !this.provenanceChain.setId) {
+      errors.push(new ViewHierarchyError(7, 'Export must have provenance chain linking to source set'));
+    }
+
+    // EO COMPLIANCE: Must have original source reference
+    if (!this.provenanceChain?.sourceIds || this.provenanceChain.sourceIds.length === 0) {
+      errors.push(new ViewHierarchyError(7, 'Export must trace back to original source(s)'));
+    }
+
     return { valid: errors.length === 0, errors };
   }
 
@@ -740,6 +767,7 @@ class ExportConfig {
       capturedBy: this.capturedBy,
       viewConfig: this.viewConfig,
       dataState: { ...this.dataState },
+      provenanceChain: { ...this.provenanceChain },  // Include full provenance chain
       annotations: { ...this.annotations },
       immutable: this.immutable,
       supersededBy: this.supersededBy,
