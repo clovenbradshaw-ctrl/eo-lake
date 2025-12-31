@@ -11824,222 +11824,319 @@ class EODataWorkbench {
     // Detect record types for splitting
     const recordTypeAnalysis = this._analyzeRecordTypesForSet(set);
 
+    // Calculate field completeness stats
+    const fieldStats = this._calculateFieldStats(set);
+
+    // Calculate overall completeness
+    const completeness = this._calculateSetCompleteness(set);
+
+    // Get source info for display
+    const sourceInfo = this._getSourceDisplayInfo(set);
+
+    // Format last updated time
+    const lastUpdated = prov.importedAt || prov.createdAt || set.createdAt;
+    const lastUpdatedDisplay = lastUpdated ? this._formatRelativeTime(lastUpdated) : 'Unknown';
+
     content.innerHTML = `
-      <div class="set-detail-container">
-        <div class="set-detail-header">
-          <div class="set-detail-title-row">
-            <i class="${set.icon || 'ph ph-table'}"></i>
-            <h2>${this._escapeHtml(set.name)}</h2>
-            ${derivation.badge}
+      <div class="set-dashboard">
+        <!-- Header -->
+        <div class="set-dashboard-header">
+          <div class="set-dashboard-title-section">
+            <div class="set-dashboard-title-row">
+              <i class="${set.icon || 'ph ph-table'}"></i>
+              <h2>${this._escapeHtml(set.name)}</h2>
+              ${derivation.badge}
+            </div>
+            <div class="set-dashboard-meta">
+              <span class="set-dashboard-meta-item">
+                <i class="ph ph-rows"></i>
+                ${records.length.toLocaleString()} records
+              </span>
+              <span class="set-dashboard-meta-divider"></span>
+              <span class="set-dashboard-meta-item">
+                <i class="ph ph-columns"></i>
+                ${fields.length} fields
+              </span>
+              <span class="set-dashboard-meta-divider"></span>
+              <span class="set-dashboard-meta-item">
+                <i class="ph ph-eye"></i>
+                ${views.length} views
+              </span>
+              <span class="set-dashboard-meta-divider"></span>
+              <span class="set-dashboard-meta-item">
+                <i class="ph ph-clock"></i>
+                Updated ${lastUpdatedDisplay}
+              </span>
+            </div>
           </div>
-          <div class="set-detail-stats">
-            <span><i class="ph ph-rows"></i> ${records.length.toLocaleString()} records</span>
-            <span><i class="ph ph-columns"></i> ${fields.length} fields</span>
-            <span><i class="ph ph-eye"></i> ${views.length} views</span>
-          </div>
-          <div class="set-detail-actions">
-            <button class="set-detail-action-btn" id="set-detail-export-btn">
+          <div class="set-dashboard-actions">
+            <button class="set-dashboard-action-btn" id="set-dashboard-export-btn">
               <i class="ph ph-export"></i> Export
             </button>
-            <button class="set-detail-action-btn" id="set-detail-edit-btn">
+            <button class="set-dashboard-action-btn" id="set-dashboard-edit-btn">
               <i class="ph ph-pencil-simple"></i> Edit
             </button>
-            <button class="set-detail-action-btn danger" id="set-detail-delete-btn">
+            <button class="set-dashboard-action-btn danger" id="set-dashboard-delete-btn">
               <i class="ph ph-trash"></i> Delete
             </button>
           </div>
         </div>
 
-        <!-- INPUT SECTION -->
-        <div class="set-detail-section set-detail-input">
-          <div class="set-detail-section-header">
-            <div class="set-detail-section-title">
-              <i class="ph ph-download-simple"></i>
-              <span>Input</span>
+        <!-- Top Row: Overview, Source, Transformations -->
+        <div class="set-dashboard-grid">
+          <!-- Data Overview Card -->
+          <div class="set-dashboard-card overview">
+            <div class="set-dashboard-card-header">
+              <div class="set-dashboard-card-title">
+                <i class="ph ph-chart-bar"></i>
+                Data Overview
+              </div>
             </div>
-            <span class="set-detail-section-subtitle">Where this data comes from</span>
+            <div class="set-dashboard-card-content">
+              <div class="set-dashboard-stats-grid">
+                <div class="set-dashboard-stat">
+                  <div class="set-dashboard-stat-value">${records.length.toLocaleString()}</div>
+                  <div class="set-dashboard-stat-label">Records</div>
+                </div>
+                <div class="set-dashboard-stat">
+                  <div class="set-dashboard-stat-value">${fields.length}</div>
+                  <div class="set-dashboard-stat-label">Fields</div>
+                </div>
+                <div class="set-dashboard-stat">
+                  <div class="set-dashboard-stat-value">${views.length}</div>
+                  <div class="set-dashboard-stat-label">Views</div>
+                </div>
+                <div class="set-dashboard-stat ${recordTypeAnalysis ? 'highlight' : ''}">
+                  <div class="set-dashboard-stat-value">${recordTypeAnalysis ? recordTypeAnalysis.types.length : 1}</div>
+                  <div class="set-dashboard-stat-label">Record Types</div>
+                </div>
+              </div>
+              <div class="set-dashboard-completeness">
+                <div class="set-dashboard-completeness-header">
+                  <span class="set-dashboard-completeness-label">Data Completeness</span>
+                  <span class="set-dashboard-completeness-value">${completeness}%</span>
+                </div>
+                <div class="set-dashboard-completeness-bar">
+                  <div class="set-dashboard-completeness-fill" style="width: ${completeness}%"></div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="set-detail-section-content">
-            ${inputSources.length > 0 ? `
-              <div class="set-detail-sources-list">
-                ${inputSources.map(source => `
-                  <div class="set-detail-source-item" data-source-id="${source.id || ''}" data-set-id="${source.setId || ''}">
+
+          <!-- Source Card -->
+          <div class="set-dashboard-card source">
+            <div class="set-dashboard-card-header">
+              <div class="set-dashboard-card-title">
+                <i class="ph ph-download-simple"></i>
+                Source
+              </div>
+              ${inputSources.length > 0 ? `
+                <button class="set-dashboard-card-action" id="set-dashboard-view-source">View</button>
+              ` : ''}
+            </div>
+            <div class="set-dashboard-card-content">
+              ${inputSources.length > 0 ? inputSources.map(source => `
+                <div class="set-dashboard-source-item" data-source-id="${source.id || ''}" data-set-id="${source.setId || ''}">
+                  <div class="set-dashboard-source-icon">
                     <i class="ph ${source.icon}"></i>
-                    <div class="set-detail-source-info">
-                      <div class="set-detail-source-name">${this._escapeHtml(source.name)}</div>
-                      <div class="set-detail-source-meta">${source.meta}</div>
-                    </div>
-                    ${source.canView ? `
-                      <button class="set-detail-source-action" title="View source">
-                        <i class="ph ph-arrow-square-out"></i>
-                      </button>
-                    ` : ''}
                   </div>
-                `).join('')}
-              </div>
-            ` : `
-              <div class="set-detail-empty-state">
-                <i class="ph ph-file-dashed"></i>
-                <span>No source tracked</span>
-              </div>
-            `}
-            <button class="set-detail-add-btn" id="set-detail-add-source">
-              <i class="ph ph-plus"></i>
-              <span>Add Source</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- FLOW ARROW -->
-        <div class="set-detail-flow-arrow">
-          <i class="ph ph-arrow-down"></i>
-        </div>
-
-        <!-- TRANSFORMATION SECTION -->
-        <div class="set-detail-section set-detail-transform">
-          <div class="set-detail-section-header">
-            <div class="set-detail-section-title">
-              <i class="ph ph-gear"></i>
-              <span>Transformation</span>
+                  <div class="set-dashboard-source-details">
+                    <div class="set-dashboard-source-name">${this._escapeHtml(source.name)}</div>
+                    <div class="set-dashboard-source-meta">
+                      ${sourceInfo.type ? `<span class="set-dashboard-source-badge">${sourceInfo.type}</span>` : ''}
+                      <span>${source.meta}</span>
+                    </div>
+                  </div>
+                </div>
+              `).join('') : `
+                <div class="set-dashboard-empty">
+                  <i class="ph ph-file-dashed"></i>
+                  <span>No source tracked</span>
+                </div>
+              `}
+              <button class="set-dashboard-add-btn" id="set-dashboard-add-source">
+                <i class="ph ph-plus"></i> Add Source
+              </button>
             </div>
-            <span class="set-detail-section-subtitle">How the data is shaped</span>
           </div>
-          <div class="set-detail-section-content">
-            ${transformations.length > 0 ? `
-              <div class="set-detail-transforms-list">
-                ${transformations.map(t => `
-                  <div class="set-detail-transform-item ${t.type}">
-                    <div class="set-detail-transform-badge">${t.badge}</div>
-                    <div class="set-detail-transform-info">
-                      <div class="set-detail-transform-name">${this._escapeHtml(t.name)}</div>
-                      <div class="set-detail-transform-desc">${this._escapeHtml(t.description)}</div>
+
+          <!-- Transformations Card -->
+          <div class="set-dashboard-card transforms">
+            <div class="set-dashboard-card-header">
+              <div class="set-dashboard-card-title">
+                <i class="ph ph-gear"></i>
+                Transformations
+              </div>
+            </div>
+            <div class="set-dashboard-card-content">
+              ${transformations.length > 0 ? `
+                <div class="set-dashboard-transform-list">
+                  ${transformations.map(t => `
+                    <div class="set-dashboard-transform-item">
+                      ${t.badge}
+                      <div class="set-dashboard-transform-text">
+                        ${this._escapeHtml(t.name)}
+                        <small>${this._escapeHtml(t.description)}</small>
+                      </div>
                     </div>
+                  `).join('')}
+                </div>
+              ` : `
+                <div class="set-dashboard-transform-item">
+                  <span class="op-badge direct">INS</span>
+                  <div class="set-dashboard-transform-text">
+                    Direct Import
+                    <small>No transformations applied</small>
                   </div>
-                `).join('')}
-              </div>
-            ` : `
-              <div class="set-detail-empty-state">
-                <i class="ph ph-equals"></i>
-                <span>Direct import (no transformations)</span>
-              </div>
-            `}
-            <div class="set-detail-schema-summary">
-              <div class="set-detail-schema-header">
-                <span>Schema: ${fields.length} fields</span>
-                <button class="set-detail-link-btn" id="set-detail-view-fields">
-                  View Fields <i class="ph ph-arrow-right"></i>
+                </div>
+              `}
+              <div class="set-dashboard-schema-link">
+                <span class="set-dashboard-schema-info">
+                  Schema: <strong>${fields.length} fields</strong>
+                </span>
+                <button class="set-dashboard-card-action" id="set-dashboard-view-fields">
+                  View Fields →
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- FLOW ARROW -->
-        <div class="set-detail-flow-arrow">
-          <i class="ph ph-arrow-down"></i>
+        <!-- Fields Overview Row -->
+        <div class="set-dashboard-fields-row">
+          <div class="set-dashboard-card fields">
+            <div class="set-dashboard-card-header">
+              <div class="set-dashboard-card-title">
+                <i class="ph ph-columns"></i>
+                Field Overview
+              </div>
+              <button class="set-dashboard-card-action" id="set-dashboard-manage-fields">
+                Manage Fields →
+              </button>
+            </div>
+            <div class="set-dashboard-card-content">
+              <div class="set-dashboard-fields-grid">
+                ${fieldStats.slice(0, 6).map(field => `
+                  <div class="set-dashboard-field-item" data-field-id="${field.id}">
+                    <div class="set-dashboard-field-name" title="${this._escapeHtml(field.name)}">${this._escapeHtml(field.name)}</div>
+                    <div class="set-dashboard-field-type">
+                      <i class="ph ${this._getFieldTypeIcon(field.type)}"></i>
+                      ${field.type}
+                    </div>
+                    <div class="set-dashboard-field-completeness">
+                      <div class="set-dashboard-field-completeness-fill ${field.completeness < 50 ? 'danger' : field.completeness < 80 ? 'warning' : ''}"
+                           style="width: ${field.completeness}%"></div>
+                    </div>
+                  </div>
+                `).join('')}
+                ${fields.length > 6 ? `
+                  <div class="set-dashboard-field-more" id="set-dashboard-show-all-fields">
+                    <i class="ph ph-plus"></i>
+                    +${fields.length - 6} more
+                  </div>
+                ` : ''}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <!-- OUTPUT SECTION -->
-        <div class="set-detail-section set-detail-output">
-          <div class="set-detail-section-header">
-            <div class="set-detail-section-title">
-              <i class="ph ph-upload-simple"></i>
-              <span>Output</span>
+        <!-- Bottom Row: Exports and Derived Sets -->
+        <div class="set-dashboard-bottom-grid">
+          <!-- Exports Card -->
+          <div class="set-dashboard-card exports">
+            <div class="set-dashboard-card-header">
+              <div class="set-dashboard-card-title">
+                <i class="ph ph-export"></i>
+                Exports
+              </div>
             </div>
-            <span class="set-detail-section-subtitle">Where this data goes</span>
-          </div>
-          <div class="set-detail-section-content">
-            <div class="set-detail-output-grid">
-              <!-- Exports -->
-              <div class="set-detail-output-column">
-                <div class="set-detail-output-label">
-                  <i class="ph ph-export"></i> Exports
-                </div>
-                ${outputs.exports.length > 0 ? `
-                  <div class="set-detail-exports-list">
-                    ${outputs.exports.map(exp => `
-                      <div class="set-detail-export-item">
-                        <i class="ph ${exp.icon}"></i>
-                        <span>${this._escapeHtml(exp.name)}</span>
-                        <span class="set-detail-export-date">${exp.date}</span>
+            <div class="set-dashboard-card-content">
+              ${outputs.exports.length > 0 ? `
+                <div class="set-dashboard-list">
+                  ${outputs.exports.map(exp => `
+                    <div class="set-dashboard-list-item">
+                      <i class="ph ${exp.icon}"></i>
+                      <div class="set-dashboard-list-item-info">
+                        <div class="set-dashboard-list-item-name">${this._escapeHtml(exp.name)}</div>
+                        <div class="set-dashboard-list-item-meta">${exp.date}</div>
                       </div>
-                    `).join('')}
-                  </div>
-                ` : `
-                  <div class="set-detail-output-empty">No exports yet</div>
-                `}
-                <button class="set-detail-add-btn" id="set-detail-export-now">
+                    </div>
+                  `).join('')}
+                </div>
+              ` : `
+                <div class="set-dashboard-empty">
                   <i class="ph ph-export"></i>
-                  <span>Export Now</span>
-                </button>
-              </div>
-
-              <!-- Derived Sets -->
-              <div class="set-detail-output-column">
-                <div class="set-detail-output-label">
-                  <i class="ph ph-git-branch"></i> Derived Sets
+                  <span>No exports yet</span>
                 </div>
-                ${outputs.derivedSets.length > 0 ? `
-                  <div class="set-detail-derived-list">
-                    ${outputs.derivedSets.map(ds => `
-                      <div class="set-detail-derived-item" data-set-id="${ds.id}">
-                        <i class="ph ${ds.icon}"></i>
-                        <div class="set-detail-derived-info">
-                          <span class="set-detail-derived-name">${this._escapeHtml(ds.name)}</span>
-                          <span class="set-detail-derived-type">${ds.relation}</span>
-                        </div>
-                      </div>
-                    `).join('')}
-                  </div>
-                ` : `
-                  <div class="set-detail-output-empty">No derived sets</div>
-                `}
-                <button class="set-detail-add-btn" id="set-detail-create-derived">
-                  <i class="ph ph-git-branch"></i>
-                  <span>Create Derived Set</span>
-                </button>
+              `}
+              <button class="set-dashboard-add-btn" id="set-dashboard-export-now">
+                <i class="ph ph-export"></i> Export Now
+              </button>
+            </div>
+          </div>
+
+          <!-- Derived Sets Card -->
+          <div class="set-dashboard-card derived">
+            <div class="set-dashboard-card-header">
+              <div class="set-dashboard-card-title">
+                <i class="ph ph-git-branch"></i>
+                Derived Sets
               </div>
+            </div>
+            <div class="set-dashboard-card-content">
+              ${outputs.derivedSets.length > 0 ? `
+                <div class="set-dashboard-list">
+                  ${outputs.derivedSets.map(ds => `
+                    <div class="set-dashboard-list-item" data-set-id="${ds.id}">
+                      <i class="ph ${ds.icon}"></i>
+                      <div class="set-dashboard-list-item-info">
+                        <div class="set-dashboard-list-item-name">${this._escapeHtml(ds.name)}</div>
+                        <div class="set-dashboard-list-item-meta">${ds.relation}</div>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : `
+                <div class="set-dashboard-empty">
+                  <i class="ph ph-git-branch"></i>
+                  <span>No derived sets</span>
+                </div>
+              `}
+              <button class="set-dashboard-add-btn" id="set-dashboard-create-derived">
+                <i class="ph ph-git-branch"></i> Create Derived Set
+              </button>
             </div>
           </div>
         </div>
 
-        <!-- RECORD TYPES SECTION (if multiple types detected) -->
+        <!-- Record Types Section (if applicable) -->
         ${recordTypeAnalysis ? `
-          <div class="set-detail-section set-detail-record-types">
-            <div class="set-detail-section-header">
-              <div class="set-detail-section-title">
+          <div class="set-dashboard-card record-types">
+            <div class="set-dashboard-card-header">
+              <div class="set-dashboard-card-title">
                 <i class="ph ph-stack"></i>
-                <span>Record Types</span>
+                Record Types
               </div>
-              <span class="set-detail-section-subtitle">Split into views by type</span>
+              <button class="set-dashboard-card-action" id="set-dashboard-split-all">
+                Create All Views
+              </button>
             </div>
-            <div class="set-detail-section-content">
-              <div class="set-detail-record-types-info">
-                <p>This set contains <strong>${recordTypeAnalysis.types.length}</strong> different record types
-                   based on the <code>${this._escapeHtml(recordTypeAnalysis.typeField)}</code> field.</p>
+            <div class="set-dashboard-card-content">
+              <div class="set-dashboard-record-types-info">
+                This set contains <strong>${recordTypeAnalysis.types.length}</strong> different record types
+                based on the <code>${this._escapeHtml(recordTypeAnalysis.typeField)}</code> field.
               </div>
-              <div class="set-detail-record-types-list">
+              <div class="set-dashboard-record-types-grid">
                 ${recordTypeAnalysis.types.map(type => `
-                  <div class="set-detail-record-type-item" data-type-value="${this._escapeHtml(type.value)}">
-                    <div class="set-detail-record-type-info">
-                      <span class="set-detail-record-type-name">${this._escapeHtml(type.label)}</span>
-                      <span class="set-detail-record-type-count">${type.count} records</span>
-                      ${type.specificFields.length > 0 ? `
-                        <span class="set-detail-record-type-fields">${type.specificFields.length} specific fields</span>
-                      ` : ''}
-                    </div>
-                    <button class="set-detail-split-btn" data-type-value="${this._escapeHtml(type.value)}"
-                            title="Create view for this record type">
-                      <i class="ph ph-arrows-split"></i>
-                      <span>Create View</span>
+                  <div class="set-dashboard-record-type-item" data-type-value="${this._escapeHtml(type.value)}">
+                    <div class="set-dashboard-record-type-name">${this._escapeHtml(type.label)}</div>
+                    <div class="set-dashboard-record-type-count">${type.count} records</div>
+                    <button class="set-dashboard-record-type-btn" data-type-value="${this._escapeHtml(type.value)}">
+                      <i class="ph ph-eye"></i> View
                     </button>
                   </div>
                 `).join('')}
               </div>
-              <button class="set-detail-add-btn" id="set-detail-split-all-types">
-                <i class="ph ph-arrows-split"></i>
-                <span>Create Views for All Types</span>
-              </button>
             </div>
           </div>
         ` : ''}
@@ -12047,7 +12144,233 @@ class EODataWorkbench {
     `;
 
     // Attach event handlers
-    this._attachSetDetailEventHandlers(set, recordTypeAnalysis);
+    this._attachSetDashboardEventHandlers(set, recordTypeAnalysis);
+  }
+
+  /**
+   * Calculate field statistics for dashboard display
+   */
+  _calculateFieldStats(set) {
+    const fields = set.fields || [];
+    const records = set.records || [];
+    const totalRecords = records.length;
+
+    return fields.map(field => {
+      let filledCount = 0;
+      records.forEach(r => {
+        const val = r.values?.[field.id];
+        if (val !== null && val !== undefined && val !== '') {
+          filledCount++;
+        }
+      });
+
+      return {
+        id: field.id,
+        name: field.name,
+        type: field.type || 'text',
+        completeness: totalRecords > 0 ? Math.round((filledCount / totalRecords) * 100) : 0
+      };
+    });
+  }
+
+  /**
+   * Calculate overall set completeness
+   */
+  _calculateSetCompleteness(set) {
+    const fields = set.fields || [];
+    const records = set.records || [];
+    const totalCells = fields.length * records.length;
+
+    if (totalCells === 0) return 100;
+
+    let filledCells = 0;
+    records.forEach(r => {
+      fields.forEach(f => {
+        const val = r.values?.[f.id];
+        if (val !== null && val !== undefined && val !== '') {
+          filledCells++;
+        }
+      });
+    });
+
+    return Math.round((filledCells / totalCells) * 100);
+  }
+
+  /**
+   * Get source display info
+   */
+  _getSourceDisplayInfo(set) {
+    const prov = set.datasetProvenance || {};
+    let type = '';
+
+    if (prov.originalFilename) {
+      const ext = prov.originalFilename.split('.').pop()?.toUpperCase();
+      if (ext) type = ext;
+    } else if (prov.createdVia) {
+      type = prov.createdVia.toUpperCase();
+    }
+
+    return { type };
+  }
+
+  /**
+   * Format relative time
+   */
+  _formatRelativeTime(timestamp) {
+    if (!timestamp) return 'Unknown';
+
+    const date = typeof timestamp === 'string' ? new Date(timestamp) : new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins} min ago`;
+    if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+    if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+
+    return date.toLocaleDateString();
+  }
+
+  /**
+   * Get icon for field type
+   */
+  _getFieldTypeIcon(type) {
+    const icons = {
+      text: 'ph-text-aa',
+      number: 'ph-hash',
+      date: 'ph-calendar',
+      datetime: 'ph-calendar',
+      checkbox: 'ph-check-square',
+      select: 'ph-list',
+      multiselect: 'ph-list-checks',
+      email: 'ph-envelope',
+      url: 'ph-link',
+      phone: 'ph-phone',
+      currency: 'ph-currency-dollar',
+      percent: 'ph-percent',
+      rating: 'ph-star',
+      user: 'ph-user',
+      attachment: 'ph-paperclip',
+      formula: 'ph-function',
+      rollup: 'ph-arrows-in',
+      count: 'ph-hash',
+      lookup: 'ph-magnifying-glass',
+      link: 'ph-link-simple',
+      autonumber: 'ph-number-circle-one',
+      barcode: 'ph-barcode',
+      button: 'ph-cursor-click'
+    };
+    return icons[type] || 'ph-text-aa';
+  }
+
+  /**
+   * Attach event handlers for set dashboard view
+   */
+  _attachSetDashboardEventHandlers(set, recordTypeAnalysis) {
+    // Export button
+    document.getElementById('set-dashboard-export-btn')?.addEventListener('click', () => {
+      this._showExportDialog(set.id);
+    });
+
+    // Edit button - go to fields
+    document.getElementById('set-dashboard-edit-btn')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+
+    // Delete button
+    document.getElementById('set-dashboard-delete-btn')?.addEventListener('click', () => {
+      this._confirmDeleteSet(set.id);
+    });
+
+    // View fields links
+    document.getElementById('set-dashboard-view-fields')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+
+    document.getElementById('set-dashboard-manage-fields')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+
+    document.getElementById('set-dashboard-show-all-fields')?.addEventListener('click', () => {
+      this._selectSet(set.id, 'fields');
+    });
+
+    // Add source button
+    document.getElementById('set-dashboard-add-source')?.addEventListener('click', () => {
+      this._showImportDialog();
+    });
+
+    // Export now button
+    document.getElementById('set-dashboard-export-now')?.addEventListener('click', () => {
+      this._showExportDialog(set.id);
+    });
+
+    // Create derived set button
+    document.getElementById('set-dashboard-create-derived')?.addEventListener('click', () => {
+      this._showFilterSetCreationFlow();
+    });
+
+    // Source item clicks
+    document.querySelectorAll('.set-dashboard-source-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const sourceId = item.dataset.sourceId;
+        const setId = item.dataset.setId;
+
+        if (sourceId && this.sources?.find(s => s.id === sourceId)) {
+          this._selectSource(sourceId);
+        } else if (setId && this.sets?.find(s => s.id === setId)) {
+          this._selectSet(setId, 'detail');
+        }
+      });
+    });
+
+    // Derived set clicks
+    document.querySelectorAll('.set-dashboard-list-item[data-set-id]').forEach(item => {
+      item.addEventListener('click', () => {
+        const setId = item.dataset.setId;
+        if (setId) {
+          this._selectSet(setId, 'detail');
+        }
+      });
+    });
+
+    // Field item clicks
+    document.querySelectorAll('.set-dashboard-field-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._selectSet(set.id, 'fields');
+      });
+    });
+
+    // Record type view buttons
+    document.querySelectorAll('.set-dashboard-record-type-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const typeValue = btn.dataset.typeValue;
+        if (typeValue && recordTypeAnalysis) {
+          this._createRecordTypeView(set, recordTypeAnalysis, typeValue);
+        }
+      });
+    });
+
+    // Record type item clicks
+    document.querySelectorAll('.set-dashboard-record-type-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const typeValue = item.dataset.typeValue;
+        if (typeValue && recordTypeAnalysis) {
+          this._createRecordTypeView(set, recordTypeAnalysis, typeValue);
+        }
+      });
+    });
+
+    // Split all types button
+    document.getElementById('set-dashboard-split-all')?.addEventListener('click', () => {
+      if (recordTypeAnalysis) {
+        this._createAllRecordTypeViews(set, recordTypeAnalysis);
+      }
+    });
   }
 
   /**
@@ -12316,88 +12639,6 @@ class EODataWorkbench {
       typeFieldId: typeFieldId,
       types: typeInfo
     };
-  }
-
-  /**
-   * Attach event handlers for set detail view
-   */
-  _attachSetDetailEventHandlers(set, recordTypeAnalysis) {
-    // Export button
-    document.getElementById('set-detail-export-btn')?.addEventListener('click', () => {
-      this._showExportDialog(set.id);
-    });
-
-    // Edit button - go to fields
-    document.getElementById('set-detail-edit-btn')?.addEventListener('click', () => {
-      this._selectSet(set.id, 'fields');
-    });
-
-    // Delete button
-    document.getElementById('set-detail-delete-btn')?.addEventListener('click', () => {
-      this._confirmDeleteSet(set.id);
-    });
-
-    // View fields link
-    document.getElementById('set-detail-view-fields')?.addEventListener('click', () => {
-      this._selectSet(set.id, 'fields');
-    });
-
-    // Add source button
-    document.getElementById('set-detail-add-source')?.addEventListener('click', () => {
-      this._showImportDialog();
-    });
-
-    // Export now button
-    document.getElementById('set-detail-export-now')?.addEventListener('click', () => {
-      this._showExportDialog(set.id);
-    });
-
-    // Create derived set button
-    document.getElementById('set-detail-create-derived')?.addEventListener('click', () => {
-      this._showFilterSetCreationFlow();
-    });
-
-    // Source item clicks
-    document.querySelectorAll('.set-detail-source-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const sourceId = item.dataset.sourceId;
-        const setId = item.dataset.setId;
-
-        if (sourceId && this.sources?.find(s => s.id === sourceId)) {
-          this._selectSource(sourceId);
-        } else if (setId && this.sets?.find(s => s.id === setId)) {
-          this._selectSet(setId, 'detail');
-        }
-      });
-    });
-
-    // Derived set clicks
-    document.querySelectorAll('.set-detail-derived-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const setId = item.dataset.setId;
-        if (setId) {
-          this._selectSet(setId, 'detail');
-        }
-      });
-    });
-
-    // Record type split buttons
-    document.querySelectorAll('.set-detail-split-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const typeValue = btn.dataset.typeValue;
-        if (typeValue && recordTypeAnalysis) {
-          this._createRecordTypeView(set, recordTypeAnalysis, typeValue);
-        }
-      });
-    });
-
-    // Split all types button
-    document.getElementById('set-detail-split-all-types')?.addEventListener('click', () => {
-      if (recordTypeAnalysis) {
-        this._createAllRecordTypeViews(set, recordTypeAnalysis);
-      }
-    });
   }
 
   /**
