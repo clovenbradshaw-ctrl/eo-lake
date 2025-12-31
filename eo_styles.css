@@ -1422,6 +1422,19 @@ html, body {
   /* Default styling */
 }
 
+/* Lens item styling */
+.set-view-item.lens-item {
+  /* Lenses from viewRegistry */
+}
+
+.set-view-item.lens-item .lens-badge {
+  color: var(--accent-blue, #3b82f6);
+}
+
+.set-view-item.lens-item.active .lens-badge {
+  color: var(--accent-blue, #3b82f6);
+}
+
 /* Fields item styling - File Explorer Style */
 .set-view-item.set-fields-item {
   border-bottom: 1px solid var(--border-primary);

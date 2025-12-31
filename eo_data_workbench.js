@@ -1426,8 +1426,45 @@ class EODataWorkbench {
   }
 
   getCurrentView() {
+    // Check for active lens pseudo-view first
+    if (this._currentLensAsView) {
+      return this._currentLensAsView;
+    }
+
     const set = this.getCurrentSet();
-    return set?.views.find(v => v.id === this.currentViewId);
+    const view = set?.views.find(v => v.id === this.currentViewId);
+
+    // If no legacy view found, check for lens in viewRegistry
+    if (!view && this.currentViewId && this.viewRegistry) {
+      const lens = this.viewRegistry.getLens?.(this.currentViewId);
+      if (lens) {
+        // Convert lens to view-like object for compatibility
+        return {
+          id: lens.id,
+          name: lens.name,
+          type: lens.lensType?.toLowerCase() === 'grid' ? 'table' : (lens.lensType?.toLowerCase() || 'table'),
+          config: {
+            filters: lens.config?.filters || [],
+            sorts: lens.config?.sorts || [],
+            hiddenFields: lens.config?.hiddenFields || [],
+            fieldOrder: lens.config?.fieldOrder || [],
+            groupByField: lens.config?.groupByField,
+            kanbanField: lens.config?.groupByField,
+            cardTitleField: lens.config?.cardTitleField,
+            cardDescriptionField: lens.config?.cardDescriptionField,
+            columnOrder: lens.config?.columnOrder,
+            dateField: lens.config?.dateField,
+            showEmptyColumns: lens.config?.showEmptyColumns
+          },
+          metadata: {
+            isLens: true,
+            lensId: lens.id
+          }
+        };
+      }
+    }
+
+    return view;
   }
 
   getFilteredRecords() {
@@ -1920,6 +1957,9 @@ class EODataWorkbench {
       const isActiveSet = !isViewingSource && set.id === this.currentSetId;
       const views = set.views || [];
 
+      // Fetch lenses from viewRegistry
+      const lenses = this.viewRegistry?.getLensesForSet?.(set.id) || [];
+
       // Determine derivation strategy for operator badge
       const derivation = this._getSetDerivationInfo(set);
       const operatorBadge = this._getOperatorBadgeHTML(derivation.operator);
@@ -1952,6 +1992,33 @@ class EODataWorkbench {
             <span>${this._escapeHtml(view.name)}</span>
             ${typeBadge}
             ${countHtml}
+          </div>
+        `;
+      }).join('');
+
+      // Render lenses from viewRegistry
+      const lensTypeIcons = {
+        'grid': 'ph-table',
+        'table': 'ph-table',
+        'cards': 'ph-cards',
+        'kanban': 'ph-kanban',
+        'calendar': 'ph-calendar-blank',
+        'graph': 'ph-graph',
+        'timeline': 'ph-clock-countdown'
+      };
+
+      const lensesHtml = lenses.map(lens => {
+        const isActiveLens = (lens.id === this.currentLensId || lens.id === this.currentViewId) && isActiveSet;
+        const lensIcon = lensTypeIcons[lens.lensType?.toLowerCase()] || 'ph-eye';
+        const lensType = lens.lensType || 'grid';
+        return `
+          <div class="set-view-item lens-item ${isActiveLens ? 'active' : ''}"
+               data-lens-id="${lens.id}"
+               data-set-id="${set.id}"
+               title="${this._escapeHtml(lens.name)} (${lensType})">
+            <i class="ph ${lensIcon}"></i>
+            <span>${this._escapeHtml(lens.name)}</span>
+            <span class="view-type-badge lens-badge">lens</span>
           </div>
         `;
       }).join('');
@@ -2003,6 +2070,7 @@ class EODataWorkbench {
             ${detailItem}
             ${fieldsItem}
             ${viewsHtml}
+            ${lensesHtml}
             <button class="set-add-view-btn" data-set-id="${set.id}">
               <i class="ph ph-plus"></i>
               <span>Add view</span>
@@ -2057,6 +2125,7 @@ class EODataWorkbench {
         e.stopPropagation();
         const setId = item.dataset.setId;
         const viewId = item.dataset.viewId;
+        const lensId = item.dataset.lensId;
         const action = item.dataset.action;
 
         // Select set first if not already selected
@@ -2079,6 +2148,12 @@ class EODataWorkbench {
           return;
         }
 
+        // Handle lens selection
+        if (lensId) {
+          this._selectLens(lensId, setId);
+          return;
+        }
+
         // Otherwise select the view
         this._selectView(viewId);
       });
@@ -2087,7 +2162,8 @@ class EODataWorkbench {
         e.preventDefault();
         // Don't show context menu for Detail or Fields items
         if (item.dataset.action === 'detail' || item.dataset.action === 'fields') return;
-        this._showViewContextMenu(e, item.dataset.viewId, item.dataset.setId);
+        const itemId = item.dataset.viewId || item.dataset.lensId;
+        this._showViewContextMenu(e, itemId, item.dataset.setId);
       });
     });
 
@@ -11499,6 +11575,115 @@ class EODataWorkbench {
     this._renderView();
     this._updateBreadcrumb();
     this._saveData();
+  }
+
+  /**
+   * Select a lens from the viewRegistry
+   * @param {string} lensId - The lens ID to select
+   * @param {string} setId - The parent set ID
+   */
+  _selectLens(lensId, setId) {
+    // Ensure the set is selected
+    if (this.currentSetId !== setId) {
+      this.currentSetId = setId;
+      if (this._useLazyLoading) {
+        this._loadSetRecords(setId);
+      }
+    }
+
+    // Get the lens from registry
+    const lens = this.viewRegistry?.getLens?.(lensId);
+    if (!lens) {
+      console.warn(`Lens not found in registry: ${lensId}`);
+      return;
+    }
+
+    // Set active lens in registry
+    this.viewRegistry?.setActiveLens?.(lensId);
+
+    // Track current lens ID for UI state
+    this.currentLensId = lensId;
+    this.currentViewId = lensId; // Also set as currentViewId for compatibility
+
+    // Turn off detail and fields panel mode
+    this.showingSetDetail = false;
+    this.showingSetFields = false;
+
+    // Remember this lens for the current set
+    if (this.currentSetId) {
+      this.lastViewPerSet[this.currentSetId] = lensId;
+    }
+
+    // Update view switcher to reflect lens type
+    const lensType = lens.lensType?.toLowerCase() || 'table';
+    document.querySelectorAll('.view-switch-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.view === lensType);
+    });
+
+    // Re-render navigation and view
+    this._renderSetsNavFlat();
+    this._renderViewDisclosure();
+    this._renderLensView(lens);
+    this._updateBreadcrumb();
+    this._saveData();
+  }
+
+  /**
+   * Render a lens view based on its configuration
+   * @param {Object} lens - The LensConfig object
+   */
+  _renderLensView(lens) {
+    const set = this.getCurrentSet();
+    if (!set) return;
+
+    // Get the view type from lens
+    const viewType = lens.lensType?.toLowerCase() || 'table';
+
+    // Apply lens filters to get filtered records
+    let records = set.records || [];
+    if (lens.config?.filters?.length > 0) {
+      records = this._applyFilters(records, lens.config.filters, set.fields);
+    }
+
+    // Apply lens sorts
+    if (lens.config?.sorts?.length > 0) {
+      records = this._applySorts(records, lens.config.sorts, set.fields);
+    }
+
+    // Determine which fields to show (respecting hiddenFields)
+    const hiddenFields = new Set(lens.config?.hiddenFields || []);
+    const visibleFields = set.fields.filter(f => !hiddenFields.has(f.id));
+
+    // Create a temporary view-like object for rendering
+    const viewConfig = {
+      id: lens.id,
+      name: lens.name,
+      type: viewType === 'grid' ? 'table' : viewType,
+      filters: lens.config?.filters || [],
+      sorts: lens.config?.sorts || [],
+      hiddenFields: lens.config?.hiddenFields || [],
+      fieldOrder: lens.config?.fieldOrder || [],
+      groupByField: lens.config?.groupByField,
+      cardTitleField: lens.config?.cardTitleField,
+      cardDescriptionField: lens.config?.cardDescriptionField,
+      columnOrder: lens.config?.columnOrder,
+      dateField: lens.config?.dateField,
+      showEmptyColumns: lens.config?.showEmptyColumns
+    };
+
+    // Use existing view rendering with the lens configuration
+    // Temporarily swap view config for rendering
+    const originalViewId = this.currentViewId;
+    this.currentViewId = lens.id;
+
+    // Store the lens config as a pseudo-view for getCurrentView compatibility
+    this._currentLensAsView = viewConfig;
+
+    // Render using existing view mechanism
+    this._renderView();
+
+    // Clear pseudo-view
+    this._currentLensAsView = null;
   }
 
   _switchViewType(viewType) {
