@@ -2414,18 +2414,31 @@ class ImportOrchestrator {
         const viewName = this._formatViewName(typeValue);
         // Count records of this type for metadata
         const typeRecordCount = set.records.filter(r => r.values[typeField.id] === typeValue).length;
+
+        // Calculate hidden fields (fields with no values for this type)
+        const hiddenFields = this._getHiddenFieldsForType(set, typeField.id, typeValue);
+
+        // Calculate field order (type-specific fields prominently after primary)
+        const fieldOrder = this._getFieldOrderForType(set, typeField.id, typeValue, options.schemaDivergence);
+
+        // Get icon for this type
+        const icon = this._getIconForType(typeValue);
+
         const view = createView(viewName, 'table', {
           filters: [{
             fieldId: typeField.id,
             operator: 'is',
             filterValue: typeValue,
             enabled: true
-          }]
+          }],
+          hiddenFields,
+          fieldOrder
         }, {
           // Mark this view as a record type view (not a regular view)
           recordType: typeValue,
           recordCount: typeRecordCount,
-          isRecordTypeView: true
+          isRecordTypeView: true,
+          icon
         });
         set.views.push(view);
         viewsCreated.push(viewName);
@@ -2440,7 +2453,9 @@ class ImportOrchestrator {
           decisions: {
             splitField: typeFieldName,
             viewsCreated: viewsCreated,
-            viewCount: viewsCreated.length
+            viewCount: viewsCreated.length,
+            fieldVisibilityApplied: true,
+            fieldOrderApplied: true
           },
           timestamp: new Date().toISOString()
         });
@@ -2711,6 +2726,71 @@ class ImportOrchestrator {
       'violation': 'ph-shield-warning'
     };
     return iconMap[typeValue.toLowerCase()] || 'ph-database';
+  }
+
+  /**
+   * Get fields that should be hidden for a specific record type.
+   * Returns field IDs for fields that have NO values for records of this type.
+   */
+  _getHiddenFieldsForType(set, typeFieldId, typeValue) {
+    // Get all records of this type
+    const typeRecords = set.records.filter(r => r.values[typeFieldId] === typeValue);
+
+    const hiddenFields = [];
+    for (const field of set.fields) {
+      // Don't hide the type field itself (user may want to see it)
+      if (field.id === typeFieldId) continue;
+
+      // Check if ANY record of this type has a non-empty value for this field
+      const hasValue = typeRecords.some(r => {
+        const val = r.values[field.id];
+        return val !== null && val !== undefined && val !== '';
+      });
+
+      if (!hasValue) {
+        hiddenFields.push(field.id);
+      }
+    }
+
+    return hiddenFields;
+  }
+
+  /**
+   * Get field order for a specific record type.
+   * Orders fields with type-specific fields prominently after the primary field.
+   */
+  _getFieldOrderForType(set, typeFieldId, typeValue, schemaDivergence) {
+    // Get type-specific field NAMES from schemaDivergence
+    const typeInfo = schemaDivergence?.types?.find(t => t.type === typeValue);
+    const specificFieldNames = new Set(typeInfo?.specificFields || []);
+
+    // Map field names to IDs for type-specific fields
+    const specificFieldIds = new Set();
+    for (const field of set.fields) {
+      if (specificFieldNames.has(field.name)) {
+        specificFieldIds.add(field.id);
+      }
+    }
+
+    // Order: primary field first, then type-specific, then common fields
+    return set.fields
+      .map(f => f.id)
+      .sort((aId, bId) => {
+        const fieldA = set.fields.find(f => f.id === aId);
+        const fieldB = set.fields.find(f => f.id === bId);
+
+        // Primary field first
+        if (fieldA.isPrimary) return -1;
+        if (fieldB.isPrimary) return 1;
+
+        // Type-specific fields next
+        const aSpecific = specificFieldIds.has(aId);
+        const bSpecific = specificFieldIds.has(bId);
+        if (aSpecific && !bSpecific) return -1;
+        if (!aSpecific && bSpecific) return 1;
+
+        return 0;
+      });
   }
 
   /**
@@ -3413,17 +3493,17 @@ function showImportModal() {
         <div class="import-view-options" id="import-view-options" style="display: none;">
           <div class="view-option">
             <label class="checkbox-label">
-              <input type="radio" name="import-type-handling" id="import-create-views" value="views">
+              <input type="radio" name="import-type-handling" id="import-create-views" value="views" checked>
               <span>Create views by type</span>
             </label>
-            <p class="option-hint">All records in one dataset with filtered views for each type</p>
+            <p class="option-hint">Recommended - One dataset with filtered views per type, hiding irrelevant fields</p>
           </div>
           <div class="view-option">
             <label class="checkbox-label">
-              <input type="radio" name="import-type-handling" id="import-separate-sets" value="sets" checked>
+              <input type="radio" name="import-type-handling" id="import-separate-sets" value="sets">
               <span>Create separate datasets per type</span>
             </label>
-            <p class="option-hint">Recommended for graph data - each type gets its own dataset with relevant fields only</p>
+            <p class="option-hint">Each type becomes its own dataset with only its fields</p>
           </div>
         </div>
 
@@ -3874,6 +3954,7 @@ function initImportHandlers() {
           createViewsByType,
           separateSetsByType,
           viewSplitField: analysisData?.viewSplitCandidates?.[0]?.field || 'type',
+          schemaDivergence: analysisData?.schemaDivergence,
           graphInfo: analysisData?.graphInfo,
           includeEdges
         });
