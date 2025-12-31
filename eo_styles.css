@@ -90,6 +90,7 @@
 
   --border-primary: #334155;
   --border-secondary: #475569;
+  --border-subtle: rgba(255, 255, 255, 0.1);
   --border-focus: var(--primary-500);
 
   /* Sizing */
@@ -145,6 +146,7 @@ html.light-theme :root {
 
     --border-primary: #cbd5e1;
     --border-secondary: #94a3b8;
+    --border-subtle: rgba(0, 0, 0, 0.08);
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.12), 0 2px 4px -2px rgba(0, 0, 0, 0.08);
@@ -170,6 +172,7 @@ html.light-theme :root {
 
     --border-primary: #cbd5e1;
     --border-secondary: #94a3b8;
+    --border-subtle: rgba(0, 0, 0, 0.08);
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.12), 0 2px 4px -2px rgba(0, 0, 0, 0.08);
