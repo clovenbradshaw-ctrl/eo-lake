@@ -1992,18 +1992,6 @@ class EODataWorkbench {
         `;
       }).join('');
 
-      // Detail item (Input → Transformation → Output overview)
-      const isDetailActive = isActiveSet && this.showingSetDetail;
-      const detailItem = `
-        <div class="set-view-item set-detail-item ${isDetailActive ? 'active' : ''}"
-             data-set-id="${set.id}"
-             data-action="detail"
-             title="View set data flow: sources, transformation, and outputs">
-          <i class="ph ph-flow-arrow"></i>
-          <span>Detail</span>
-        </div>
-      `;
-
       // Fields item (like Airtable's "Manage Fields")
       const isFieldsActive = isActiveSet && this.showingSetFields;
       const fieldsItem = `
@@ -2019,7 +2007,7 @@ class EODataWorkbench {
 
       return `
         <div class="set-item-container ${isExpanded ? 'expanded' : ''} ${stabilityClass}" data-set-id="${set.id}">
-          <div class="set-item-header ${isActiveSet && !this.showingSetFields && !this.showingSetDetail ? 'active' : ''}"
+          <div class="set-item-header ${isActiveSet && !this.showingSetFields ? 'active' : ''}"
                data-set-id="${set.id}"
                title="${derivation.description}\n${fieldCount} fields · ${recordCount} records">
             <div class="set-item-expand">
@@ -2036,7 +2024,6 @@ class EODataWorkbench {
             </div>
           </div>
           <div class="set-views-list">
-            ${detailItem}
             ${fieldsItem}
             ${viewsHtml}
             <button class="set-add-view-btn" data-set-id="${set.id}">
@@ -2087,7 +2074,7 @@ class EODataWorkbench {
       });
     });
 
-    // View item click - select view (or Detail/Fields panel)
+    // View item click - select view (or Fields panel)
     container.querySelectorAll('.set-view-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2103,12 +2090,6 @@ class EODataWorkbench {
           }
         }
 
-        // Handle special "Detail" action
-        if (action === 'detail') {
-          this._selectSet(setId, 'detail');
-          return;
-        }
-
         // Handle special "Fields" action
         if (action === 'fields') {
           this._selectSet(setId, 'fields');
@@ -2121,8 +2102,8 @@ class EODataWorkbench {
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        // Don't show context menu for Detail or Fields items
-        if (item.dataset.action === 'detail' || item.dataset.action === 'fields') return;
+        // Don't show context menu for Fields items
+        if (item.dataset.action === 'fields') return;
         this._showViewContextMenu(e, item.dataset.viewId, item.dataset.setId);
       });
     });

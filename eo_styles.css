@@ -1781,29 +1781,6 @@ html, body {
   color: var(--text-muted);
 }
 
-/* Detail item styling - File Explorer Style */
-.set-view-item.set-detail-item {
-  border-bottom: 1px solid var(--border-primary);
-  margin-bottom: 2px;
-  padding-bottom: 6px;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.set-view-item.set-detail-item:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text-primary);
-}
-
-.set-view-item.set-detail-item.active {
-  background: rgba(59, 130, 246, 0.12);
-  color: var(--text-primary);
-}
-
-.set-view-item.set-detail-item i {
-  color: var(--text-muted);
-}
-
 /* ========================================
    Set Dashboard View (Horizontal Layout)
    ======================================== */
