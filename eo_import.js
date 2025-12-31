@@ -929,122 +929,6 @@ class ImportOrchestrator {
   }
 
   /**
-   * Import a file (CSV, JSON, or ICS)
-   * @param {File} file - File to import
-   * @param {Object} options - Import options
-   * @returns {Promise<{ success: boolean, setId: string, recordCount: number }>}
-   */
-  async import(file, options = {}) {
-    const startTime = Date.now();
-    const uploadInitiatedAt = new Date().toISOString();
-
-    this._emitProgress('started', {
-      fileName: file.name,
-      fileSize: file.size,
-      phase: 'reading'
-    });
-
-    try {
-      // Read file content
-      const text = await this._readFile(file);
-
-      this._emitProgress('progress', {
-        phase: 'parsing',
-        percentage: 10
-      });
-
-      // Capture parse start time
-      const parseStartedAt = new Date().toISOString();
-
-      // Determine file type and parse
-      const fileName = file.name.toLowerCase();
-      const isICS = fileName.endsWith('.ics') || file.type === 'text/calendar';
-      const isCSV = fileName.endsWith('.csv') ||
-                    file.type === 'text/csv' ||
-                    (!isICS && !this._isJSON(text));
-
-      // Determine MIME type
-      const mimeType = file.type || (isICS ? 'text/calendar' :
-                       isCSV ? 'text/csv' : 'application/json');
-
-      let parseResult;
-      if (isICS) {
-        parseResult = this.icsParser.parse(text);
-      } else if (isCSV) {
-        parseResult = this.csvParser.parse(text, options);
-      } else {
-        parseResult = this._parseJSON(text);
-      }
-
-      const parseCompletedAt = new Date().toISOString();
-
-      this._emitProgress('progress', {
-        phase: 'inferring',
-        percentage: 30,
-        rowCount: parseResult.rows.length
-      });
-
-      // Infer schema
-      const schema = this.schemaInferrer.inferSchema(parseResult.headers, parseResult.rows);
-
-      this._emitProgress('progress', {
-        phase: 'creating',
-        percentage: 50,
-        fieldCount: schema.fields.length
-      });
-
-      // Create set name from filename
-      const setName = options.setName || file.name.replace(/\.(csv|json)$/i, '');
-
-      // Enhance options with timing and file metadata
-      const enhancedOptions = {
-        ...options,
-        // File metadata
-        originalFileSize: file.size,
-        originalFileType: mimeType,
-        mimeType: mimeType,
-        // Timing data
-        uploadInitiatedAt,
-        parseStartedAt,
-        parseCompletedAt,
-        // File timestamps (if available from File API)
-        fileModifiedAt: file.lastModified ? new Date(file.lastModified).toISOString() : null
-      };
-
-      // Check if we should create separate sets by type
-      const typeField = options.viewSplitField || 'type';
-      const hasTypeField = parseResult.headers.includes(typeField);
-
-      let result;
-      if (options.separateSetsByType && hasTypeField) {
-        // Create separate sets for each type value
-        result = await this._createSeparateSetsPerType(setName, parseResult, enhancedOptions);
-      } else {
-        // Create single set (original behavior)
-        result = await this._createSetWithRecords(setName, schema, parseResult, enhancedOptions);
-      }
-
-      this._emitProgress('completed', {
-        fileName: file.name,
-        setId: result.setId,
-        setIds: result.setIds,
-        recordCount: result.recordCount,
-        fieldCount: schema.fields.length,
-        duration: Date.now() - startTime
-      });
-
-      return result;
-
-    } catch (error) {
-      this._emitProgress('failed', {
-        fileName: file.name,
-        error: error.message
-      });
-      throw error;
-    }
-  }
-
-  /**
    * Preview import without actually importing
    */
   async preview(file, options = {}) {
@@ -2115,426 +1999,6 @@ class ImportOrchestrator {
   }
 
   /**
-   * Create set with records in batches (Enhanced with nested provenance)
-   */
-  async _createSetWithRecords(setName, schema, parseResult, options = {}) {
-    const BATCH_SIZE = 100;
-    const { headers, rows } = parseResult;
-    const viewsCreated = [];
-    const now = new Date().toISOString();
-
-    // Get MetadataParser from EOProvenance (browser) or require (Node)
-    const MetadataParser = (typeof window !== 'undefined' && window.EOProvenance?.MetadataParser) ||
-                          (typeof require === 'function' && require('./eo_provenance.js')?.MetadataParser) ||
-                          null;
-
-    // Create the set
-    const set = createSet(setName);
-
-    // Build comprehensive nested provenance structure
-    const userProvenance = options.provenance || {};
-
-    // Use MetadataParser to generate enriched provenance from import metadata (if available)
-    let autoFilledProvenance;
-
-    if (MetadataParser) {
-      const importContext = MetadataParser.extractImportContext(parseResult, {
-        setName: setName || options.setName,
-        originalFilename: options.originalFilename || setName,
-        originalFileSize: options.originalFileSize,
-        mimeType: options.mimeType || options.originalFileType,
-        contentHash: options.contentHash,
-        schemaInference: schema.inferenceDecisions || null,
-        sheetCount: options.sheetCount,
-        sourceUrl: options.sourceUrl,
-        fileModifiedAt: options.fileModifiedAt,
-        importMode: options.importMode,
-        triggeredBy: options.triggeredBy,
-        previousVersionHash: options.previousVersionHash
-      });
-
-      // Parse import metadata to get enriched provenance values
-      const enrichedProvenance = MetadataParser.parseImportMetadata(importContext);
-
-      // Merge user-provided provenance (takes precedence) with enriched values
-      autoFilledProvenance = MetadataParser.mergeWithUserProvenance(enrichedProvenance, userProvenance);
-    } else {
-      // Fallback: simple auto-fill when MetadataParser not available
-      autoFilledProvenance = { ...userProvenance };
-
-      if (!autoFilledProvenance.source) {
-        autoFilledProvenance.source = setName || options.setName || null;
-      }
-
-      if (!autoFilledProvenance.method) {
-        const parserType = parseResult.fileType === 'ics' ? 'ICS calendar' :
-                          parseResult.fileType === 'xlsx' || parseResult.fileType === 'xls' ? 'Excel spreadsheet' :
-                          parseResult.delimiter ? 'CSV' : 'JSON';
-        autoFilledProvenance.method = `${parserType} import`;
-      }
-
-      if (!autoFilledProvenance.timeframe) {
-        const importDate = new Date();
-        autoFilledProvenance.timeframe = `Imported ${importDate.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        })}`;
-      }
-    }
-
-    // Collect transformation log steps
-    const transformationLog = [];
-
-    // Step 1: Parse step (from parser decisions)
-    if (parseResult.parsingDecisions) {
-      transformationLog.push({
-        step: 1,
-        operation: 'PARSE',
-        processor: parseResult.fileType === 'ics' ? 'ICSParser' :
-                   parseResult.delimiter ? 'CSVParser' : 'JSONParser',
-        decisions: parseResult.parsingDecisions,
-        timestamp: options.parseStartedAt || now
-      });
-    }
-
-    // Step 2: Schema inference step
-    if (schema.inferenceDecisions) {
-      transformationLog.push({
-        step: 2,
-        operation: 'INFER_SCHEMA',
-        processor: 'SchemaInferrer',
-        decisions: schema.inferenceDecisions,
-        timestamp: now
-      });
-    }
-
-    // Step 3: View creation step (populated below if views are created)
-    // Will be added after view creation
-
-    // Build quality audit from inference decisions
-    const qualityAudit = schema.inferenceDecisions ? {
-      validation: {
-        schemaConformance: null,  // Calculated during import
-        nullRates: schema.inferenceDecisions.nullRates || {},
-        typeCoercionCount: 0,
-        truncatedValues: 0
-      },
-      warnings: schema.inferenceDecisions.ambiguities?.map(a => ({
-        code: 'AMBIGUOUS_TYPE',
-        field: a.field,
-        message: `Type "${a.chosen}" chosen over "${a.alternative}" (${Math.round(a.alternativeRatio * 100)}% match)`,
-        affectedRecords: []
-      })) || [],
-      errors: [],
-      completeness: {
-        expectedRecords: rows.length,
-        importedRecords: 0,  // Updated during import
-        skippedRecords: 0,
-        skippedReason: null
-      }
-    } : null;
-
-    // Build file identity from options
-    const fileIdentity = {
-      contentHash: options.contentHash || null,
-      rawSize: options.originalFileSize || (options.originalSource?.length) || null,
-      encoding: options.encoding || 'utf-8',
-      mimeType: options.mimeType || null
-    };
-
-    // Build schema mapping from inference
-    const schemaMapping = schema.inferenceDecisions ? {
-      inferredTypes: schema.inferenceDecisions.fieldInferences || {},
-      fieldSemantics: {},  // Could be enhanced with semantic detection
-      ontologyLinks: []
-    } : null;
-
-    // Build parser interpretation
-    const parserInterpretation = parseResult.parsingDecisions ? {
-      delimiter: parseResult.parsingDecisions.delimiterDetected || parseResult.delimiter || null,
-      quoteChar: '"',
-      escapeChar: '\\',
-      nullRepresentation: ['', 'null', 'NULL', 'N/A', 'n/a'],
-      dateFormats: schema.inferenceDecisions?.dateFormatsDetected || [],
-      numberFormats: {}
-    } : null;
-
-    // Build import scope
-    const importScope = {
-      recordCount: rows.length,
-      fieldCount: headers.length,
-      fileCount: 1,
-      sheetCount: options.sheetCount || null,
-      totalBytes: options.originalFileSize || null
-    };
-
-    // Build temporal chain
-    const temporalChain = {
-      fileCreatedAt: options.fileCreatedAt || null,
-      fileModifiedAt: options.fileModifiedAt || null,
-      uploadInitiatedAt: options.uploadInitiatedAt || now,
-      parseStartedAt: options.parseStartedAt || null,
-      parseCompletedAt: options.parseCompletedAt || now,
-      commitCompletedAt: null  // Set after commit
-    };
-
-    // Build import context
-    const importContext = {
-      previousVersionHash: options.previousVersionHash || null,
-      supersedes: options.supersedes || null,
-      retryCount: options.retryCount || 0,
-      importMode: options.importMode || 'create',
-      triggeredBy: options.triggeredBy || 'user'
-    };
-
-    // Build upload context
-    const uploadContext = {
-      userId: options.userId || null,
-      sessionId: options.sessionId || null,
-      userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : null,
-      ipAddress: null  // Not captured client-side
-    };
-
-    // Construct the full nested provenance structure
-    set.datasetProvenance = {
-      // Top-level metadata (backwards compatible)
-      importedAt: now,
-      importedBy: options.importedBy || null,
-      originalFilename: options.setName || setName,
-      originalFileSize: options.originalFileSize || null,
-      originalFileType: options.originalFileType || null,
-      originalSource: options.originalSource || null,
-
-      // EO 9-element provenance with nested upload metadata
-      provenance: {
-        // EPISTEMIC TRIAD
-        agent: {
-          value: autoFilledProvenance.agent || null,
-          uploadContext: uploadContext
-        },
-        method: {
-          value: autoFilledProvenance.method || null,
-          transformationLog: transformationLog,
-          qualityAudit: qualityAudit
-        },
-        source: {
-          value: autoFilledProvenance.source || null,
-          fileIdentity: fileIdentity,
-          originVerification: options.originVerification || null,
-          mergeManifest: options.mergeManifest || null
-        },
-
-        // SEMANTIC TRIAD
-        term: {
-          value: autoFilledProvenance.term || null,
-          schemaMapping: schemaMapping
-        },
-        definition: {
-          value: autoFilledProvenance.definition || null,
-          parserInterpretation: parserInterpretation
-        },
-        jurisdiction: {
-          value: autoFilledProvenance.jurisdiction || null,
-          domainAuthority: options.domainAuthority || null
-        },
-
-        // SITUATIONAL TRIAD
-        scale: {
-          value: autoFilledProvenance.scale || null,
-          importScope: importScope
-        },
-        timeframe: {
-          value: autoFilledProvenance.timeframe || null,
-          temporalChain: temporalChain
-        },
-        background: {
-          value: autoFilledProvenance.background || null,
-          importContext: importContext
-        }
-      }
-    };
-
-    // Replace default fields with inferred ones
-    set.fields = schema.fields.map((field, index) => {
-      return createField(field.name, field.type, {
-        isPrimary: index === 0,
-        ...field.options
-      });
-    });
-
-    // Find the type field for view creation
-    const typeFieldName = options.viewSplitField || 'type';
-    const typeField = set.fields.find(f => f.name === typeFieldName);
-
-    // Add records in batches
-    let processed = 0;
-    const typeValues = new Set();
-
-    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-      const batch = rows.slice(i, i + BATCH_SIZE);
-
-      for (const row of batch) {
-        const values = {};
-        set.fields.forEach((field) => {
-          const header = field.name;
-          let value = row[header];
-          value = this._convertValue(value, field.type, field.options);
-          values[field.id] = value;
-
-          // Track type values for view creation
-          if (field.id === typeField?.id && value) {
-            typeValues.add(String(value));
-          }
-        });
-
-        set.records.push(createRecord(set.id, values));
-      }
-
-      processed = Math.min(i + BATCH_SIZE, rows.length);
-
-      this._emitProgress('progress', {
-        phase: 'importing',
-        percentage: 50 + Math.round((processed / rows.length) * 40),
-        recordsProcessed: processed,
-        totalRecords: rows.length
-      });
-
-      await new Promise(r => setTimeout(r, 0));
-    }
-
-    // Create views by type if requested and type field exists
-    if (options.createViewsByType && typeField && typeValues.size > 0) {
-      this._emitProgress('progress', {
-        phase: 'creating_views',
-        percentage: 92
-      });
-
-      for (const typeValue of typeValues) {
-        const viewName = this._formatViewName(typeValue);
-        // Count records of this type for metadata
-        const typeRecordCount = set.records.filter(r => r.values[typeField.id] === typeValue).length;
-
-        // Calculate hidden fields (fields with no values for this type)
-        const hiddenFields = this._getHiddenFieldsForType(set, typeField.id, typeValue);
-
-        // Calculate field order (type-specific fields prominently after primary)
-        const fieldOrder = this._getFieldOrderForType(set, typeField.id, typeValue, options.schemaDivergence);
-
-        // Get icon for this type
-        const icon = this._getIconForType(typeValue);
-
-        const view = createView(viewName, 'table', {
-          filters: [{
-            fieldId: typeField.id,
-            operator: 'is',
-            filterValue: typeValue,
-            enabled: true
-          }],
-          hiddenFields,
-          fieldOrder
-        }, {
-          // Mark this view as a record type view (not a regular view)
-          recordType: typeValue,
-          recordCount: typeRecordCount,
-          isRecordTypeView: true,
-          icon
-        });
-        set.views.push(view);
-        viewsCreated.push(viewName);
-      }
-
-      // Add view creation step to transformation log
-      if (set.datasetProvenance?.provenance?.method?.transformationLog) {
-        set.datasetProvenance.provenance.method.transformationLog.push({
-          step: 3,
-          operation: 'CREATE_VIEWS',
-          processor: 'ImportOrchestrator',
-          decisions: {
-            splitField: typeFieldName,
-            viewsCreated: viewsCreated,
-            viewCount: viewsCreated.length,
-            fieldVisibilityApplied: true,
-            fieldOrderApplied: true
-          },
-          timestamp: new Date().toISOString()
-        });
-      }
-    }
-
-    // Finalize provenance with completion data
-    const commitTime = new Date().toISOString();
-
-    if (set.datasetProvenance?.provenance) {
-      // Update temporal chain with commit time
-      if (set.datasetProvenance.provenance.timeframe?.temporalChain) {
-        set.datasetProvenance.provenance.timeframe.temporalChain.commitCompletedAt = commitTime;
-      }
-
-      // Update quality audit completeness
-      if (set.datasetProvenance.provenance.method?.qualityAudit?.completeness) {
-        set.datasetProvenance.provenance.method.qualityAudit.completeness.importedRecords = set.records.length;
-      }
-
-      // Update import scope with final counts
-      if (set.datasetProvenance.provenance.scale?.importScope) {
-        set.datasetProvenance.provenance.scale.importScope.recordCount = set.records.length;
-        set.datasetProvenance.provenance.scale.importScope.fieldCount = set.fields.length;
-      }
-    }
-
-    // Add to workbench
-    this.workbench.sets.push(set);
-    this.workbench.currentSetId = set.id;
-    this.workbench.currentViewId = set.views[0]?.id;
-
-    // Handle edges if provided (graph data)
-    if (options.includeEdges && options.graphInfo?.edges) {
-      await this._importEdgesAsSet(setName, options.graphInfo);
-    }
-
-    // Create EO event for the import
-    if (this.workbench.eoApp) {
-      try {
-        this.workbench.eoApp.recordGiven('received', {
-          setId: set.id,
-          setName: set.name,
-          recordCount: set.records.length,
-          fieldCount: set.fields.length,
-          hasProvenance: true,  // We always have provenance now
-          provenanceComplete: !!userProvenance.agent,  // True if user provided agent
-          viewsCreated: viewsCreated.length
-        }, { action: 'import_data' });
-      } catch (e) {
-        console.error('Failed to create EO import event:', e);
-      }
-    }
-
-    // Save and refresh UI immediately
-    this.workbench._saveData();
-    this.workbench._renderSidebar();
-    this.workbench._renderView();
-    this.workbench._updateStatus();
-
-    // Refresh graph view if it exists (to show new nodes/edges)
-    if (typeof getGraph === 'function') {
-      const graph = getGraph();
-      if (graph) {
-        graph.refresh();
-      }
-    }
-
-    return {
-      success: true,
-      setId: set.id,
-      recordCount: set.records.length,
-      fieldCount: set.fields.length,
-      viewsCreated,
-      edgesImported: options.includeEdges ? (options.graphInfo?.edges?.length || 0) : 0
-    };
-  }
-
-  /**
    * Format a type value as a view name
    */
   _formatViewName(value) {
@@ -2543,293 +2007,6 @@ class ImportOrchestrator {
       .replace(/_/g, ' ')
       .replace(/\b\w/g, c => c.toUpperCase());
     return formatted;
-  }
-
-  /**
-   * Create separate Sets for each record type.
-   * Each record type becomes its own independent Set with only the fields
-   * relevant to that type - maintaining proper Given/Meant separation where
-   * each Set is a distinct interpretation of a subset of the source data.
-   */
-  async _createSeparateSetsPerType(baseName, parseResult, options = {}) {
-    const typeFieldName = options.viewSplitField || 'type';
-    const { headers, rows } = parseResult;
-    const now = new Date().toISOString();
-
-    // Group rows by type
-    const rowsByType = {};
-    for (const row of rows) {
-      const typeValue = row[typeFieldName] || '_untyped';
-      if (!rowsByType[typeValue]) {
-        rowsByType[typeValue] = [];
-      }
-      rowsByType[typeValue].push(row);
-    }
-
-    const typeValues = Object.keys(rowsByType);
-
-    this._emitProgress('progress', {
-      phase: 'analyzing_types',
-      percentage: 55,
-      typeCount: typeValues.length
-    });
-
-    // Create a separate Set for each record type
-    const setsCreated = [];
-    const allSetIds = [];
-    let totalProcessed = 0;
-
-    for (let typeIdx = 0; typeIdx < typeValues.length; typeIdx++) {
-      const typeValue = typeValues[typeIdx];
-      const typeRows = rowsByType[typeValue];
-      const setName = `${baseName} - ${this._formatViewName(typeValue)}`;
-
-      this._emitProgress('progress', {
-        phase: 'creating_set',
-        percentage: 55 + Math.round((typeIdx / typeValues.length) * 30),
-        currentType: typeValue,
-        typeIndex: typeIdx + 1,
-        totalTypes: typeValues.length
-      });
-
-      // Find which headers are actually used by this type (exclude type field itself)
-      const usedHeaders = headers.filter(header => {
-        if (header === typeFieldName) return false;
-        return typeRows.some(row => {
-          const val = row[header];
-          return val !== null && val !== undefined && val !== '';
-        });
-      });
-
-      // Infer schema for just this type's rows
-      const typeSchema = this.schemaInferrer.inferSchema(usedHeaders, typeRows);
-
-      // Create a Set for this record type
-      const set = createSet(setName);
-      set.icon = this._getIconForType(typeValue);
-
-      // Metadata links this Set to the original import and identifies its record type
-      set.metadata = {
-        ...set.metadata,
-        recordType: typeValue,
-        sourceFile: options.originalFilename || baseName,
-        importedAt: now,
-        parentImport: baseName
-      };
-
-      // Create fields from the type-specific schema
-      set.fields = typeSchema.fields.map((field, index) => {
-        return createField(field.name, field.type, {
-          isPrimary: index === 0,
-          ...field.options
-        });
-      });
-
-      // Add records for this type only
-      for (const row of typeRows) {
-        const values = {};
-        set.fields.forEach((field) => {
-          const header = field.name;
-          let value = row[header];
-          value = this._convertValue(value, field.type, field.options);
-          values[field.id] = value;
-        });
-        set.records.push(createRecord(set.id, values));
-      }
-
-      totalProcessed += typeRows.length;
-      this._emitProgress('progress', {
-        phase: 'importing_records',
-        percentage: 55 + Math.round((totalProcessed / rows.length) * 35),
-        recordsProcessed: totalProcessed,
-        totalRecords: rows.length
-      });
-
-      // Add the Set to workbench
-      this.workbench.sets.push(set);
-      allSetIds.push(set.id);
-
-      setsCreated.push({
-        setId: set.id,
-        name: setName,
-        type: typeValue,
-        recordCount: set.records.length,
-        fieldCount: set.fields.length
-      });
-
-      await new Promise(r => setTimeout(r, 0));
-    }
-
-    // Set the first created Set as current
-    if (allSetIds.length > 0) {
-      this.workbench.currentSetId = allSetIds[0];
-      const firstSet = this.workbench.sets.find(s => s.id === allSetIds[0]);
-      this.workbench.currentViewId = firstSet?.views[0]?.id;
-    }
-
-    // Import edges if present
-    if (options.includeEdges && options.graphInfo?.edges) {
-      await this._importEdgesAsSet(baseName, options.graphInfo);
-    }
-
-    // Save and refresh UI
-    this.workbench._saveData();
-    this.workbench._renderSidebar();
-    this.workbench._renderView();
-    this.workbench._updateStatus();
-
-    return {
-      success: true,
-      setId: allSetIds[0],
-      setIds: allSetIds,
-      recordCount: rows.length,
-      setsCreated: setsCreated,
-      edgesImported: options.includeEdges ? (options.graphInfo?.edges?.length || 0) : 0
-    };
-  }
-
-  /**
-   * Get a color for record type based on index
-   */
-  _getTypeColor(index) {
-    const colors = [
-      'blue', 'green', 'orange', 'purple', 'red',
-      'cyan', 'pink', 'yellow', 'teal', 'indigo'
-    ];
-    return colors[index % colors.length];
-  }
-
-  /**
-   * Get an appropriate icon for a node type
-   */
-  _getIconForType(typeValue) {
-    const iconMap = {
-      'person': 'ph-user',
-      'people': 'ph-users',
-      'user': 'ph-user',
-      'org': 'ph-buildings',
-      'organization': 'ph-buildings',
-      'company': 'ph-building-office',
-      'government': 'ph-bank',
-      'nonprofit': 'ph-heart',
-      'contract': 'ph-file-text',
-      'document': 'ph-file-doc',
-      'property': 'ph-house',
-      'real_estate': 'ph-house-line',
-      'funding': 'ph-money',
-      'payment': 'ph-credit-card',
-      'transaction': 'ph-arrows-left-right',
-      'bank_account': 'ph-bank',
-      'event': 'ph-calendar',
-      'meeting': 'ph-calendar-check',
-      'complaint': 'ph-warning',
-      'violation': 'ph-shield-warning'
-    };
-    return iconMap[typeValue.toLowerCase()] || 'ph-database';
-  }
-
-  /**
-   * Get fields that should be hidden for a specific record type.
-   * Returns field IDs for fields that have NO values for records of this type.
-   */
-  _getHiddenFieldsForType(set, typeFieldId, typeValue) {
-    // Get all records of this type
-    const typeRecords = set.records.filter(r => r.values[typeFieldId] === typeValue);
-
-    const hiddenFields = [];
-    for (const field of set.fields) {
-      // Don't hide the type field itself (user may want to see it)
-      if (field.id === typeFieldId) continue;
-
-      // Check if ANY record of this type has a non-empty value for this field
-      const hasValue = typeRecords.some(r => {
-        const val = r.values[field.id];
-        return val !== null && val !== undefined && val !== '';
-      });
-
-      if (!hasValue) {
-        hiddenFields.push(field.id);
-      }
-    }
-
-    return hiddenFields;
-  }
-
-  /**
-   * Get field order for a specific record type.
-   * Orders fields with type-specific fields prominently after the primary field.
-   */
-  _getFieldOrderForType(set, typeFieldId, typeValue, schemaDivergence) {
-    // Get type-specific field NAMES from schemaDivergence
-    const typeInfo = schemaDivergence?.types?.find(t => t.type === typeValue);
-    const specificFieldNames = new Set(typeInfo?.specificFields || []);
-
-    // Map field names to IDs for type-specific fields
-    const specificFieldIds = new Set();
-    for (const field of set.fields) {
-      if (specificFieldNames.has(field.name)) {
-        specificFieldIds.add(field.id);
-      }
-    }
-
-    // Order: primary field first, then type-specific, then common fields
-    return set.fields
-      .map(f => f.id)
-      .sort((aId, bId) => {
-        const fieldA = set.fields.find(f => f.id === aId);
-        const fieldB = set.fields.find(f => f.id === bId);
-
-        // Primary field first
-        if (fieldA.isPrimary) return -1;
-        if (fieldB.isPrimary) return 1;
-
-        // Type-specific fields next
-        const aSpecific = specificFieldIds.has(aId);
-        const bSpecific = specificFieldIds.has(bId);
-        if (aSpecific && !bSpecific) return -1;
-        if (!aSpecific && bSpecific) return 1;
-
-        return 0;
-      });
-  }
-
-  /**
-   * Import edges as a separate dataset (for graph data)
-   */
-  async _importEdgesAsSet(baseSetName, graphInfo) {
-    if (!graphInfo.edges || graphInfo.edges.length === 0) return;
-
-    const edgeSetName = `${baseSetName} - Relationships`;
-    const edgeSet = createSet(edgeSetName);
-    edgeSet.icon = 'ph-arrows-left-right';
-
-    // Create fields for edge data
-    edgeSet.fields = [
-      createField('id', 'text', { isPrimary: true }),
-      createField('from', 'text'),
-      createField('to', 'text'),
-      createField('type', 'text'),
-      createField('properties', 'longText')
-    ];
-
-    // Add edge records
-    for (const edge of graphInfo.edges) {
-      const values = {
-        [edgeSet.fields[0].id]: edge.id || '',
-        [edgeSet.fields[1].id]: edge.from || '',
-        [edgeSet.fields[2].id]: edge.to || '',
-        [edgeSet.fields[3].id]: edge.type || '',
-        [edgeSet.fields[4].id]: edge.properties ? JSON.stringify(edge.properties) : ''
-      };
-      edgeSet.records.push(createRecord(edgeSet.id, values));
-    }
-
-    // Note: We intentionally don't create views per edge type here.
-    // Graph datasets often have many relationship types (brother_of, sibling_of,
-    // married_to, owns, employed_by, etc.) and auto-creating a view for each
-    // would clutter the UI. Users can filter by type manually if needed.
-
-    this.workbench.sets.push(edgeSet);
   }
 
   /**
@@ -3413,28 +2590,6 @@ function showImportModal() {
           </button>
         </div>
 
-        <!-- Import Mode Toggle -->
-        <div class="import-mode-toggle">
-          <div class="import-mode-option active" data-mode="source" id="import-mode-source">
-            <div class="mode-title">
-              <i class="ph ph-database"></i>
-              Import as Source
-              <span class="mode-badge recommended">Recommended</span>
-            </div>
-            <div class="mode-desc">
-              Creates raw data source. You'll choose which fields to include when creating Sets.
-            </div>
-          </div>
-          <div class="import-mode-option" data-mode="auto" id="import-mode-auto">
-            <div class="mode-title">
-              <i class="ph ph-table"></i>
-              Auto Create Set
-            </div>
-            <div class="mode-desc">
-              Immediately creates a Set with all fields (legacy behavior).
-            </div>
-          </div>
-        </div>
 
         <!-- Graph Data Detection Banner -->
         <div class="import-graph-detected" id="import-graph-detected" style="display: none;">
@@ -3537,14 +2692,6 @@ function showImportModal() {
           <div class="sample-table-wrapper" id="sample-table-wrapper">
             <table class="sample-table" id="sample-table">
             </table>
-          </div>
-        </div>
-
-        <!-- Import Options -->
-        <div class="import-options">
-          <div class="form-group">
-            <label class="form-label">Dataset Name</label>
-            <input type="text" class="form-input" id="import-set-name" placeholder="Enter name for the new dataset">
           </div>
         </div>
 
@@ -3713,7 +2860,6 @@ function initImportHandlers() {
   let analysisData = null;
   let rawFileContent = null;
   let orchestrator = null;
-  let importMode = 'source'; // 'source' or 'auto'
   const analyzer = new ImportAnalyzer();
 
   // Get workbench reference and ensure sourceStore is initialized
@@ -3733,32 +2879,6 @@ function initImportHandlers() {
     }
     orchestrator = new ImportOrchestrator(workbench);
   }
-
-  // Import mode toggle handlers
-  const modeSourceBtn = document.getElementById('import-mode-source');
-  const modeAutoBtn = document.getElementById('import-mode-auto');
-
-  modeSourceBtn?.addEventListener('click', () => {
-    importMode = 'source';
-    modeSourceBtn.classList.add('active');
-    modeAutoBtn.classList.remove('active');
-    // Update button text
-    confirmBtn.innerHTML = '<i class="ph ph-database"></i> Import as Source';
-    // Hide set name field when importing as source (source uses filename)
-    const setNameGroup = document.querySelector('.import-options');
-    if (setNameGroup) setNameGroup.style.display = 'none';
-  });
-
-  modeAutoBtn?.addEventListener('click', () => {
-    importMode = 'auto';
-    modeAutoBtn.classList.add('active');
-    modeSourceBtn.classList.remove('active');
-    // Update button text
-    confirmBtn.innerHTML = '<i class="ph ph-table"></i> Import & Create Set';
-    // Show set name field
-    const setNameGroup = document.querySelector('.import-options');
-    if (setNameGroup) setNameGroup.style.display = 'block';
-  });
 
   // Dropzone click
   dropzone.addEventListener('click', () => fileInput.click());
@@ -3815,9 +2935,6 @@ function initImportHandlers() {
     confirmBtn.disabled = true;
     cancelBtn.disabled = true;
 
-    const setName = document.getElementById('import-set-name')?.value ||
-                    currentFile.name.replace(/\.(csv|json|xlsx|xls)$/i, '');
-
     // Collect all 9 provenance fields
     const provenance = {
       // Epistemic triad
@@ -3834,12 +2951,6 @@ function initImportHandlers() {
       background: document.getElementById('prov-background')?.value || null
     };
 
-    // Check import type handling mode (views vs separate sets)
-    const typeHandlingMode = document.querySelector('input[name="import-type-handling"]:checked')?.value || 'sets';
-    const createViewsByType = typeHandlingMode === 'views';
-    const separateSetsByType = typeHandlingMode === 'sets';
-    const includeEdges = document.getElementById('import-include-edges')?.checked || false;
-
     try {
       // Listen for progress events
       const progressHandler = (e) => {
@@ -3849,166 +2960,97 @@ function initImportHandlers() {
 
       let result;
 
-      // Check import mode
-      if (importMode === 'source') {
-        // Check if split sources is enabled
-        const splitSourcesEnabled = document.getElementById('import-split-sources')?.checked;
-        const shouldSplitSources = splitSourcesEnabled && analysisData?.schemaDivergence?.shouldSplit;
+      // Check if split sources is enabled
+      const splitSourcesEnabled = document.getElementById('import-split-sources')?.checked;
+      const shouldSplitSources = splitSourcesEnabled && analysisData?.schemaDivergence?.shouldSplit;
 
-        if (shouldSplitSources) {
-          // Import as multiple Sources split by type
-          result = await orchestrator.importToSources(currentFile, {
-            provenance,
-            originalSource: rawFileContent,
-            schemaDivergence: analysisData.schemaDivergence
-          });
-
-          window.removeEventListener('eo-import-progress', progressHandler);
-
-          // Show success for split sources import
-          progressSection.style.display = 'none';
-          successSection.style.display = 'flex';
-
-          document.getElementById('success-message').textContent =
-            `Successfully imported ${result.totalRecordCount} records into ${result.sources.length} Sources`;
-
-          // Show created sources info
-          const sourcesList = result.sources.map(s =>
-            `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: var(--bg-tertiary); border-radius: 4px;">
-              ${s.name} (${s.recordCount})
-            </span>`
-          ).join('');
-          document.getElementById('success-views-created').innerHTML = `
-            <div style="margin-top: 8px;"><i class="ph ph-git-branch"></i> Split by <strong>${result.typeField}</strong>:</div>
-            <div style="margin-top: 6px;">${sourcesList}</div>
-            <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
-              <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
-                Each source has its own schema with only relevant fields.
-                Click on a source in the sidebar to view and create Sets.
-              </p>
-            </div>
-          `;
-
-          // Refresh workbench sidebar to show new sources
-          if (workbench?._renderSidebar) {
-            workbench._renderSidebar();
-          }
-
-          // Navigate to the first created source after modal closes
-          if (workbench?._showSourceDetail && result.sources?.[0]?.sourceId) {
-            setTimeout(() => {
-              workbench._showSourceDetail(result.sources[0].sourceId);
-            }, 1900);
-          }
-
-        } else {
-          // Import as single Source (default)
-          result = await orchestrator.importToSource(currentFile, {
-            provenance,
-            originalSource: rawFileContent,
-            schemaDivergence: analysisData?.schemaDivergence
-          });
-
-          window.removeEventListener('eo-import-progress', progressHandler);
-
-          // Show success for source import
-          progressSection.style.display = 'none';
-          successSection.style.display = 'flex';
-
-          document.getElementById('success-message').textContent =
-            `Successfully imported ${result.recordCount} records as Source`;
-
-          // Show next steps info
-          document.getElementById('success-views-created').innerHTML = `
-            <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
-              <p style="margin: 0 0 8px 0; font-weight: 500;">
-                <i class="ph ph-info"></i> Next Steps
-              </p>
-              <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
-                Click on the source in the sidebar to view data, then use
-                <strong>"Create Set"</strong> to select fields and create a Set,
-                or <strong>"Join"</strong> to combine with other sources.
-              </p>
-            </div>
-          `;
-
-          // Refresh workbench sidebar to show new source
-          if (workbench?._renderSidebar) {
-            workbench._renderSidebar();
-          }
-
-          // Navigate to the newly imported source after modal closes
-          if (workbench?._showSourceDetail && result.source?.id) {
-            setTimeout(() => {
-              workbench._showSourceDetail(result.source.id);
-            }, 1900); // After modal close delay (1800ms)
-          }
-        }
-
-      } else {
-        // Legacy: Auto-create Set
-        result = await orchestrator.import(currentFile, {
-          setName,
+      if (shouldSplitSources) {
+        // Import as multiple Sources split by type
+        result = await orchestrator.importToSources(currentFile, {
           provenance,
           originalSource: rawFileContent,
-          createViewsByType,
-          separateSetsByType,
-          viewSplitField: analysisData?.viewSplitCandidates?.[0]?.field || 'type',
-          schemaDivergence: analysisData?.schemaDivergence,
-          graphInfo: analysisData?.graphInfo,
-          includeEdges
+          schemaDivergence: analysisData.schemaDivergence
         });
 
         window.removeEventListener('eo-import-progress', progressHandler);
 
-        // Show success
+        // Show success for split sources import
         progressSection.style.display = 'none';
         successSection.style.display = 'flex';
 
-        // Build success message
-        let successMsg;
-        if (result.setsCreated && result.setsCreated.length > 1) {
-          // Multiple sets were created (separated by type)
-          successMsg = `Successfully imported ${result.recordCount} records into ${result.setsCreated.length} datasets`;
-          if (result.edgesImported > 0) {
-            successMsg += ` and ${result.edgesImported} relationships`;
-          }
-          document.getElementById('success-message').textContent = successMsg;
+        document.getElementById('success-message').textContent =
+          `Successfully imported ${result.totalRecordCount} records into ${result.sources.length} Sources`;
 
-          // Show created sets info
-          const setsList = result.setsCreated.map(s =>
-            `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: var(--bg-tertiary); border-radius: 4px;">
-              ${s.name} (${s.recordCount})
-            </span>`
-          ).join('');
-          document.getElementById('success-views-created').innerHTML =
-            `<div style="margin-top: 8px;"><i class="ph ph-database"></i> Created datasets:</div>
-             <div style="margin-top: 6px;">${setsList}</div>`;
-        } else {
-          // Single set was created (views mode)
-          successMsg = `Successfully imported ${result.recordCount} records with ${result.fieldCount} fields`;
-          if (result.edgesImported > 0) {
-            successMsg += ` and ${result.edgesImported} relationships`;
-          }
-          document.getElementById('success-message').textContent = successMsg;
+        // Show created sources info
+        const sourcesList = result.sources.map(s =>
+          `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: var(--bg-tertiary); border-radius: 4px;">
+            ${s.name} (${s.recordCount})
+          </span>`
+        ).join('');
+        document.getElementById('success-views-created').innerHTML = `
+          <div style="margin-top: 8px;"><i class="ph ph-git-branch"></i> Split by <strong>${result.typeField}</strong>:</div>
+          <div style="margin-top: 6px;">${sourcesList}</div>
+          <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
+            <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
+              Each source has its own schema with only relevant fields.
+              Click on a source in the sidebar to view and create Sets.
+            </p>
+          </div>
+        `;
 
-          // Show created views info
-          if (result.viewsCreated && result.viewsCreated.length > 0) {
-            document.getElementById('success-views-created').innerHTML =
-              `<i class="ph ph-eye"></i> Created ${result.viewsCreated.length} views: ${result.viewsCreated.join(', ')}`;
-          }
+        // Refresh workbench sidebar to show new sources
+        if (workbench?._renderSidebar) {
+          workbench._renderSidebar();
         }
 
-        // Show edges info if imported
-        if (result.edgesImported > 0) {
-          const edgesInfo = document.getElementById('success-edges-created') || document.createElement('div');
-          edgesInfo.id = 'success-edges-created';
-          edgesInfo.style.cssText = 'margin-top: 8px; font-size: 13px; color: var(--text-secondary);';
-          edgesInfo.innerHTML = `<i class="ph ph-arrows-left-right"></i> ${result.edgesImported} edges available in Relationships dataset`;
-          const successViewsEl = document.getElementById('success-views-created');
-          if (successViewsEl && !document.getElementById('success-edges-created')) {
-            successViewsEl.parentNode.insertBefore(edgesInfo, successViewsEl.nextSibling);
-          }
+        // Navigate to the first created source after modal closes
+        if (workbench?._showSourceDetail && result.sources?.[0]?.sourceId) {
+          setTimeout(() => {
+            workbench._showSourceDetail(result.sources[0].sourceId);
+          }, 1900);
+        }
+
+      } else {
+        // Import as single Source (default)
+        result = await orchestrator.importToSource(currentFile, {
+          provenance,
+          originalSource: rawFileContent,
+          schemaDivergence: analysisData?.schemaDivergence
+        });
+
+        window.removeEventListener('eo-import-progress', progressHandler);
+
+        // Show success for source import
+        progressSection.style.display = 'none';
+        successSection.style.display = 'flex';
+
+        document.getElementById('success-message').textContent =
+          `Successfully imported ${result.recordCount} records as Source`;
+
+        // Show next steps info
+        document.getElementById('success-views-created').innerHTML = `
+          <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
+            <p style="margin: 0 0 8px 0; font-weight: 500;">
+              <i class="ph ph-info"></i> Next Steps
+            </p>
+            <p style="margin: 0; font-size: 12px; color: var(--text-secondary);">
+              Click on the source in the sidebar to view data, then use
+              <strong>"Create Set"</strong> to select fields and create a Set,
+              or <strong>"Join"</strong> to combine with other sources.
+            </p>
+          </div>
+        `;
+
+        // Refresh workbench sidebar to show new source
+        if (workbench?._renderSidebar) {
+          workbench._renderSidebar();
+        }
+
+        // Navigate to the newly imported source after modal closes
+        if (workbench?._showSourceDetail && result.source?.id) {
+          setTimeout(() => {
+            workbench._showSourceDetail(result.source.id);
+          }, 1900); // After modal close delay (1800ms)
         }
       }
 
@@ -4335,10 +3377,6 @@ function initImportHandlers() {
           renderPreviewSampleTable(btn.dataset.mode);
         });
       });
-
-      // Set name input
-      document.getElementById('import-set-name').value =
-        file.name.replace(/\.(csv|json|xlsx|xls)$/i, '');
 
       // Enable confirm
       confirmBtn.disabled = false;
