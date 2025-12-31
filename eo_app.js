@@ -1134,6 +1134,7 @@ function showSettingsModal() {
       <label class="form-label"><i class="ph ph-database"></i> Data Management</label>
       <div style="display: flex; gap: 8px; flex-wrap: wrap;">
         <button class="btn btn-secondary" onclick="exportAllData()"><i class="ph ph-export"></i> Export JSON</button>
+        <button class="btn btn-secondary" onclick="clearSampleData()"><i class="ph ph-flask"></i> Clear Sample Data</button>
         <button class="btn btn-danger" onclick="clearAllData()"><i class="ph ph-trash"></i> Clear All</button>
       </div>
     </div>
@@ -1239,6 +1240,72 @@ function clearAllData() {
   if (!confirm('Clear all data? This cannot be undone.')) return;
   localStorage.removeItem('eo_lake_data');
   window.location.reload();
+}
+
+function clearSampleData() {
+  if (!window.wb) return;
+
+  // Find the Sample project
+  const sampleProject = window.wb.projects?.find(p =>
+    p.name === 'Sample' && p.description === 'Sample project with demo data'
+  );
+
+  if (!sampleProject) {
+    if (typeof window.wb._showToast === 'function') {
+      window.wb._showToast('No sample data found', 'info');
+    } else {
+      alert('No sample data found');
+    }
+    return;
+  }
+
+  if (!confirm('Clear sample data? This will remove the Sample project and all its contents.')) return;
+
+  // Remove associated sources
+  if (sampleProject.sourceIds?.length) {
+    window.wb.sources = window.wb.sources?.filter(s => !sampleProject.sourceIds.includes(s.id)) || [];
+  }
+
+  // Remove associated sets
+  if (sampleProject.setIds?.length) {
+    window.wb.sets = window.wb.sets?.filter(s => !sampleProject.setIds.includes(s.id)) || [];
+  }
+
+  // Remove associated definitions
+  if (sampleProject.definitionIds?.length) {
+    window.wb.definitions = window.wb.definitions?.filter(d => !sampleProject.definitionIds.includes(d.id)) || [];
+  }
+
+  // Remove associated exports
+  if (sampleProject.exportIds?.length) {
+    window.wb.exports = window.wb.exports?.filter(e => !sampleProject.exportIds.includes(e.id)) || [];
+  }
+
+  // Remove the project itself
+  window.wb.projects = window.wb.projects?.filter(p => p.id !== sampleProject.id) || [];
+
+  // Clear current project selection if it was the sample project
+  if (window.wb.currentProjectId === sampleProject.id) {
+    window.wb.currentProjectId = null;
+  }
+
+  // Save and refresh
+  if (typeof window.wb._saveData === 'function') {
+    window.wb._saveData();
+  }
+  if (typeof window.wb._renderSidebar === 'function') {
+    window.wb._renderSidebar();
+  }
+  if (typeof window.wb._updateBreadcrumb === 'function') {
+    window.wb._updateBreadcrumb();
+  }
+
+  // Close the settings modal
+  closeModal();
+
+  if (typeof window.wb._showToast === 'function') {
+    window.wb._showToast('Sample data cleared', 'success');
+  }
 }
 
 // ============================================================================
