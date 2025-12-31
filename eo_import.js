@@ -1167,13 +1167,38 @@ class ImportOrchestrator {
         console.error('ImportOrchestrator: No workbench reference - source will NOT be visible!');
       }
 
+      // Step 7: Trigger definition lookups for imported keys (async, non-blocking)
+      let definitionLookupResult = null;
+      if (options.enableDefinitionLookup !== false) {
+        this._emitProgress('progress', {
+          phase: 'looking_up_definitions',
+          percentage: 90
+        });
+
+        try {
+          definitionLookupResult = await this._triggerDefinitionLookup(source, options);
+          if (definitionLookupResult) {
+            // Re-save with enriched data
+            if (typeof this.workbench._saveData === 'function') {
+              this.workbench._saveData();
+            }
+          }
+        } catch (lookupError) {
+          console.warn('ImportOrchestrator: Definition lookup failed (non-fatal):', lookupError);
+        }
+      }
+
       this._emitProgress('completed', {
         fileName: file.name,
         sourceId: source.id,
         recordCount: source.recordCount,
         fieldCount: schema.fields.length,
         duration: Date.now() - startTime,
-        mode: 'source_only'
+        mode: 'source_only',
+        definitionLookup: definitionLookupResult ? {
+          keysLookedUp: definitionLookupResult.summary?.totalKeys || 0,
+          keysWithMatches: definitionLookupResult.summary?.keysWithMatches || 0
+        } : null
       });
 
       return {
@@ -1181,7 +1206,8 @@ class ImportOrchestrator {
         source: source,
         schema: schema,
         recordCount: source.recordCount,
-        fieldCount: schema.fields.length
+        fieldCount: schema.fields.length,
+        definitionLookup: definitionLookupResult
       };
 
     } catch (error) {
@@ -2067,6 +2093,62 @@ class ImportOrchestrator {
 
       default:
         return strValue;
+    }
+  }
+
+  /**
+   * Trigger definition lookups for imported keys
+   *
+   * Calls external APIs (Wikidata, eCFR, Federal Register) to find
+   * definition details for each key/field in the imported source.
+   *
+   * @param {Object} source - The imported source object
+   * @param {Object} options - Import options
+   * @returns {Promise<Object|null>} - Lookup results or null if unavailable
+   */
+  async _triggerDefinitionLookup(source, options = {}) {
+    // Check if KeyDefinitionLookup is available
+    const getEnricher = typeof window !== 'undefined' && window.EO?.getImportDefinitionEnricher;
+    if (!getEnricher) {
+      console.log('ImportOrchestrator: KeyDefinitionLookup not loaded, skipping definition lookup');
+      return null;
+    }
+
+    try {
+      const enricher = getEnricher();
+      if (!enricher) {
+        return null;
+      }
+
+      console.log('ImportOrchestrator: Starting definition lookup for', source.schema?.fields?.length || 0, 'keys');
+
+      // Enrich the source with definition lookups
+      await enricher.enrichSource(source, {
+        sourceId: source.id,
+        frame: {
+          id: source.id,
+          type: 'source',
+          name: source.name
+        },
+        provenance: source.provenance || options.provenance
+      });
+
+      const results = enricher.getSourceLookupResults(source);
+
+      if (results) {
+        console.log('ImportOrchestrator: Definition lookup complete', {
+          totalKeys: results.summary?.totalKeys,
+          keysWithMatches: results.summary?.keysWithMatches,
+          keysWithAuthority: results.summary?.keysWithAuthority,
+          keysWithRegulatory: results.summary?.keysWithRegulatory
+        });
+      }
+
+      return results;
+
+    } catch (error) {
+      console.warn('ImportOrchestrator: Definition lookup error:', error);
+      return null;
     }
   }
 
