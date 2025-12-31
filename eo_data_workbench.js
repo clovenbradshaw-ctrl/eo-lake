@@ -13135,6 +13135,7 @@ class EODataWorkbench {
 
       // Handle Definitions tab
       if (tab.classList.contains('definitions-tab')) {
+        this.isViewingDefinitions = true;
         this._showDefinitionsTableView();
         this._renderTabBar();
         return;
