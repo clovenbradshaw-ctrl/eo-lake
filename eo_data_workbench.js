@@ -939,111 +939,6 @@ class EODataWorkbench {
       this._showFileExplorer();
     });
 
-    // Sources view toggle (list vs table)
-    document.getElementById('sources-view-toggle')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('.view-toggle-btn');
-      if (!btn) return;
-      const viewMode = btn.dataset.view;
-      if (!viewMode) return;
-
-      // Always update button states for visual feedback
-      document.querySelectorAll('#sources-view-toggle .view-toggle-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.view === viewMode);
-      });
-
-      // Only re-render if mode actually changed
-      if (viewMode !== this.sourcesViewMode) {
-        this.sourcesViewMode = viewMode;
-        // Re-render sources navigation or show table view
-        if (viewMode === 'table') {
-          this._showSourcesTableView();
-        } else {
-          this._renderSourcesNav();
-          // When switching to list mode, show the first source if available, otherwise show welcome state
-          if (this.currentSourceId === 'sources-table') {
-            const activeSources = (this.sources || []).filter(s => s.status !== 'archived');
-            if (activeSources.length > 0) {
-              // Show the first source
-              this._showSourceDetail(activeSources[0].id);
-            } else {
-              // No sources - show empty/welcome state
-              this.currentSourceId = null;
-              this._renderView();
-            }
-          }
-        }
-      }
-    });
-
-    // Sets view toggle (list vs table)
-    document.getElementById('sets-view-toggle')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('.view-toggle-btn');
-      if (!btn) return;
-      const viewMode = btn.dataset.view;
-      if (!viewMode) return;
-
-      // Update button states for visual feedback
-      document.querySelectorAll('#sets-view-toggle .view-toggle-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.view === viewMode);
-      });
-
-      // Only re-render if mode actually changed
-      if (viewMode !== this.setsViewMode) {
-        this.setsViewMode = viewMode;
-        if (viewMode === 'table') {
-          this._showSetsTableView();
-        } else {
-          this._renderSetsNavFlat();
-        }
-      }
-    });
-
-    // Definitions view toggle (list vs table)
-    document.getElementById('definitions-view-toggle')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('.view-toggle-btn');
-      if (!btn) return;
-      const viewMode = btn.dataset.view;
-      if (!viewMode) return;
-
-      // Update button states for visual feedback
-      document.querySelectorAll('#definitions-view-toggle .view-toggle-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.view === viewMode);
-      });
-
-      // Only re-render if mode actually changed
-      if (viewMode !== this.definitionsViewMode) {
-        this.definitionsViewMode = viewMode;
-        if (viewMode === 'table') {
-          this._showDefinitionsTableView();
-        } else {
-          this._renderDefinitionsNav();
-        }
-      }
-    });
-
-    // Exports view toggle (list vs table)
-    document.getElementById('exports-view-toggle')?.addEventListener('click', (e) => {
-      const btn = e.target.closest('.view-toggle-btn');
-      if (!btn) return;
-      const viewMode = btn.dataset.view;
-      if (!viewMode) return;
-
-      // Update button states for visual feedback
-      document.querySelectorAll('#exports-view-toggle .view-toggle-btn').forEach(b => {
-        b.classList.toggle('active', b.dataset.view === viewMode);
-      });
-
-      // Only re-render if mode actually changed
-      if (viewMode !== this.exportsViewMode) {
-        this.exportsViewMode = viewMode;
-        if (viewMode === 'table') {
-          this._showExportsTableView();
-        } else {
-          this._renderExportsNav();
-        }
-      }
-    });
-
     // Explorer buttons for each panel
     document.getElementById('btn-sets-explorer')?.addEventListener('click', () => {
       this._showSetsExplorer();
@@ -6348,9 +6243,6 @@ class EODataWorkbench {
         const sourceId = row.dataset.sourceId;
         // Switch back to list view and show the source
         this.sourcesViewMode = 'list';
-        document.querySelectorAll('#sources-view-toggle .view-toggle-btn').forEach(b => {
-          b.classList.toggle('active', b.dataset.view === 'list');
-        });
         this._renderSourcesNav();
         this._showSourceDetail(sourceId);
       });
@@ -6375,9 +6267,6 @@ class EODataWorkbench {
         switch (action) {
           case 'view':
             this.sourcesViewMode = 'list';
-            document.querySelectorAll('#sources-view-toggle .view-toggle-btn').forEach(b => {
-              b.classList.toggle('active', b.dataset.view === 'list');
-            });
             this._renderSourcesNav();
             this._showSourceDetail(sourceId);
             break;
