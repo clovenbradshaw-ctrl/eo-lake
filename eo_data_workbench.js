@@ -5414,6 +5414,12 @@ class EODataWorkbench {
             </div>
           ` : ''}
         </div>
+
+        <!-- Floating Provenance Tab (visible when panel is hidden) -->
+        <div class="source-provenance-floating-tab" id="source-provenance-floating-tab" title="Show provenance panel">
+          <i class="ph ph-fingerprint"></i>
+          <span>Provenance</span>
+        </div>
       </div>
     `;
 
@@ -5547,6 +5553,16 @@ class EODataWorkbench {
           icon.className = isHidden ? 'ph ph-sidebar-simple' : 'ph ph-sidebar-simple';
         }
         this._showToast(isHidden ? 'Provenance panel hidden' : 'Provenance panel visible', 'info');
+      }
+    });
+
+    // Floating provenance tab (shows panel when clicked)
+    document.getElementById('source-provenance-floating-tab')?.addEventListener('click', () => {
+      const viewer = document.querySelector('.source-data-viewer');
+      if (viewer && viewer.classList.contains('provenance-hidden')) {
+        viewer.classList.remove('provenance-hidden');
+        localStorage.setItem('eo-hide-source-provenance', 'false');
+        this._showToast('Provenance panel visible', 'info');
       }
     });
   }

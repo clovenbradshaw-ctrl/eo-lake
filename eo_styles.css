@@ -13987,6 +13987,7 @@ body.has-picked-up .browser-tab:hover {
   grid-template-rows: auto auto 1fr;
   height: 100%;
   background: var(--bg-primary);
+  position: relative;
 }
 
 .source-viewer-header {
@@ -14176,6 +14177,47 @@ body.has-picked-up .browser-tab:hover {
 .source-data-viewer.provenance-hidden .source-provenance-toggle-btn:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+}
+
+/* Floating Provenance Tab (visible when panel is hidden) */
+.source-provenance-floating-tab {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--accent-color);
+  color: white;
+  padding: 12px 8px;
+  border-radius: 8px 0 0 8px;
+  cursor: pointer;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.15);
+  transition: all 0.2s ease;
+  z-index: 100;
+  gap: 8px;
+  align-items: center;
+}
+
+.source-provenance-floating-tab i {
+  font-size: 16px;
+  transform: rotate(90deg);
+  margin-bottom: 4px;
+}
+
+.source-provenance-floating-tab:hover {
+  background: var(--accent-hover);
+  padding-right: 12px;
+  box-shadow: -4px 0 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Show floating tab when panel is hidden */
+.source-data-viewer.provenance-hidden .source-provenance-floating-tab {
+  display: flex;
 }
 
 /* View Mode Toggle */
