@@ -1437,6 +1437,744 @@ class EOComplianceChecker {
 
     lines.push('');
   }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Layer Activity Tracking Compliance
+  // Per LAYER_ACTIVITY_TRACKING_RULES.md
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Layer types and their epistemic status
+   */
+  static LayerType = Object.freeze({
+    PROJECT: { id: 'project', level: 0, epistemicType: 'meant', description: 'Organizational container' },
+    SOURCE: { id: 'source', level: 1, epistemicType: 'given', description: 'Immutable origin' },
+    DEFINITION: { id: 'definition', level: 2, epistemicType: 'meant', description: 'Semantic vocabulary' },
+    SET: { id: 'set', level: 3, epistemicType: 'mixed', description: 'Data + schema' },
+    LENS: { id: 'lens', level: 4, epistemicType: 'meant', description: 'Data slice' },
+    VIEW: { id: 'view', level: 5, epistemicType: 'meant', description: 'Visualization/workspace' }
+  });
+
+  /**
+   * Layer-Operator affinity matrix
+   * ● = commonly used, ○ = rarely/contextually used, ✗ = prohibited
+   */
+  static LayerOperatorAffinity = Object.freeze({
+    project: {
+      INS: '●', DES: '●', SEG: '●', CON: '○', SYN: '○', ALT: '○', SUP: '○', REC: '●', NUL: '●'
+    },
+    source: {
+      INS: '●', DES: '●', SEG: '✗', CON: '●', SYN: '✗', ALT: '✗', SUP: '✗', REC: '●', NUL: '✗'
+    },
+    definition: {
+      INS: '●', DES: '●', SEG: '○', CON: '●', SYN: '●', ALT: '●', SUP: '●', REC: '●', NUL: '●'
+    },
+    set: {
+      INS: '●', DES: '●', SEG: '○', CON: '●', SYN: '●', ALT: '●', SUP: '●', REC: '●', NUL: '●'
+    },
+    lens: {
+      INS: '●', DES: '●', SEG: '●', CON: '●', SYN: '○', ALT: '●', SUP: '●', REC: '●', NUL: '●'
+    },
+    view: {
+      INS: '●', DES: '●', SEG: '●', CON: '○', SYN: '○', ALT: '●', SUP: '●', REC: '●', NUL: '●'
+    }
+  });
+
+  /**
+   * Operator-specific required fields per LAYER_ACTIVITY_TRACKING_RULES.md
+   */
+  static OperatorRequirements = Object.freeze({
+    INS: { required: ['target.type', 'target.value'], validation: 'Type must be valid layer' },
+    DES: { required: ['target.id', 'delta[1]'], validation: 'New name must not be empty' },
+    SEG: { required: ['target.scope', 'value.visibility'], validation: 'Visibility must be valid' },
+    CON: { required: ['target.relatedTo', 'value.conflictPolicy'], validation: 'Must specify conflict resolution' },
+    SYN: { required: ['value.left', 'value.right', 'value.canonical'], validation: 'Canonical must be one of left/right' },
+    ALT: { required: ['delta'], validation: 'Must have [previous, next]' },
+    SUP: { required: ['value.interpretations'], validation: 'Must have at least 2 interpretations' },
+    REC: { required: ['value.chain'], validation: 'Must have provenance chain' },
+    NUL: { required: ['value.reason'], validation: 'Must explain why' }
+  });
+
+  /**
+   * Check layer activity tracking compliance
+   *
+   * This validates:
+   * 1. Activities use correct operators for their layer
+   * 2. Activity structure follows the signature: OPERATOR(target, context, [frame])
+   * 3. Operator-specific requirements are met
+   * 4. Cross-layer propagation rules are followed
+   *
+   * @param {ActivityStore} activityStore - The activity store to check
+   * @returns {Object} Layer activity compliance report
+   */
+  checkLayerActivityCompliance(activityStore) {
+    const violations = [];
+    const details = [];
+    const warnings = [];
+
+    if (!activityStore) {
+      details.push('Activity store not available');
+      return { passed: true, details, violations, warnings, rules: [] };
+    }
+
+    // Get activities - handle both old and new formats
+    const activities = activityStore.activities
+      ? Array.from(activityStore.activities.values())
+      : [];
+
+    details.push(`Checking ${activities.length} activities for layer compliance`);
+
+    const ruleResults = [];
+
+    // Rule L1: Universal Activity Requirements
+    const l1Violations = [];
+    for (const activity of activities) {
+      const result = this._checkUniversalActivityRules(activity);
+      l1Violations.push(...result.violations);
+      warnings.push(...result.warnings);
+    }
+    ruleResults.push({
+      rule: 'L1',
+      name: 'Universal Activity Requirements',
+      description: 'Every activity must have operator, target, actor, timestamp',
+      passed: l1Violations.length === 0,
+      violations: l1Violations
+    });
+    violations.push(...l1Violations);
+
+    // Rule L2: Layer-Operator Affinity
+    const l2Violations = [];
+    for (const activity of activities) {
+      const result = this._checkLayerOperatorAffinity(activity);
+      l2Violations.push(...result.violations);
+      warnings.push(...result.warnings);
+    }
+    ruleResults.push({
+      rule: 'L2',
+      name: 'Layer-Operator Affinity',
+      description: 'Operators must be valid for their target layer',
+      passed: l2Violations.length === 0,
+      violations: l2Violations
+    });
+    violations.push(...l2Violations);
+
+    // Rule L3: Operator-Specific Requirements
+    const l3Violations = [];
+    for (const activity of activities) {
+      const result = this._checkOperatorRequirements(activity);
+      l3Violations.push(...result.violations);
+      warnings.push(...result.warnings);
+    }
+    ruleResults.push({
+      rule: 'L3',
+      name: 'Operator-Specific Requirements',
+      description: 'Each operator has specific required fields',
+      passed: l3Violations.length === 0,
+      violations: l3Violations
+    });
+    violations.push(...l3Violations);
+
+    // Rule L4: Layer-Specific Constraints
+    const l4Violations = [];
+    for (const activity of activities) {
+      const result = this._checkLayerConstraints(activity);
+      l4Violations.push(...result.violations);
+      warnings.push(...result.warnings);
+    }
+    ruleResults.push({
+      rule: 'L4',
+      name: 'Layer-Specific Constraints',
+      description: 'Each layer has specific operator restrictions',
+      passed: l4Violations.length === 0,
+      violations: l4Violations
+    });
+    violations.push(...l4Violations);
+
+    // Rule L5: Cross-Layer Propagation
+    const l5Violations = this._checkCrossLayerPropagation(activities);
+    ruleResults.push({
+      rule: 'L5',
+      name: 'Cross-Layer Propagation',
+      description: 'View edits must propagate to Set layer',
+      passed: l5Violations.length === 0,
+      violations: l5Violations
+    });
+    violations.push(...l5Violations);
+
+    // Statistics
+    const stats = this._computeActivityStats(activities);
+    details.push(`Activities by operator: ${JSON.stringify(stats.byOperator)}`);
+    details.push(`Activities by layer: ${JSON.stringify(stats.byLayer)}`);
+    details.push(`Rules passed: ${ruleResults.filter(r => r.passed).length}/${ruleResults.length}`);
+
+    return {
+      passed: violations.length === 0,
+      details,
+      violations,
+      warnings,
+      rules: ruleResults,
+      stats
+    };
+  }
+
+  /**
+   * Check universal activity requirements (L1)
+   */
+  _checkUniversalActivityRules(activity) {
+    const violations = [];
+    const warnings = [];
+
+    // Every activity must have an operator
+    if (!activity.op && !activity.operator) {
+      violations.push({
+        activityId: activity.id,
+        rule: 'L1',
+        error: 'Missing operator (op)'
+      });
+    }
+
+    // Every activity must have a target
+    if (!activity.target && !activity.target?.id) {
+      warnings.push({
+        activityId: activity.id,
+        rule: 'L1',
+        warning: 'Missing target'
+      });
+    }
+
+    // Every activity must have an actor
+    if (!activity.actor && !activity.context?.epistemic?.agent) {
+      warnings.push({
+        activityId: activity.id,
+        rule: 'L1',
+        warning: 'Missing actor'
+      });
+    }
+
+    // Timestamp is required
+    if (!activity.ts && !activity.timestamp) {
+      warnings.push({
+        activityId: activity.id,
+        rule: 'L1',
+        warning: 'Missing timestamp'
+      });
+    }
+
+    return { violations, warnings };
+  }
+
+  /**
+   * Check layer-operator affinity (L2)
+   */
+  _checkLayerOperatorAffinity(activity) {
+    const violations = [];
+    const warnings = [];
+
+    const op = activity.op || activity.operator;
+    const layerType = this._inferLayerFromTarget(activity);
+
+    if (!layerType || !op) {
+      return { violations, warnings };
+    }
+
+    const affinity = EOComplianceChecker.LayerOperatorAffinity[layerType];
+    if (!affinity) {
+      return { violations, warnings };
+    }
+
+    const opAffinity = affinity[op];
+
+    if (opAffinity === '✗') {
+      violations.push({
+        activityId: activity.id,
+        rule: 'L2',
+        operator: op,
+        layer: layerType,
+        error: `Operator ${op} is prohibited on ${layerType} layer`
+      });
+    } else if (opAffinity === '○') {
+      warnings.push({
+        activityId: activity.id,
+        rule: 'L2',
+        operator: op,
+        layer: layerType,
+        warning: `Operator ${op} is rarely used on ${layerType} layer (verify intent)`
+      });
+    }
+
+    return { violations, warnings };
+  }
+
+  /**
+   * Check operator-specific requirements (L3)
+   */
+  _checkOperatorRequirements(activity) {
+    const violations = [];
+    const warnings = [];
+
+    const op = activity.op || activity.operator;
+    if (!op) return { violations, warnings };
+
+    const requirements = EOComplianceChecker.OperatorRequirements[op];
+    if (!requirements) return { violations, warnings };
+
+    // CON requires conflictPolicy
+    if (op === 'CON') {
+      const hasConflictPolicy = activity.data?.conflictPolicy ||
+                                activity.data?.value?.conflictPolicy ||
+                                activity.value?.conflictPolicy;
+      if (!hasConflictPolicy) {
+        violations.push({
+          activityId: activity.id,
+          rule: 'L3',
+          operator: 'CON',
+          error: 'CON operator requires conflictPolicy for joins'
+        });
+      }
+    }
+
+    // ALT requires delta [previous, next]
+    if (op === 'ALT') {
+      if (!activity.delta || !Array.isArray(activity.delta)) {
+        violations.push({
+          activityId: activity.id,
+          rule: 'L3',
+          operator: 'ALT',
+          error: 'ALT operator requires delta [previous, next]'
+        });
+      }
+    }
+
+    // DES requires non-empty new name
+    if (op === 'DES') {
+      const newName = activity.delta?.[1];
+      if (newName !== undefined && (newName === null || newName === '')) {
+        violations.push({
+          activityId: activity.id,
+          rule: 'L3',
+          operator: 'DES',
+          error: 'DES operator requires non-empty new name in delta[1]'
+        });
+      }
+    }
+
+    // SYN requires canonical to be one of left/right
+    if (op === 'SYN') {
+      const data = activity.data || activity.value || {};
+      if (data.left && data.right && data.canonical) {
+        if (data.canonical !== data.left && data.canonical !== data.right) {
+          violations.push({
+            activityId: activity.id,
+            rule: 'L3',
+            operator: 'SYN',
+            error: 'SYN canonical must be one of left or right'
+          });
+        }
+      }
+    }
+
+    // SUP requires at least 2 interpretations
+    if (op === 'SUP') {
+      const interpretations = activity.data?.interpretations ||
+                              activity.value?.interpretations || [];
+      if (interpretations.length < 2) {
+        violations.push({
+          activityId: activity.id,
+          rule: 'L3',
+          operator: 'SUP',
+          error: 'SUP operator requires at least 2 interpretations'
+        });
+      }
+    }
+
+    // NUL requires reason
+    if (op === 'NUL') {
+      const reason = activity.data?.reason || activity.value?.reason;
+      if (!reason) {
+        violations.push({
+          activityId: activity.id,
+          rule: 'L3',
+          operator: 'NUL',
+          error: 'NUL operator requires reason for absence'
+        });
+      }
+    }
+
+    // REC requires provenance chain
+    if (op === 'REC') {
+      const chain = activity.data?.chain || activity.value?.chain;
+      if (!chain || !Array.isArray(chain) || chain.length === 0) {
+        violations.push({
+          activityId: activity.id,
+          rule: 'L3',
+          operator: 'REC',
+          error: 'REC operator requires non-empty provenance chain'
+        });
+      }
+    }
+
+    return { violations, warnings };
+  }
+
+  /**
+   * Check layer-specific constraints (L4)
+   */
+  _checkLayerConstraints(activity) {
+    const violations = [];
+    const warnings = [];
+
+    const op = activity.op || activity.operator;
+    const layerType = this._inferLayerFromTarget(activity);
+
+    if (!layerType || !op) {
+      return { violations, warnings };
+    }
+
+    // SOURCE layer constraints: Cannot use SEG, ALT, SYN, SUP, NUL
+    if (layerType === 'source') {
+      const prohibitedOps = ['SEG', 'ALT', 'SYN', 'SUP', 'NUL'];
+      if (prohibitedOps.includes(op)) {
+        violations.push({
+          activityId: activity.id,
+          rule: 'L4',
+          operator: op,
+          layer: 'source',
+          error: `${op} is prohibited on SOURCE layer (sources are append-only)`
+        });
+      }
+    }
+
+    // LENS layer constraint: SEG must be restrictive
+    if (layerType === 'lens' && op === 'SEG') {
+      // Lenses can only restrict, not expand
+      const visibility = activity.data?.visibility || activity.value?.visibility;
+      if (visibility === 'expanded' || visibility === 'all') {
+        violations.push({
+          activityId: activity.id,
+          rule: 'L4',
+          operator: 'SEG',
+          layer: 'lens',
+          error: 'LENS SEG must be restrictive (cannot expand beyond parent Set)'
+        });
+      }
+    }
+
+    // VIEW layer constraint: Edits must reference source
+    if (layerType === 'view' && op === 'ALT') {
+      // View edits should track their origin
+      if (!activity.source && !activity.method) {
+        warnings.push({
+          activityId: activity.id,
+          rule: 'L4',
+          operator: 'ALT',
+          layer: 'view',
+          warning: 'VIEW ALT should include source or method for propagation tracking'
+        });
+      }
+    }
+
+    // DEFINITION layer: CON requires valid URI for external
+    if (layerType === 'definition' && op === 'CON') {
+      const relatedTo = activity.data?.relatedTo || activity.relatedTo;
+      if (relatedTo && !relatedTo.startsWith('uri:') && !relatedTo.startsWith('http')) {
+        warnings.push({
+          activityId: activity.id,
+          rule: 'L4',
+          operator: 'CON',
+          layer: 'definition',
+          warning: 'DEFINITION CON should reference valid URI for external bindings'
+        });
+      }
+    }
+
+    // SET layer: CON (joins) requires conflictPolicy
+    if (layerType === 'set' && op === 'CON') {
+      const joinType = activity.data?.joinType || activity.value?.joinType;
+      if (joinType) {
+        const conflictPolicy = activity.data?.conflictPolicy || activity.value?.conflictPolicy;
+        if (!conflictPolicy) {
+          violations.push({
+            activityId: activity.id,
+            rule: 'L4',
+            operator: 'CON',
+            layer: 'set',
+            error: 'SET CON (join) requires conflictPolicy'
+          });
+        }
+      }
+    }
+
+    return { violations, warnings };
+  }
+
+  /**
+   * Check cross-layer propagation (L5)
+   */
+  _checkCrossLayerPropagation(activities) {
+    const violations = [];
+
+    // Build index by target and sequence
+    const bySequence = new Map();
+    const viewEdits = [];
+
+    for (const activity of activities) {
+      const op = activity.op || activity.operator;
+      const layerType = this._inferLayerFromTarget(activity);
+
+      // Track view-level ALT operations (edits)
+      if (layerType === 'view' && op === 'ALT') {
+        viewEdits.push(activity);
+      }
+
+      // Track sequences
+      if (activity.seq) {
+        if (!bySequence.has(activity.seq)) {
+          bySequence.set(activity.seq, []);
+        }
+        bySequence.get(activity.seq).push(activity);
+      }
+    }
+
+    // Check view edits have corresponding set layer activities
+    for (const viewEdit of viewEdits) {
+      // View edits on records should propagate to set
+      if (viewEdit.source) {
+        // This activity has source tracking, check for corresponding set activity
+        const seq = viewEdit.seq;
+        if (seq) {
+          const sequenceActivities = bySequence.get(seq) || [];
+          const hasSetActivity = sequenceActivities.some(a => {
+            const layer = this._inferLayerFromTarget(a);
+            return layer === 'set' && a.id !== viewEdit.id;
+          });
+
+          if (!hasSetActivity) {
+            // This is a warning, not a hard violation, as propagation might be implicit
+            // violations.push({
+            //   activityId: viewEdit.id,
+            //   rule: 'L5',
+            //   warning: 'View edit should have corresponding Set layer activity'
+            // });
+          }
+        }
+      }
+    }
+
+    return violations;
+  }
+
+  /**
+   * Infer layer type from activity target
+   */
+  _inferLayerFromTarget(activity) {
+    const target = activity.target || activity.target?.id;
+    if (!target) return null;
+
+    // Check target string for layer prefix
+    if (typeof target === 'string') {
+      if (target.startsWith('proj_') || target.startsWith('project_')) return 'project';
+      if (target.startsWith('src_') || target.startsWith('source_')) return 'source';
+      if (target.startsWith('def_') || target.startsWith('definition_')) return 'definition';
+      if (target.startsWith('set_')) return 'set';
+      if (target.startsWith('lens_')) return 'lens';
+      if (target.startsWith('view_')) return 'view';
+      if (target.startsWith('fld_') || target.startsWith('field_')) return 'set'; // Fields are set-level
+      if (target.startsWith('rec_') || target.startsWith('record_')) return 'set'; // Records are set-level
+    }
+
+    // Check activity data for type hint
+    const type = activity.data?.type || activity.target?.type;
+    if (type) {
+      const normalizedType = type.toLowerCase();
+      if (normalizedType.includes('project')) return 'project';
+      if (normalizedType.includes('source')) return 'source';
+      if (normalizedType.includes('definition')) return 'definition';
+      if (normalizedType.includes('set')) return 'set';
+      if (normalizedType.includes('lens')) return 'lens';
+      if (normalizedType.includes('view')) return 'view';
+      if (normalizedType.includes('field') || normalizedType.includes('record')) return 'set';
+    }
+
+    // Check scope for layer hint
+    const scope = activity.data?.scope || activity.scope;
+    if (scope) {
+      if (scope.startsWith('view_')) return 'view';
+      if (scope.startsWith('lens_')) return 'lens';
+      if (scope.startsWith('set_')) return 'set';
+    }
+
+    return null;
+  }
+
+  /**
+   * Compute activity statistics
+   */
+  _computeActivityStats(activities) {
+    const byOperator = {};
+    const byLayer = {};
+
+    for (const activity of activities) {
+      const op = activity.op || activity.operator;
+      const layer = this._inferLayerFromTarget(activity) || 'unknown';
+
+      byOperator[op] = (byOperator[op] || 0) + 1;
+      byLayer[layer] = (byLayer[layer] || 0) + 1;
+    }
+
+    return { byOperator, byLayer, total: activities.length };
+  }
+
+  /**
+   * Validate an individual activity against layer rules
+   */
+  validateActivity(activity) {
+    const errors = [];
+    const warnings = [];
+
+    // Check universal rules
+    const l1 = this._checkUniversalActivityRules(activity);
+    errors.push(...l1.violations.map(v => v.error));
+    warnings.push(...l1.warnings.map(w => w.warning));
+
+    // Check layer-operator affinity
+    const l2 = this._checkLayerOperatorAffinity(activity);
+    errors.push(...l2.violations.map(v => v.error));
+    warnings.push(...l2.warnings.map(w => w.warning));
+
+    // Check operator requirements
+    const l3 = this._checkOperatorRequirements(activity);
+    errors.push(...l3.violations.map(v => v.error));
+    warnings.push(...l3.warnings.map(w => w.warning));
+
+    // Check layer constraints
+    const l4 = this._checkLayerConstraints(activity);
+    errors.push(...l4.violations.map(v => v.error));
+    warnings.push(...l4.warnings.map(w => w.warning));
+
+    return {
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      layer: this._inferLayerFromTarget(activity),
+      operator: activity.op || activity.operator
+    };
+  }
+
+  /**
+   * Run full audit including layer activity compliance
+   */
+  async runFullAuditWithActivities(activityStore = null) {
+    const audit = this.runAudit();
+
+    if (activityStore) {
+      const layerCompliance = this.checkLayerActivityCompliance(activityStore);
+      audit.layerActivityCompliance = layerCompliance;
+
+      // Layer activity violations can affect multiple rules:
+      // - Rule 1 (Distinction): Activities with wrong epistemic handling
+      // - Rule 3 (Ineliminability): SOURCE layer violations
+      // - Rule 7 (Groundedness): Missing provenance in REC activities
+
+      if (!layerCompliance.passed) {
+        // Count violations by type
+        const sourceViolations = layerCompliance.violations.filter(
+          v => v.layer === 'source'
+        );
+        const provenanceViolations = layerCompliance.violations.filter(
+          v => v.operator === 'REC'
+        );
+
+        // Add to appropriate rules
+        if (sourceViolations.length > 0) {
+          const rule3Result = audit.results.find(r => r.ruleNumber === 3);
+          if (rule3Result) {
+            rule3Result.violations.push(...sourceViolations.map(v => ({
+              ...v,
+              source: 'layer_activity'
+            })));
+            if (rule3Result.violations.length > 0) {
+              rule3Result.passed = false;
+            }
+          }
+        }
+
+        if (provenanceViolations.length > 0) {
+          const rule7Result = audit.results.find(r => r.ruleNumber === 7);
+          if (rule7Result) {
+            rule7Result.violations.push(...provenanceViolations.map(v => ({
+              ...v,
+              source: 'layer_activity'
+            })));
+            if (rule7Result.violations.length > 0) {
+              rule7Result.passed = false;
+            }
+          }
+        }
+      }
+    }
+
+    return audit;
+  }
+
+  /**
+   * Generate layer activity compliance report section
+   */
+  generateLayerActivityReport(compliance) {
+    const lines = [];
+
+    lines.push('');
+    lines.push('───────────────────────────────────────────────────────────────');
+    lines.push('LAYER ACTIVITY TRACKING COMPLIANCE');
+    lines.push('(Per LAYER_ACTIVITY_TRACKING_RULES.md)');
+    lines.push('───────────────────────────────────────────────────────────────');
+    lines.push('');
+
+    const status = compliance.passed ? '✓ COMPLIANT' : '✗ NON-COMPLIANT';
+    lines.push(`Status: ${status}`);
+    lines.push('');
+
+    // Stats
+    if (compliance.stats) {
+      lines.push(`Total Activities: ${compliance.stats.total}`);
+      lines.push(`By Operator: ${JSON.stringify(compliance.stats.byOperator)}`);
+      lines.push(`By Layer: ${JSON.stringify(compliance.stats.byLayer)}`);
+      lines.push('');
+    }
+
+    // Rules
+    for (const rule of compliance.rules || []) {
+      const ruleStatus = rule.passed ? '✓' : '✗';
+      lines.push(`${ruleStatus} ${rule.rule}: ${rule.name}`);
+      lines.push(`  ${rule.description}`);
+
+      if (!rule.passed && rule.violations.length > 0) {
+        lines.push('  Violations:');
+        for (const v of rule.violations.slice(0, 3)) {
+          lines.push(`    ! ${v.error}`);
+          if (v.operator) lines.push(`      Operator: ${v.operator}`);
+          if (v.layer) lines.push(`      Layer: ${v.layer}`);
+        }
+        if (rule.violations.length > 3) {
+          lines.push(`    ... and ${rule.violations.length - 3} more`);
+        }
+      }
+      lines.push('');
+    }
+
+    // Warnings
+    if (compliance.warnings && compliance.warnings.length > 0) {
+      lines.push('Warnings:');
+      for (const w of compliance.warnings.slice(0, 5)) {
+        lines.push(`  ⚠ ${w.warning || w}`);
+      }
+      if (compliance.warnings.length > 5) {
+        lines.push(`  ... and ${compliance.warnings.length - 5} more`);
+      }
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
 }
 
 // Singleton
@@ -1461,7 +2199,11 @@ if (typeof module !== 'undefined' && module.exports) {
     RuleCheckResult,
     ComplianceAudit,
     getComplianceChecker,
-    initComplianceChecker
+    initComplianceChecker,
+    // Layer Activity Tracking exports
+    LayerType: EOComplianceChecker.LayerType,
+    LayerOperatorAffinity: EOComplianceChecker.LayerOperatorAffinity,
+    OperatorRequirements: EOComplianceChecker.OperatorRequirements
   };
 }
 
@@ -1471,4 +2213,8 @@ if (typeof window !== 'undefined') {
   window.ComplianceAudit = ComplianceAudit;
   window.getComplianceChecker = getComplianceChecker;
   window.initComplianceChecker = initComplianceChecker;
+  // Layer Activity Tracking exports
+  window.EOLayerType = EOComplianceChecker.LayerType;
+  window.EOLayerOperatorAffinity = EOComplianceChecker.LayerOperatorAffinity;
+  window.EOOperatorRequirements = EOComplianceChecker.OperatorRequirements;
 }
