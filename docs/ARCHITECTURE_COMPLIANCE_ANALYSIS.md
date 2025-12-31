@@ -6,11 +6,16 @@
 
 ## Executive Summary
 
-The current codebase has a **5-level hierarchy** that must be refactored to the **4-level canonical hierarchy**:
+The canonical architecture defines a **6-component hierarchy** that the codebase must implement:
 
-| Current | Target |
-|---------|--------|
-| PROJECT → WORKSPACE → SET → LENS → FOCUS → EXPORT | PROJECT → SOURCE → SET → LENS → VIEW |
+| Component | Epistemic Status | Description |
+|-----------|------------------|-------------|
+| PROJECT | MEANT | Organizational container |
+| SOURCE | GIVEN | Immutable import origin |
+| DEFINITION | MEANT | Vocabulary for semantic grounding |
+| SET | GIVEN + MEANT | Flat data with typed schema |
+| LENS | MEANT | Data slice (default or pivoted) |
+| VIEW | MEANT | Visualization (work happens here) |
 
 **Critical Issues:**
 1. **Lens/View conflation**: Current `LensConfig` contains view types (Grid, Cards) - these are separate concepts
@@ -18,6 +23,7 @@ The current codebase has a **5-level hierarchy** that must be refactored to the 
 3. **Focus layer should be absorbed**: Focus filtering belongs in View, not as a separate level
 4. **Null Source not formalized**: Blank tables don't properly create null Sources
 5. **Set doesn't track sourceBindings**: Missing explicit Source → Set relationship
+6. **Definition bindings on fields**: Sets should support semantic bindings from Definition terms
 
 ---
 
@@ -28,20 +34,21 @@ The current codebase has a **5-level hierarchy** that must be refactored to the 
 **Current (eo_view_hierarchy.js):**
 ```
 ProjectConfig    → Level 0 (organizational container)
-WorkspaceConfig  → Level 1 (contextual boundary)
+WorkspaceConfig  → Level 1 (contextual boundary) — DEPRECATED
 SetConfig        → Level 2 (typed data collection)
 LensConfig       → Level 3 (actually VIEW types: Grid, Cards, Kanban)
-FocusConfig      → Level 4 (filtered perspective)
+FocusConfig      → Level 4 (filtered perspective) — TO BE ABSORBED
 ExportConfig     → Level 5 (immutable capture)
 ```
 
-**Required:**
+**Required (per CORE_ARCHITECTURE.md):**
 ```
 PROJECT (wrapper - contains all below)
+  ├─ DEFINITION   → Vocabulary for semantic grounding
   └─ SOURCE       → Level 1 (GIVEN - immutable import origin)
-  └─ SET          → Level 2 (data + schema)
-      └─ LENS     → Level 3 (data slice: default or pivoted)
-          └─ VIEW → Level 4 (visualization: Grid, Cards, Kanban, etc.)
+      └─ SET      → Level 2 (data + schema with semantic bindings)
+          └─ LENS → Level 3 (data slice: default or pivoted)
+              └─ VIEW → Level 4 (visualization: Grid, Cards, Kanban, etc.)
 ```
 
 **Files to modify:**
@@ -119,7 +126,51 @@ const ViewType = Object.freeze({
 
 ---
 
-### 3. Missing Default Lens Auto-Creation
+### 3. Missing Definition Component Integration
+
+**Current State:**
+Definition-related code exists in `eo_definition_source.js` and `eo_schema_semantic.js`, but Sets don't properly track semantic bindings per field.
+
+**Required (per CORE_ARCHITECTURE.md):**
+
+Fields in Set schema should support `semanticBinding`:
+```javascript
+{
+  id: "fld_02",
+  name: "plaintiff",
+  type: "text",
+  semanticBinding: {
+    definitionId: "def_schema_org",
+    termId: "Organization"
+  }
+}
+```
+
+**Binding Events:**
+```javascript
+{
+  id: "bind_001",
+  type: "meant",
+  category: "semantic_binding_created",
+  projectId: "proj_001",
+  payload: {
+    setId: "set_evictions",
+    fieldId: "fld_06",
+    definitionId: "def_qudt_currency",
+    termId: "USD"
+  },
+  provenance: ["set_evictions", "def_qudt_currency"]
+}
+```
+
+**Files to modify:**
+- `eo_view_hierarchy.js:SetConfig` - Add semanticBinding to field schema
+- `eo_interpretation_binding.js` - Align with new binding format
+- `eo_data_workbench.js` - UI for binding suggestions
+
+---
+
+### 4. Missing Default Lens Auto-Creation
 
 **Current Problem:**
 When a Set is created, no default Lens is auto-created. Users directly create "Lenses" (which are actually Views).
@@ -156,7 +207,7 @@ function createSet(sourceId, name, schema) {
 
 ---
 
-### 4. Null Source Not Formalized
+### 5. Null Source Not Formalized
 
 **Current State (eo_source_join.js:213-299):**
 The `createEmptySource()` method exists but:
@@ -169,6 +220,7 @@ The `createEmptySource()` method exists but:
   id: "src_002",
   type: "given",
   category: "source_created",
+  projectId: "proj_001",
   payload: {
     name: "Untitled Table",
     sourceType: "null",  // ← Must be "null" not "manual"
@@ -184,7 +236,7 @@ The `createEmptySource()` method exists but:
 
 ---
 
-### 5. Set Missing sourceBindings
+### 6. Set Missing sourceBindings
 
 **Current (eo_view_hierarchy.js:347-435):**
 ```javascript
@@ -215,7 +267,7 @@ class SetConfig {
 
 ---
 
-### 6. Focus Should Be Absorbed into View
+### 7. Focus Should Be Absorbed into View
 
 **Current (eo_view_hierarchy.js:560-659):**
 `FocusConfig` is a separate level that applies restrictions on top of a Lens.
@@ -246,32 +298,44 @@ class ViewConfig {
 
 ---
 
-### 7. Sidebar Structure Mismatch
+### 8. Sidebar Structure Must Include Definitions
 
 **Current (eo_data_workbench.js / index.html):**
 ```
 PROJECTS (ORG)
 SOURCES (GIVEN)
-DEFINITIONS (TERMS)
+DEFINITIONS (TERMS) ← Exists but may need alignment
 SETS (SCHEMA)
   └─ Set → Lens (View Types) → ...
 EXPORTS (SNAPSHOT)
 ```
 
-**Required (within a Project):**
+**Required (per CORE_ARCHITECTURE.md):**
 ```
-SOURCES (GIVEN)
-  ├─ wallace_evictions.csv
-  └─ My Tasks (null source)
+📁 Wallace Studios Investigation
 
-SETS (SCHEMA)
-  └─ Evictions
-      ├─ All Evictions (default lens)
-      │   ├─ Grid (view)
-      │   └─ Kanban (view)
-      └─ Landlords (pivot lens)
-          └─ Grid (view)
+📥 SOURCES (GIVEN)
+├─ 📄 wallace_evictions.csv (33 rows)
+└─ ✏️ My Tasks (null source)
+
+📖 DEFINITIONS (TERMS)
+├─ 🌐 Wikidata Entities (linked)
+├─ 📐 QUDT Units (linked)
+├─ 📋 Eviction Status (custom, linked)
+└─ 📋 My Tags (custom, local) ⚠️
+
+📦 SETS (SCHEMA)
+├─ Evictions (180 records)
+│   └─ 4 bindings: 🌐🌐📋📐
+└─ Properties (12 records)
+    └─ 🔷 All Properties (default lens)
+        └─ 👁 Grid (view)
 ```
+
+**Key additions:**
+- Show binding indicators on Sets (🌐📋📐)
+- Flag Definitions without URIs (⚠️)
+- Distinguish external vs custom Definitions
 
 **Files to modify:**
 - `index.html` - Sidebar panel structure
@@ -279,7 +343,7 @@ SETS (SCHEMA)
 
 ---
 
-### 8. Event Categories Alignment
+### 9. Event Categories Alignment
 
 **Current (eo_event_store.js):**
 Various event categories exist but don't match CORE_ARCHITECTURE.md spec.
@@ -287,10 +351,13 @@ Various event categories exist but don't match CORE_ARCHITECTURE.md spec.
 **Required Categories:**
 | Category | Type | When |
 |----------|------|------|
+| `project_created` | meant | User creates new project |
 | `source_created` | given | File uploaded, API connected, or null source |
 | `source_schema_modified` | given | Column added/renamed (especially for null sources) |
 | `record_created` | given | Row imported or user adds row |
 | `record_updated` | given | User edits a cell |
+| `definition_created` | meant | Vocabulary imported or custom created |
+| `semantic_binding_created` | meant | Field bound to Definition term |
 | `set_created` | meant | Schema defined over a Source |
 | `lens_created` | meant | Default or pivoted slice of Set |
 | `view_created` | meant | Visualization config for a Lens |
@@ -317,22 +384,31 @@ Various event categories exist but don't match CORE_ARCHITECTURE.md spec.
 3. **Formalize null Source** (`eo_source_join.js`)
    - Update `createEmptySource()` to use `sourceType: 'null'`
 
+4. **Add semanticBinding to field schema** (`eo_view_hierarchy.js`)
+   - Support Definition bindings per field in SetConfig
+
 ### Phase 2: Auto-Creation Flow
 
-4. **Auto-create default Lens when Set is created** (`eo_source_join.js`, `eo_data_workbench.js`)
+5. **Auto-create default Lens when Set is created** (`eo_source_join.js`, `eo_data_workbench.js`)
 
-5. **Auto-create default View when Lens is created**
+6. **Auto-create default View when Lens is created**
 
 ### Phase 3: UI Alignment
 
-6. **Update sidebar to show nested structure** (`eo_data_workbench.js`)
+7. **Update sidebar to show nested structure** (`eo_data_workbench.js`)
    - Sets → Lenses → Views hierarchy
+   - Binding indicators on Sets
+   - URI warnings on Definitions
 
-7. **Migrate Focus to View** (`eo_view_hierarchy.js`, `eo_data_workbench.js`)
+8. **Migrate Focus to View** (`eo_view_hierarchy.js`, `eo_data_workbench.js`)
+
+9. **Add Definition binding suggestions** (`eo_data_workbench.js`)
+   - When adding/editing fields, suggest matching URIs
+   - "Create custom definition" option
 
 ### Phase 4: Event Store
 
-8. **Align event categories** (`eo_event_store.js`, `eo_types.js`)
+10. **Align event categories** (`eo_event_store.js`, `eo_types.js`)
 
 ---
 
@@ -340,13 +416,14 @@ Various event categories exist but don't match CORE_ARCHITECTURE.md spec.
 
 | File | Priority | Changes |
 |------|----------|---------|
-| `eo_view_hierarchy.js` | P1 | Split Lens/View, add ViewConfig, update SetConfig |
+| `eo_view_hierarchy.js` | P1 | Split Lens/View, add ViewConfig, update SetConfig, add semanticBinding |
 | `eo_source_join.js` | P1 | Null source, sourceBindings, auto-creation |
-| `eo_data_workbench.js` | P1-P2 | State management, sidebar, auto-creation |
+| `eo_data_workbench.js` | P1-P3 | State management, sidebar, auto-creation, binding UI |
 | `eo_event_store.js` | P4 | Event categories |
 | `eo_types.js` | P1 | ViewType enum, PivotType enum |
 | `index.html` | P3 | Sidebar structure |
-| `eo_ontology.js` | P2 | Align with new hierarchy |
+| `eo_interpretation_binding.js` | P2 | Align with new binding format |
+| `eo_schema_semantic.js` | P2 | Ensure term structure matches spec |
 
 ---
 
@@ -356,6 +433,7 @@ Existing data must migrate:
 1. Current `LensConfig` instances become `ViewConfig` with a parent default `LensConfig`
 2. `FocusConfig` instances become saved filter presets on Views
 3. Sets without sourceBindings get migration to link to their Sources
+4. Fields without semanticBinding remain valid (binding is optional)
 
 A migration script should be created to transform existing IndexedDB data.
 
@@ -370,3 +448,6 @@ A migration script should be created to transform existing IndexedDB data.
 - [ ] Sidebar shows correct nesting
 - [ ] All provenance chains trace back to Source
 - [ ] Editing in View creates events with proper provenance
+- [ ] Definition binding suggestions appear when creating fields
+- [ ] Definitions without URIs show warning indicator
+- [ ] Sets display their binding counts in sidebar
