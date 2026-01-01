@@ -14345,7 +14345,7 @@ class EODataWorkbench {
                   <i class="ph ph-database"></i>
                   <span>Select a set to preview</span>
                 </div>`)
-            `}
+            }
           </div>
         </div>
       </div>
