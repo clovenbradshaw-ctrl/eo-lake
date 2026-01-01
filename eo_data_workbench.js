@@ -2658,6 +2658,22 @@ class EODataWorkbench {
       if (e.target.id === 'shortcuts-modal') this._hideKeyboardShortcuts();
     });
 
+    // Sidebar footer collapse toggle
+    document.getElementById('sidebar-footer-toggle')?.addEventListener('click', () => {
+      const sidebarFooter = document.querySelector('.sidebar-footer');
+      if (sidebarFooter) {
+        sidebarFooter.classList.toggle('collapsed');
+        // Save state to localStorage
+        localStorage.setItem('sidebarFooterCollapsed', sidebarFooter.classList.contains('collapsed'));
+      }
+    });
+
+    // Restore sidebar footer collapse state from localStorage
+    const sidebarFooterCollapsed = localStorage.getItem('sidebarFooterCollapsed');
+    if (sidebarFooterCollapsed === 'true') {
+      document.querySelector('.sidebar-footer')?.classList.add('collapsed');
+    }
+
     // Tossed items panel
     document.getElementById('nav-tossed-items')?.addEventListener('click', () => this._showTossedPanel());
     document.getElementById('tossed-panel-close')?.addEventListener('click', () => this._hideTossedPanel());

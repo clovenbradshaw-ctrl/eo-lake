@@ -245,34 +245,42 @@
       </nav>
 
       <!-- Sidebar Footer -->
-      <div class="sidebar-footer">
-        <div class="nav-item" id="nav-tossed-items" title="View tossed items (deletion history)">
-          <i class="ph ph-trash"></i>
-          <span>Tossed</span>
-          <span class="tossed-badge" id="tossed-count-badge" style="display: none;">0</span>
-        </div>
-        <div class="nav-item" id="nav-activity-stream" title="View activity stream">
-          <i class="ph ph-list-bullets"></i>
-          <span>Activity</span>
-        </div>
-        <div class="nav-item" id="nav-keyboard-shortcuts" title="Keyboard Shortcuts (?)">
-          <i class="ph ph-keyboard"></i>
-          <span>Shortcuts</span>
-        </div>
-        <div class="nav-item" id="nav-theme-toggle" title="Toggle dark/light mode">
-          <i class="ph ph-moon" id="theme-icon"></i>
-          <span id="theme-label">Dark Mode</span>
-        </div>
-        <div class="nav-item" id="nav-settings">
-          <i class="ph ph-gear"></i>
-          <span>Settings</span>
-        </div>
-        <div class="nav-item" id="nav-sync">
-          <i class="ph ph-cloud-check"></i>
-          <span>Sync Status</span>
-          <span class="sync-badge synced" id="sync-status-badge">
-            <i class="ph ph-check-circle"></i>
+      <div class="sidebar-footer" data-collapsible="true">
+        <div class="sidebar-footer-header" id="sidebar-footer-toggle" title="Click to expand/collapse">
+          <span class="sidebar-footer-title">
+            <i class="ph ph-caret-down sidebar-footer-caret"></i>
+            <span>Menu</span>
           </span>
+        </div>
+        <div class="sidebar-footer-content">
+          <div class="nav-item" id="nav-tossed-items" title="View tossed items (deletion history)">
+            <i class="ph ph-trash"></i>
+            <span>Tossed</span>
+            <span class="tossed-badge" id="tossed-count-badge" style="display: none;">0</span>
+          </div>
+          <div class="nav-item" id="nav-activity-stream" title="View activity stream">
+            <i class="ph ph-list-bullets"></i>
+            <span>Activity</span>
+          </div>
+          <div class="nav-item" id="nav-keyboard-shortcuts" title="Keyboard Shortcuts (?)">
+            <i class="ph ph-keyboard"></i>
+            <span>Shortcuts</span>
+          </div>
+          <div class="nav-item" id="nav-theme-toggle" title="Toggle dark/light mode">
+            <i class="ph ph-moon" id="theme-icon"></i>
+            <span id="theme-label">Dark Mode</span>
+          </div>
+          <div class="nav-item" id="nav-settings">
+            <i class="ph ph-gear"></i>
+            <span>Settings</span>
+          </div>
+          <div class="nav-item" id="nav-sync">
+            <i class="ph ph-cloud-check"></i>
+            <span>Sync Status</span>
+            <span class="sync-badge synced" id="sync-status-badge">
+              <i class="ph ph-check-circle"></i>
+            </span>
+          </div>
         </div>
       </div>
     </aside>
