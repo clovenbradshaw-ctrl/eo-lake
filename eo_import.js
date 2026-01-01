@@ -1188,6 +1188,14 @@ class ImportOrchestrator {
               }
               return field;
             });
+
+            // Save data and update definitions panel
+            if (typeof this.workbench?._saveData === 'function') {
+              this.workbench._saveData();
+            }
+            if (typeof this.workbench?._renderDefinitionsNav === 'function') {
+              this.workbench._renderDefinitionsNav();
+            }
           }
         } catch (stubError) {
           console.warn('ImportOrchestrator: Stub definition creation failed (non-fatal):', stubError);
@@ -2149,17 +2157,101 @@ class ImportOrchestrator {
 
     const stubDefinitions = createStubDefinitionsForSource(source);
 
-    // Store stub definitions in the Definitions set if available
-    if (this.workbench?.definitionStore) {
-      for (const def of stubDefinitions) {
-        this.workbench.definitionStore.add(def);
+    // Auto-import stub definitions into workbench.definitions array
+    if (this.workbench?.definitions && Array.isArray(this.workbench.definitions)) {
+      const addedDefinitions = [];
+
+      for (const defSource of stubDefinitions) {
+        // Convert DefinitionSource stub to internal definition format
+        const internalDef = this._convertStubToInternalDefinition(defSource, source);
+
+        // Check for duplicates by term name
+        const existingDef = this.workbench.definitions.find(d =>
+          d.terms?.[0]?.name === defSource.term?.term ||
+          d.name === internalDef.name
+        );
+
+        if (!existingDef) {
+          this.workbench.definitions.push(internalDef);
+          addedDefinitions.push(internalDef);
+        }
       }
-    } else if (this.workbench?.sources) {
-      // Alternative: store in source's local definitions
+
+      // Add definitions to current project
+      if (addedDefinitions.length > 0 && typeof this.workbench._addDefinitionToProject === 'function') {
+        for (const def of addedDefinitions) {
+          this.workbench._addDefinitionToProject(def.id);
+        }
+      }
+
+      console.log('ImportOrchestrator: Added', addedDefinitions.length, 'stub definitions to workbench');
+    } else {
+      // Fallback: store in source's local definitions
       source.stubDefinitions = stubDefinitions;
+      console.log('ImportOrchestrator: Stored stub definitions in source (workbench.definitions not available)');
     }
 
     return stubDefinitions;
+  }
+
+  /**
+   * Convert a DefinitionSource stub to internal definition format
+   * Handles stubs which don't have authority/source/validity populated yet
+   *
+   * @param {Object} defSource - DefinitionSource stub object
+   * @param {Object} source - The data source the key came from
+   * @returns {Object} - Internal definition format for workbench
+   */
+  _convertStubToInternalDefinition(defSource, source) {
+    const id = defSource.id || `def_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // For stubs, name is just the term since we don't have authority yet
+    const termLabel = defSource.term?.label || defSource.term?.term || 'Unknown';
+    const name = termLabel;
+
+    // Create term entry
+    const term = {
+      id: `term_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
+      name: defSource.term?.term || '',
+      label: defSource.term?.label || defSource.term?.term,
+      type: 'stub',
+      description: defSource.term?.definitionText || null,
+      fieldType: defSource.discoveredFrom?.fieldType || null
+    };
+
+    return {
+      id,
+      name,
+      description: `Key from ${source?.name || 'imported data'}`,
+      sourceUri: null,
+      format: 'stub',
+      importedAt: new Date().toISOString(),
+      status: defSource.status || 'stub',
+      populationMethod: defSource.populationMethod || 'pending',
+      terms: [term],
+
+      // Track origin
+      discoveredFrom: {
+        sourceId: source?.id || defSource.discoveredFrom?.sourceId,
+        sourceName: source?.name || defSource.discoveredFrom?.sourceName,
+        fieldName: defSource.discoveredFrom?.fieldName || defSource.term?.term,
+        fieldType: defSource.discoveredFrom?.fieldType,
+        discoveredAt: defSource.discoveredFrom?.discoveredAt || new Date().toISOString()
+      },
+
+      // Store full DefinitionSource for later population
+      definitionSource: {
+        term: defSource.term,
+        authority: defSource.authority || null,
+        source: defSource.source || null,
+        version: defSource.version || null,
+        validity: defSource.validity || null,
+        jurisdiction: defSource.jurisdiction || null,
+        status: defSource.status,
+        populationMethod: defSource.populationMethod,
+        apiSuggestions: defSource.apiSuggestions || []
+      }
+    };
   }
 
   /**
@@ -2244,9 +2336,26 @@ class ImportOrchestrator {
               stubDef.apiSuggestions = apiSuggestions;
               stubDef.updatedAt = new Date().toISOString();
               definitionsWithSuggestions++;
+
+              // Also sync API suggestions back to workbench definitions
+              if (this.workbench?.definitions && Array.isArray(this.workbench.definitions)) {
+                const internalDef = this.workbench.definitions.find(d =>
+                  d.terms?.[0]?.name === keyResult.key ||
+                  d.discoveredFrom?.fieldName === keyResult.key
+                );
+                if (internalDef && internalDef.definitionSource) {
+                  internalDef.definitionSource.apiSuggestions = apiSuggestions;
+                  internalDef.definitionSource.updatedAt = stubDef.updatedAt;
+                }
+              }
             }
           }
         }
+      }
+
+      // Trigger re-render of definitions panel if workbench has the method
+      if (this.workbench?._renderDefinitionsNav) {
+        this.workbench._renderDefinitionsNav();
       }
 
       if (results) {
