@@ -4011,8 +4011,18 @@ class EODataWorkbench {
 
     this._showModal('Rename View', html, () => {
       const newName = document.getElementById('rename-view-input')?.value?.trim();
-      if (newName) {
+      if (newName && newName !== view.name) {
+        const oldName = view.name;
         view.name = newName;
+
+        // Record activity for the rename
+        this._recordActivity({
+          action: 'rename',
+          entityType: 'view',
+          name: newName,
+          details: `Renamed from "${oldName}" to "${newName}" in "${set.name}"`
+        });
+
         this._renderSidebar();
         this._updateBreadcrumb();
         this._saveData();
@@ -4037,6 +4047,14 @@ class EODataWorkbench {
     const dupView = createView(`${view.name} (Copy)`, view.type);
     dupView.config = JSON.parse(JSON.stringify(view.config || {}));
     set.views.push(dupView);
+
+    // Record activity for the duplication
+    this._recordActivity({
+      action: 'duplicate',
+      entityType: 'view',
+      name: dupView.name,
+      details: `Duplicated from "${view.name}" in "${set.name}"`
+    });
 
     this._selectView(dupView.id);
     this._saveData();
@@ -4470,6 +4488,14 @@ class EODataWorkbench {
       this.tossedItems.pop();
     }
 
+    // Record activity for the deletion
+    this._recordActivity({
+      action: 'delete',
+      entityType: 'view',
+      name: view.name,
+      details: `Tossed ${view.type} view from "${set.name}"`
+    });
+
     set.views.splice(viewIndex, 1);
 
     // If deleted view was active, switch to another
@@ -4792,6 +4818,15 @@ class EODataWorkbench {
       };
       this.sets.push(set);
       this._addSetToProject(set.id);
+
+      // Record activity for the set creation
+      this._recordActivity({
+        action: 'create',
+        entityType: 'set',
+        name: name,
+        details: 'Created empty set (manual)'
+      });
+
       this._saveData();
       this._renderSidebar();
       this._selectSet(set.id);
@@ -4846,6 +4881,15 @@ class EODataWorkbench {
 
       this.sets.push(set);
       this._addSetToProject(set.id);
+
+      // Record activity for the filtered set creation
+      this._recordActivity({
+        action: 'create',
+        entityType: 'set',
+        name: name,
+        details: `Created filtered set from "${parentSet.name}"`
+      });
+
       this._saveData();
       this._renderSidebar();
       this._selectSet(set.id);
@@ -16023,7 +16067,17 @@ class EODataWorkbench {
 
     const newName = prompt('Rename set:', set.name);
     if (newName && newName.trim() && newName !== set.name) {
+      const oldName = set.name;
       set.name = newName.trim();
+
+      // Record activity for the rename
+      this._recordActivity({
+        action: 'rename',
+        entityType: 'set',
+        name: newName.trim(),
+        details: `Renamed from "${oldName}" to "${newName.trim()}"`
+      });
+
       this._renderTabBar();
       this._renderSetsNavFlat();
       this._updateBreadcrumb();
@@ -16089,6 +16143,14 @@ class EODataWorkbench {
         workspace: 'default'
       });
     }
+
+    // Record activity for the deletion
+    this._recordActivity({
+      action: 'delete',
+      entityType: 'set',
+      name: set.name,
+      details: `Tossed set with ${set.records.length} records and ${set.fields.length} fields`
+    });
 
     // Remove from sets array
     this.sets.splice(setIndex, 1);
@@ -16225,6 +16287,14 @@ class EODataWorkbench {
     // Add the new set after the source set
     const sourceIndex = this.sets.findIndex(s => s.id === setId);
     this.sets.splice(sourceIndex + 1, 0, newSet);
+
+    // Record activity for the duplication
+    this._recordActivity({
+      action: 'duplicate',
+      entityType: 'set',
+      name: newSet.name,
+      details: `Duplicated from "${sourceSet.name}" with ${newSet.records.length} records`
+    });
 
     // Switch to the new set
     this.currentSetId = newSet.id;
@@ -23090,6 +23160,30 @@ class EODataWorkbench {
     record.values[fieldId] = value;
     record.updatedAt = new Date().toISOString();
 
+    // Record activity for the field change
+    const field = set.fields.find(f => f.id === fieldId);
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+    const recordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Record';
+
+    // Get display values for old and new (for select fields, show the choice name)
+    let oldDisplayValue = oldValue;
+    let newDisplayValue = value;
+    if (field && (field.type === 'select' || field.type === 'multiSelect') && field.options?.choices) {
+      const oldChoice = field.options.choices.find(c => c.id === oldValue);
+      const newChoice = field.options.choices.find(c => c.id === value);
+      oldDisplayValue = oldChoice?.name || oldValue || 'None';
+      newDisplayValue = newChoice?.name || value || 'None';
+    }
+
+    this._recordActivity({
+      action: 'update',
+      entityType: 'record',
+      name: recordName,
+      details: `Changed "${field?.name || 'field'}" from "${oldDisplayValue || 'empty'}" to "${newDisplayValue || 'empty'}" in "${set.name}"`,
+      canReverse: true,
+      reverseData: { type: 'update_field', recordId, fieldId, oldValue, newValue: value, setId: set.id }
+    });
+
     this._saveData();
   }
 
@@ -25443,13 +25537,23 @@ class EODataWorkbench {
     set.records.splice(index, 1);
     this.selectedRecords.delete(recordId);
 
+    // Record activity for the deletion
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+    const recordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Record';
+    this._recordActivity({
+      action: 'delete',
+      entityType: 'record',
+      name: recordName,
+      details: `Tossed from "${set.name}"`,
+      canReverse: true,
+      reverseData: { type: 'delete_record', record: { ...record, values: { ...record.values } }, setId: set.id, index }
+    });
+
     this._saveData();
     this._renderView();
     this._updateTossedBadge();
 
     // Show undo toast with countdown
-    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
-    const recordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Record';
     this._showToast(`Tossed record "${recordName}"`, 'info', {
       countdown: 5000,
       action: {
@@ -25479,6 +25583,16 @@ class EODataWorkbench {
 
     const duplicate = createRecord(set.id, { ...original.values });
     set.records.push(duplicate);
+
+    // Record activity for the duplication
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+    const recordName = primaryField ? (original.values[primaryField.id] || 'Untitled') : 'Record';
+    this._recordActivity({
+      action: 'duplicate',
+      entityType: 'record',
+      name: `${recordName} (Copy)`,
+      details: `Duplicated from "${recordName}" in "${set.name}"`
+    });
 
     this._saveData();
     this._renderView();
@@ -25514,6 +25628,14 @@ class EODataWorkbench {
     this._recordFieldEvent(field.id, 'field.created', {
       name: name,
       type: type
+    });
+
+    // Record activity for the field addition
+    this._recordActivity({
+      action: 'create',
+      entityType: 'field',
+      name: name,
+      details: `Added ${type} field to "${set.name}"`
     });
 
     this._saveData();
@@ -25597,6 +25719,14 @@ class EODataWorkbench {
       type: field.type
     });
 
+    // Record activity for the field deletion
+    this._recordActivity({
+      action: 'delete',
+      entityType: 'field',
+      name: field.name,
+      details: `Tossed ${field.type} field from "${set.name}"`
+    });
+
     set.fields.splice(index, 1);
 
     // Remove field values from all records
@@ -25660,6 +25790,14 @@ class EODataWorkbench {
       this._recordFieldEvent(fieldId, 'field.renamed', {
         name: { from: oldName, to: newName }
       });
+
+      // Record activity for the rename
+      this._recordActivity({
+        action: 'rename',
+        entityType: 'field',
+        name: newName,
+        details: `Renamed from "${oldName}" to "${newName}" in "${set.name}"`
+      });
     }
 
     this._saveData();
@@ -25689,6 +25827,14 @@ class EODataWorkbench {
     // Record field history event
     this._recordFieldEvent(fieldId, 'field.type_changed', {
       type: { from: oldType, to: newType }
+    });
+
+    // Record activity for the type change
+    this._recordActivity({
+      action: 'update',
+      entityType: 'field',
+      name: field.name,
+      details: `Changed type from ${oldType} to ${newType} in "${set.name}"`
     });
 
     // Update the field type
@@ -30408,11 +30554,42 @@ class EODataWorkbench {
   /**
    * Record an activity in the activity log
    * @param {Object} activity - Activity object with action, type, name, details, and optional reverseData
+   *
+   * EO Operator Mapping:
+   *   INS (⊕) - Assert existence: create
+   *   DES (⊙) - Designate identity: rename
+   *   SEG (⊘) - Scope visibility: filter, hide, archive
+   *   CON (⊗) - Connect entities: link, relate
+   *   SYN (≡) - Synthesize identity: duplicate, merge
+   *   ALT (Δ) - Alternate world state: update, change
+   *   SUP (∥) - Superpose interpretations: (not common in UI)
+   *   REC (←) - Record grounding: import, export
+   *   NUL (∅) - Assert meaningful absence: delete, toss
    */
   _recordActivity(activity) {
+    // Map action to EO operator
+    const operatorMap = {
+      'create': 'INS',
+      'update': 'ALT',
+      'delete': 'NUL',
+      'rename': 'DES',
+      'duplicate': 'SYN',
+      'restore': 'INS',
+      'link': 'CON',
+      'import': 'REC',
+      'export': 'REC',
+      'filter': 'SEG',
+      'archive': 'SEG'
+    };
+
+    const operator = activity.operator || operatorMap[activity.action] || 'ALT';
+
     const activityEntry = {
       id: `act_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`,
       timestamp: new Date().toISOString(),
+      op: operator,  // EO operator
+      actor: 'user',
+      target: activity.entityType,
       ...activity
     };
 
