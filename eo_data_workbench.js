@@ -6951,6 +6951,12 @@ class EODataWorkbench {
       return;
     }
 
+    // Count pending definitions
+    const pendingCount = sortedDefinitions.filter(d => this._isDefinitionPending(d)).length;
+
+    // Update the panel header to show pending count if any
+    this._updateDefinitionsPanelHeaderPendingCount(pendingCount);
+
     // Render definitions as a flat list
     let html = '';
     for (const definition of sortedDefinitions) {
@@ -6959,19 +6965,26 @@ class EODataWorkbench {
       const termCount = definition.terms?.length || definition.properties?.length || 0;
       const sourceLabel = definition.sourceUri ? 'URI' : 'local';
       const isActive = this.currentDefinitionId === definition.id;
+      const isPending = this._isDefinitionPending(definition);
 
       html += `
-        <div class="nav-item definition-item ${isActive ? 'active' : ''}"
+        <div class="nav-item definition-item ${isActive ? 'active' : ''} ${isPending ? 'pending' : ''}"
              data-definition-id="${definition.id}"
-             title="${this._escapeHtml(definition.description || definition.name)}">
+             title="${this._escapeHtml(definition.description || definition.name)}${isPending ? ' (Pending approval)' : ''}">
           <i class="ph ${defIcon} definition-icon"></i>
           <div class="definition-info">
             <span class="definition-name">${this._escapeHtml(this._truncateName(definition.name, 20))}</span>
-            <span class="definition-meta-inline">${sourceLabel}</span>
+            <span class="definition-meta-inline">${isPending ? 'pending' : sourceLabel}</span>
           </div>
-          <span class="definition-source-badge" title="${sourceLabel === 'URI' ? 'Imported from external URI' : 'Locally created'}">
-            ${sourceLabel === 'URI' ? '<i class="ph ph-link"></i>' : '<i class="ph ph-pencil-simple"></i>'}
-          </span>
+          ${isPending ? `
+            <span class="definition-pending-badge" title="Pending approval">
+              <i class="ph ph-clock"></i>
+            </span>
+          ` : `
+            <span class="definition-source-badge" title="${sourceLabel === 'URI' ? 'Imported from external URI' : 'Locally created'}">
+              ${sourceLabel === 'URI' ? '<i class="ph ph-link"></i>' : '<i class="ph ph-pencil-simple"></i>'}
+            </span>
+          `}
           <span class="nav-item-count" title="${termCount} terms defined">${termCount}</span>
         </div>
       `;
@@ -6981,6 +6994,33 @@ class EODataWorkbench {
 
     // Attach event handlers for definition items
     this._attachDefinitionsNavEventHandlers(container);
+  }
+
+  /**
+   * Update the definitions panel header to show pending count
+   */
+  _updateDefinitionsPanelHeaderPendingCount(pendingCount) {
+    const definitionsPanel = document.querySelector('.definitions-panel');
+    if (!definitionsPanel) return;
+
+    // Find or create the pending badge element
+    const panelTitle = definitionsPanel.querySelector('.nav-panel-title');
+    if (!panelTitle) return;
+
+    // Remove existing pending indicator
+    const existingBadge = panelTitle.querySelector('.definition-pending-indicator');
+    if (existingBadge) {
+      existingBadge.remove();
+    }
+
+    // Add pending indicator if there are pending definitions
+    if (pendingCount > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'definition-pending-indicator';
+      badge.title = `${pendingCount} definition${pendingCount !== 1 ? 's' : ''} pending approval`;
+      badge.textContent = pendingCount > 99 ? '99+' : pendingCount;
+      panelTitle.appendChild(badge);
+    }
   }
 
   /**
@@ -9111,6 +9151,82 @@ class EODataWorkbench {
     }
 
     this._showNotification('Definition deleted', 'success');
+  }
+
+  /**
+   * Approve a pending definition (change status from stub to complete)
+   */
+  _approveDefinition(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    // Update status to complete/verified
+    definition.status = 'complete';
+    definition.populationMethod = 'manual';
+    definition.approvedAt = new Date().toISOString();
+
+    this._saveData();
+    this._renderDefinitionsNav();
+
+    // Re-render the definitions panel to update the row
+    if (this.isViewingDefinitions) {
+      this._showDefinitionsPanel();
+    }
+
+    this._showNotification('Definition approved', 'success');
+  }
+
+  /**
+   * Dismiss a pending definition (remove it from the list)
+   */
+  _dismissDefinition(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    // Confirm before dismissing
+    const confirmHtml = `
+      <div class="dismiss-definition-confirm">
+        <p>Are you sure you want to dismiss this pending definition?</p>
+        <p class="definition-name"><strong>${this._escapeHtml(definition.name)}</strong></p>
+        <p class="muted">This will remove the definition from your workspace.</p>
+      </div>
+    `;
+
+    this._showModal({
+      title: 'Dismiss Definition',
+      content: confirmHtml,
+      buttons: [
+        {
+          label: 'Cancel',
+          className: 'btn btn-secondary',
+          action: () => this._closeModal()
+        },
+        {
+          label: 'Dismiss',
+          className: 'btn btn-danger',
+          action: () => {
+            // Remove from array
+            this.definitions = this.definitions.filter(d => d.id !== definitionId);
+
+            // Clear current selection if this was selected
+            if (this.currentDefinitionId === definitionId) {
+              this.currentDefinitionId = null;
+            }
+
+            this._saveData();
+            this._renderDefinitionsNav();
+            this._closeModal();
+
+            // Re-render the definitions panel
+            if (this.isViewingDefinitions) {
+              this._showDefinitionsPanel();
+            }
+
+            this._showNotification('Definition dismissed', 'success');
+          }
+        }
+      ]
+    });
   }
 
   /**
@@ -12199,6 +12315,9 @@ class EODataWorkbench {
     // Get all definitions (filtered by project if applicable)
     const activeDefinitions = this._getProjectDefinitions().filter(d => d.status !== 'archived');
 
+    // Count pending definitions
+    const pendingCount = activeDefinitions.filter(d => this._isDefinitionPending(d)).length;
+
     // Update breadcrumb
     this._updateBreadcrumb({
       workspace: this._getCurrentWorkspaceName(),
@@ -12225,7 +12344,7 @@ class EODataWorkbench {
             </div>
             <div class="definitions-panel-title-info">
               <h2>Definitions</h2>
-              <p class="definitions-panel-subtitle">${activeDefinitions.length} definition${activeDefinitions.length !== 1 ? 's' : ''} • Manage field schemas and link to sets</p>
+              <p class="definitions-panel-subtitle">${activeDefinitions.length} definition${activeDefinitions.length !== 1 ? 's' : ''}${pendingCount > 0 ? ` • <span class="pending-count-badge">${pendingCount} pending approval</span>` : ''} • Manage field schemas and link to sets</p>
             </div>
           </div>
           <div class="definitions-panel-actions">
@@ -12247,6 +12366,11 @@ class EODataWorkbench {
             <input type="text" id="def-panel-search" placeholder="Search definitions and terms...">
           </div>
           <div class="definitions-panel-filters">
+            <select id="def-panel-status-filter" class="def-panel-filter-select">
+              <option value="">All Status</option>
+              <option value="pending">Pending Approval</option>
+              <option value="active">Active</option>
+            </select>
             <select id="def-panel-format-filter" class="def-panel-filter-select">
               <option value="">All Formats</option>
               <option value="jsonld">JSON-LD</option>
@@ -12286,6 +12410,7 @@ class EODataWorkbench {
               <thead>
                 <tr>
                   <th class="col-expand"></th>
+                  <th class="col-status">Status</th>
                   <th class="col-name">Name</th>
                   <th class="col-description">Description</th>
                   <th class="col-format">Format</th>
@@ -12309,6 +12434,28 @@ class EODataWorkbench {
   }
 
   /**
+   * Check if a definition is pending approval (stub or needs population)
+   */
+  _isDefinitionPending(definition) {
+    // Check for stub status
+    if (definition.status === 'stub' || definition.status === 'partial') {
+      return true;
+    }
+    // Check for pending population method
+    if (definition.populationMethod === 'pending') {
+      return true;
+    }
+    // Check if it's a DefinitionSource instance with isStub method
+    if (typeof definition.isStub === 'function' && definition.isStub()) {
+      return true;
+    }
+    if (typeof definition.needsPopulation === 'function' && definition.needsPopulation()) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Render a single definition row in the table
    */
   _renderDefinitionTableRow(definition, sets) {
@@ -12317,6 +12464,10 @@ class EODataWorkbench {
     const format = this._getDefinitionFormatLabel(definition.format || definition.type || 'other');
     const sourceType = definition.sourceUri ? 'URI' : 'Local';
     const importDate = definition.importedAt ? new Date(definition.importedAt).toLocaleDateString() : '—';
+
+    // Check if definition is pending approval
+    const isPending = this._isDefinitionPending(definition);
+    const rowClass = isPending ? 'definition-row pending-approval' : 'definition-row';
 
     // Count how many fields are linked to this definition
     let linkedFieldsCount = 0;
@@ -12330,12 +12481,58 @@ class EODataWorkbench {
       });
     });
 
+    // Render status badge
+    const statusBadge = isPending ? `
+      <span class="def-status-badge pending" title="This definition needs approval">
+        <i class="ph ph-clock"></i>
+        Pending
+      </span>
+    ` : `
+      <span class="def-status-badge active" title="This definition is active">
+        <i class="ph ph-check-circle"></i>
+        Active
+      </span>
+    `;
+
+    // Render actions based on pending status
+    const actionsHtml = isPending ? `
+      <div class="def-row-actions pending-actions">
+        <button class="def-action-btn approve" data-action="approve" title="Approve definition">
+          <i class="ph ph-check"></i>
+        </button>
+        <button class="def-action-btn" data-action="edit" title="Edit before approving">
+          <i class="ph ph-pencil-simple"></i>
+        </button>
+        <button class="def-action-btn danger" data-action="dismiss" title="Dismiss suggestion">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+    ` : `
+      <div class="def-row-actions">
+        <button class="def-action-btn" data-action="edit" title="Edit definition">
+          <i class="ph ph-pencil-simple"></i>
+        </button>
+        <button class="def-action-btn" data-action="link" title="Link to set field">
+          <i class="ph ph-arrow-right"></i>
+        </button>
+        <button class="def-action-btn" data-action="refresh" title="Refresh from URI" ${!definition.sourceUri ? 'disabled' : ''}>
+          <i class="ph ph-arrows-clockwise"></i>
+        </button>
+        <button class="def-action-btn danger" data-action="delete" title="Delete definition">
+          <i class="ph ph-trash"></i>
+        </button>
+      </div>
+    `;
+
     return `
-      <tr class="definition-row" data-definition-id="${definition.id}">
+      <tr class="${rowClass}" data-definition-id="${definition.id}" data-pending="${isPending}">
         <td class="col-expand">
           <button class="def-row-expand-btn" title="Expand to see terms">
             <i class="ph ph-caret-right"></i>
           </button>
+        </td>
+        <td class="col-status">
+          ${statusBadge}
         </td>
         <td class="col-name">
           <div class="def-name-cell">
@@ -12370,24 +12567,11 @@ class EODataWorkbench {
           `}
         </td>
         <td class="col-actions">
-          <div class="def-row-actions">
-            <button class="def-action-btn" data-action="edit" title="Edit definition">
-              <i class="ph ph-pencil-simple"></i>
-            </button>
-            <button class="def-action-btn" data-action="link" title="Link to set field">
-              <i class="ph ph-arrow-right"></i>
-            </button>
-            <button class="def-action-btn" data-action="refresh" title="Refresh from URI" ${!definition.sourceUri ? 'disabled' : ''}>
-              <i class="ph ph-arrows-clockwise"></i>
-            </button>
-            <button class="def-action-btn danger" data-action="delete" title="Delete definition">
-              <i class="ph ph-trash"></i>
-            </button>
-          </div>
+          ${actionsHtml}
         </td>
       </tr>
       <tr class="definition-terms-row" data-definition-id="${definition.id}" style="display: none;">
-        <td colspan="8">
+        <td colspan="9">
           <div class="def-terms-expanded">
             <div class="def-terms-header">
               <h4><i class="ph ph-list-numbers"></i> Terms (${termCount})</h4>
@@ -12514,6 +12698,11 @@ class EODataWorkbench {
       this._applyDefinitionsPanelFilters();
     });
 
+    // Status filter
+    contentArea.querySelector('#def-panel-status-filter')?.addEventListener('change', (e) => {
+      this._applyDefinitionsPanelFilters();
+    });
+
     // Row expand buttons
     contentArea.querySelectorAll('.def-row-expand-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -12551,6 +12740,12 @@ class EODataWorkbench {
             break;
           case 'delete':
             this._deleteDefinition(definitionId);
+            break;
+          case 'approve':
+            this._approveDefinition(definitionId);
+            break;
+          case 'dismiss':
+            this._dismissDefinition(definitionId);
             break;
         }
       });
@@ -12640,6 +12835,7 @@ class EODataWorkbench {
   _applyDefinitionsPanelFilters() {
     const formatFilter = document.getElementById('def-panel-format-filter')?.value || '';
     const sourceFilter = document.getElementById('def-panel-source-filter')?.value || '';
+    const statusFilter = document.getElementById('def-panel-status-filter')?.value || '';
     const rows = document.querySelectorAll('.definition-row');
 
     rows.forEach(row => {
@@ -12652,15 +12848,19 @@ class EODataWorkbench {
 
       const defFormat = (def.format || def.type || '').toLowerCase();
       const defSource = def.sourceUri ? 'uri' : 'local';
+      const isPending = this._isDefinitionPending(def);
 
       const formatMatch = !formatFilter || defFormat.includes(formatFilter);
       const sourceMatch = !sourceFilter || defSource === sourceFilter;
+      const statusMatch = !statusFilter ||
+        (statusFilter === 'pending' && isPending) ||
+        (statusFilter === 'active' && !isPending);
 
-      row.style.display = formatMatch && sourceMatch ? '' : 'none';
+      row.style.display = formatMatch && sourceMatch && statusMatch ? '' : 'none';
 
       // Also hide the terms row if definition is hidden
       const termsRow = document.querySelector(`.definition-terms-row[data-definition-id="${definitionId}"]`);
-      if (termsRow && (!formatMatch || !sourceMatch)) {
+      if (termsRow && (!formatMatch || !sourceMatch || !statusMatch)) {
         termsRow.style.display = 'none';
       }
     });
