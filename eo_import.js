@@ -3323,6 +3323,19 @@ function initImportHandlers() {
           workbench._renderSidebar();
         }
 
+        // Record activity for each imported source
+        if (workbench?._recordActivity) {
+          for (const source of result.sources) {
+            workbench._recordActivity({
+              action: 'create',
+              entityType: 'source',
+              name: source.name,
+              details: `${source.recordCount} records imported from "${currentFile.name}"`,
+              canReverse: false
+            });
+          }
+        }
+
         // Navigate to the first created source after modal closes
         if (workbench?._showSourceDetail && result.sources?.[0]?.sourceId) {
           setTimeout(() => {
@@ -3364,6 +3377,17 @@ function initImportHandlers() {
         // Refresh workbench sidebar to show new source
         if (workbench?._renderSidebar) {
           workbench._renderSidebar();
+        }
+
+        // Record activity for the imported source
+        if (workbench?._recordActivity && result.source) {
+          workbench._recordActivity({
+            action: 'create',
+            entityType: 'source',
+            name: result.source.name || currentFile.name,
+            details: `${result.recordCount} records imported from "${currentFile.name}"`,
+            canReverse: false
+          });
         }
 
         // Navigate to the newly imported source after modal closes

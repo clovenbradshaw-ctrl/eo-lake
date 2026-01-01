@@ -4028,10 +4028,11 @@ class EODataWorkbench {
 
         // Record activity for the rename
         this._recordActivity({
-          action: 'rename',
+          action: 'update',
           entityType: 'view',
           name: newName,
-          details: `Renamed from "${oldName}" to "${newName}" in "${set.name}"`
+          details: `Renamed from "${oldName}" to "${newName}" in "${set.name}"`,
+          canReverse: false
         });
 
         this._renderSidebar();
@@ -4061,10 +4062,11 @@ class EODataWorkbench {
 
     // Record activity for the duplication
     this._recordActivity({
-      action: 'duplicate',
+      action: 'create',
       entityType: 'view',
       name: dupView.name,
-      details: `Duplicated from "${view.name}" in "${set.name}"`
+      details: `Duplicated from "${view.name}" in "${set.name}"`,
+      canReverse: false
     });
 
     this._selectView(dupView.id);
@@ -4504,7 +4506,9 @@ class EODataWorkbench {
       action: 'delete',
       entityType: 'view',
       name: view.name,
-      details: `Tossed ${view.type} view from "${set.name}"`
+      details: `Tossed ${view.type} view from "${set.name}"`,
+      canReverse: true,
+      reverseData: { type: 'restore_tossed', item: { type: 'view', view, setId } }
     });
 
     set.views.splice(viewIndex, 1);
@@ -16348,10 +16352,11 @@ class EODataWorkbench {
 
       // Record activity for the rename
       this._recordActivity({
-        action: 'rename',
+        action: 'update',
         entityType: 'set',
-        name: newName.trim(),
-        details: `Renamed from "${oldName}" to "${newName.trim()}"`
+        name: set.name,
+        details: `Renamed from "${oldName}" to "${newName.trim()}"`,
+        canReverse: false
       });
 
       this._renderTabBar();
@@ -16425,7 +16430,9 @@ class EODataWorkbench {
       action: 'delete',
       entityType: 'set',
       name: set.name,
-      details: `Tossed set with ${set.records.length} records and ${set.fields.length} fields`
+      details: `Tossed set with ${set.records.length} records and ${set.fields.length} fields`,
+      canReverse: true,
+      reverseData: { type: 'restore_tossed', item: { type: 'set', set } }
     });
 
     // Remove from sets array
@@ -16576,6 +16583,15 @@ class EODataWorkbench {
     this.currentSetId = newSet.id;
     this.currentViewId = newSet.views[0]?.id;
     this.lastViewPerSet[newSet.id] = this.currentViewId;
+
+    // Record activity for activity stream
+    this._recordActivity({
+      action: 'create',
+      entityType: 'set',
+      name: newSet.name,
+      details: `Duplicated from "${sourceSet.name}" (${newSet.records.length} records, ${newSet.fields.length} fields)`,
+      canReverse: false
+    });
 
     this._renderTabBar();
     this._renderSetsNavFlat();
@@ -23433,6 +23449,31 @@ class EODataWorkbench {
       });
     }
 
+    // Record activity for activity stream (only for non-undo operations)
+    if (!skipUndo) {
+      const field = set?.fields.find(f => f.id === fieldId);
+      const primaryField = set?.fields.find(f => f.isPrimary) || set?.fields[0];
+      const recordName = primaryField ? (record.values[primaryField.id] || 'Record') : 'Record';
+      const fieldName = field?.name || 'Field';
+      const oldDisplayValue = oldValue !== undefined && oldValue !== null ? String(oldValue).substring(0, 30) : '(empty)';
+      const newDisplayValue = value !== undefined && value !== null ? String(value).substring(0, 30) : '(empty)';
+      this._recordActivity({
+        action: 'update',
+        entityType: 'record',
+        name: recordName,
+        details: `${fieldName}: "${oldDisplayValue}" → "${newDisplayValue}"`,
+        canReverse: true,
+        reverseData: {
+          type: 'update_field',
+          setId: set.id,
+          recordId,
+          fieldId,
+          previousValue: oldValue,
+          property: 'value'
+        }
+      });
+    }
+
     record.values[fieldId] = value;
     record.updatedAt = new Date().toISOString();
 
@@ -25810,27 +25851,27 @@ class EODataWorkbench {
       });
     }
 
-    set.records.splice(index, 1);
-    this.selectedRecords.delete(recordId);
-
     // Record activity for the deletion
     const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
-    const recordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Record';
+    const deletedRecordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Record';
     this._recordActivity({
       action: 'delete',
       entityType: 'record',
-      name: recordName,
+      name: deletedRecordName,
       details: `Tossed from "${set.name}"`,
       canReverse: true,
-      reverseData: { type: 'delete_record', record: { ...record, values: { ...record.values } }, setId: set.id, index }
+      reverseData: { type: 'restore_tossed', item: { type: 'record', record, setId: set.id } }
     });
+
+    set.records.splice(index, 1);
+    this.selectedRecords.delete(recordId);
 
     this._saveData();
     this._renderView();
     this._updateTossedBadge();
 
-    // Show undo toast with countdown
-    this._showToast(`Tossed record "${recordName}"`, 'info', {
+    // Show undo toast with countdown (reuse deletedRecordName from activity recording above)
+    this._showToast(`Tossed record "${deletedRecordName}"`, 'info', {
       countdown: 5000,
       action: {
         label: 'Undo',
@@ -25845,7 +25886,7 @@ class EODataWorkbench {
             this._saveData();
             this._renderView();
             this._updateTossedBadge();
-            this._showToast(`Restored record "${recordName}"`, 'success');
+            this._showToast(`Restored record "${deletedRecordName}"`, 'success');
           }
         }
       }
@@ -25910,8 +25951,9 @@ class EODataWorkbench {
     this._recordActivity({
       action: 'create',
       entityType: 'field',
-      name: name,
-      details: `Added ${type} field to "${set.name}"`
+      name: field.name,
+      details: `Added ${type} field to "${set.name}"`,
+      canReverse: false
     });
 
     this._saveData();
@@ -26000,7 +26042,9 @@ class EODataWorkbench {
       action: 'delete',
       entityType: 'field',
       name: field.name,
-      details: `Tossed ${field.type} field from "${set.name}"`
+      details: `Tossed ${field.type} field from "${set.name}"`,
+      canReverse: true,
+      reverseData: { type: 'restore_tossed', item: { type: 'field', field, fieldValues, setId: set.id } }
     });
 
     set.fields.splice(index, 1);
@@ -31072,7 +31116,8 @@ class EODataWorkbench {
       set: 'ph-table',
       view: 'ph-eye',
       field: 'ph-columns',
-      record: 'ph-rows'
+      record: 'ph-rows',
+      lens: 'ph-funnel'
     };
     const icon = icons[entityType] || 'ph-circle';
     return `<span class="activity-type-badge"><i class="ph ${icon}"></i> ${entityType}</span>`;
@@ -31140,15 +31185,30 @@ class EODataWorkbench {
         break;
 
       case 'update_field':
-        // Revert field update
-        if (reverseData.setId && reverseData.fieldId && reverseData.previousValue !== undefined) {
+        // Revert field update - can be either a record value update or a field property update
+        if (reverseData.setId && reverseData.fieldId) {
           const set = this.sets.find(s => s.id === reverseData.setId);
-          const field = set?.fields.find(f => f.id === reverseData.fieldId);
-          if (field && reverseData.property) {
-            field[reverseData.property] = reverseData.previousValue;
-            this._saveData();
-            this._renderView();
-            this._showToast('Field reverted', 'success');
+          if (set) {
+            // Check if this is a record value update (has recordId)
+            if (reverseData.recordId) {
+              const record = set.records.find(r => r.id === reverseData.recordId);
+              if (record && reverseData.previousValue !== undefined) {
+                record.values[reverseData.fieldId] = reverseData.previousValue;
+                record.updatedAt = new Date().toISOString();
+                this._saveData();
+                this._renderView();
+                this._showToast('Cell value reverted', 'success');
+              }
+            } else if (reverseData.property && reverseData.previousValue !== undefined) {
+              // This is a field schema property update
+              const field = set.fields.find(f => f.id === reverseData.fieldId);
+              if (field) {
+                field[reverseData.property] = reverseData.previousValue;
+                this._saveData();
+                this._renderView();
+                this._showToast('Field reverted', 'success');
+              }
+            }
           }
         }
         break;
