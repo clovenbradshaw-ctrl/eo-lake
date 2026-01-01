@@ -877,6 +877,142 @@ function createStubDefinitionsForSource(source) {
   });
 }
 
+/**
+ * Create stub definitions for all fields/keys in a Set
+ * Auto-imports all Set keys as stub definitions for the dictionary table
+ *
+ * @param {Object} set - Set object with fields or schema.fields
+ * @param {Object} options - Options
+ * @param {Object[]} options.existingDefinitions - Existing definitions to check for duplicates
+ * @param {boolean} options.skipExisting - Skip fields that already have definitions (default: true)
+ * @returns {DefinitionSource[]}
+ */
+function createStubDefinitionsForSet(set, options = {}) {
+  const { existingDefinitions = [], skipExisting = true } = options;
+
+  // Get fields from either set.fields or set.schema.fields (different Set formats)
+  const fields = set?.fields || set?.schema?.fields || set?.payload?.schema?.fields || [];
+
+  if (fields.length === 0) {
+    return [];
+  }
+
+  // Build set of existing field names to avoid duplicates
+  const existingTerms = skipExisting
+    ? new Set(existingDefinitions.map(d => (d.term?.term || d.discoveredFrom?.fieldName || '').toLowerCase()))
+    : new Set();
+
+  const stubDefinitions = [];
+
+  for (const field of fields) {
+    const fieldName = field.name || '';
+
+    // Skip if already exists
+    if (skipExisting && existingTerms.has(fieldName.toLowerCase())) {
+      continue;
+    }
+
+    // Extract unique values from records if available
+    let fieldUniqueValues = null;
+    let fieldSamples = null;
+
+    if (field.uniqueValues && Array.isArray(field.uniqueValues)) {
+      fieldUniqueValues = field.uniqueValues;
+    } else if (field.options?.choices && Array.isArray(field.options.choices)) {
+      fieldUniqueValues = field.options.choices.map(c => c.name);
+    }
+
+    // Extract samples from set records if available
+    if (set.records && Array.isArray(set.records)) {
+      const samples = [];
+      const uniqueVals = new Set();
+
+      for (const record of set.records.slice(0, 100)) { // Sample first 100 records
+        const value = record.values?.[field.id] ?? record.values?.[field.name] ?? record[field.name];
+        if (value !== null && value !== undefined && value !== '') {
+          uniqueVals.add(String(value));
+          if (samples.length < 10) {
+            samples.push(String(value));
+          }
+        }
+      }
+
+      if (samples.length > 0) {
+        fieldSamples = samples;
+      }
+      if (uniqueVals.size > 0 && !fieldUniqueValues) {
+        fieldUniqueValues = [...uniqueVals].slice(0, 50); // Max 50 unique values
+      }
+    }
+
+    // Fall back to field.samples if no samples from records
+    if (!fieldSamples && field.samples && Array.isArray(field.samples)) {
+      fieldSamples = field.samples.slice(0, 10);
+    }
+
+    const stubDef = createStubDefinition({
+      term: fieldName,
+      fieldType: field.type,
+      fieldConfidence: field.confidence,
+      fieldIsPrimary: field.isPrimary,
+      fieldSamples: fieldSamples,
+      fieldOptions: field.options,
+      fieldUniqueValues: fieldUniqueValues,
+      discoveredFrom: {
+        sourceId: set.id,
+        sourceName: set.name || set.payload?.name || 'Set',
+        fieldId: field.id || fieldName,
+        fieldName: fieldName,
+        fieldType: field.type,
+        fieldConfidence: field.confidence,
+        fieldIsPrimary: field.isPrimary,
+        fieldSamples: fieldSamples,
+        fieldOptions: field.options,
+        fieldUniqueValues: fieldUniqueValues,
+        fieldSampleCount: set.records?.length || field.sampleCount || null,
+        fieldUniqueCount: fieldUniqueValues?.length || field.uniqueCount || null,
+        discoveredAt: new Date().toISOString()
+      }
+    });
+
+    stubDefinitions.push(stubDef);
+  }
+
+  return stubDefinitions;
+}
+
+/**
+ * Auto-import Set keys into definitions and add them to the population store
+ * This is the main entry point for auto-importing keys when a Set is created
+ *
+ * @param {Object} set - The Set object
+ * @param {Object} options - Options
+ * @param {Object[]} options.existingDefinitions - Existing definitions
+ * @param {Function} options.addToStore - Function to add definitions to store
+ * @returns {{ definitions: DefinitionSource[], added: number, skipped: number }}
+ */
+function autoImportSetKeysToDefinitions(set, options = {}) {
+  const { existingDefinitions = [], addToStore = null } = options;
+
+  const stubDefinitions = createStubDefinitionsForSet(set, {
+    existingDefinitions,
+    skipExisting: true
+  });
+
+  const result = {
+    definitions: stubDefinitions,
+    added: stubDefinitions.length,
+    skipped: (set?.fields || set?.schema?.fields || set?.payload?.schema?.fields || []).length - stubDefinitions.length
+  };
+
+  // Add to store if function provided
+  if (addToStore && typeof addToStore === 'function') {
+    addToStore(stubDefinitions);
+  }
+
+  return result;
+}
+
 // ============================================================================
 // SECTION V: Utilities
 // ============================================================================
@@ -1157,6 +1293,8 @@ if (typeof window !== 'undefined') {
   window.EO.createHUDAffordableHousingDefinition = createHUDAffordableHousingDefinition;
   window.EO.createStubDefinition = createStubDefinition;
   window.EO.createStubDefinitionsForSource = createStubDefinitionsForSource;
+  window.EO.createStubDefinitionsForSet = createStubDefinitionsForSet;
+  window.EO.autoImportSetKeysToDefinitions = autoImportSetKeysToDefinitions;
 
   // Utilities
   window.EO.sortDefinitionsByAuthority = sortDefinitionsByAuthority;
@@ -1189,6 +1327,8 @@ if (typeof module !== 'undefined' && module.exports) {
     createHUDAffordableHousingDefinition,
     createStubDefinition,
     createStubDefinitionsForSource,
+    createStubDefinitionsForSet,
+    autoImportSetKeysToDefinitions,
     sortDefinitionsByAuthority,
     findDefinitionsByTerm,
     findDefinitionsByAuthority,

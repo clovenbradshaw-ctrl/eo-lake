@@ -2330,6 +2330,9 @@ class EODataWorkbench {
     // Select the sample project so user is always in a project context
     this.currentProjectId = sampleProject.id;
 
+    // Auto-import Set keys as definitions
+    this._autoImportSetKeysToDefinitions(set);
+
     // Trigger auto-import key definition suggestions for sample data
     this._triggerKeySuggestions(source);
 
@@ -4968,6 +4971,9 @@ class EODataWorkbench {
     this.currentViewId = newSet.views[0]?.id;
     this.lastViewPerSet[newSet.id] = this.currentViewId;
 
+    // Auto-import Set keys as definitions
+    this._autoImportSetKeysToDefinitions(newSet);
+
     // Record activity for activity stream
     this._recordActivity({
       action: 'create',
@@ -5075,6 +5081,9 @@ class EODataWorkbench {
 
       this.sets.push(set);
       this._addSetToProject(set.id);
+
+      // Auto-import Set keys as definitions (will skip duplicates from parent)
+      this._autoImportSetKeysToDefinitions(set);
 
       // Record activity for the filtered set creation
       this._recordActivity({
@@ -5271,6 +5280,10 @@ class EODataWorkbench {
 
       this.sets.push(set);
       this._addSetToProject(set.id);
+
+      // Auto-import Set keys as definitions (will skip duplicates from source sets)
+      this._autoImportSetKeysToDefinitions(set);
+
       this._saveData();
       this._renderSidebar();
       this._selectSet(set.id);
@@ -5906,6 +5919,10 @@ class EODataWorkbench {
 
     this.sets.push(newSet);
     this._addSetToProject(newSet.id);
+
+    // Auto-import Set keys as definitions
+    this._autoImportSetKeysToDefinitions(newSet);
+
     this._saveData();
     this._renderSidebar();
     this._selectSet(newSet.id);
@@ -8602,6 +8619,70 @@ class EODataWorkbench {
     }
 
     return defRecord;
+  }
+
+  /**
+   * Auto-import all keys from a Set into definitions
+   * Creates stub definitions for all fields in the Set that don't already have definitions
+   * @param {Object} set - The Set object with fields
+   * @private
+   */
+  _autoImportSetKeysToDefinitions(set) {
+    // Get the autoImportSetKeysToDefinitions function
+    const autoImportFn = window.EO?.autoImportSetKeysToDefinitions;
+    if (!autoImportFn) {
+      console.warn('autoImportSetKeysToDefinitions not available');
+      return;
+    }
+
+    // Ensure definitions array exists
+    if (!this.definitions) {
+      this.definitions = [];
+    }
+
+    // Get existing definitions
+    const existingDefinitions = this.definitions.map(d => ({
+      term: { term: d.term || d.name },
+      discoveredFrom: { fieldName: d.term || d.name }
+    }));
+
+    // Auto-import Set keys
+    const result = autoImportFn(set, {
+      existingDefinitions,
+      addToStore: (stubDefinitions) => {
+        // Add each stub definition to our definitions array
+        for (const stubDef of stubDefinitions) {
+          const defRecord = {
+            id: stubDef.id,
+            name: stubDef.term?.label || stubDef.term?.term || 'Untitled Definition',
+            term: stubDef.term?.term,
+            description: stubDef.term?.definitionText || null,
+            format: 'stub',
+            type: 'definition',
+            status: stubDef.status || 'stub',
+            populationMethod: stubDef.populationMethod || 'pending',
+            discoveredFrom: stubDef.discoveredFrom,
+            importedAt: new Date().toISOString(),
+            ...stubDef
+          };
+
+          this.definitions.push(defRecord);
+
+          // Emit event
+          if (this.eventBus) {
+            this.eventBus.emit('definition:created', { definition: defRecord, autoImported: true });
+          }
+        }
+      }
+    });
+
+    // Log the result
+    if (result.added > 0) {
+      console.log(`Auto-imported ${result.added} keys from Set "${set.name}" into definitions` +
+                  (result.skipped > 0 ? ` (${result.skipped} already existed)` : ''));
+    }
+
+    return result;
   }
 
   /**
@@ -15865,6 +15946,9 @@ class EODataWorkbench {
         this.sets.push(result.set);
         this._addSetToProject(result.set.id);
 
+        // Auto-import Set keys as definitions
+        this._autoImportSetKeysToDefinitions(result.set);
+
         // Record activity for set creation from import
         const lensCount = result.set.lenses?.length || 0;
         const lensDetails = lensCount > 0 ? `, ${lensCount} lens${lensCount > 1 ? 'es' : ''}` : '';
@@ -15940,6 +16024,10 @@ class EODataWorkbench {
         // Add the new set to our sets array
         this.sets.push(result.set);
         this._addSetToProject(result.set.id);
+
+        // Auto-import Set keys as definitions
+        this._autoImportSetKeysToDefinitions(result.set);
+
         this._saveData();
         this._renderSidebar();
         this._selectSet(result.set.id);
@@ -15988,6 +16076,10 @@ class EODataWorkbench {
         // Add the new joined set to our sets array
         this.sets.push(result.set);
         this._addSetToProject(result.set.id);
+
+        // Auto-import Set keys as definitions
+        this._autoImportSetKeysToDefinitions(result.set);
+
         this._saveData();
         this._renderSidebar();
         this._selectSet(result.set.id);
@@ -27383,6 +27475,9 @@ class EODataWorkbench {
         this.currentSetId = result.set.id;
         this.currentViewId = result.set.views[0]?.id;
 
+        // Auto-import Set keys as definitions
+        this._autoImportSetKeysToDefinitions(result.set);
+
         this._saveData();
         this._renderSidebar();
         this._renderView();
@@ -27559,6 +27654,9 @@ class EODataWorkbench {
     this._addSetToProject(newSet.id);
     this.currentSetId = newSet.id;
     this.currentViewId = newSet.views[0]?.id;
+
+    // Auto-import Set keys as definitions
+    this._autoImportSetKeysToDefinitions(newSet);
 
     this._saveData();
     this._renderSidebar();
@@ -28198,6 +28296,9 @@ class EODataWorkbench {
     this.currentSetId = newSet.id;
     this.currentViewId = newSet.views[0]?.id;
 
+    // Auto-import Set keys as definitions
+    this._autoImportSetKeysToDefinitions(newSet);
+
     this._saveData();
     this._renderSidebar();
     this._renderView();
@@ -28503,6 +28604,9 @@ class EODataWorkbench {
     this._addSetToProject(newSet.id);
     this.currentSetId = newSet.id;
     this.currentViewId = newSet.views[0]?.id;
+
+    // Auto-import Set keys as definitions
+    this._autoImportSetKeysToDefinitions(newSet);
 
     this._saveData();
     this._renderSidebar();
