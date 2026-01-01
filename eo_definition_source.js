@@ -189,13 +189,26 @@ const DefinitionSourceSchema = Object.freeze({
     },
     "discoveredFrom": {
       "type": "object",
-      "description": "Origin of this definition - the source/field where the key was first discovered",
+      "description": "Origin of this definition - the source/field where the key was first discovered, including all source field properties for matching",
       "properties": {
         "sourceId": { "type": "string", "description": "ID of the data source" },
         "sourceName": { "type": "string", "description": "Name of the data source" },
         "fieldId": { "type": "string", "description": "ID of the field in the source" },
         "fieldName": { "type": "string", "description": "Name of the field" },
         "fieldType": { "type": "string", "description": "Data type of the field" },
+        "fieldConfidence": { "type": "number", "description": "Type inference confidence (0-1)" },
+        "fieldIsPrimary": { "type": "boolean", "description": "Whether this is the primary/key field" },
+        "fieldSamples": { "type": "array", "items": { "type": "string" }, "description": "Sample values from the field" },
+        "fieldOptions": { "type": "object", "description": "Field options (e.g., choices for SELECT fields)", "properties": {
+          "choices": { "type": "array", "items": { "type": "object", "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "color": { "type": "string" }
+          }}}
+        }},
+        "fieldUniqueValues": { "type": "array", "items": { "type": "string" }, "description": "Unique values found in the field (up to 50)" },
+        "fieldSampleCount": { "type": "number", "description": "Total number of non-null values in the field" },
+        "fieldUniqueCount": { "type": "number", "description": "Total count of unique values in the field" },
         "discoveredAt": { "type": "string", "format": "date-time", "description": "When the key was discovered" }
       }
     },
@@ -298,12 +311,20 @@ class DefinitionSource {
     this.populationMethod = data.populationMethod || PopulationMethod.PENDING;
 
     // NEW: Discovery origin - where this key was first found
+    // Includes all source field properties for matching and dictionary table display
     this.discoveredFrom = data.discoveredFrom ? {
       sourceId: data.discoveredFrom.sourceId || null,
       sourceName: data.discoveredFrom.sourceName || null,
       fieldId: data.discoveredFrom.fieldId || null,
       fieldName: data.discoveredFrom.fieldName || null,
       fieldType: data.discoveredFrom.fieldType || null,
+      fieldConfidence: data.discoveredFrom.fieldConfidence ?? null,
+      fieldIsPrimary: data.discoveredFrom.fieldIsPrimary ?? null,
+      fieldSamples: Array.isArray(data.discoveredFrom.fieldSamples) ? [...data.discoveredFrom.fieldSamples] : null,
+      fieldOptions: data.discoveredFrom.fieldOptions ? { ...data.discoveredFrom.fieldOptions } : null,
+      fieldUniqueValues: Array.isArray(data.discoveredFrom.fieldUniqueValues) ? [...data.discoveredFrom.fieldUniqueValues] : null,
+      fieldSampleCount: data.discoveredFrom.fieldSampleCount ?? null,
+      fieldUniqueCount: data.discoveredFrom.fieldUniqueCount ?? null,
       discoveredAt: data.discoveredFrom.discoveredAt || new Date().toISOString()
     } : null;
 
@@ -759,6 +780,11 @@ function createHUDAffordableHousingDefinition(options = {}) {
  * @param {string} options.term - The key/field name (required)
  * @param {string} options.label - Human readable label (auto-generated if not provided)
  * @param {string} options.fieldType - Data type of the field
+ * @param {number} options.fieldConfidence - Type inference confidence (0-1)
+ * @param {boolean} options.fieldIsPrimary - Whether this is the primary/key field
+ * @param {string[]} options.fieldSamples - Sample values from the field
+ * @param {Object} options.fieldOptions - Field options (e.g., choices for SELECT fields)
+ * @param {string[]} options.fieldUniqueValues - Unique values found in the field
  * @param {Object} options.discoveredFrom - Origin source/field info
  * @returns {DefinitionSource}
  */
@@ -766,6 +792,18 @@ function createStubDefinition(options = {}) {
   if (!options.term) {
     throw new Error('createStubDefinition requires a term');
   }
+
+  // Build discoveredFrom with all source field properties for matching
+  const discoveredFrom = options.discoveredFrom ? {
+    ...options.discoveredFrom,
+    // Ensure all field properties are included
+    fieldType: options.discoveredFrom.fieldType || options.fieldType || null,
+    fieldConfidence: options.discoveredFrom.fieldConfidence ?? options.fieldConfidence ?? null,
+    fieldIsPrimary: options.discoveredFrom.fieldIsPrimary ?? options.fieldIsPrimary ?? null,
+    fieldSamples: options.discoveredFrom.fieldSamples || options.fieldSamples || null,
+    fieldOptions: options.discoveredFrom.fieldOptions || options.fieldOptions || null,
+    fieldUniqueValues: options.discoveredFrom.fieldUniqueValues || options.fieldUniqueValues || null
+  } : null;
 
   return new DefinitionSource({
     status: DefinitionStatus.STUB,
@@ -777,13 +815,14 @@ function createStubDefinition(options = {}) {
       asWritten: null,
       categories: null
     },
-    discoveredFrom: options.discoveredFrom || null,
+    discoveredFrom: discoveredFrom,
     apiSuggestions: []
   }, { allowStub: true });
 }
 
 /**
  * Create stub definitions for all fields in a source
+ * Passes all source field properties to definitions for matching
  * @param {Object} source - Source object with schema.fields
  * @returns {DefinitionSource[]}
  */
@@ -793,15 +832,45 @@ function createStubDefinitionsForSource(source) {
   }
 
   return source.schema.fields.map(field => {
+    // Extract unique values - prioritize field.uniqueValues, then options.choices, then samples
+    let fieldUniqueValues = null;
+    if (field.uniqueValues && Array.isArray(field.uniqueValues)) {
+      // Use directly captured unique values from import
+      fieldUniqueValues = field.uniqueValues;
+    } else if (field.options?.choices && Array.isArray(field.options.choices)) {
+      // Use choice names for SELECT fields
+      fieldUniqueValues = field.options.choices.map(c => c.name);
+    } else if (field.samples && Array.isArray(field.samples)) {
+      // Fall back to samples as unique values
+      fieldUniqueValues = [...new Set(field.samples.map(String))];
+    }
+
+    // Ensure samples are captured (use at least 10 samples if available)
+    const fieldSamples = field.samples && Array.isArray(field.samples)
+      ? field.samples.slice(0, 10)
+      : null;
+
     return createStubDefinition({
       term: field.name,
       fieldType: field.type,
+      fieldConfidence: field.confidence,
+      fieldIsPrimary: field.isPrimary,
+      fieldSamples: fieldSamples,
+      fieldOptions: field.options,
+      fieldUniqueValues: fieldUniqueValues,
       discoveredFrom: {
         sourceId: source.id,
         sourceName: source.name,
         fieldId: field.id || field.name,
         fieldName: field.name,
         fieldType: field.type,
+        fieldConfidence: field.confidence,
+        fieldIsPrimary: field.isPrimary,
+        fieldSamples: fieldSamples,
+        fieldOptions: field.options,
+        fieldUniqueValues: fieldUniqueValues,
+        fieldSampleCount: field.sampleCount ?? null,
+        fieldUniqueCount: field.uniqueCount ?? null,
         discoveredAt: new Date().toISOString()
       }
     });
@@ -952,6 +1021,119 @@ function countDefinitionsByStatus(definitions) {
   return counts;
 }
 
+/**
+ * Sync definitions from a source - creates stub definitions for any new fields
+ * Use this when a source is re-imported or updated to ensure all fields have definitions
+ *
+ * @param {Object} source - Source object with schema.fields
+ * @param {DefinitionSource[]} existingDefinitions - Existing definitions to check against
+ * @returns {{ newDefinitions: DefinitionSource[], existingCount: number, newCount: number }}
+ */
+function syncDefinitionsFromSource(source, existingDefinitions = []) {
+  if (!source?.schema?.fields) {
+    return { newDefinitions: [], existingCount: 0, newCount: 0 };
+  }
+
+  // Build set of existing field names for this source
+  const existingFieldNames = new Set(
+    existingDefinitions
+      .filter(d => d.discoveredFrom?.sourceId === source.id)
+      .map(d => d.term?.term || d.discoveredFrom?.fieldName)
+  );
+
+  const newDefinitions = [];
+  let existingCount = 0;
+
+  for (const field of source.schema.fields) {
+    if (existingFieldNames.has(field.name)) {
+      existingCount++;
+    } else {
+      // Create stub definition for new field
+      const fieldUniqueValues = field.uniqueValues ||
+        (field.options?.choices?.map(c => c.name)) ||
+        (field.samples ? [...new Set(field.samples.map(String))] : null);
+
+      const fieldSamples = field.samples?.slice(0, 10) || null;
+
+      const stubDef = createStubDefinition({
+        term: field.name,
+        fieldType: field.type,
+        fieldConfidence: field.confidence,
+        fieldIsPrimary: field.isPrimary,
+        fieldSamples: fieldSamples,
+        fieldOptions: field.options,
+        fieldUniqueValues: fieldUniqueValues,
+        discoveredFrom: {
+          sourceId: source.id,
+          sourceName: source.name,
+          fieldId: field.id || field.name,
+          fieldName: field.name,
+          fieldType: field.type,
+          fieldConfidence: field.confidence,
+          fieldIsPrimary: field.isPrimary,
+          fieldSamples: fieldSamples,
+          fieldOptions: field.options,
+          fieldUniqueValues: fieldUniqueValues,
+          fieldSampleCount: field.sampleCount ?? null,
+          fieldUniqueCount: field.uniqueCount ?? null,
+          discoveredAt: new Date().toISOString()
+        }
+      });
+      newDefinitions.push(stubDef);
+    }
+  }
+
+  return {
+    newDefinitions,
+    existingCount,
+    newCount: newDefinitions.length
+  };
+}
+
+/**
+ * Get a clear source label for a definition (for dictionary table display)
+ * @param {DefinitionSource} definition
+ * @returns {string} - Human-readable source label
+ */
+function getDefinitionSourceLabel(definition) {
+  if (!definition.discoveredFrom) {
+    return 'Unknown source';
+  }
+
+  const { sourceName, sourceId, fieldName, discoveredAt } = definition.discoveredFrom;
+  const sourcePart = sourceName || sourceId || 'Imported data';
+  const datePart = discoveredAt ? new Date(discoveredAt).toLocaleDateString() : '';
+
+  return datePart ? `${sourcePart} (${datePart})` : sourcePart;
+}
+
+/**
+ * Get definition summary for dictionary table display
+ * @param {DefinitionSource} definition
+ * @returns {Object} - { term, label, type, source, samples, uniqueValues, status }
+ */
+function getDefinitionTableSummary(definition) {
+  const df = definition.discoveredFrom || {};
+  return {
+    id: definition.id,
+    term: definition.term?.term || df.fieldName || 'Unknown',
+    label: definition.term?.label || definition.term?.term || df.fieldName,
+    type: df.fieldType || 'text',
+    source: getDefinitionSourceLabel(definition),
+    sourceId: df.sourceId,
+    sourceName: df.sourceName,
+    samples: df.fieldSamples || [],
+    uniqueValues: df.fieldUniqueValues || [],
+    sampleCount: df.fieldSampleCount,
+    uniqueCount: df.fieldUniqueCount,
+    isPrimary: df.fieldIsPrimary || false,
+    confidence: df.fieldConfidence,
+    status: definition.status || 'stub',
+    populationMethod: definition.populationMethod || 'pending',
+    hasApiSuggestions: definition.apiSuggestions?.length > 0
+  };
+}
+
 // ============================================================================
 // SECTION VI: Exports
 // ============================================================================
@@ -987,6 +1169,9 @@ if (typeof window !== 'undefined') {
   window.EO.getDefinitionsByStatus = getDefinitionsByStatus;
   window.EO.getDefinitionsFromSource = getDefinitionsFromSource;
   window.EO.countDefinitionsByStatus = countDefinitionsByStatus;
+  window.EO.syncDefinitionsFromSource = syncDefinitionsFromSource;
+  window.EO.getDefinitionSourceLabel = getDefinitionSourceLabel;
+  window.EO.getDefinitionTableSummary = getDefinitionTableSummary;
 }
 
 // Export for Node.js/ES modules
@@ -1013,6 +1198,9 @@ if (typeof module !== 'undefined' && module.exports) {
     getDefinitionsWithSuggestions,
     getDefinitionsByStatus,
     getDefinitionsFromSource,
-    countDefinitionsByStatus
+    countDefinitionsByStatus,
+    syncDefinitionsFromSource,
+    getDefinitionSourceLabel,
+    getDefinitionTableSummary
   };
 }

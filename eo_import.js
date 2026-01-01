@@ -724,13 +724,20 @@ class SchemaInferrer {
         });
       }
 
+      // Capture unique values for matching (up to 50 unique values)
+      const uniqueValuesSet = new Set(values.map(v => String(v).trim()).filter(v => v));
+      const uniqueValues = Array.from(uniqueValuesSet).slice(0, 50);
+
       return {
         name: header,
         type: typeInfo.type,
         confidence: typeInfo.confidence,
         options: typeInfo.options || {},
         isPrimary: index === 0,
-        samples: values.slice(0, 3)
+        samples: values.slice(0, 10), // Increased from 3 to 10 samples
+        uniqueValues: uniqueValues,   // All unique values (up to 50) for matching
+        sampleCount: values.length,
+        uniqueCount: uniqueValuesSet.size
       };
     });
 
@@ -2230,12 +2237,20 @@ class ImportOrchestrator {
       populationMethod: defSource.populationMethod || 'pending',
       terms: [term],
 
-      // Track origin
+      // Track origin - includes all source field properties for matching and dictionary table
       discoveredFrom: {
         sourceId: source?.id || defSource.discoveredFrom?.sourceId,
         sourceName: source?.name || defSource.discoveredFrom?.sourceName,
+        fieldId: defSource.discoveredFrom?.fieldId || defSource.term?.term,
         fieldName: defSource.discoveredFrom?.fieldName || defSource.term?.term,
         fieldType: defSource.discoveredFrom?.fieldType,
+        fieldConfidence: defSource.discoveredFrom?.fieldConfidence ?? null,
+        fieldIsPrimary: defSource.discoveredFrom?.fieldIsPrimary ?? null,
+        fieldSamples: defSource.discoveredFrom?.fieldSamples || null,
+        fieldOptions: defSource.discoveredFrom?.fieldOptions || null,
+        fieldUniqueValues: defSource.discoveredFrom?.fieldUniqueValues || null,
+        fieldSampleCount: defSource.discoveredFrom?.fieldSampleCount ?? null,
+        fieldUniqueCount: defSource.discoveredFrom?.fieldUniqueCount ?? null,
         discoveredAt: defSource.discoveredFrom?.discoveredAt || new Date().toISOString()
       },
 
@@ -2249,7 +2264,8 @@ class ImportOrchestrator {
         jurisdiction: defSource.jurisdiction || null,
         status: defSource.status,
         populationMethod: defSource.populationMethod,
-        apiSuggestions: defSource.apiSuggestions || []
+        apiSuggestions: defSource.apiSuggestions || [],
+        discoveredFrom: defSource.discoveredFrom || null
       }
     };
   }
