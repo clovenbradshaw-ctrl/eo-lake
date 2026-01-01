@@ -577,6 +577,9 @@ class EODataWorkbench {
       // Content tabs (can have multiple instances)
       set: { singleton: false, icon: 'ph-table' },
       source: { singleton: false, icon: 'ph-file-csv' },
+      view: { singleton: false, icon: 'ph-table' }, // Individual view tabs (keyed by setId + viewId)
+      schema: { singleton: false, icon: 'ph-list-checks', label: 'Schema' }, // Schema/fields tab per set
+      lens: { singleton: false, icon: 'ph-funnel', label: 'Lens' }, // Lens tabs
 
       // Singleton tabs (only one instance each, like chrome://settings)
       sources: { singleton: true, label: 'Sources', icon: 'ph-download-simple' },
@@ -634,7 +637,7 @@ class EODataWorkbench {
     // Initialize browser tab keyboard shortcuts
     this._initTabKeyboardShortcuts();
 
-    // Initialize browser tabs - open the first set or new tab page
+    // Initialize browser tabs - restore persisted tabs or create default
     if (this.browserTabs.length === 0) {
       if (this.sets.length > 0) {
         const firstSet = this.sets[0];
@@ -647,7 +650,15 @@ class EODataWorkbench {
         this.openTab('newTab');
       }
     } else {
-      // Render existing tabs
+      // Restore persisted tabs - sync state from active tab
+      const activeTab = this.browserTabs.find(t => t.id === this.activeTabId);
+      if (activeTab) {
+        this._syncStateFromTab(activeTab);
+      } else if (this.browserTabs.length > 0) {
+        // If activeTabId is invalid, activate the first tab
+        this.activeTabId = this.browserTabs[0].id;
+        this._syncStateFromTab(this.browserTabs[0]);
+      }
       this._renderBrowserTabBar();
       this._renderTabContent();
     }
@@ -732,9 +743,32 @@ class EODataWorkbench {
       }
     }
 
-    // For content tabs (set, source), check for existing tab with same content
+    // For content tabs, check for existing tab with same content
     if (!tabType.singleton && options.contentId) {
-      const existingTab = this.browserTabs.find(t => t.type === type && t.contentId === options.contentId);
+      let existingTab = null;
+
+      if (type === 'view') {
+        // View tabs are keyed by setId + viewId
+        existingTab = this.browserTabs.find(t =>
+          t.type === type &&
+          t.contentId === options.contentId &&
+          t.viewState?.viewId === options.viewState?.viewId
+        );
+      } else if (type === 'lens') {
+        // Lens tabs are keyed by setId + lensId
+        existingTab = this.browserTabs.find(t =>
+          t.type === type &&
+          t.contentId === options.contentId &&
+          t.viewState?.lensId === options.viewState?.lensId
+        );
+      } else if (type === 'schema') {
+        // Schema tabs are keyed by setId only
+        existingTab = this.browserTabs.find(t => t.type === type && t.contentId === options.contentId);
+      } else {
+        // Default: key by type and contentId
+        existingTab = this.browserTabs.find(t => t.type === type && t.contentId === options.contentId);
+      }
+
       if (existingTab) {
         this.activateTab(existingTab.id);
         // Close the newTab we were on (like browser behavior)
@@ -774,6 +808,9 @@ class EODataWorkbench {
     if (newTabIdToClose) {
       this._removeNewTab(newTabIdToClose);
     }
+
+    // Persist tab state
+    this._saveData();
 
     return tab;
   }
@@ -833,6 +870,9 @@ class EODataWorkbench {
       // Just re-render the tab bar
       this._renderBrowserTabBar();
     }
+
+    // Persist tab state
+    this._saveData();
   }
 
   /**
@@ -891,6 +931,9 @@ class EODataWorkbench {
     // Render
     this._renderBrowserTabBar();
     this._renderTabContent();
+
+    // Persist active tab state
+    this._saveData();
   }
 
   /**
@@ -972,6 +1015,26 @@ class EODataWorkbench {
         this.currentViewId = tab.viewState?.viewId || this.lastViewPerSet[tab.contentId];
         this.showingSetDetail = tab.viewState?.showDetail || false;
         this.showingSetFields = tab.viewState?.showFields || false;
+        break;
+
+      case 'view':
+        // Individual view tab - set both setId and viewId
+        this.currentSetId = tab.contentId;
+        this.currentViewId = tab.viewState?.viewId;
+        this.currentLensId = tab.viewState?.lensId || null;
+        break;
+
+      case 'schema':
+        // Schema/fields tab for a set
+        this.currentSetId = tab.contentId;
+        this.showingSetFields = true;
+        break;
+
+      case 'lens':
+        // Lens tab - set setId and lensId
+        this.currentSetId = tab.contentId;
+        this.currentLensId = tab.viewState?.lensId;
+        this.currentViewId = tab.viewState?.viewId;
         break;
 
       case 'source':
@@ -1220,6 +1283,21 @@ class EODataWorkbench {
         } else {
           this._renderView();
         }
+        break;
+
+      case 'view':
+        // Individual view tab - render that specific view
+        this._renderView();
+        break;
+
+      case 'schema':
+        // Schema/fields tab - show the fields panel
+        this._renderSetFieldsPanel();
+        break;
+
+      case 'lens':
+        // Lens tab - render the lens view
+        this._renderView();
         break;
 
       case 'source':
@@ -2915,6 +2993,11 @@ class EODataWorkbench {
         // Load activity log (for activity stream)
         this.activityLog = parsed.activityLog || [];
 
+        // Load browser tabs (persistent tabs feature)
+        this.browserTabs = parsed.browserTabs || [];
+        this.activeTabId = parsed.activeTabId || null;
+        this.recentlyClosedTabs = parsed.recentlyClosedTabs || [];
+
         // Load records for current set immediately if using lazy loading
         if (this._useLazyLoading && this.currentSetId) {
           this._loadSetRecords(this.currentSetId);
@@ -2996,7 +3079,10 @@ class EODataWorkbench {
         currentViewId: this.currentViewId,
         lastViewPerSet: this.lastViewPerSet,
         tossedItems: this.tossedItems || [], // Save tossed items for recovery
-        activityLog: this.activityLog || [] // Save activity log for activity stream
+        activityLog: this.activityLog || [], // Save activity log for activity stream
+        browserTabs: this.browserTabs || [], // Save browser tabs (persistent tabs)
+        activeTabId: this.activeTabId, // Save active tab ID
+        recentlyClosedTabs: this.recentlyClosedTabs || [] // Save recently closed tabs
       }));
 
       // Also create EO events if connected
@@ -3772,16 +3858,16 @@ class EODataWorkbench {
    * Attach event handlers to set navigation items
    */
   _attachSetNavEventHandlers(container) {
-    // Set header click - toggle expansion and select set
+    // Set header click - toggle expansion or open tab for default view
     container.querySelectorAll('.set-item-header').forEach(header => {
       header.addEventListener('click', (e) => {
         const setId = header.dataset.setId;
-        const container = header.closest('.set-item-container');
+        const containerEl = header.closest('.set-item-container');
 
         // If clicking on expand arrow, just toggle expansion
         if (e.target.closest('.set-item-expand')) {
           this.expandedSets[setId] = !this.expandedSets[setId];
-          container?.classList.toggle('expanded');
+          containerEl?.classList.toggle('expanded');
           return;
         }
 
@@ -3792,9 +3878,16 @@ class EODataWorkbench {
           return;
         }
 
-        // Otherwise select the set and expand it
+        // Otherwise expand the set and open tab for default view
         this.expandedSets[setId] = true;
-        this._selectSet(setId);
+        containerEl?.classList.add('expanded');
+
+        const set = this.sets.find(s => s.id === setId);
+        if (set && set.views && set.views.length > 0) {
+          const defaultView = set.views[0];
+          this._openViewTab(setId, defaultView.id);
+        }
+        this._renderSidebar();
       });
 
       header.addEventListener('contextmenu', (e) => {
@@ -3803,7 +3896,7 @@ class EODataWorkbench {
       });
     });
 
-    // View item click - select view (or Fields panel)
+    // View item click - open tab for view or schema
     container.querySelectorAll('.set-view-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -3811,22 +3904,14 @@ class EODataWorkbench {
         const viewId = item.dataset.viewId;
         const action = item.dataset.action;
 
-        // Select set first if not already selected
-        if (this.currentSetId !== setId) {
-          this.currentSetId = setId;
-          if (this._useLazyLoading) {
-            this._loadSetRecords(setId);
-          }
-        }
-
-        // Handle special "Fields" action
+        // Handle special "Fields/Schema" action - open schema tab
         if (action === 'fields') {
-          this._selectSet(setId, 'fields');
+          this._openSchemaTab(setId);
           return;
         }
 
-        // Otherwise select the view
-        this._selectView(viewId);
+        // Otherwise open a tab for this view
+        this._openViewTab(setId, viewId);
       });
 
       item.addEventListener('contextmenu', (e) => {
@@ -3845,32 +3930,30 @@ class EODataWorkbench {
       });
     });
 
-    // Lens header click - toggle expansion and select lens
+    // Lens header click - toggle expansion or open lens tab
     container.querySelectorAll('.set-lens-header').forEach(header => {
       header.addEventListener('click', (e) => {
         const lensId = header.dataset.lensId;
         const setId = header.dataset.setId;
-        const container = header.closest('.set-lens-container');
+        const containerEl = header.closest('.set-lens-container');
 
         // If clicking on expand arrow, just toggle expansion
         if (e.target.closest('.lens-expand-icon')) {
           if (!this.expandedLenses) this.expandedLenses = {};
           this.expandedLenses[lensId] = !this.expandedLenses[lensId];
-          container?.classList.toggle('expanded');
+          containerEl?.classList.toggle('expanded');
           return;
         }
 
-        // Otherwise select the lens
-        this.currentLensId = lensId;
-        this.currentSetId = setId;
+        // Otherwise open lens tab
         if (!this.expandedLenses) this.expandedLenses = {};
         this.expandedLenses[lensId] = true;
+        this._openLensTab(setId, lensId);
         this._renderSidebar();
-        this._renderView();
       });
     });
 
-    // Lens view item click
+    // Lens view item click - open view tab with lens context
     container.querySelectorAll('.lens-view-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -3878,12 +3961,77 @@ class EODataWorkbench {
         const lensId = item.dataset.lensId;
         const setId = item.dataset.setId;
 
-        this.currentLensId = lensId;
-        this.currentSetId = setId;
-        this.currentViewId = viewId;
-        this._renderSidebar();
-        this._renderView();
+        this._openViewTab(setId, viewId, lensId);
       });
+    });
+  }
+
+  /**
+   * Open a tab for a specific view
+   */
+  _openViewTab(setId, viewId, lensId = null) {
+    const set = this.sets.find(s => s.id === setId);
+    const view = set?.views?.find(v => v.id === viewId);
+    if (!set || !view) return;
+
+    // Get icon based on view type
+    const viewIcons = {
+      table: 'ph-table',
+      cards: 'ph-cards',
+      kanban: 'ph-kanban',
+      calendar: 'ph-calendar-blank',
+      graph: 'ph-graph',
+      filesystem: 'ph-folder-open'
+    };
+
+    this.openTab('view', {
+      contentId: setId,
+      title: view.name,
+      icon: viewIcons[view.type] || 'ph-table',
+      viewState: {
+        viewId: viewId,
+        lensId: lensId
+      }
+    });
+
+    // Track in lastViewPerSet
+    this.lastViewPerSet[setId] = viewId;
+    this._saveData();
+  }
+
+  /**
+   * Open a schema/fields tab for a set
+   */
+  _openSchemaTab(setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    this.openTab('schema', {
+      contentId: setId,
+      title: `${set.name} - Schema`,
+      icon: 'ph-list-checks'
+    });
+  }
+
+  /**
+   * Open a lens tab
+   */
+  _openLensTab(setId, lensId) {
+    const set = this.sets.find(s => s.id === setId);
+    // TODO: Get lens from registry when lenses are properly implemented
+    const lensName = 'All Records'; // Default lens name
+
+    // Get the first view to display
+    const defaultViewId = set?.views?.[0]?.id;
+
+    this.openTab('lens', {
+      contentId: setId,
+      title: `${set?.name || 'Set'} - ${lensName}`,
+      icon: 'ph-funnel',
+      viewState: {
+        lensId: lensId,
+        viewId: defaultViewId
+      }
     });
   }
 
