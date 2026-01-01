@@ -4026,12 +4026,12 @@ class EODataWorkbench {
         const oldName = view.name;
         view.name = newName;
 
-        // Record activity for activity stream
+        // Record activity for the rename
         this._recordActivity({
           action: 'update',
           entityType: 'view',
           name: newName,
-          details: `Renamed from "${oldName}"`,
+          details: `Renamed from "${oldName}" to "${newName}" in "${set.name}"`,
           canReverse: false
         });
 
@@ -4060,12 +4060,12 @@ class EODataWorkbench {
     dupView.config = JSON.parse(JSON.stringify(view.config || {}));
     set.views.push(dupView);
 
-    // Record activity for activity stream
+    // Record activity for the duplication
     this._recordActivity({
       action: 'create',
       entityType: 'view',
       name: dupView.name,
-      details: `Duplicated from "${view.name}"`,
+      details: `Duplicated from "${view.name}" in "${set.name}"`,
       canReverse: false
     });
 
@@ -4501,12 +4501,12 @@ class EODataWorkbench {
       this.tossedItems.pop();
     }
 
-    // Record activity for activity stream
+    // Record activity for the deletion
     this._recordActivity({
       action: 'delete',
       entityType: 'view',
       name: view.name,
-      details: `${view.type} view from set "${set.name}"`,
+      details: `Tossed ${view.type} view from "${set.name}"`,
       canReverse: true,
       reverseData: { type: 'restore_tossed', item: { type: 'view', view, setId } }
     });
@@ -4833,6 +4833,15 @@ class EODataWorkbench {
       };
       this.sets.push(set);
       this._addSetToProject(set.id);
+
+      // Record activity for the set creation
+      this._recordActivity({
+        action: 'create',
+        entityType: 'set',
+        name: name,
+        details: 'Created empty set (manual)'
+      });
+
       this._saveData();
       this._renderSidebar();
       this._selectSet(set.id);
@@ -4887,6 +4896,15 @@ class EODataWorkbench {
 
       this.sets.push(set);
       this._addSetToProject(set.id);
+
+      // Record activity for the filtered set creation
+      this._recordActivity({
+        action: 'create',
+        entityType: 'set',
+        name: name,
+        details: `Created filtered set from "${parentSet.name}"`
+      });
+
       this._saveData();
       this._renderSidebar();
       this._selectSet(set.id);
@@ -6981,6 +6999,12 @@ class EODataWorkbench {
       return;
     }
 
+    // Count pending definitions
+    const pendingCount = sortedDefinitions.filter(d => this._isDefinitionPending(d)).length;
+
+    // Update the panel header to show pending count if any
+    this._updateDefinitionsPanelHeaderPendingCount(pendingCount);
+
     // Render definitions as a flat list
     let html = '';
     for (const definition of sortedDefinitions) {
@@ -6989,19 +7013,26 @@ class EODataWorkbench {
       const termCount = definition.terms?.length || definition.properties?.length || 0;
       const sourceLabel = definition.sourceUri ? 'URI' : 'local';
       const isActive = this.currentDefinitionId === definition.id;
+      const isPending = this._isDefinitionPending(definition);
 
       html += `
-        <div class="nav-item definition-item ${isActive ? 'active' : ''}"
+        <div class="nav-item definition-item ${isActive ? 'active' : ''} ${isPending ? 'pending' : ''}"
              data-definition-id="${definition.id}"
-             title="${this._escapeHtml(definition.description || definition.name)}">
+             title="${this._escapeHtml(definition.description || definition.name)}${isPending ? ' (Pending approval)' : ''}">
           <i class="ph ${defIcon} definition-icon"></i>
           <div class="definition-info">
             <span class="definition-name">${this._escapeHtml(this._truncateName(definition.name, 20))}</span>
-            <span class="definition-meta-inline">${sourceLabel}</span>
+            <span class="definition-meta-inline">${isPending ? 'pending' : sourceLabel}</span>
           </div>
-          <span class="definition-source-badge" title="${sourceLabel === 'URI' ? 'Imported from external URI' : 'Locally created'}">
-            ${sourceLabel === 'URI' ? '<i class="ph ph-link"></i>' : '<i class="ph ph-pencil-simple"></i>'}
-          </span>
+          ${isPending ? `
+            <span class="definition-pending-badge" title="Pending approval">
+              <i class="ph ph-clock"></i>
+            </span>
+          ` : `
+            <span class="definition-source-badge" title="${sourceLabel === 'URI' ? 'Imported from external URI' : 'Locally created'}">
+              ${sourceLabel === 'URI' ? '<i class="ph ph-link"></i>' : '<i class="ph ph-pencil-simple"></i>'}
+            </span>
+          `}
           <span class="nav-item-count" title="${termCount} terms defined">${termCount}</span>
         </div>
       `;
@@ -7011,6 +7042,33 @@ class EODataWorkbench {
 
     // Attach event handlers for definition items
     this._attachDefinitionsNavEventHandlers(container);
+  }
+
+  /**
+   * Update the definitions panel header to show pending count
+   */
+  _updateDefinitionsPanelHeaderPendingCount(pendingCount) {
+    const definitionsPanel = document.querySelector('.definitions-panel');
+    if (!definitionsPanel) return;
+
+    // Find or create the pending badge element
+    const panelTitle = definitionsPanel.querySelector('.nav-panel-title');
+    if (!panelTitle) return;
+
+    // Remove existing pending indicator
+    const existingBadge = panelTitle.querySelector('.definition-pending-indicator');
+    if (existingBadge) {
+      existingBadge.remove();
+    }
+
+    // Add pending indicator if there are pending definitions
+    if (pendingCount > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'definition-pending-indicator';
+      badge.title = `${pendingCount} definition${pendingCount !== 1 ? 's' : ''} pending approval`;
+      badge.textContent = pendingCount > 99 ? '99+' : pendingCount;
+      panelTitle.appendChild(badge);
+    }
   }
 
   /**
@@ -8303,6 +8361,71 @@ class EODataWorkbench {
   }
 
   /**
+   * Show the Definition Builder modal for creating new definitions
+   * Uses the 9-parameter EO definition schema
+   */
+  _showNewDefinitionModal() {
+    // Use the Definition Builder if available
+    if (window.EODefinitionBuilder?.showDefinitionBuilderModal) {
+      window.EODefinitionBuilder.showDefinitionBuilderModal({
+        frame: this.currentProjectId || 'default',
+        user: this._getCurrentUser(),
+        api: window.EO?.getDefinitionAPI ? window.EO.getDefinitionAPI() : null
+      }).then((definition) => {
+        if (definition) {
+          this._addDefinition(definition);
+          this._showToast('Definition created successfully', 'success');
+          this._renderDefinitionsNav();
+        }
+      });
+    } else {
+      // Fallback to import modal if builder not available
+      this._showImportDefinitionModal();
+    }
+  }
+
+  /**
+   * Get current user for provenance
+   * @private
+   */
+  _getCurrentUser() {
+    return window.EO?.agent?.userId || 'anonymous';
+  }
+
+  /**
+   * Add a definition to the definitions list
+   * @param {Object} definition - The definition object from the builder
+   * @private
+   */
+  _addDefinition(definition) {
+    if (!this.definitions) {
+      this.definitions = [];
+    }
+
+    // Create a definition record with ID
+    const defRecord = {
+      id: definition.id || `def_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: definition.referent?.label || definition.referent?.term || 'Untitled Definition',
+      term: definition.referent?.term,
+      description: definition.scopeNote,
+      format: 'eo-9param',
+      type: 'definition',
+      status: 'active',
+      importedAt: new Date().toISOString(),
+      ...definition
+    };
+
+    this.definitions.push(defRecord);
+
+    // Emit event for persistence
+    if (this.eventBus) {
+      this.eventBus.emit('definition:created', { definition: defRecord });
+    }
+
+    return defRecord;
+  }
+
+  /**
    * Show modal to import definition from URI or search APIs
    */
   _showImportDefinitionModal() {
@@ -9141,6 +9264,82 @@ class EODataWorkbench {
     }
 
     this._showNotification('Definition deleted', 'success');
+  }
+
+  /**
+   * Approve a pending definition (change status from stub to complete)
+   */
+  _approveDefinition(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    // Update status to complete/verified
+    definition.status = 'complete';
+    definition.populationMethod = 'manual';
+    definition.approvedAt = new Date().toISOString();
+
+    this._saveData();
+    this._renderDefinitionsNav();
+
+    // Re-render the definitions panel to update the row
+    if (this.isViewingDefinitions) {
+      this._showDefinitionsPanel();
+    }
+
+    this._showNotification('Definition approved', 'success');
+  }
+
+  /**
+   * Dismiss a pending definition (remove it from the list)
+   */
+  _dismissDefinition(definitionId) {
+    const definition = this.definitions?.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    // Confirm before dismissing
+    const confirmHtml = `
+      <div class="dismiss-definition-confirm">
+        <p>Are you sure you want to dismiss this pending definition?</p>
+        <p class="definition-name"><strong>${this._escapeHtml(definition.name)}</strong></p>
+        <p class="muted">This will remove the definition from your workspace.</p>
+      </div>
+    `;
+
+    this._showModal({
+      title: 'Dismiss Definition',
+      content: confirmHtml,
+      buttons: [
+        {
+          label: 'Cancel',
+          className: 'btn btn-secondary',
+          action: () => this._closeModal()
+        },
+        {
+          label: 'Dismiss',
+          className: 'btn btn-danger',
+          action: () => {
+            // Remove from array
+            this.definitions = this.definitions.filter(d => d.id !== definitionId);
+
+            // Clear current selection if this was selected
+            if (this.currentDefinitionId === definitionId) {
+              this.currentDefinitionId = null;
+            }
+
+            this._saveData();
+            this._renderDefinitionsNav();
+            this._closeModal();
+
+            // Re-render the definitions panel
+            if (this.isViewingDefinitions) {
+              this._showDefinitionsPanel();
+            }
+
+            this._showNotification('Definition dismissed', 'success');
+          }
+        }
+      ]
+    });
   }
 
   /**
@@ -12229,6 +12428,9 @@ class EODataWorkbench {
     // Get all definitions (filtered by project if applicable)
     const activeDefinitions = this._getProjectDefinitions().filter(d => d.status !== 'archived');
 
+    // Count pending definitions
+    const pendingCount = activeDefinitions.filter(d => this._isDefinitionPending(d)).length;
+
     // Update breadcrumb
     this._updateBreadcrumb({
       workspace: this._getCurrentWorkspaceName(),
@@ -12255,7 +12457,7 @@ class EODataWorkbench {
             </div>
             <div class="definitions-panel-title-info">
               <h2>Definitions</h2>
-              <p class="definitions-panel-subtitle">${activeDefinitions.length} definition${activeDefinitions.length !== 1 ? 's' : ''} • Manage field schemas and link to sets</p>
+              <p class="definitions-panel-subtitle">${activeDefinitions.length} definition${activeDefinitions.length !== 1 ? 's' : ''}${pendingCount > 0 ? ` • <span class="pending-count-badge">${pendingCount} pending approval</span>` : ''} • Manage field schemas and link to sets</p>
             </div>
           </div>
           <div class="definitions-panel-actions">
@@ -12277,6 +12479,11 @@ class EODataWorkbench {
             <input type="text" id="def-panel-search" placeholder="Search definitions and terms...">
           </div>
           <div class="definitions-panel-filters">
+            <select id="def-panel-status-filter" class="def-panel-filter-select">
+              <option value="">All Status</option>
+              <option value="pending">Pending Approval</option>
+              <option value="active">Active</option>
+            </select>
             <select id="def-panel-format-filter" class="def-panel-filter-select">
               <option value="">All Formats</option>
               <option value="jsonld">JSON-LD</option>
@@ -12316,6 +12523,7 @@ class EODataWorkbench {
               <thead>
                 <tr>
                   <th class="col-expand"></th>
+                  <th class="col-status">Status</th>
                   <th class="col-name">Name</th>
                   <th class="col-description">Description</th>
                   <th class="col-format">Format</th>
@@ -12339,6 +12547,28 @@ class EODataWorkbench {
   }
 
   /**
+   * Check if a definition is pending approval (stub or needs population)
+   */
+  _isDefinitionPending(definition) {
+    // Check for stub status
+    if (definition.status === 'stub' || definition.status === 'partial') {
+      return true;
+    }
+    // Check for pending population method
+    if (definition.populationMethod === 'pending') {
+      return true;
+    }
+    // Check if it's a DefinitionSource instance with isStub method
+    if (typeof definition.isStub === 'function' && definition.isStub()) {
+      return true;
+    }
+    if (typeof definition.needsPopulation === 'function' && definition.needsPopulation()) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Render a single definition row in the table
    */
   _renderDefinitionTableRow(definition, sets) {
@@ -12347,6 +12577,10 @@ class EODataWorkbench {
     const format = this._getDefinitionFormatLabel(definition.format || definition.type || 'other');
     const sourceType = definition.sourceUri ? 'URI' : 'Local';
     const importDate = definition.importedAt ? new Date(definition.importedAt).toLocaleDateString() : '—';
+
+    // Check if definition is pending approval
+    const isPending = this._isDefinitionPending(definition);
+    const rowClass = isPending ? 'definition-row pending-approval' : 'definition-row';
 
     // Count how many fields are linked to this definition
     let linkedFieldsCount = 0;
@@ -12360,12 +12594,58 @@ class EODataWorkbench {
       });
     });
 
+    // Render status badge
+    const statusBadge = isPending ? `
+      <span class="def-status-badge pending" title="This definition needs approval">
+        <i class="ph ph-clock"></i>
+        Pending
+      </span>
+    ` : `
+      <span class="def-status-badge active" title="This definition is active">
+        <i class="ph ph-check-circle"></i>
+        Active
+      </span>
+    `;
+
+    // Render actions based on pending status
+    const actionsHtml = isPending ? `
+      <div class="def-row-actions pending-actions">
+        <button class="def-action-btn approve" data-action="approve" title="Approve definition">
+          <i class="ph ph-check"></i>
+        </button>
+        <button class="def-action-btn" data-action="edit" title="Edit before approving">
+          <i class="ph ph-pencil-simple"></i>
+        </button>
+        <button class="def-action-btn danger" data-action="dismiss" title="Dismiss suggestion">
+          <i class="ph ph-x"></i>
+        </button>
+      </div>
+    ` : `
+      <div class="def-row-actions">
+        <button class="def-action-btn" data-action="edit" title="Edit definition">
+          <i class="ph ph-pencil-simple"></i>
+        </button>
+        <button class="def-action-btn" data-action="link" title="Link to set field">
+          <i class="ph ph-arrow-right"></i>
+        </button>
+        <button class="def-action-btn" data-action="refresh" title="Refresh from URI" ${!definition.sourceUri ? 'disabled' : ''}>
+          <i class="ph ph-arrows-clockwise"></i>
+        </button>
+        <button class="def-action-btn danger" data-action="delete" title="Delete definition">
+          <i class="ph ph-trash"></i>
+        </button>
+      </div>
+    `;
+
     return `
-      <tr class="definition-row" data-definition-id="${definition.id}">
+      <tr class="${rowClass}" data-definition-id="${definition.id}" data-pending="${isPending}">
         <td class="col-expand">
           <button class="def-row-expand-btn" title="Expand to see terms">
             <i class="ph ph-caret-right"></i>
           </button>
+        </td>
+        <td class="col-status">
+          ${statusBadge}
         </td>
         <td class="col-name">
           <div class="def-name-cell">
@@ -12400,24 +12680,11 @@ class EODataWorkbench {
           `}
         </td>
         <td class="col-actions">
-          <div class="def-row-actions">
-            <button class="def-action-btn" data-action="edit" title="Edit definition">
-              <i class="ph ph-pencil-simple"></i>
-            </button>
-            <button class="def-action-btn" data-action="link" title="Link to set field">
-              <i class="ph ph-arrow-right"></i>
-            </button>
-            <button class="def-action-btn" data-action="refresh" title="Refresh from URI" ${!definition.sourceUri ? 'disabled' : ''}>
-              <i class="ph ph-arrows-clockwise"></i>
-            </button>
-            <button class="def-action-btn danger" data-action="delete" title="Delete definition">
-              <i class="ph ph-trash"></i>
-            </button>
-          </div>
+          ${actionsHtml}
         </td>
       </tr>
       <tr class="definition-terms-row" data-definition-id="${definition.id}" style="display: none;">
-        <td colspan="8">
+        <td colspan="9">
           <div class="def-terms-expanded">
             <div class="def-terms-header">
               <h4><i class="ph ph-list-numbers"></i> Terms (${termCount})</h4>
@@ -12544,6 +12811,11 @@ class EODataWorkbench {
       this._applyDefinitionsPanelFilters();
     });
 
+    // Status filter
+    contentArea.querySelector('#def-panel-status-filter')?.addEventListener('change', (e) => {
+      this._applyDefinitionsPanelFilters();
+    });
+
     // Row expand buttons
     contentArea.querySelectorAll('.def-row-expand-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -12581,6 +12853,12 @@ class EODataWorkbench {
             break;
           case 'delete':
             this._deleteDefinition(definitionId);
+            break;
+          case 'approve':
+            this._approveDefinition(definitionId);
+            break;
+          case 'dismiss':
+            this._dismissDefinition(definitionId);
             break;
         }
       });
@@ -12670,6 +12948,7 @@ class EODataWorkbench {
   _applyDefinitionsPanelFilters() {
     const formatFilter = document.getElementById('def-panel-format-filter')?.value || '';
     const sourceFilter = document.getElementById('def-panel-source-filter')?.value || '';
+    const statusFilter = document.getElementById('def-panel-status-filter')?.value || '';
     const rows = document.querySelectorAll('.definition-row');
 
     rows.forEach(row => {
@@ -12682,15 +12961,19 @@ class EODataWorkbench {
 
       const defFormat = (def.format || def.type || '').toLowerCase();
       const defSource = def.sourceUri ? 'uri' : 'local';
+      const isPending = this._isDefinitionPending(def);
 
       const formatMatch = !formatFilter || defFormat.includes(formatFilter);
       const sourceMatch = !sourceFilter || defSource === sourceFilter;
+      const statusMatch = !statusFilter ||
+        (statusFilter === 'pending' && isPending) ||
+        (statusFilter === 'active' && !isPending);
 
-      row.style.display = formatMatch && sourceMatch ? '' : 'none';
+      row.style.display = formatMatch && sourceMatch && statusMatch ? '' : 'none';
 
       // Also hide the terms row if definition is hidden
       const termsRow = document.querySelector(`.definition-terms-row[data-definition-id="${definitionId}"]`);
-      if (termsRow && (!formatMatch || !sourceMatch)) {
+      if (termsRow && (!formatMatch || !sourceMatch || !statusMatch)) {
         termsRow.style.display = 'none';
       }
     });
@@ -16067,12 +16350,12 @@ class EODataWorkbench {
       const oldName = set.name;
       set.name = newName.trim();
 
-      // Record activity for activity stream
+      // Record activity for the rename
       this._recordActivity({
         action: 'update',
         entityType: 'set',
         name: set.name,
-        details: `Renamed from "${oldName}"`,
+        details: `Renamed from "${oldName}" to "${newName.trim()}"`,
         canReverse: false
       });
 
@@ -16142,12 +16425,12 @@ class EODataWorkbench {
       });
     }
 
-    // Record activity for activity stream
+    // Record activity for the deletion
     this._recordActivity({
       action: 'delete',
       entityType: 'set',
       name: set.name,
-      details: `${set.records.length} records, ${set.fields.length} fields`,
+      details: `Tossed set with ${set.records.length} records and ${set.fields.length} fields`,
       canReverse: true,
       reverseData: { type: 'restore_tossed', item: { type: 'set', set } }
     });
@@ -16287,6 +16570,14 @@ class EODataWorkbench {
     // Add the new set after the source set
     const sourceIndex = this.sets.findIndex(s => s.id === setId);
     this.sets.splice(sourceIndex + 1, 0, newSet);
+
+    // Record activity for the duplication
+    this._recordActivity({
+      action: 'duplicate',
+      entityType: 'set',
+      name: newSet.name,
+      details: `Duplicated from "${sourceSet.name}" with ${newSet.records.length} records`
+    });
 
     // Switch to the new set
     this.currentSetId = newSet.id;
@@ -23186,6 +23477,30 @@ class EODataWorkbench {
     record.values[fieldId] = value;
     record.updatedAt = new Date().toISOString();
 
+    // Record activity for the field change
+    const field = set.fields.find(f => f.id === fieldId);
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+    const recordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Record';
+
+    // Get display values for old and new (for select fields, show the choice name)
+    let oldDisplayValue = oldValue;
+    let newDisplayValue = value;
+    if (field && (field.type === 'select' || field.type === 'multiSelect') && field.options?.choices) {
+      const oldChoice = field.options.choices.find(c => c.id === oldValue);
+      const newChoice = field.options.choices.find(c => c.id === value);
+      oldDisplayValue = oldChoice?.name || oldValue || 'None';
+      newDisplayValue = newChoice?.name || value || 'None';
+    }
+
+    this._recordActivity({
+      action: 'update',
+      entityType: 'record',
+      name: recordName,
+      details: `Changed "${field?.name || 'field'}" from "${oldDisplayValue || 'empty'}" to "${newDisplayValue || 'empty'}" in "${set.name}"`,
+      canReverse: true,
+      reverseData: { type: 'update_field', recordId, fieldId, oldValue, newValue: value, setId: set.id }
+    });
+
     this._saveData();
   }
 
@@ -25536,14 +25851,14 @@ class EODataWorkbench {
       });
     }
 
-    // Record activity for activity stream
+    // Record activity for the deletion
     const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
     const deletedRecordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Record';
     this._recordActivity({
       action: 'delete',
       entityType: 'record',
       name: deletedRecordName,
-      details: `From set "${set.name}"`,
+      details: `Tossed from "${set.name}"`,
       canReverse: true,
       reverseData: { type: 'restore_tossed', item: { type: 'record', record, setId: set.id } }
     });
@@ -25555,7 +25870,7 @@ class EODataWorkbench {
     this._renderView();
     this._updateTossedBadge();
 
-    // Show undo toast with countdown (reuse primaryField and deletedRecordName from above)
+    // Show undo toast with countdown (reuse deletedRecordName from activity recording above)
     this._showToast(`Tossed record "${deletedRecordName}"`, 'info', {
       countdown: 5000,
       action: {
@@ -25585,6 +25900,16 @@ class EODataWorkbench {
 
     const duplicate = createRecord(set.id, { ...original.values });
     set.records.push(duplicate);
+
+    // Record activity for the duplication
+    const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+    const recordName = primaryField ? (original.values[primaryField.id] || 'Untitled') : 'Record';
+    this._recordActivity({
+      action: 'duplicate',
+      entityType: 'record',
+      name: `${recordName} (Copy)`,
+      details: `Duplicated from "${recordName}" in "${set.name}"`
+    });
 
     this._saveData();
     this._renderView();
@@ -25622,12 +25947,12 @@ class EODataWorkbench {
       type: type
     });
 
-    // Record activity for activity stream
+    // Record activity for the field addition
     this._recordActivity({
       action: 'create',
       entityType: 'field',
       name: field.name,
-      details: `${type} field in set "${set.name}"`,
+      details: `Added ${type} field to "${set.name}"`,
       canReverse: false
     });
 
@@ -25712,12 +26037,12 @@ class EODataWorkbench {
       type: field.type
     });
 
-    // Record activity for activity stream
+    // Record activity for the field deletion
     this._recordActivity({
       action: 'delete',
       entityType: 'field',
       name: field.name,
-      details: `${field.type} field from set "${set.name}"`,
+      details: `Tossed ${field.type} field from "${set.name}"`,
       canReverse: true,
       reverseData: { type: 'restore_tossed', item: { type: 'field', field, fieldValues, setId: set.id } }
     });
@@ -25785,6 +26110,14 @@ class EODataWorkbench {
       this._recordFieldEvent(fieldId, 'field.renamed', {
         name: { from: oldName, to: newName }
       });
+
+      // Record activity for the rename
+      this._recordActivity({
+        action: 'rename',
+        entityType: 'field',
+        name: newName,
+        details: `Renamed from "${oldName}" to "${newName}" in "${set.name}"`
+      });
     }
 
     this._saveData();
@@ -25814,6 +26147,14 @@ class EODataWorkbench {
     // Record field history event
     this._recordFieldEvent(fieldId, 'field.type_changed', {
       type: { from: oldType, to: newType }
+    });
+
+    // Record activity for the type change
+    this._recordActivity({
+      action: 'update',
+      entityType: 'field',
+      name: field.name,
+      details: `Changed type from ${oldType} to ${newType} in "${set.name}"`
     });
 
     // Update the field type
@@ -30533,11 +30874,42 @@ class EODataWorkbench {
   /**
    * Record an activity in the activity log
    * @param {Object} activity - Activity object with action, type, name, details, and optional reverseData
+   *
+   * EO Operator Mapping:
+   *   INS (⊕) - Assert existence: create
+   *   DES (⊙) - Designate identity: rename
+   *   SEG (⊘) - Scope visibility: filter, hide, archive
+   *   CON (⊗) - Connect entities: link, relate
+   *   SYN (≡) - Synthesize identity: duplicate, merge
+   *   ALT (Δ) - Alternate world state: update, change
+   *   SUP (∥) - Superpose interpretations: (not common in UI)
+   *   REC (←) - Record grounding: import, export
+   *   NUL (∅) - Assert meaningful absence: delete, toss
    */
   _recordActivity(activity) {
+    // Map action to EO operator
+    const operatorMap = {
+      'create': 'INS',
+      'update': 'ALT',
+      'delete': 'NUL',
+      'rename': 'DES',
+      'duplicate': 'SYN',
+      'restore': 'INS',
+      'link': 'CON',
+      'import': 'REC',
+      'export': 'REC',
+      'filter': 'SEG',
+      'archive': 'SEG'
+    };
+
+    const operator = activity.operator || operatorMap[activity.action] || 'ALT';
+
     const activityEntry = {
       id: `act_${Date.now().toString(36)}_${Math.random().toString(36).substr(2, 6)}`,
       timestamp: new Date().toISOString(),
+      op: operator,  // EO operator
+      actor: 'user',
+      target: activity.entityType,
       ...activity
     };
 
