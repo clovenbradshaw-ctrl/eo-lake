@@ -2230,12 +2230,18 @@ class ImportOrchestrator {
       populationMethod: defSource.populationMethod || 'pending',
       terms: [term],
 
-      // Track origin
+      // Track origin - includes all source field properties for matching
       discoveredFrom: {
         sourceId: source?.id || defSource.discoveredFrom?.sourceId,
         sourceName: source?.name || defSource.discoveredFrom?.sourceName,
+        fieldId: defSource.discoveredFrom?.fieldId || defSource.term?.term,
         fieldName: defSource.discoveredFrom?.fieldName || defSource.term?.term,
         fieldType: defSource.discoveredFrom?.fieldType,
+        fieldConfidence: defSource.discoveredFrom?.fieldConfidence ?? null,
+        fieldIsPrimary: defSource.discoveredFrom?.fieldIsPrimary ?? null,
+        fieldSamples: defSource.discoveredFrom?.fieldSamples || null,
+        fieldOptions: defSource.discoveredFrom?.fieldOptions || null,
+        fieldUniqueValues: defSource.discoveredFrom?.fieldUniqueValues || null,
         discoveredAt: defSource.discoveredFrom?.discoveredAt || new Date().toISOString()
       },
 
@@ -2249,7 +2255,8 @@ class ImportOrchestrator {
         jurisdiction: defSource.jurisdiction || null,
         status: defSource.status,
         populationMethod: defSource.populationMethod,
-        apiSuggestions: defSource.apiSuggestions || []
+        apiSuggestions: defSource.apiSuggestions || [],
+        discoveredFrom: defSource.discoveredFrom || null
       }
     };
   }

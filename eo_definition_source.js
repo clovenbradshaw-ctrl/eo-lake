@@ -189,13 +189,24 @@ const DefinitionSourceSchema = Object.freeze({
     },
     "discoveredFrom": {
       "type": "object",
-      "description": "Origin of this definition - the source/field where the key was first discovered",
+      "description": "Origin of this definition - the source/field where the key was first discovered, including all source field properties for matching",
       "properties": {
         "sourceId": { "type": "string", "description": "ID of the data source" },
         "sourceName": { "type": "string", "description": "Name of the data source" },
         "fieldId": { "type": "string", "description": "ID of the field in the source" },
         "fieldName": { "type": "string", "description": "Name of the field" },
         "fieldType": { "type": "string", "description": "Data type of the field" },
+        "fieldConfidence": { "type": "number", "description": "Type inference confidence (0-1)" },
+        "fieldIsPrimary": { "type": "boolean", "description": "Whether this is the primary/key field" },
+        "fieldSamples": { "type": "array", "items": { "type": "string" }, "description": "Sample values from the field" },
+        "fieldOptions": { "type": "object", "description": "Field options (e.g., choices for SELECT fields)", "properties": {
+          "choices": { "type": "array", "items": { "type": "object", "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "color": { "type": "string" }
+          }}}
+        }},
+        "fieldUniqueValues": { "type": "array", "items": { "type": "string" }, "description": "Unique values found in the field" },
         "discoveredAt": { "type": "string", "format": "date-time", "description": "When the key was discovered" }
       }
     },
@@ -298,12 +309,18 @@ class DefinitionSource {
     this.populationMethod = data.populationMethod || PopulationMethod.PENDING;
 
     // NEW: Discovery origin - where this key was first found
+    // Includes all source field properties for matching
     this.discoveredFrom = data.discoveredFrom ? {
       sourceId: data.discoveredFrom.sourceId || null,
       sourceName: data.discoveredFrom.sourceName || null,
       fieldId: data.discoveredFrom.fieldId || null,
       fieldName: data.discoveredFrom.fieldName || null,
       fieldType: data.discoveredFrom.fieldType || null,
+      fieldConfidence: data.discoveredFrom.fieldConfidence ?? null,
+      fieldIsPrimary: data.discoveredFrom.fieldIsPrimary ?? null,
+      fieldSamples: Array.isArray(data.discoveredFrom.fieldSamples) ? [...data.discoveredFrom.fieldSamples] : null,
+      fieldOptions: data.discoveredFrom.fieldOptions ? { ...data.discoveredFrom.fieldOptions } : null,
+      fieldUniqueValues: Array.isArray(data.discoveredFrom.fieldUniqueValues) ? [...data.discoveredFrom.fieldUniqueValues] : null,
       discoveredAt: data.discoveredFrom.discoveredAt || new Date().toISOString()
     } : null;
 
@@ -759,6 +776,11 @@ function createHUDAffordableHousingDefinition(options = {}) {
  * @param {string} options.term - The key/field name (required)
  * @param {string} options.label - Human readable label (auto-generated if not provided)
  * @param {string} options.fieldType - Data type of the field
+ * @param {number} options.fieldConfidence - Type inference confidence (0-1)
+ * @param {boolean} options.fieldIsPrimary - Whether this is the primary/key field
+ * @param {string[]} options.fieldSamples - Sample values from the field
+ * @param {Object} options.fieldOptions - Field options (e.g., choices for SELECT fields)
+ * @param {string[]} options.fieldUniqueValues - Unique values found in the field
  * @param {Object} options.discoveredFrom - Origin source/field info
  * @returns {DefinitionSource}
  */
@@ -766,6 +788,18 @@ function createStubDefinition(options = {}) {
   if (!options.term) {
     throw new Error('createStubDefinition requires a term');
   }
+
+  // Build discoveredFrom with all source field properties for matching
+  const discoveredFrom = options.discoveredFrom ? {
+    ...options.discoveredFrom,
+    // Ensure all field properties are included
+    fieldType: options.discoveredFrom.fieldType || options.fieldType || null,
+    fieldConfidence: options.discoveredFrom.fieldConfidence ?? options.fieldConfidence ?? null,
+    fieldIsPrimary: options.discoveredFrom.fieldIsPrimary ?? options.fieldIsPrimary ?? null,
+    fieldSamples: options.discoveredFrom.fieldSamples || options.fieldSamples || null,
+    fieldOptions: options.discoveredFrom.fieldOptions || options.fieldOptions || null,
+    fieldUniqueValues: options.discoveredFrom.fieldUniqueValues || options.fieldUniqueValues || null
+  } : null;
 
   return new DefinitionSource({
     status: DefinitionStatus.STUB,
@@ -777,13 +811,14 @@ function createStubDefinition(options = {}) {
       asWritten: null,
       categories: null
     },
-    discoveredFrom: options.discoveredFrom || null,
+    discoveredFrom: discoveredFrom,
     apiSuggestions: []
   }, { allowStub: true });
 }
 
 /**
  * Create stub definitions for all fields in a source
+ * Passes all source field properties to definitions for matching
  * @param {Object} source - Source object with schema.fields
  * @returns {DefinitionSource[]}
  */
@@ -793,15 +828,34 @@ function createStubDefinitionsForSource(source) {
   }
 
   return source.schema.fields.map(field => {
+    // Extract unique values from samples or options.choices
+    let fieldUniqueValues = null;
+    if (field.options?.choices && Array.isArray(field.options.choices)) {
+      fieldUniqueValues = field.options.choices.map(c => c.name);
+    } else if (field.samples && Array.isArray(field.samples)) {
+      // Use samples as unique values if no choices
+      fieldUniqueValues = [...new Set(field.samples.map(String))];
+    }
+
     return createStubDefinition({
       term: field.name,
       fieldType: field.type,
+      fieldConfidence: field.confidence,
+      fieldIsPrimary: field.isPrimary,
+      fieldSamples: field.samples,
+      fieldOptions: field.options,
+      fieldUniqueValues: fieldUniqueValues,
       discoveredFrom: {
         sourceId: source.id,
         sourceName: source.name,
         fieldId: field.id || field.name,
         fieldName: field.name,
         fieldType: field.type,
+        fieldConfidence: field.confidence,
+        fieldIsPrimary: field.isPrimary,
+        fieldSamples: field.samples,
+        fieldOptions: field.options,
+        fieldUniqueValues: fieldUniqueValues,
         discoveredAt: new Date().toISOString()
       }
     });
