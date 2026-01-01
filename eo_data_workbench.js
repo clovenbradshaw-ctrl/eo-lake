@@ -714,11 +714,20 @@ class EODataWorkbench {
       return null;
     }
 
+    // Check if we're currently on a newTab (to close it after opening the new tab)
+    const currentTab = this.getActiveTab();
+    const wasOnNewTab = currentTab?.type === 'newTab';
+    const newTabIdToClose = wasOnNewTab ? currentTab.id : null;
+
     // For singleton tabs, check if already open and just activate it
     if (tabType.singleton) {
       const existingTab = this.browserTabs.find(t => t.type === type);
       if (existingTab) {
         this.activateTab(existingTab.id);
+        // Close the newTab we were on (like browser behavior)
+        if (newTabIdToClose) {
+          this._removeNewTab(newTabIdToClose);
+        }
         return existingTab;
       }
     }
@@ -728,6 +737,10 @@ class EODataWorkbench {
       const existingTab = this.browserTabs.find(t => t.type === type && t.contentId === options.contentId);
       if (existingTab) {
         this.activateTab(existingTab.id);
+        // Close the newTab we were on (like browser behavior)
+        if (newTabIdToClose) {
+          this._removeNewTab(newTabIdToClose);
+        }
         return existingTab;
       }
     }
@@ -757,7 +770,25 @@ class EODataWorkbench {
     // Activate the new tab
     this.activateTab(tab.id);
 
+    // Close the newTab we were on (like browser behavior - new tab page gets replaced)
+    if (newTabIdToClose) {
+      this._removeNewTab(newTabIdToClose);
+    }
+
     return tab;
+  }
+
+  /**
+   * Remove a newTab from browserTabs without going through closeTab
+   * This is used when navigating away from the new tab page
+   */
+  _removeNewTab(tabId) {
+    const tabIndex = this.browserTabs.findIndex(t => t.id === tabId);
+    if (tabIndex !== -1) {
+      this.browserTabs.splice(tabIndex, 1);
+      // Re-render tab bar to reflect the removal
+      this._renderBrowserTabBar();
+    }
   }
 
   /**
