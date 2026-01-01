@@ -7974,6 +7974,72 @@ class EODataWorkbench {
   }
 
   /**
+   * Save a definition created by the Definition Builder
+   * Handles the comprehensive 9-parameter definition format
+   */
+  _saveBuiltDefinition(def) {
+    if (!def?.referent?.term) {
+      this._showNotification('Definition must have a term', 'error');
+      return;
+    }
+
+    const id = 'def_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+
+    // Convert the 9-parameter format to internal definition format
+    const definition = {
+      id: id,
+      name: def.referent?.label || def.referent?.term,
+      key: def.referent?.term,
+      description: def.scopeNote || '',
+      sourceUri: def.source?.url || null,
+      citation: def.source?.citation || null,
+      format: 'eo-definition',
+      importedAt: new Date().toISOString(),
+      status: 'active',
+
+      // 9-parameter definition data
+      eoDefinition: {
+        referent: def.referent,
+        authority: def.authority,
+        source: def.source,
+        derivation: def.derivation,
+        predicate: def.predicate,
+        frame: def.frame,
+        validity: def.validity,
+        jurisdiction: def.jurisdiction,
+        parameters: def.parameters,
+        scopeNote: def.scopeNote,
+        provenance: def.provenance,
+        epistemicStance: def.epistemicStance
+      },
+
+      // Create a single term from the referent
+      terms: [{
+        id: def.referent?.term,
+        term: def.referent?.term,
+        label: def.referent?.label || def.referent?.term,
+        definition: def.scopeNote || '',
+        dataType: def.referent?.dataType || 'string',
+        level: def.referent?.level || 'key',
+        operator: def.derivation?.operator || 'PROJECT',
+        predicate: def.predicate
+      }]
+    };
+
+    // Add to project if applicable
+    this.definitions = this.definitions || [];
+    this.definitions.push(definition);
+
+    // Add to current project
+    this._addDefinitionToProject(id);
+
+    this._saveData();
+    this._renderDefinitionsNav();
+    this._showDefinitionDetail(id);
+    this._showNotification(`Created definition: ${definition.name}`, 'success');
+  }
+
+  /**
    * Refresh definition from its source URI
    */
   async _refreshDefinitionFromUri(definitionId) {
@@ -25227,7 +25293,21 @@ class EODataWorkbench {
           this._showImportModal();
           break;
         case 'definition':
-          this._showImportDefinitionModal();
+          // Use the new comprehensive Definition Builder
+          if (typeof showDefinitionBuilderModal === 'function') {
+            const currentSet = this.getCurrentSet();
+            showDefinitionBuilderModal({
+              frameId: currentSet?.id || 'default',
+              frameName: currentSet?.name || 'Default',
+              user: window.currentAgent?.name || 'anonymous',
+              intent: 'analysis',
+              onSave: (definition) => {
+                this._saveBuiltDefinition(definition);
+              }
+            });
+          } else {
+            this._showImportDefinitionModal();
+          }
           break;
         case 'set':
           this._showNewSetModal();
