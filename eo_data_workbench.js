@@ -559,12 +559,15 @@ class EODataWorkbench {
     // File Explorer state
     this.fileExplorerMode = false; // Whether file explorer is active
     this.fileExplorerViewMode = 'list'; // 'tree', 'list', 'grid'
+    this.fileExplorerContentMode = 'sources'; // 'sources' or 'sets' - what type of items to show
     this.fileExplorerCurrentFolder = null; // Current folder ID (null = root)
     this.fileExplorerSelectedSource = null; // Currently selected source for preview
+    this.fileExplorerSelectedSet = null; // Currently selected set for preview
     this.fileExplorerSearchTerm = ''; // Search filter
     this.fileExplorerActiveFilter = 'smart_all'; // Active smart folder or tag filter
     this.fileExplorerExpandedFolders = new Set(); // Track expanded folders in tree view
     this.fileExplorerSelectedSources = new Set(); // Track multi-selected sources for batch operations
+    this.fileExplorerSelectedSets = new Set(); // Track multi-selected sets for batch operations
 
     // Browser-Style Tab Manager - Everything is a tab like Chrome
     this.browserTabs = []; // Array of all open tabs
@@ -13980,12 +13983,20 @@ class EODataWorkbench {
     const contentArea = this.elements.contentArea;
     if (!contentArea) return;
 
-    // Get all active sources
+    // Get all active sources and sets
     const allSources = this._getFileExplorerSources();
     const filteredSources = this._filterFileExplorerSources(allSources);
+    const allSets = this._getFileExplorerSets();
+    const filteredSets = this._filterFileExplorerSets(allSets);
     const folders = this.folderStore?.getAll() || [];
     const tags = this.folderStore?.getAllTags() || [];
-    const smartFolders = this.folderStore?.getSmartFolders() || [];
+    const smartFolders = this.fileExplorerContentMode === 'sources'
+      ? (this.folderStore?.getSmartFolders() || [])
+      : this._getSetSmartFolders();
+
+    // Choose data based on content mode
+    const allItems = this.fileExplorerContentMode === 'sources' ? allSources : allSets;
+    const filteredItems = this.fileExplorerContentMode === 'sources' ? filteredSources : filteredSets;
 
     contentArea.innerHTML = `
       <div class="file-explorer">
@@ -13998,13 +14009,26 @@ class EODataWorkbench {
             <div class="file-explorer-title">
               <i class="ph ph-folder-open"></i>
               <span>File Explorer</span>
-              <span class="file-explorer-badge">SOURCES</span>
+            </div>
+            <div class="file-explorer-content-toggle">
+              <button class="fe-content-tab ${this.fileExplorerContentMode === 'sources' ? 'active' : ''}"
+                      data-content-mode="sources">
+                <i class="ph ph-file-csv"></i>
+                <span>Sources</span>
+                <span class="fe-content-badge given">GIVEN</span>
+              </button>
+              <button class="fe-content-tab ${this.fileExplorerContentMode === 'sets' ? 'active' : ''}"
+                      data-content-mode="sets">
+                <i class="ph ph-database"></i>
+                <span>Sets</span>
+                <span class="fe-content-badge schema">SCHEMA</span>
+              </button>
             </div>
           </div>
           <div class="file-explorer-toolbar-center">
             <div class="file-explorer-search">
               <i class="ph ph-magnifying-glass"></i>
-              <input type="text" id="fe-search" placeholder="Search sources..."
+              <input type="text" id="fe-search" placeholder="Search ${this.fileExplorerContentMode}..."
                      value="${this._escapeHtml(this.fileExplorerSearchTerm)}">
               ${this.fileExplorerSearchTerm ? '<button class="fe-search-clear" id="fe-search-clear"><i class="ph ph-x"></i></button>' : ''}
             </div>
@@ -14026,13 +14050,13 @@ class EODataWorkbench {
             </div>
             <button class="file-explorer-import-btn" id="fe-import-btn">
               <i class="ph ph-plus"></i>
-              <span>Import</span>
+              <span>${this.fileExplorerContentMode === 'sets' ? 'New Set' : 'Import'}</span>
             </button>
           </div>
         </div>
 
-        <!-- Selection Toolbar (shown when sources are selected) -->
-        ${this.fileExplorerSelectedSources.size > 0 ? `
+        <!-- Selection Toolbar (shown when items are selected) -->
+        ${this.fileExplorerContentMode === 'sources' && this.fileExplorerSelectedSources.size > 0 ? `
           <div class="file-explorer-selection-bar">
             <div class="fe-selection-info">
               <button class="fe-selection-clear" id="fe-clear-selection" title="Clear selection">
@@ -14056,6 +14080,26 @@ class EODataWorkbench {
             </div>
           </div>
         ` : ''}
+        ${this.fileExplorerContentMode === 'sets' && this.fileExplorerSelectedSets.size > 0 ? `
+          <div class="file-explorer-selection-bar">
+            <div class="fe-selection-info">
+              <button class="fe-selection-clear" id="fe-clear-set-selection" title="Clear selection">
+                <i class="ph ph-x"></i>
+              </button>
+              <span class="fe-selection-count">${this.fileExplorerSelectedSets.size} set${this.fileExplorerSelectedSets.size !== 1 ? 's' : ''} selected</span>
+            </div>
+            <div class="fe-selection-actions">
+              <button class="fe-selection-action secondary" id="fe-export-selected-sets">
+                <i class="ph ph-export"></i>
+                <span>Export</span>
+              </button>
+              <button class="fe-selection-action danger" id="fe-delete-selected-sets">
+                <i class="ph ph-trash"></i>
+                <span>Delete</span>
+              </button>
+            </div>
+          </div>
+        ` : ''}
 
         <!-- Main Content -->
         <div class="file-explorer-main">
@@ -14068,7 +14112,7 @@ class EODataWorkbench {
               </div>
               <div class="fe-sidebar-items">
                 ${smartFolders.map(sf => {
-                  const count = allSources.filter(sf.filter).length;
+                  const count = allItems.filter(sf.filter).length;
                   const isActive = this.fileExplorerActiveFilter === sf.id;
                   return `
                     <div class="fe-sidebar-item ${isActive ? 'active' : ''}"
@@ -14082,7 +14126,8 @@ class EODataWorkbench {
               </div>
             </div>
 
-            <!-- Folders -->
+            ${this.fileExplorerContentMode === 'sources' ? `
+            <!-- Folders (only for sources) -->
             <div class="fe-sidebar-section">
               <div class="fe-sidebar-section-header">
                 <span>Folders</span>
@@ -14099,6 +14144,7 @@ class EODataWorkbench {
                 ` : ''}
               </div>
             </div>
+            ` : ''}
 
             <!-- Tags -->
             <div class="fe-sidebar-section">
@@ -14110,7 +14156,7 @@ class EODataWorkbench {
               </div>
               <div class="fe-sidebar-items" id="fe-tag-list">
                 ${tags.map(tag => {
-                  const count = allSources.filter(s => (s.tags || []).includes(tag.id)).length;
+                  const count = allItems.filter(s => (s.tags || []).includes(tag.id)).length;
                   const isActive = this.fileExplorerActiveFilter === `tag_${tag.id}`;
                   return `
                     <div class="fe-sidebar-item ${isActive ? 'active' : ''}"
@@ -14137,19 +14183,28 @@ class EODataWorkbench {
               ${this._renderFileExplorerBreadcrumb()}
             </div>
 
-            <!-- Sources Display -->
+            <!-- Items Display -->
             <div class="fe-content-sources" id="fe-sources-container">
-              ${this._renderFileExplorerContent(filteredSources, folders)}
+              ${this.fileExplorerContentMode === 'sources'
+                ? this._renderFileExplorerContent(filteredItems, folders)
+                : this._renderFileExplorerSetsContent(filteredItems)}
             </div>
           </div>
 
           <!-- Preview Panel -->
-          <div class="file-explorer-preview ${this.fileExplorerSelectedSource ? 'visible' : ''}" id="fe-preview-panel">
-            ${this.fileExplorerSelectedSource ? this._renderFileExplorerPreview(this.fileExplorerSelectedSource) : `
-              <div class="fe-preview-empty">
-                <i class="ph ph-file-magnifying-glass"></i>
-                <span>Select a source to preview</span>
-              </div>
+          <div class="file-explorer-preview ${(this.fileExplorerContentMode === 'sources' ? this.fileExplorerSelectedSource : this.fileExplorerSelectedSet) ? 'visible' : ''}" id="fe-preview-panel">
+            ${this.fileExplorerContentMode === 'sources' ?
+              (this.fileExplorerSelectedSource ? this._renderFileExplorerPreview(this.fileExplorerSelectedSource) : `
+                <div class="fe-preview-empty">
+                  <i class="ph ph-file-magnifying-glass"></i>
+                  <span>Select a source to preview</span>
+                </div>`)
+              :
+              (this.fileExplorerSelectedSet ? this._renderFileExplorerSetPreview(this.fileExplorerSelectedSet) : `
+                <div class="fe-preview-empty">
+                  <i class="ph ph-database"></i>
+                  <span>Select a set to preview</span>
+                </div>`)
             `}
           </div>
         </div>
@@ -14275,6 +14330,481 @@ class EODataWorkbench {
     }
 
     return filtered;
+  }
+
+  /**
+   * Get sets for file explorer
+   */
+  _getFileExplorerSets() {
+    const sets = this._getProjectSets() || [];
+
+    return sets.map(set => {
+      const derivationInfo = this._getSetDerivationInfo(set);
+      return {
+        id: set.id,
+        name: set.name,
+        icon: set.icon || 'ph-database',
+        recordCount: set.records?.length || 0,
+        fieldCount: set.fields?.length || 0,
+        viewCount: set.views?.length || 0,
+        lensCount: set.lenses?.length || 0,
+        createdAt: set.createdAt,
+        updatedAt: set.updatedAt,
+        tags: set.tags || [],
+        isFavorite: set.isFavorite || false,
+        operator: derivationInfo.operator,
+        operatorIcon: derivationInfo.icon,
+        operatorColor: derivationInfo.color,
+        sourceName: this._getSetSourceName(set),
+        stabilityLevel: set.stabilityLevel || 'instance'
+      };
+    }).sort((a, b) => {
+      if (!a.createdAt) return 1;
+      if (!b.createdAt) return -1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+  }
+
+  /**
+   * Filter sets based on current filter
+   */
+  _filterFileExplorerSets(sets) {
+    let filtered = sets;
+
+    // Apply smart folder or tag filter
+    if (this.fileExplorerActiveFilter) {
+      if (this.fileExplorerActiveFilter.startsWith('tag_')) {
+        const tagId = this.fileExplorerActiveFilter.replace('tag_', '');
+        filtered = sets.filter(s => (s.tags || []).includes(tagId));
+      } else {
+        // Smart folder filter for sets
+        const smartFolder = this._getSetSmartFolders().find(sf => sf.id === this.fileExplorerActiveFilter);
+        if (smartFolder) {
+          filtered = sets.filter(smartFolder.filter);
+        }
+      }
+    }
+
+    // Apply search filter
+    if (this.fileExplorerSearchTerm) {
+      const term = this.fileExplorerSearchTerm.toLowerCase();
+      filtered = filtered.filter(s =>
+        s.name.toLowerCase().includes(term) ||
+        (s.sourceName && s.sourceName.toLowerCase().includes(term)) ||
+        (s.tags || []).some(t => t.toLowerCase().includes(term))
+      );
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Get smart folders for sets view
+   */
+  _getSetSmartFolders() {
+    return [
+      {
+        id: 'smart_all',
+        name: 'All Sets',
+        icon: 'ph-database',
+        type: 'smart',
+        filter: () => true
+      },
+      {
+        id: 'smart_recent',
+        name: 'Recent',
+        icon: 'ph-clock',
+        type: 'smart',
+        filter: (set) => {
+          const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+          return new Date(set.createdAt).getTime() > weekAgo;
+        }
+      },
+      {
+        id: 'smart_favorites',
+        name: 'Favorites',
+        icon: 'ph-star',
+        type: 'smart',
+        filter: (set) => set.isFavorite === true
+      },
+      {
+        id: 'smart_large',
+        name: 'Large Sets',
+        icon: 'ph-file-magnifying-glass',
+        type: 'smart',
+        filter: (set) => set.recordCount > 1000
+      },
+      {
+        id: 'smart_with_views',
+        name: 'With Views',
+        icon: 'ph-layout',
+        type: 'smart',
+        filter: (set) => set.viewCount > 1
+      },
+      {
+        id: 'smart_with_lenses',
+        name: 'With Lenses',
+        icon: 'ph-binoculars',
+        type: 'smart',
+        filter: (set) => set.lensCount > 0
+      }
+    ];
+  }
+
+  /**
+   * Render sets content in file explorer
+   */
+  _renderFileExplorerSetsContent(sets) {
+    if (sets.length === 0) {
+      return `
+        <div class="fe-empty-state">
+          <i class="ph ph-database"></i>
+          <h3>No Sets Found</h3>
+          <p>${this.fileExplorerSearchTerm ? 'Try a different search term' : 'Create a set to get started'}</p>
+          <button class="btn btn-primary" id="fe-empty-create-set-btn">
+            <i class="ph ph-plus"></i> New Set
+          </button>
+        </div>
+      `;
+    }
+
+    switch (this.fileExplorerViewMode) {
+      case 'tree':
+        return this._renderFileExplorerSetsTreeView(sets);
+      case 'grid':
+        return this._renderFileExplorerSetsGridView(sets);
+      default:
+        return this._renderFileExplorerSetsListView(sets);
+    }
+  }
+
+  /**
+   * Render sets list view
+   */
+  _renderFileExplorerSetsListView(sets) {
+    const allSelected = sets.length > 0 && sets.every(s => this.fileExplorerSelectedSets.has(s.id));
+    const someSelected = sets.some(s => this.fileExplorerSelectedSets.has(s.id));
+
+    return `
+      <div class="fe-list-view">
+        <div class="fe-list-header">
+          <div class="fe-list-col fe-list-col-checkbox">
+            <input type="checkbox" class="fe-select-all-checkbox" id="fe-select-all-sets"
+                   ${allSelected ? 'checked' : ''}
+                   ${someSelected && !allSelected ? 'data-indeterminate="true"' : ''}>
+          </div>
+          <div class="fe-list-col fe-list-col-name">Name</div>
+          <div class="fe-list-col fe-list-col-type">Operator</div>
+          <div class="fe-list-col fe-list-col-rows">Records</div>
+          <div class="fe-list-col fe-list-col-date">Created</div>
+          <div class="fe-list-col fe-list-col-tags">Tags</div>
+          <div class="fe-list-col fe-list-col-actions"></div>
+        </div>
+        <div class="fe-list-body">
+          ${sets.map(set => this._renderFileExplorerSetListRow(set)).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render a set row in list view
+   */
+  _renderFileExplorerSetListRow(set) {
+    const isSelected = this.fileExplorerSelectedSet?.id === set.id;
+    const isChecked = this.fileExplorerSelectedSets.has(set.id);
+    const createdDate = set.createdAt ? new Date(set.createdAt).toLocaleDateString() : 'Unknown';
+    const tags = set.tags || [];
+
+    return `
+      <div class="fe-list-row ${isSelected ? 'selected' : ''} ${isChecked ? 'checked' : ''}"
+           data-set-id="${set.id}" draggable="true">
+        <div class="fe-list-col fe-list-col-checkbox">
+          <input type="checkbox" class="fe-set-checkbox" data-set-id="${set.id}"
+                 ${isChecked ? 'checked' : ''}>
+        </div>
+        <div class="fe-list-col fe-list-col-name">
+          <i class="ph ${set.icon}"></i>
+          <span class="fe-list-source-name">${this._escapeHtml(set.name)}</span>
+          ${set.isFavorite ? '<i class="ph ph-star-fill fe-favorite-icon"></i>' : ''}
+        </div>
+        <div class="fe-list-col fe-list-col-type">
+          <span class="fe-operator-badge" style="background: ${set.operatorColor || 'var(--accent)'}">${set.operator || 'SET'}</span>
+        </div>
+        <div class="fe-list-col fe-list-col-rows">${set.recordCount.toLocaleString()}</div>
+        <div class="fe-list-col fe-list-col-date">${createdDate}</div>
+        <div class="fe-list-col fe-list-col-tags">
+          ${tags.slice(0, 3).map(tagId => {
+            const tag = this.folderStore?.getTag(tagId);
+            return tag ? `<span class="fe-tag-mini" style="background: var(--tag-${tag.color})">${this._escapeHtml(tag.name)}</span>` : '';
+          }).join('')}
+          ${tags.length > 3 ? `<span class="fe-tag-more">+${tags.length - 3}</span>` : ''}
+        </div>
+        <div class="fe-list-col fe-list-col-actions">
+          <button class="fe-row-action" data-action="favorite" title="${set.isFavorite ? 'Remove from favorites' : 'Add to favorites'}">
+            <i class="ph ${set.isFavorite ? 'ph-star-fill' : 'ph-star'}"></i>
+          </button>
+          <button class="fe-row-action" data-action="menu" title="More actions">
+            <i class="ph ph-dots-three"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render sets grid view
+   */
+  _renderFileExplorerSetsGridView(sets) {
+    return `
+      <div class="fe-grid-view">
+        ${sets.map(set => this._renderFileExplorerSetGridCard(set)).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * Render a set card in grid view
+   */
+  _renderFileExplorerSetGridCard(set) {
+    const isSelected = this.fileExplorerSelectedSet?.id === set.id;
+    const isChecked = this.fileExplorerSelectedSets.has(set.id);
+    const createdDate = set.createdAt ? new Date(set.createdAt).toLocaleDateString() : 'Unknown';
+    const tags = set.tags || [];
+
+    return `
+      <div class="fe-grid-card ${isSelected ? 'selected' : ''} ${isChecked ? 'checked' : ''}"
+           data-set-id="${set.id}" draggable="true">
+        <div class="fe-grid-card-header">
+          <input type="checkbox" class="fe-set-checkbox" data-set-id="${set.id}"
+                 ${isChecked ? 'checked' : ''}>
+          <button class="fe-grid-menu-btn" data-action="menu">
+            <i class="ph ph-dots-three"></i>
+          </button>
+        </div>
+        <div class="fe-grid-card-icon">
+          <i class="ph ${set.icon}"></i>
+        </div>
+        <div class="fe-grid-card-name">${this._escapeHtml(set.name)}</div>
+        <div class="fe-grid-card-meta">
+          <span class="fe-operator-badge" style="background: ${set.operatorColor || 'var(--accent)'}">${set.operator || 'SET'}</span>
+          <span>${set.recordCount.toLocaleString()} records</span>
+        </div>
+        <div class="fe-grid-card-stats">
+          <span><i class="ph ph-columns"></i> ${set.fieldCount} fields</span>
+          <span><i class="ph ph-layout"></i> ${set.viewCount} views</span>
+          ${set.lensCount > 0 ? `<span><i class="ph ph-binoculars"></i> ${set.lensCount} lenses</span>` : ''}
+        </div>
+        <div class="fe-grid-card-footer">
+          <span class="fe-grid-card-date">${createdDate}</span>
+          ${tags.length > 0 ? `
+            <div class="fe-grid-card-tags">
+              ${tags.slice(0, 2).map(tagId => {
+                const tag = this.folderStore?.getTag(tagId);
+                return tag ? `<span class="fe-tag-mini" style="background: var(--tag-${tag.color})">${this._escapeHtml(tag.name)}</span>` : '';
+              }).join('')}
+              ${tags.length > 2 ? `<span class="fe-tag-more">+${tags.length - 2}</span>` : ''}
+            </div>
+          ` : ''}
+        </div>
+        ${set.isFavorite ? '<i class="ph ph-star-fill fe-grid-favorite-icon"></i>' : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * Render sets tree view (hierarchical by source)
+   */
+  _renderFileExplorerSetsTreeView(sets) {
+    // Group sets by source name
+    const groupedSets = {};
+    const unorganizedSets = [];
+
+    for (const set of sets) {
+      if (set.sourceName) {
+        if (!groupedSets[set.sourceName]) {
+          groupedSets[set.sourceName] = [];
+        }
+        groupedSets[set.sourceName].push(set);
+      } else {
+        unorganizedSets.push(set);
+      }
+    }
+
+    let html = '<div class="fe-tree-view">';
+
+    // Render grouped sets by source
+    for (const [sourceName, sourceSets] of Object.entries(groupedSets)) {
+      const isExpanded = this.fileExplorerExpandedFolders.has(`source_${sourceName}`);
+      html += `
+        <div class="fe-tree-folder ${isExpanded ? 'expanded' : ''}">
+          <div class="fe-tree-folder-header" data-folder-id="source_${sourceName}">
+            <button class="fe-tree-toggle">
+              <i class="ph ph-caret-right"></i>
+            </button>
+            <i class="ph ph-file-csv"></i>
+            <span class="fe-tree-folder-name">${this._escapeHtml(sourceName)}</span>
+            <span class="fe-tree-folder-count">${sourceSets.length}</span>
+          </div>
+          <div class="fe-tree-folder-content" style="${isExpanded ? '' : 'display: none'}">
+            ${sourceSets.map(set => this._renderFileExplorerSetTreeItem(set)).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    // Render unorganized sets
+    if (unorganizedSets.length > 0) {
+      html += '<div class="fe-tree-section">';
+      for (const set of unorganizedSets) {
+        html += this._renderFileExplorerSetTreeItem(set);
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+
+  /**
+   * Render a set item in tree view
+   */
+  _renderFileExplorerSetTreeItem(set) {
+    const isSelected = this.fileExplorerSelectedSet?.id === set.id;
+
+    return `
+      <div class="fe-tree-source ${isSelected ? 'selected' : ''}"
+           data-set-id="${set.id}" draggable="true">
+        <i class="ph ${set.icon}"></i>
+        <span class="fe-tree-source-name">${this._escapeHtml(set.name)}</span>
+        <span class="fe-operator-badge small" style="background: ${set.operatorColor || 'var(--accent)'}">${set.operator || 'SET'}</span>
+        <span class="fe-tree-source-meta">${set.recordCount} rows</span>
+        ${set.isFavorite ? '<i class="ph ph-star-fill fe-favorite-icon"></i>' : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * Render set preview in file explorer
+   */
+  _renderFileExplorerSetPreview(set) {
+    const createdDate = set.createdAt ? new Date(set.createdAt).toLocaleString() : 'Unknown';
+    const updatedDate = set.updatedAt ? new Date(set.updatedAt).toLocaleString() : createdDate;
+    const tags = set.tags || [];
+    const allTags = this.folderStore?.getAllTags() || [];
+
+    // Get full set data for fields
+    const fullSet = this.sets.find(s => s.id === set.id);
+    const fields = fullSet?.fields || [];
+
+    return `
+      <div class="fe-preview-content">
+        <div class="fe-preview-header">
+          <div class="fe-preview-icon">
+            <i class="ph ${set.icon}"></i>
+          </div>
+          <div class="fe-preview-title">
+            <h3>${this._escapeHtml(set.name)}</h3>
+            <span class="fe-preview-badge schema">SCHEMA</span>
+          </div>
+          <button class="fe-preview-close" id="fe-preview-close">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+
+        <div class="fe-preview-stats">
+          <div class="fe-preview-stat">
+            <span class="fe-preview-stat-value">${set.recordCount.toLocaleString()}</span>
+            <span class="fe-preview-stat-label">Records</span>
+          </div>
+          <div class="fe-preview-stat">
+            <span class="fe-preview-stat-value">${set.fieldCount}</span>
+            <span class="fe-preview-stat-label">Fields</span>
+          </div>
+          <div class="fe-preview-stat">
+            <span class="fe-preview-stat-value">${set.viewCount}</span>
+            <span class="fe-preview-stat-label">Views</span>
+          </div>
+          <div class="fe-preview-stat">
+            <span class="fe-preview-stat-value">${set.lensCount}</span>
+            <span class="fe-preview-stat-label">Lenses</span>
+          </div>
+        </div>
+
+        <div class="fe-preview-section">
+          <div class="fe-preview-section-header">
+            <i class="ph ph-funnel"></i>
+            <span>Operator</span>
+          </div>
+          <div class="fe-preview-section-content">
+            <span class="fe-operator-badge" style="background: ${set.operatorColor || 'var(--accent)'}">${set.operator || 'SET'}</span>
+            ${set.sourceName ? `<span class="fe-preview-source">from ${this._escapeHtml(set.sourceName)}</span>` : ''}
+          </div>
+        </div>
+
+        <div class="fe-preview-section">
+          <div class="fe-preview-section-header">
+            <i class="ph ph-clock"></i>
+            <span>Created</span>
+          </div>
+          <div class="fe-preview-section-content">
+            ${createdDate}
+          </div>
+        </div>
+
+        ${fields.length > 0 ? `
+          <div class="fe-preview-section">
+            <div class="fe-preview-section-header">
+              <i class="ph ph-columns"></i>
+              <span>Fields (${fields.length})</span>
+            </div>
+            <div class="fe-preview-fields">
+              ${fields.slice(0, 10).map(f => `
+                <div class="fe-preview-field">
+                  <i class="ph ${this._getFieldTypeIcon(f.type)}"></i>
+                  <span>${this._escapeHtml(f.name)}</span>
+                  <span class="fe-preview-field-type">${f.type}</span>
+                </div>
+              `).join('')}
+              ${fields.length > 10 ? `<div class="fe-preview-more">+${fields.length - 10} more fields</div>` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="fe-preview-section">
+          <div class="fe-preview-section-header">
+            <i class="ph ph-tag"></i>
+            <span>Tags</span>
+            <button class="fe-preview-add-tag-btn" id="fe-add-set-tag">
+              <i class="ph ph-plus"></i>
+            </button>
+          </div>
+          <div class="fe-preview-tags">
+            ${tags.map(tagId => {
+              const tag = this.folderStore?.getTag(tagId);
+              return tag ? `
+                <span class="fe-preview-tag" style="background: var(--tag-${tag.color})" data-tag-id="${tagId}">
+                  ${this._escapeHtml(tag.name)}
+                  <button class="fe-tag-remove" data-tag-id="${tagId}"><i class="ph ph-x"></i></button>
+                </span>
+              ` : '';
+            }).join('')}
+            ${tags.length === 0 ? '<span class="fe-no-tags">No tags assigned</span>' : ''}
+          </div>
+        </div>
+
+        <div class="fe-preview-actions">
+          <button class="fe-preview-action-btn primary" id="fe-open-set">
+            <i class="ph ph-arrow-square-out"></i>
+            <span>Open Set</span>
+          </button>
+          <button class="fe-preview-action-btn secondary" id="fe-export-set">
+            <i class="ph ph-export"></i>
+            <span>Export</span>
+          </button>
+        </div>
+      </div>
+    `;
   }
 
   /**
@@ -14983,11 +15513,39 @@ class EODataWorkbench {
       this._closeFileExplorer();
     });
 
-    // Import button
+    // Content mode toggle (Sources/Sets)
+    container.querySelectorAll('.fe-content-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const newMode = btn.dataset.contentMode;
+        if (newMode !== this.fileExplorerContentMode) {
+          this.fileExplorerContentMode = newMode;
+          this.fileExplorerSearchTerm = '';
+          this.fileExplorerActiveFilter = 'smart_all';
+          this.fileExplorerSelectedSource = null;
+          this.fileExplorerSelectedSet = null;
+          this.fileExplorerSelectedSources.clear();
+          this.fileExplorerSelectedSets.clear();
+          this._renderFileExplorer();
+        }
+      });
+    });
+
+    // Import/New Set button
     container.querySelectorAll('#fe-import-btn, #fe-empty-import-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        this._showImportModal();
+        if (this.fileExplorerContentMode === 'sets') {
+          this._closeFileExplorer();
+          this._showOperatorFirstCreationModal();
+        } else {
+          this._showImportModal();
+        }
       });
+    });
+
+    // Empty state create set button (for sets mode)
+    container.querySelector('#fe-empty-create-set-btn')?.addEventListener('click', () => {
+      this._closeFileExplorer();
+      this._showOperatorFirstCreationModal();
     });
 
     // View mode toggle
@@ -15070,23 +15628,46 @@ class EODataWorkbench {
       });
     });
 
-    // Source selection
-    container.querySelectorAll('.fe-tree-source, .fe-list-row, .fe-grid-card').forEach(item => {
+    // Source selection (only for source items)
+    container.querySelectorAll('.fe-tree-source[data-source-id], .fe-list-row[data-source-id], .fe-grid-card[data-source-id]').forEach(item => {
       item.addEventListener('click', (e) => {
-        if (e.target.closest('.fe-row-action, .fe-grid-menu-btn')) return;
+        if (e.target.closest('.fe-row-action, .fe-grid-menu-btn, .fe-source-checkbox')) return;
         const sourceId = item.dataset.sourceId;
-        this._selectFileExplorerSource(sourceId);
+        if (sourceId) {
+          this._selectFileExplorerSource(sourceId);
+        }
       });
 
       item.addEventListener('dblclick', (e) => {
         const sourceId = item.dataset.sourceId;
-        this._closeFileExplorer();
-        this._showSourceDetail(sourceId);
+        if (sourceId) {
+          this._closeFileExplorer();
+          this._showSourceDetail(sourceId);
+        }
       });
     });
 
-    // Row actions
-    container.querySelectorAll('.fe-row-action, .fe-grid-menu-btn').forEach(btn => {
+    // Set selection (only for set items)
+    container.querySelectorAll('.fe-tree-source[data-set-id], .fe-list-row[data-set-id], .fe-grid-card[data-set-id]').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.fe-row-action, .fe-grid-menu-btn, .fe-set-checkbox')) return;
+        const setId = item.dataset.setId;
+        if (setId) {
+          this._selectFileExplorerSet(setId);
+        }
+      });
+
+      item.addEventListener('dblclick', (e) => {
+        const setId = item.dataset.setId;
+        if (setId) {
+          this._closeFileExplorer();
+          this._showSet(setId);
+        }
+      });
+    });
+
+    // Row actions for sources
+    container.querySelectorAll('[data-source-id] .fe-row-action, [data-source-id] .fe-grid-menu-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const action = btn.dataset.action;
@@ -15097,6 +15678,22 @@ class EODataWorkbench {
           this._toggleSourceFavorite(sourceId);
         } else if (action === 'menu') {
           this._showFileExplorerSourceMenu(e, sourceId);
+        }
+      });
+    });
+
+    // Row actions for sets
+    container.querySelectorAll('[data-set-id] .fe-row-action, [data-set-id] .fe-grid-menu-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const action = btn.dataset.action;
+        const row = btn.closest('[data-set-id]');
+        const setId = row?.dataset.setId;
+
+        if (action === 'favorite') {
+          this._toggleSetFavorite(setId);
+        } else if (action === 'menu') {
+          this._showFileExplorerSetMenu(e, setId);
         }
       });
     });
@@ -15116,7 +15713,11 @@ class EODataWorkbench {
 
     // Preview panel actions
     container.querySelector('#fe-preview-close')?.addEventListener('click', () => {
-      this.fileExplorerSelectedSource = null;
+      if (this.fileExplorerContentMode === 'sources') {
+        this.fileExplorerSelectedSource = null;
+      } else {
+        this.fileExplorerSelectedSet = null;
+      }
       this._renderFileExplorer();
     });
 
@@ -15151,23 +15752,50 @@ class EODataWorkbench {
       }
     });
 
-    // Tag management in preview
+    // Set preview actions
+    container.querySelector('#fe-open-set')?.addEventListener('click', () => {
+      const setId = this.fileExplorerSelectedSet?.id;
+      if (setId) {
+        this._closeFileExplorer();
+        this._showSet(setId);
+      }
+    });
+
+    container.querySelector('#fe-export-set')?.addEventListener('click', () => {
+      const setId = this.fileExplorerSelectedSet?.id;
+      if (setId) {
+        const set = this.sets.find(s => s.id === setId);
+        if (set) {
+          this._showExportSetModal(set);
+        }
+      }
+    });
+
+    // Tag management in preview (sources)
     container.querySelector('#fe-add-source-tag')?.addEventListener('click', () => {
       this._showAddTagToSourceModal();
+    });
+
+    // Tag management in preview (sets)
+    container.querySelector('#fe-add-set-tag')?.addEventListener('click', () => {
+      this._showAddTagToSetModal();
     });
 
     container.querySelectorAll('.fe-tag-remove').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const tagId = btn.dataset.tagId;
-        if (this.fileExplorerSelectedSource && this.sourceStore) {
+        if (this.fileExplorerContentMode === 'sources' && this.fileExplorerSelectedSource && this.sourceStore) {
           this.sourceStore.removeSourceTag(this.fileExplorerSelectedSource.id, tagId);
           this._selectFileExplorerSource(this.fileExplorerSelectedSource.id);
+        } else if (this.fileExplorerContentMode === 'sets' && this.fileExplorerSelectedSet) {
+          this._removeTagFromSet(this.fileExplorerSelectedSet.id, tagId);
+          this._selectFileExplorerSet(this.fileExplorerSelectedSet.id);
         }
       });
     });
 
-    // Multi-select checkbox handling
+    // Multi-select checkbox handling (sources)
     container.querySelectorAll('.fe-source-checkbox').forEach(checkbox => {
       checkbox.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -15176,7 +15804,16 @@ class EODataWorkbench {
       });
     });
 
-    // Select all checkbox
+    // Multi-select checkbox handling (sets)
+    container.querySelectorAll('.fe-set-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const setId = checkbox.dataset.setId;
+        this._toggleFileExplorerSetSelection(setId);
+      });
+    });
+
+    // Select all checkbox (sources)
     const selectAllCheckbox = container.querySelector('#fe-select-all');
     if (selectAllCheckbox) {
       // Set indeterminate state via JS (can't be set via HTML attribute)
@@ -15199,9 +15836,35 @@ class EODataWorkbench {
       });
     }
 
-    // Clear selection button
+    // Select all checkbox (sets)
+    const selectAllSetsCheckbox = container.querySelector('#fe-select-all-sets');
+    if (selectAllSetsCheckbox) {
+      if (selectAllSetsCheckbox.dataset.indeterminate === 'true') {
+        selectAllSetsCheckbox.indeterminate = true;
+      }
+      selectAllSetsCheckbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const allSets = this._getFileExplorerSets();
+        const filteredSets = this._filterFileExplorerSets(allSets);
+
+        if (selectAllSetsCheckbox.checked) {
+          filteredSets.forEach(s => this.fileExplorerSelectedSets.add(s.id));
+        } else {
+          this.fileExplorerSelectedSets.clear();
+        }
+        this._renderFileExplorer();
+      });
+    }
+
+    // Clear selection button (sources)
     container.querySelector('#fe-clear-selection')?.addEventListener('click', () => {
       this.fileExplorerSelectedSources.clear();
+      this._renderFileExplorer();
+    });
+
+    // Clear selection button (sets)
+    container.querySelector('#fe-clear-set-selection')?.addEventListener('click', () => {
+      this.fileExplorerSelectedSets.clear();
       this._renderFileExplorer();
     });
 
@@ -15210,14 +15873,24 @@ class EODataWorkbench {
       this._createSetFromSelectedSources();
     });
 
-    // Export selected button
+    // Export selected button (sources)
     container.querySelector('#fe-export-selected')?.addEventListener('click', () => {
       this._exportSelectedSources();
     });
 
-    // Delete selected button
+    // Export selected button (sets)
+    container.querySelector('#fe-export-selected-sets')?.addEventListener('click', () => {
+      this._exportSelectedSets();
+    });
+
+    // Delete selected button (sources)
     container.querySelector('#fe-delete-selected')?.addEventListener('click', () => {
       this._deleteSelectedSources();
+    });
+
+    // Delete selected button (sets)
+    container.querySelector('#fe-delete-selected-sets')?.addEventListener('click', () => {
+      this._deleteSelectedSets();
     });
 
     // Drag and drop for organizing
@@ -15231,11 +15904,16 @@ class EODataWorkbench {
     const container = document.getElementById('fe-sources-container');
     if (!container) return;
 
-    const allSources = this._getFileExplorerSources();
-    const filteredSources = this._filterFileExplorerSources(allSources);
-    const folders = this.folderStore?.getAll() || [];
-
-    container.innerHTML = this._renderFileExplorerContent(filteredSources, folders);
+    if (this.fileExplorerContentMode === 'sources') {
+      const allSources = this._getFileExplorerSources();
+      const filteredSources = this._filterFileExplorerSources(allSources);
+      const folders = this.folderStore?.getAll() || [];
+      container.innerHTML = this._renderFileExplorerContent(filteredSources, folders);
+    } else {
+      const allSets = this._getFileExplorerSets();
+      const filteredSets = this._filterFileExplorerSets(allSets);
+      container.innerHTML = this._renderFileExplorerSetsContent(filteredSets);
+    }
     this._attachFileExplorerEventHandlers();
   }
 
@@ -15258,6 +15936,164 @@ class EODataWorkbench {
       this.fileExplorerSelectedSources.add(sourceId);
     }
     this._renderFileExplorer();
+  }
+
+  /**
+   * Select a set in file explorer
+   */
+  _selectFileExplorerSet(setId) {
+    const sets = this._getFileExplorerSets();
+    this.fileExplorerSelectedSet = sets.find(s => s.id === setId) || null;
+    this._renderFileExplorer();
+  }
+
+  /**
+   * Toggle multi-selection of a set (checkbox selection)
+   */
+  _toggleFileExplorerSetSelection(setId) {
+    if (this.fileExplorerSelectedSets.has(setId)) {
+      this.fileExplorerSelectedSets.delete(setId);
+    } else {
+      this.fileExplorerSelectedSets.add(setId);
+    }
+    this._renderFileExplorer();
+  }
+
+  /**
+   * Toggle favorite status for a set in file explorer
+   */
+  _toggleSetFavorite(setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (set) {
+      set.isFavorite = !set.isFavorite;
+      this._saveData();
+      this._renderFileExplorer();
+    }
+  }
+
+  /**
+   * Show context menu for a set in file explorer
+   */
+  _showFileExplorerSetMenu(e, setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    const menuItems = [
+      { label: 'Open Set', icon: 'ph-arrow-square-out', action: () => {
+        this._closeFileExplorer();
+        this._showSet(setId);
+      }},
+      { label: set.isFavorite ? 'Remove from Favorites' : 'Add to Favorites', icon: set.isFavorite ? 'ph-star-fill' : 'ph-star', action: () => {
+        this._toggleSetFavorite(setId);
+      }},
+      { type: 'divider' },
+      { label: 'Export...', icon: 'ph-export', action: () => {
+        this._showExportSetModal(set);
+      }},
+      { label: 'Duplicate', icon: 'ph-copy', action: () => {
+        this._duplicateSet(setId);
+      }},
+      { type: 'divider' },
+      { label: 'Delete', icon: 'ph-trash', danger: true, action: () => {
+        if (confirm(`Delete set "${set.name}"? This cannot be undone.`)) {
+          this._deleteSet(setId);
+          this._renderFileExplorer();
+        }
+      }}
+    ];
+
+    this._showContextMenu(e, menuItems);
+  }
+
+  /**
+   * Export selected sets
+   */
+  _exportSelectedSets() {
+    const selectedIds = Array.from(this.fileExplorerSelectedSets);
+    if (selectedIds.length === 0) {
+      this._showToast('No sets selected', 'warning');
+      return;
+    }
+
+    // For now, export each set individually
+    selectedIds.forEach(setId => {
+      const set = this.sets.find(s => s.id === setId);
+      if (set) {
+        this._showExportSetModal(set);
+      }
+    });
+  }
+
+  /**
+   * Delete selected sets
+   */
+  _deleteSelectedSets() {
+    const selectedIds = Array.from(this.fileExplorerSelectedSets);
+    if (selectedIds.length === 0) {
+      this._showToast('No sets selected', 'warning');
+      return;
+    }
+
+    if (confirm(`Delete ${selectedIds.length} set${selectedIds.length > 1 ? 's' : ''}? This cannot be undone.`)) {
+      selectedIds.forEach(setId => {
+        this._deleteSet(setId);
+      });
+      this.fileExplorerSelectedSets.clear();
+      this._renderFileExplorer();
+      this._showToast(`Deleted ${selectedIds.length} set${selectedIds.length > 1 ? 's' : ''}`, 'success');
+    }
+  }
+
+  /**
+   * Show modal to add tag to selected set in file explorer
+   */
+  _showAddTagToSetModal() {
+    const setId = this.fileExplorerSelectedSet?.id;
+    if (!setId) return;
+
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    const allTags = this.folderStore?.getAllTags() || [];
+    const currentTags = set.tags || [];
+
+    // Simple implementation - just show available tags
+    const availableTags = allTags.filter(t => !currentTags.includes(t.id));
+
+    if (availableTags.length === 0) {
+      this._showToast('No more tags available', 'info');
+      return;
+    }
+
+    // Show a simple tag picker
+    const tagId = availableTags[0].id; // For now, just add the first available tag
+    this._addTagToSet(setId, tagId);
+    this._selectFileExplorerSet(setId);
+  }
+
+  /**
+   * Add a tag to a set
+   */
+  _addTagToSet(setId, tagId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (set) {
+      if (!set.tags) set.tags = [];
+      if (!set.tags.includes(tagId)) {
+        set.tags.push(tagId);
+        this._saveData();
+      }
+    }
+  }
+
+  /**
+   * Remove a tag from a set
+   */
+  _removeTagFromSet(setId, tagId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (set && set.tags) {
+      set.tags = set.tags.filter(t => t !== tagId);
+      this._saveData();
+    }
   }
 
   /**
