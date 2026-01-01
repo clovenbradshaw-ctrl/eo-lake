@@ -8317,6 +8317,71 @@ class EODataWorkbench {
   }
 
   /**
+   * Show the Definition Builder modal for creating new definitions
+   * Uses the 9-parameter EO definition schema
+   */
+  _showNewDefinitionModal() {
+    // Use the Definition Builder if available
+    if (window.EODefinitionBuilder?.showDefinitionBuilderModal) {
+      window.EODefinitionBuilder.showDefinitionBuilderModal({
+        frame: this.currentProjectId || 'default',
+        user: this._getCurrentUser(),
+        api: window.EO?.getDefinitionAPI ? window.EO.getDefinitionAPI() : null
+      }).then((definition) => {
+        if (definition) {
+          this._addDefinition(definition);
+          this._showToast('Definition created successfully', 'success');
+          this._renderDefinitionsNav();
+        }
+      });
+    } else {
+      // Fallback to import modal if builder not available
+      this._showImportDefinitionModal();
+    }
+  }
+
+  /**
+   * Get current user for provenance
+   * @private
+   */
+  _getCurrentUser() {
+    return window.EO?.agent?.userId || 'anonymous';
+  }
+
+  /**
+   * Add a definition to the definitions list
+   * @param {Object} definition - The definition object from the builder
+   * @private
+   */
+  _addDefinition(definition) {
+    if (!this.definitions) {
+      this.definitions = [];
+    }
+
+    // Create a definition record with ID
+    const defRecord = {
+      id: definition.id || `def_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      name: definition.referent?.label || definition.referent?.term || 'Untitled Definition',
+      term: definition.referent?.term,
+      description: definition.scopeNote,
+      format: 'eo-9param',
+      type: 'definition',
+      status: 'active',
+      importedAt: new Date().toISOString(),
+      ...definition
+    };
+
+    this.definitions.push(defRecord);
+
+    // Emit event for persistence
+    if (this.eventBus) {
+      this.eventBus.emit('definition:created', { definition: defRecord });
+    }
+
+    return defRecord;
+  }
+
+  /**
    * Show modal to import definition from URI or search APIs
    */
   _showImportDefinitionModal() {
