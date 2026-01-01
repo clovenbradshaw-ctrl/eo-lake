@@ -3634,10 +3634,6 @@ class EODataWorkbench {
         // Show record count for views with metadata (e.g., type-filtered views)
         const viewCount = view.metadata?.recordCount;
         const countHtml = viewCount !== undefined ? `<span class="view-item-count">${viewCount}</span>` : '';
-        // Record type badge for type-filtered views
-        const typeBadge = isRecordTypeView
-          ? `<span class="view-type-badge" title="Record Type: ${this._escapeHtml(view.metadata?.recordType || '')}">type</span>`
-          : '';
         return `
           <div class="set-view-item ${isActiveView ? 'active' : ''} ${isRecordTypeView ? 'record-type-view' : 'regular-view'}"
                data-view-id="${view.id}"
@@ -3645,7 +3641,6 @@ class EODataWorkbench {
                title="${this._escapeHtml(view.name)} (${view.type})${isRecordTypeView ? ' · Record Type' : ''}${viewCount !== undefined ? ` · ${viewCount} records` : ''}">
             <i class="ph ${viewIcon}"></i>
             <span>${this._escapeHtml(view.name)}</span>
-            ${typeBadge}
             ${countHtml}
           </div>
         `;
