@@ -1341,6 +1341,29 @@ class EODataWorkbench {
   }
 
   /**
+   * Render a source detail view when a source tab is active
+   * Gets the source from currentSourceId and renders it
+   */
+  _renderSourceDetail() {
+    const sourceId = this.currentSourceId;
+    if (!sourceId) {
+      console.warn('_renderSourceDetail: No currentSourceId set');
+      this._renderNewTabPage();
+      return;
+    }
+
+    const source = this.sources?.find(s => s.id === sourceId);
+    if (!source) {
+      console.warn('_renderSourceDetail: Source not found:', sourceId);
+      this._renderNewTabPage();
+      return;
+    }
+
+    // Render the source data view
+    this._renderSourceDataView(source);
+  }
+
+  /**
    * Render the New Tab page (like Chrome's new tab page)
    */
   _renderNewTabPage() {
@@ -8340,7 +8363,7 @@ class EODataWorkbench {
     container.querySelectorAll('.source-item').forEach(item => {
       item.addEventListener('click', () => {
         const sourceId = item.dataset.sourceId;
-        this._showSourceDetail(sourceId);
+        this._selectSource(sourceId);
       });
 
       item.addEventListener('contextmenu', (e) => {
