@@ -220,8 +220,16 @@ class EOFormulaEditorV3 {
       updateRhythm: 'on_change',
     };
 
+    // Autocomplete state
+    this.autocompleteVisible = false;
+    this.autocompleteSuggestions = [];
+    this.autocompleteIndex = 0;
+
     // Function categories (inherited from V2 for function browser)
     this.functionCategories = this._getFunctionCategories();
+
+    // Flat list of all functions for autocomplete
+    this.allFunctions = this._getAllFunctions();
   }
 
   /**
@@ -398,12 +406,17 @@ class EOFormulaEditorV3 {
                   <i class="ph ph-info"></i>
                   <span>This expression is a relational claim over your data</span>
                 </div>
-                <textarea
-                  id="formula-input-v3"
-                  class="formula-v3-textarea"
-                  placeholder="IF(NOT BLANK({Due date}) AND {Due date} < NOW(), &quot;⚠️&quot;, &quot;&quot;)"
-                  spellcheck="false"
-                >${this._escapeHtml(formula)}</textarea>
+                <div class="formula-v3-textarea-wrapper">
+                  <textarea
+                    id="formula-input-v3"
+                    class="formula-v3-textarea"
+                    placeholder="IF(NOT BLANK({Due date}) AND {Due date} < NOW(), &quot;⚠️&quot;, &quot;&quot;)"
+                    spellcheck="false"
+                  >${this._escapeHtml(formula)}</textarea>
+                  <div class="formula-v3-autocomplete" id="formula-autocomplete" style="display: none;">
+                    <div class="formula-v3-autocomplete-list" id="formula-autocomplete-list"></div>
+                  </div>
+                </div>
               </div>
 
               <div class="formula-v3-inline-tools">
@@ -421,10 +434,23 @@ class EOFormulaEditorV3 {
                 <i class="ph ph-flow-arrow"></i>
                 Operators in use
               </h3>
-              <div class="formula-v3-panel-content" id="operator-lens-content">
+              <div class="formula-v3-panel-content formula-v3-operators-grid-container" id="operator-lens-content">
                 <div class="formula-v3-operators-empty">
                   <i class="ph ph-brackets-curly"></i>
                   <span>Enter a formula to see operators</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- EO Translation Panel -->
+            <section class="formula-v3-panel" id="eo-translation-panel">
+              <h3 class="formula-v3-panel-title">
+                <i class="ph ph-code"></i>
+                EO Notation
+              </h3>
+              <div class="formula-v3-panel-content" id="eo-translation-content">
+                <div class="formula-v3-eo-empty">
+                  <span>EO translation will appear here</span>
                 </div>
               </div>
             </section>
@@ -578,11 +604,21 @@ class EOFormulaEditorV3 {
     const modalEl = this.modal?.element;
     if (!modalEl) return;
 
-    // Formula input - real-time parsing
+    // Formula input - real-time parsing and autocomplete
     const formulaInput = modalEl.querySelector('#formula-input-v3');
     if (formulaInput) {
-      formulaInput.addEventListener('input', () => {
+      formulaInput.addEventListener('input', (e) => {
         this._updateFromFormula(formulaInput.value);
+        this._handleAutocomplete(formulaInput);
+      });
+
+      formulaInput.addEventListener('keydown', (e) => {
+        this._handleAutocompleteKeydown(e, formulaInput);
+      });
+
+      formulaInput.addEventListener('blur', () => {
+        // Delay hiding to allow click on suggestion
+        setTimeout(() => this._hideAutocomplete(), 150);
       });
     }
 
@@ -726,6 +762,9 @@ class EOFormulaEditorV3 {
     // Update operator lens
     this._updateOperatorLens();
 
+    // Update EO translation
+    this._updateEOTranslation(formula);
+
     // Update result preview
     this._updateResultPreview(formula);
 
@@ -822,15 +861,19 @@ class EOFormulaEditorV3 {
       return;
     }
 
+    // Use grid layout when 4+ operators, otherwise use list
+    const useGrid = this.detectedOperators.length >= 4;
+    const containerClass = useGrid ? 'formula-v3-operators-grid' : 'formula-v3-operators-list';
+
     content.innerHTML = `
-      <div class="formula-v3-operators-list">
+      <div class="${containerClass}">
         ${this.detectedOperators.map(op => `
-          <div class="formula-v3-operator" style="--op-color: ${op.color}; --op-bg: ${op.bgColor}">
+          <div class="formula-v3-operator ${useGrid ? 'formula-v3-operator-compact' : ''}" style="--op-color: ${op.color}; --op-bg: ${op.bgColor}">
             <div class="formula-v3-operator-header">
               <code class="formula-v3-operator-code">${op.code}</code>
               <span class="formula-v3-operator-name">${op.short}</span>
             </div>
-            <div class="formula-v3-operator-desc">${op.description}</div>
+            ${useGrid ? '' : `<div class="formula-v3-operator-desc">${op.description}</div>`}
             ${op.examples.length > 0 ? `
               <div class="formula-v3-operator-examples">
                 ${op.examples.map(ex => `<span class="formula-v3-operator-example">${ex}</span>`).join('')}
@@ -1136,6 +1179,267 @@ class EOFormulaEditorV3 {
       input.removeEventListener('input', clearError);
     };
     input.addEventListener('input', clearError);
+  }
+
+  /**
+   * Update the EO translation panel
+   */
+  _updateEOTranslation(formula) {
+    const content = this.modal?.element?.querySelector('#eo-translation-content');
+    if (!content) return;
+
+    if (!formula.trim()) {
+      content.innerHTML = `
+        <div class="formula-v3-eo-empty">
+          <span>EO translation will appear here</span>
+        </div>
+      `;
+      return;
+    }
+
+    // Convert formula to EO notation
+    const eoTranslation = this._translateToEO(formula);
+
+    content.innerHTML = `
+      <div class="formula-v3-eo-translation">
+        <div class="formula-v3-eo-code">
+          ${eoTranslation.map(line => `<div class="formula-v3-eo-line">${line}</div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Translate a formula to EO operation(target, object, [parameter]) notation
+   */
+  _translateToEO(formula) {
+    const lines = [];
+    const fieldRefs = formula.match(/\{([^}]+)\}/g) || [];
+
+    // Extract field references → CON operations
+    fieldRefs.forEach(ref => {
+      const fieldName = ref.replace(/[{}]/g, '');
+      lines.push(`<span class="eo-op-con">CON</span>(record, <span class="eo-field">"${fieldName}"</span>)`);
+    });
+
+    // Detect and translate functions
+    const fnMatches = [...formula.matchAll(/(\b[A-Z_]+)\s*\(/gi)];
+    fnMatches.forEach(match => {
+      const fnName = match[1].toUpperCase();
+      const fnConfig = this._getEOFunctionTranslation(fnName);
+      if (fnConfig) {
+        lines.push(fnConfig);
+      }
+    });
+
+    // Detect comparisons → SEG operations
+    if (/<|>|<=|>=|!=|=(?!=)/.test(formula)) {
+      const compMatch = formula.match(/([^<>=!]+)\s*(<|>|<=|>=|!=|=)\s*([^<>=!]+)/);
+      if (compMatch) {
+        const op = compMatch[2];
+        lines.push(`<span class="eo-op-seg">SEG</span>(value, <span class="eo-param">"${op}"</span>, [boundary])`);
+      }
+    }
+
+    // Detect arithmetic → ALT operations
+    if (/[+\-*/]/.test(formula.replace(/\{[^}]*\}/g, '').replace(/"[^"]*"/g, ''))) {
+      lines.push(`<span class="eo-op-alt">ALT</span>(value, transform, [operand])`);
+    }
+
+    if (lines.length === 0) {
+      lines.push(`<span class="eo-comment">// Enter a formula to see EO translation</span>`);
+    }
+
+    return lines;
+  }
+
+  /**
+   * Get EO translation for a specific function
+   */
+  _getEOFunctionTranslation(fnName) {
+    const translations = {
+      'IF': `<span class="eo-op-seg">SEG</span>(condition, <span class="eo-param">"true"</span>, [then_branch])\n  → <span class="eo-op-alt">ALT</span>(branch, value, [])`,
+      'SWITCH': `<span class="eo-op-seg">SEG</span>(expr, pattern, [result])`,
+      'AND': `<span class="eo-op-syn">SYN</span>(conditions, <span class="eo-param">"all"</span>, [])`,
+      'OR': `<span class="eo-op-syn">SYN</span>(conditions, <span class="eo-param">"any"</span>, [])`,
+      'NOT': `<span class="eo-op-alt">ALT</span>(value, <span class="eo-param">"negate"</span>, [])`,
+      'SUM': `<span class="eo-op-syn">SYN</span>(values, <span class="eo-param">"sum"</span>, [])`,
+      'AVERAGE': `<span class="eo-op-syn">SYN</span>(values, <span class="eo-param">"mean"</span>, [])`,
+      'AVG': `<span class="eo-op-syn">SYN</span>(values, <span class="eo-param">"mean"</span>, [])`,
+      'MIN': `<span class="eo-op-syn">SYN</span>(values, <span class="eo-param">"min"</span>, [])\n  → <span class="eo-op-seg">SEG</span>(result, boundary, [])`,
+      'MAX': `<span class="eo-op-syn">SYN</span>(values, <span class="eo-param">"max"</span>, [])\n  → <span class="eo-op-seg">SEG</span>(result, boundary, [])`,
+      'COUNT': `<span class="eo-op-syn">SYN</span>(values, <span class="eo-param">"count"</span>, [])`,
+      'CONCATENATE': `<span class="eo-op-syn">SYN</span>(strings, <span class="eo-param">"concat"</span>, [])`,
+      'LEFT': `<span class="eo-op-alt">ALT</span>(string, <span class="eo-param">"slice"</span>, [0, n])\n  → <span class="eo-op-seg">SEG</span>(string, position, [n])`,
+      'RIGHT': `<span class="eo-op-alt">ALT</span>(string, <span class="eo-param">"slice"</span>, [-n])\n  → <span class="eo-op-seg">SEG</span>(string, position, [n])`,
+      'MID': `<span class="eo-op-alt">ALT</span>(string, <span class="eo-param">"slice"</span>, [start, count])\n  → <span class="eo-op-seg">SEG</span>(string, range, [start, end])`,
+      'UPPER': `<span class="eo-op-alt">ALT</span>(string, <span class="eo-param">"uppercase"</span>, [])`,
+      'LOWER': `<span class="eo-op-alt">ALT</span>(string, <span class="eo-param">"lowercase"</span>, [])`,
+      'TRIM': `<span class="eo-op-alt">ALT</span>(string, <span class="eo-param">"trim"</span>, [])`,
+      'NOW': `<span class="eo-op-con">CON</span>(system, <span class="eo-param">"time"</span>, [])\n  → <span class="eo-op-alt">ALT</span>(time, <span class="eo-param">"format"</span>, [])`,
+      'TODAY': `<span class="eo-op-con">CON</span>(system, <span class="eo-param">"date"</span>, [])`,
+      'DATEADD': `<span class="eo-op-alt">ALT</span>(date, <span class="eo-param">"add"</span>, [count, unit])`,
+      'DATETIME_DIFF': `<span class="eo-op-alt">ALT</span>(date1, <span class="eo-param">"diff"</span>, [date2, unit])`,
+      'BLANK': `<span class="eo-op-nul">NUL</span>(value, <span class="eo-param">"check"</span>, [])`,
+      'ISERROR': `<span class="eo-op-nul">NUL</span>(expr, <span class="eo-param">"error_check"</span>, [])\n  → <span class="eo-op-seg">SEG</span>(result, boolean, [])`,
+      'SUPERPOSE': `<span class="eo-op-sup">SUP</span>(values, <span class="eo-param">"hold"</span>, [])`,
+      'WEIGHTED': `<span class="eo-op-sup">SUP</span>(values, <span class="eo-param">"weighted"</span>, [weights])`,
+      'COLLAPSE': `<span class="eo-op-sup">SUP</span>(superposition, <span class="eo-param">"collapse"</span>, [method])\n  → <span class="eo-op-syn">SYN</span>(values, method, [])`,
+    };
+    return translations[fnName] || null;
+  }
+
+  /**
+   * Handle autocomplete for formula input
+   */
+  _handleAutocomplete(textarea) {
+    const cursorPos = textarea.selectionStart;
+    const text = textarea.value.substring(0, cursorPos);
+
+    // Find current word being typed
+    const wordMatch = text.match(/([A-Z_][A-Z_0-9]*)$/i);
+    if (!wordMatch || wordMatch[1].length < 2) {
+      this._hideAutocomplete();
+      return;
+    }
+
+    const query = wordMatch[1].toUpperCase();
+    const suggestions = this.allFunctions.filter(fn =>
+      fn.name.startsWith(query) || fn.name.includes(query)
+    ).slice(0, 8);
+
+    if (suggestions.length === 0) {
+      this._hideAutocomplete();
+      return;
+    }
+
+    this.autocompleteSuggestions = suggestions;
+    this.autocompleteIndex = 0;
+    this._showAutocomplete(suggestions, wordMatch[1].length);
+  }
+
+  /**
+   * Show autocomplete dropdown
+   */
+  _showAutocomplete(suggestions, wordLength) {
+    const dropdown = this.modal?.element?.querySelector('#formula-autocomplete');
+    const list = this.modal?.element?.querySelector('#formula-autocomplete-list');
+    if (!dropdown || !list) return;
+
+    list.innerHTML = suggestions.map((fn, i) => `
+      <div class="formula-v3-autocomplete-item ${i === 0 ? 'selected' : ''}" data-index="${i}" data-syntax="${this._escapeHtml(fn.syntax)}">
+        <div class="formula-v3-autocomplete-name">${fn.name}</div>
+        <div class="formula-v3-autocomplete-desc">${fn.description}</div>
+      </div>
+    `).join('');
+
+    // Attach click handlers
+    list.querySelectorAll('.formula-v3-autocomplete-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const syntax = item.dataset.syntax;
+        this._selectAutocompleteSuggestion(syntax);
+      });
+    });
+
+    dropdown.style.display = 'block';
+    this.autocompleteVisible = true;
+  }
+
+  /**
+   * Hide autocomplete dropdown
+   */
+  _hideAutocomplete() {
+    const dropdown = this.modal?.element?.querySelector('#formula-autocomplete');
+    if (dropdown) {
+      dropdown.style.display = 'none';
+    }
+    this.autocompleteVisible = false;
+    this.autocompleteSuggestions = [];
+    this.autocompleteIndex = 0;
+  }
+
+  /**
+   * Handle keyboard navigation in autocomplete
+   */
+  _handleAutocompleteKeydown(e, textarea) {
+    if (!this.autocompleteVisible) return;
+
+    const list = this.modal?.element?.querySelector('#formula-autocomplete-list');
+    if (!list) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      this.autocompleteIndex = Math.min(this.autocompleteIndex + 1, this.autocompleteSuggestions.length - 1);
+      this._updateAutocompleteSelection(list);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      this.autocompleteIndex = Math.max(this.autocompleteIndex - 1, 0);
+      this._updateAutocompleteSelection(list);
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      if (this.autocompleteSuggestions.length > 0) {
+        e.preventDefault();
+        const selected = this.autocompleteSuggestions[this.autocompleteIndex];
+        if (selected) {
+          this._selectAutocompleteSuggestion(selected.syntax);
+        }
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      this._hideAutocomplete();
+    }
+  }
+
+  /**
+   * Update visual selection in autocomplete list
+   */
+  _updateAutocompleteSelection(list) {
+    list.querySelectorAll('.formula-v3-autocomplete-item').forEach((item, i) => {
+      item.classList.toggle('selected', i === this.autocompleteIndex);
+    });
+  }
+
+  /**
+   * Insert selected autocomplete suggestion
+   */
+  _selectAutocompleteSuggestion(syntax) {
+    const textarea = this.modal?.element?.querySelector('#formula-input-v3');
+    if (!textarea) return;
+
+    const cursorPos = textarea.selectionStart;
+    const text = textarea.value;
+
+    // Find the word to replace
+    const beforeCursor = text.substring(0, cursorPos);
+    const wordMatch = beforeCursor.match(/([A-Z_][A-Z_0-9]*)$/i);
+    const wordStart = wordMatch ? cursorPos - wordMatch[1].length : cursorPos;
+
+    // Replace the partial word with the full syntax
+    const before = text.substring(0, wordStart);
+    const after = text.substring(cursorPos);
+    textarea.value = before + syntax + after;
+
+    // Position cursor inside the parentheses
+    const parenPos = syntax.indexOf('(');
+    const newCursorPos = wordStart + (parenPos >= 0 ? parenPos + 1 : syntax.length);
+    textarea.setSelectionRange(newCursorPos, newCursorPos);
+    textarea.focus();
+
+    this._hideAutocomplete();
+    this._updateFromFormula(textarea.value);
+  }
+
+  /**
+   * Get flat list of all functions for autocomplete
+   */
+  _getAllFunctions() {
+    const functions = [];
+    const categories = this._getFunctionCategories();
+    Object.values(categories).forEach(category => {
+      category.functions.forEach(fn => {
+        functions.push(fn);
+      });
+    });
+    return functions;
   }
 
   /**
