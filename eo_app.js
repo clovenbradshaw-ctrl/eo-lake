@@ -1617,6 +1617,17 @@ function showSettingsModal() {
       </div>
     </div>
     <div class="form-group">
+      <label class="form-label"><i class="ph ph-book-open"></i> Documentation</label>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button class="btn btn-secondary" id="settings-formula-guide">
+          <i class="ph ph-function"></i> Formula Language Guide
+        </button>
+      </div>
+      <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+        Learn about Noema's formula syntax, EO operators, and semantic functions.
+      </p>
+    </div>
+    <div class="form-group">
       <label class="form-label"><i class="ph ph-info"></i> About</label>
       <div style="font-size: 12px; color: var(--text-muted);">Noema v1.0.0<br>Data Workbench with EO Sync</div>
     </div>
@@ -1666,6 +1677,19 @@ function showSettingsModal() {
         }
       });
     }
+  }
+
+  // Formula guide button handler
+  const formulaGuideBtn = document.getElementById('settings-formula-guide');
+  if (formulaGuideBtn) {
+    formulaGuideBtn.addEventListener('click', () => {
+      closeModal();
+      setTimeout(() => {
+        if (typeof window.showFormulaExplainer === 'function') {
+          window.showFormulaExplainer();
+        }
+      }, 100);
+    });
   }
 }
 
