@@ -26871,8 +26871,11 @@ class EODataWorkbench {
       }
     }
 
+    // Handle RECORD_ID() function
+    let result = formula.replace(/RECORD_ID\(\)/gi, record.id || '');
+
     // Replace {Field Name} references with actual values
-    let result = formula.replace(/\{([^}]+)\}/g, (match, fieldRef) => {
+    result = result.replace(/\{([^}]+)\}/g, (match, fieldRef) => {
       const value = fieldMap.get(fieldRef.trim());
       if (value === undefined || value === null) return '';
       return String(value);

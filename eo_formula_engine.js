@@ -1384,6 +1384,10 @@ class PipelineEvaluator {
       case 'ERROR':
         return { value: null, error: 'ERROR' };
 
+      // Record functions
+      case 'RECORD_ID':
+        return { value: context?.currentRecord?.id || null };
+
       default:
         return undefined;
     }
