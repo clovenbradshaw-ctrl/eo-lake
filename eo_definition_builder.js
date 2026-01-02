@@ -253,9 +253,11 @@ class DefinitionBuilderStore {
     this.isSearching = false;
     this.selectedAuthority = null;
 
-    // Chip arrays
+    // Chip arrays (AV-inspired: explicit retain/discard)
     this.inclusions = [];
     this.exclusions = [];
+    this.retains = [];    // What's kept from source (Jahadajahallakṣaṇā)
+    this.discards = [];   // What's dropped from source (Jahadajahallakṣaṇā)
 
     // Context
     this.frame = options.frame || DefinitionBuilderConfig.defaultFrame;
@@ -309,14 +311,18 @@ class DefinitionBuilderStore {
         programs: ''
       },
 
-      // Step 7: Parameters
+      // Step 7: Parameters (AV-enhanced)
       parameters: {
         threshold: '',
-        categories: ''
+        categories: '',
+        purpose: ''  // Required: "Equivalent for the purpose of..."
       },
 
       // Step 8: Scope Note
       scopeNote: '',
+
+      // AV-Inspired: Caveats (elevated from notes, required for LOW confidence)
+      caveats: '',
 
       // Step 9: Epistemic Stance
       epistemicStance: {
@@ -425,6 +431,50 @@ class DefinitionBuilderStore {
   removeExclusion(index) {
     this.exclusions.splice(index, 1);
     this._emit('exclusions:changed', { exclusions: [...this.exclusions] });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // AV-Inspired: Retains/Discards (Jahadajahallakṣaṇā - partial identity)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Add a retain (what's kept from source definition)
+   * @param {string} value
+   */
+  addRetain(value) {
+    if (value && !this.retains.includes(value)) {
+      this.retains.push(value);
+      this._emit('retains:changed', { retains: [...this.retains] });
+    }
+  }
+
+  /**
+   * Remove a retain
+   * @param {number} index
+   */
+  removeRetain(index) {
+    this.retains.splice(index, 1);
+    this._emit('retains:changed', { retains: [...this.retains] });
+  }
+
+  /**
+   * Add a discard (what's dropped from source definition)
+   * @param {string} value
+   */
+  addDiscard(value) {
+    if (value && !this.discards.includes(value)) {
+      this.discards.push(value);
+      this._emit('discards:changed', { discards: [...this.discards] });
+    }
+  }
+
+  /**
+   * Remove a discard
+   * @param {number} index
+   */
+  removeDiscard(index) {
+    this.discards.splice(index, 1);
+    this._emit('discards:changed', { discards: [...this.discards] });
   }
 
   /**
@@ -575,18 +625,28 @@ class DefinitionBuilderStore {
           : undefined
       }),
 
-      // 9. Parameters
+      // 9. Parameters (AV-enhanced)
       parameters: this._cleanObject({
         inclusions: this.inclusions.length > 0 ? [...this.inclusions] : undefined,
         exclusions: this.exclusions.length > 0 ? [...this.exclusions] : undefined,
         threshold: this.state.parameters.threshold,
         categories: this.state.parameters.categories
           ? this.state.parameters.categories.split(',').map(s => s.trim()).filter(Boolean)
-          : undefined
+          : undefined,
+        purpose: this.state.parameters.purpose || undefined  // AV: "Equivalent for the purpose of..."
+      }),
+
+      // AV-Inspired: Partial Identity (Jahadajahallakṣaṇā)
+      partialIdentity: this._cleanObject({
+        retains: this.retains?.length > 0 ? [...this.retains] : undefined,
+        discards: this.discards?.length > 0 ? [...this.discards] : undefined
       }),
 
       // 10. Scope Note
       scopeNote: this.state.scopeNote || undefined,
+
+      // AV-Inspired: Caveats (Neti Neti - provisional interpretation)
+      caveats: this.state.caveats || undefined,
 
       // 11. Provenance
       provenance: {
@@ -1111,14 +1171,74 @@ class DefinitionBuilderPanel {
       <div class="builder-step">
         <div class="step-header">
           <span class="step-num">4</span>
-          <h3>Parameters</h3>
-          <span class="eo-param">EO §7: Operational Parameters</span>
+          <h3>Scope & Purpose</h3>
+          <span class="eo-param">EO §7: Partial Equivalence (Jahadajahallakṣaṇā)</span>
         </div>
-        <p class="step-desc">Your specific operational constraints</p>
+        <p class="step-desc">Define what this definition keeps, drops, and what it's <em>for</em>.</p>
 
+        <!-- PURPOSE CLAUSE (Required) -->
+        <div class="highlight-box blue purpose-box">
+          <div class="field">
+            <label class="required-label">
+              <span class="required-marker">*</span>
+              Purpose
+            </label>
+            <input type="text" name="parameters.purpose"
+                   value="${this._escapeHtml(params.purpose)}"
+                   placeholder="reporting quarterly PIT counts to HUD"
+                   required />
+            <div class="hint purpose-hint">
+              <strong>Complete:</strong> "This definition is equivalent to the source <em>for the purpose of...</em>"
+            </div>
+          </div>
+        </div>
+
+        <!-- RETAINS / DISCARDS (Jahadajahallakṣaṇā) -->
+        <div class="highlight-box green retains-discards-box">
+          <div class="retains-discards-header">
+            <span class="rd-icon">⊂</span>
+            <span>What does this definition keep and drop from the source?</span>
+          </div>
+
+          <div class="field">
+            <label>
+              <span class="rd-badge rd-retain">Retains</span>
+              What's kept from source
+            </label>
+            <div class="chip-input" id="retains-chips">
+              ${(this.store.retains || []).map((v, i) => `
+                <span class="chip chip-retain">
+                  ${this._escapeHtml(v)}
+                  <span class="remove" data-action="remove-retain" data-index="${i}">×</span>
+                </span>
+              `).join('')}
+              <input type="text" id="retains-input" placeholder="e.g., Categories 1-4, chronic status..." />
+            </div>
+            <div class="hint">Aspects of the source definition you're using exactly as-is</div>
+          </div>
+
+          <div class="field">
+            <label>
+              <span class="rd-badge rd-discard">Discards</span>
+              What's dropped from source
+            </label>
+            <div class="chip-input" id="discards-chips">
+              ${(this.store.discards || []).map((v, i) => `
+                <span class="chip chip-discard">
+                  ${this._escapeHtml(v)}
+                  <span class="remove" data-action="remove-discard" data-index="${i}">×</span>
+                </span>
+              `).join('')}
+              <input type="text" id="discards-input" placeholder="e.g., Category 5 (imminent risk), DV presumption..." />
+            </div>
+            <div class="hint">Aspects of the source definition you're not adopting</div>
+          </div>
+        </div>
+
+        <!-- INCLUSIONS / EXCLUSIONS (Operational) -->
         <div class="highlight-box amber">
           <div class="field">
-            <label>Inclusions</label>
+            <label>Operational Inclusions</label>
             <div class="chip-input" id="inclusions-chips">
               ${this.store.inclusions.map((v, i) => `
                 <span class="chip">
@@ -1128,11 +1248,11 @@ class DefinitionBuilderPanel {
               `).join('')}
               <input type="text" id="inclusions-input" placeholder="Type and press Enter..." />
             </div>
-            <div class="hint">What's explicitly included in your definition</div>
+            <div class="hint">Additional items you're explicitly including beyond the source</div>
           </div>
 
           <div class="field">
-            <label>Exclusions</label>
+            <label>Operational Exclusions</label>
             <div class="chip-input" id="exclusions-chips">
               ${this.store.exclusions.map((v, i) => `
                 <span class="chip">
@@ -1142,7 +1262,7 @@ class DefinitionBuilderPanel {
               `).join('')}
               <input type="text" id="exclusions-input" placeholder="Type and press Enter..." />
             </div>
-            <div class="hint">What's explicitly excluded from your definition</div>
+            <div class="hint">Items you're explicitly excluding from your operational use</div>
           </div>
 
           <div class="field-row">
@@ -1240,19 +1360,22 @@ class DefinitionBuilderPanel {
    */
   _renderStep7Epistemic() {
     const ep = this.store.state.epistemicStance;
+    const caveats = this.store.state.caveats || '';
+    const isLowConfidence = ep.confidence === 'low';
 
     return `
       <div class="builder-step">
         <div class="step-header">
           <span class="step-num">7</span>
           <h3>Epistemic Stance</h3>
-          <span class="eo-param">EO §9: Confidence + Intent</span>
+          <span class="eo-param">EO §9: Semantic Humility (Neti Neti)</span>
         </div>
+        <p class="step-desc">How certain is this interpretation? Can it be revised?</p>
 
         <div class="field-row">
           <div class="field">
             <label>Confidence</label>
-            <select name="epistemicStance.confidence">
+            <select name="epistemicStance.confidence" id="confidence-select">
               ${Object.values(ConfidenceLevel).map(c => `
                 <option value="${c.id}" ${ep.confidence === c.id ? 'selected' : ''}>${c.label}</option>
               `).join('')}
@@ -1267,10 +1390,48 @@ class DefinitionBuilderPanel {
             </select>
           </div>
         </div>
+
+        <!-- CAVEATS (Elevated - Required for LOW confidence) -->
+        <div class="highlight-box ${isLowConfidence ? 'red caveats-required' : 'gray'} caveats-box" id="caveats-container">
+          ${isLowConfidence ? `
+            <div class="caveats-warning">
+              <span class="warning-icon">⚠</span>
+              <span>Provisional Interpretation — caveats are <strong>required</strong></span>
+            </div>
+          ` : ''}
+          <div class="field">
+            <label class="${isLowConfidence ? 'required-label' : ''}">
+              ${isLowConfidence ? '<span class="required-marker">*</span>' : ''}
+              Caveats & Limitations
+            </label>
+            <textarea name="caveats" rows="3" id="caveats-input"
+                      placeholder="What are the known limitations? When should this NOT be used? What assumptions might break?"
+                      ${isLowConfidence ? 'required' : ''}>${this._escapeHtml(caveats)}</textarea>
+            <div class="hint">
+              ${isLowConfidence
+                ? '<strong>Required:</strong> Low-confidence interpretations must document their limitations.'
+                : 'Document any caveats, edge cases, or conditions where this definition might not apply.'}
+            </div>
+          </div>
+        </div>
+
         <div class="field">
-          <label>Notes</label>
+          <label>Additional Notes</label>
           <input type="text" name="epistemicStance.notes" value="${this._escapeHtml(ep.notes)}"
-                 placeholder="Why this definition? Any caveats?" />
+                 placeholder="Why this definition? Any other context?" />
+        </div>
+
+        <!-- SEMANTIC HUMILITY REMINDER -->
+        <div class="semantic-humility-box">
+          <div class="humility-header">
+            <span class="humility-icon">📿</span>
+            <span class="humility-title">Semantic Humility</span>
+          </div>
+          <p class="humility-text">
+            Definitions are interpretive tools, not ontological truths.
+            This definition can be <strong>revised</strong>, <strong>superseded</strong>, or <strong>contested</strong>
+            without changing the underlying data.
+          </p>
         </div>
       </div>
     `;
@@ -1362,6 +1523,8 @@ class DefinitionBuilderPanel {
     // Chip inputs
     this._attachChipHandlers('inclusions');
     this._attachChipHandlers('exclusions');
+    this._attachChipHandlers('retains');
+    this._attachChipHandlers('discards');
 
     // Output tabs
     this.container.querySelectorAll('.output-tab').forEach(tab => {
@@ -1410,6 +1573,21 @@ class DefinitionBuilderPanel {
         this.store.removeExclusion(index);
       });
     });
+
+    // Retains/Discards remove handlers (AV-inspired)
+    this.container.querySelectorAll('[data-action="remove-retain"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.index, 10);
+        this.store.removeRetain(index);
+      });
+    });
+
+    this.container.querySelectorAll('[data-action="remove-discard"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.index, 10);
+        this.store.removeDiscard(index);
+      });
+    });
   }
 
   /**
@@ -1422,10 +1600,20 @@ class DefinitionBuilderPanel {
       input.addEventListener('keypress', (e) => {
         if (e.key === 'Enter' && input.value.trim()) {
           e.preventDefault();
-          if (name === 'inclusions') {
-            this.store.addInclusion(input.value.trim());
-          } else {
-            this.store.addExclusion(input.value.trim());
+          const value = input.value.trim();
+          switch (name) {
+            case 'inclusions':
+              this.store.addInclusion(value);
+              break;
+            case 'exclusions':
+              this.store.addExclusion(value);
+              break;
+            case 'retains':
+              this.store.addRetain(value);
+              break;
+            case 'discards':
+              this.store.addDiscard(value);
+              break;
           }
           input.value = '';
         }
@@ -1441,26 +1629,57 @@ class DefinitionBuilderPanel {
     const container = this.container?.querySelector(`#${name}-chips`);
     if (!container) return;
 
-    const input = container.querySelector('input');
-    const arr = name === 'inclusions' ? this.store.inclusions : this.store.exclusions;
+    // Get the appropriate array based on chip type
+    let arr;
+    let chipClass = 'chip';
+    switch (name) {
+      case 'inclusions':
+        arr = this.store.inclusions;
+        break;
+      case 'exclusions':
+        arr = this.store.exclusions;
+        break;
+      case 'retains':
+        arr = this.store.retains || [];
+        chipClass = 'chip chip-retain';
+        break;
+      case 'discards':
+        arr = this.store.discards || [];
+        chipClass = 'chip chip-discard';
+        break;
+      default:
+        arr = [];
+    }
+
+    // Determine the action name for remove buttons
+    const actionName = name.endsWith('s') ? name.slice(0, -1) : name;
 
     container.innerHTML = arr.map((v, i) => `
-      <span class="chip">
+      <span class="${chipClass}">
         ${this._escapeHtml(v)}
-        <span class="remove" data-action="remove-${name.slice(0, -1)}" data-index="${i}">×</span>
+        <span class="remove" data-action="remove-${actionName}" data-index="${i}">×</span>
       </span>
     `).join('') + `<input type="text" id="${name}-input" placeholder="Type and press Enter..." />`;
 
     // Reattach handlers
     this._attachChipHandlers(name);
 
-    container.querySelectorAll(`[data-action="remove-${name.slice(0, -1)}"]`).forEach(btn => {
+    container.querySelectorAll(`[data-action="remove-${actionName}"]`).forEach(btn => {
       btn.addEventListener('click', () => {
         const index = parseInt(btn.dataset.index, 10);
-        if (name === 'inclusions') {
-          this.store.removeInclusion(index);
-        } else {
-          this.store.removeExclusion(index);
+        switch (name) {
+          case 'inclusions':
+            this.store.removeInclusion(index);
+            break;
+          case 'exclusions':
+            this.store.removeExclusion(index);
+            break;
+          case 'retains':
+            this.store.removeRetain(index);
+            break;
+          case 'discards':
+            this.store.removeDiscard(index);
+            break;
         }
       });
     });
