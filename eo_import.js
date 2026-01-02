@@ -3604,8 +3604,9 @@ function initImportHandlers() {
 
       const maxItems = parseInt(document.getElementById('rss-max-items')?.value) || 50;
 
-      // Fetch the RSS feed (may need CORS proxy in production)
-      const response = await fetch(url);
+      // Fetch the RSS feed via CORS proxy to avoid browser CORS restrictions
+      const corsProxy = 'https://api.allorigins.win/raw?url=';
+      const response = await fetch(corsProxy + encodeURIComponent(url));
       if (!response.ok) {
         throw new Error(`Failed to fetch feed: ${response.status}`);
       }
