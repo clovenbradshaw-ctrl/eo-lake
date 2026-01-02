@@ -1474,7 +1474,9 @@ class RelationalMergeUI {
       case 'relational':
         return this.config.isComplete();
       case 'conditions':
-        return this.config.joinConditions.length > 0 && this.config.outputFields.length > 0;
+        // Ensure at least one VALID condition exists (both fields selected), not just any condition
+        const validConditions = this.config.joinConditions.filter(c => c.leftField && c.rightField);
+        return validConditions.length > 0 && this.config.outputFields.length > 0;
       case 'review':
         return true;
       default:
