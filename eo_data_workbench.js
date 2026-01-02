@@ -511,6 +511,8 @@ class EODataWorkbench {
     this.isViewingDefinitions = false; // Track when viewing definitions tab
     this.showingSetFields = false; // Track when showing set fields panel (like Airtable's "Manage Fields")
     this.showingSetDetail = false; // Track when showing set detail view (Input → Transformation → Output)
+    this._previousLayerType = null; // Track previous layer type for detecting layer switches
+    this._layerSwitchBannerTimeout = null; // Timer for auto-hiding layer switch banner
     this.lastViewPerSet = {}; // Remember last active view for each set
     this.expandedSets = {}; // Track which sets are expanded in sidebar
     this.expandedDefinitions = {}; // Track which definitions are expanded in sidebar
@@ -22470,6 +22472,7 @@ class EODataWorkbench {
 
   /**
    * Update work zone banner to indicate if this is a structural layer or editable view
+   * Only shows banner text when switching between layer types (given/meant)
    */
   _updateWorkZoneBanner() {
     // Find or create the work zone banner
@@ -22486,49 +22489,74 @@ class EODataWorkbench {
       contentArea.parentNode.insertBefore(banner, contentArea);
     }
 
-    // Determine the current work zone type
-    if (this.currentSourceId) {
-      // Viewing a source - structural layer (GIVEN)
-      banner.className = 'work-zone-banner structural';
-      banner.innerHTML = `
-        <i class="ph ph-lock-simple"></i>
-        <span><strong>Source View</strong> — This is GIVEN data. You cannot edit source records here.</span>
-        <button class="work-zone-action" onclick="getDataWorkbench()?._showSetFromSourceUI('${this.currentSourceId}')">
-          Create Set from Source
-        </button>
-      `;
-      banner.style.display = 'flex';
-    } else if (this.showingSetFields) {
-      // Viewing schema - hybrid layer
-      banner.className = 'work-zone-banner structural';
-      banner.innerHTML = `
-        <i class="ph ph-blueprint"></i>
-        <span><strong>Schema View</strong> — Structure is GIVEN, Meaning is MEANT. Configure field definitions.</span>
-      `;
-      banner.style.display = 'flex';
-    } else if (this.showingSetDetail) {
-      // Viewing set detail - structural layer
-      banner.className = 'work-zone-banner structural';
-      banner.innerHTML = `
-        <i class="ph ph-flow-arrow"></i>
-        <span><strong>Set Overview</strong> — This shows the data flow. Open a View to work with records.</span>
-        <button class="work-zone-action" onclick="getDataWorkbench()?._selectView(getDataWorkbench()?.getCurrentSet()?.views[0]?.id)">
-          Open Default View
-        </button>
-      `;
-      banner.style.display = 'flex';
+    // Determine the current layer type
+    let currentLayerType = null;
+    if (this.currentSourceId || this.showingSetFields || this.showingSetDetail) {
+      currentLayerType = 'given';
     } else if (this.currentViewId) {
-      // Viewing a view - editable layer (MEANT)
-      banner.className = 'work-zone-banner editable';
-      banner.innerHTML = `
-        <i class="ph ph-pencil-simple"></i>
-        <span><strong>View</strong> — You are editing live data. All changes are tracked back to the Source.</span>
-      `;
-      banner.style.display = 'flex';
+      currentLayerType = 'meant';
+    }
+
+    // Check if we're switching between layer types
+    const isLayerSwitch = this._previousLayerType !== null &&
+                          currentLayerType !== null &&
+                          this._previousLayerType !== currentLayerType;
+
+    // Clear any existing timeout
+    if (this._layerSwitchBannerTimeout) {
+      clearTimeout(this._layerSwitchBannerTimeout);
+      this._layerSwitchBannerTimeout = null;
+    }
+
+    // Only show banner on layer type switches
+    if (isLayerSwitch) {
+      if (currentLayerType === 'given') {
+        // Switching TO structural layer (GIVEN)
+        banner.className = 'work-zone-banner structural';
+        if (this.currentSourceId) {
+          banner.innerHTML = `
+            <i class="ph ph-lock-simple"></i>
+            <span><strong>Source View</strong> — This is GIVEN data. You cannot edit source records here.</span>
+            <button class="work-zone-action" onclick="getDataWorkbench()?._showSetFromSourceUI('${this.currentSourceId}')">
+              Create Set from Source
+            </button>
+          `;
+        } else if (this.showingSetFields) {
+          banner.innerHTML = `
+            <i class="ph ph-blueprint"></i>
+            <span><strong>Schema View</strong> — Structure is GIVEN, Meaning is MEANT. Configure field definitions.</span>
+          `;
+        } else if (this.showingSetDetail) {
+          banner.innerHTML = `
+            <i class="ph ph-flow-arrow"></i>
+            <span><strong>Set Overview</strong> — This shows the data flow. Open a View to work with records.</span>
+            <button class="work-zone-action" onclick="getDataWorkbench()?._selectView(getDataWorkbench()?.getCurrentSet()?.views[0]?.id)">
+              Open Default View
+            </button>
+          `;
+        }
+        banner.style.display = 'flex';
+      } else if (currentLayerType === 'meant') {
+        // Switching TO editable layer (MEANT)
+        banner.className = 'work-zone-banner editable';
+        banner.innerHTML = `
+          <i class="ph ph-pencil-simple"></i>
+          <span><strong>View</strong> — You are editing live data. All changes are tracked back to the Source.</span>
+        `;
+        banner.style.display = 'flex';
+      }
+
+      // Auto-hide after 3 seconds
+      this._layerSwitchBannerTimeout = setTimeout(() => {
+        banner.style.display = 'none';
+      }, 3000);
     } else {
-      // No specific zone
+      // No layer switch, hide banner
       banner.style.display = 'none';
     }
+
+    // Update previous layer type for next comparison
+    this._previousLayerType = currentLayerType;
   }
 
   _renderView() {
