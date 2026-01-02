@@ -599,6 +599,7 @@ class EODataWorkbench {
 
       // Singleton tabs (only one instance each, like chrome://settings)
       sources: { singleton: true, label: 'Sources', icon: 'ph-download-simple' },
+      sets: { singleton: true, label: 'Sets', icon: 'ph-database' },
       definitions: { singleton: true, label: 'Definitions', icon: 'ph-book-open' },
       settings: { singleton: true, label: 'Settings', icon: 'ph-gear' },
       activity: { singleton: true, label: 'Activity', icon: 'ph-clock-counter-clockwise' },
@@ -1337,6 +1338,10 @@ class EODataWorkbench {
 
       case 'sources':
         this._showSourcesTableView();
+        break;
+
+      case 'sets':
+        this._showSetsTableView();
         break;
 
       case 'definitions':
@@ -7019,8 +7024,25 @@ class EODataWorkbench {
         const projectId = header.dataset.projectId;
         const key = `${projectId}-${section}`;
 
-        this.expandedProjectSections[key] = !this.expandedProjectSections[key];
-        header.closest('.project-section')?.classList.toggle('expanded');
+        // If clicking the expand arrow, just toggle expansion
+        if (e.target.closest('.section-expand-icon')) {
+          this.expandedProjectSections[key] = !this.expandedProjectSections[key];
+          header.closest('.project-section')?.classList.toggle('expanded');
+          return;
+        }
+
+        // Expand the section
+        this.expandedProjectSections[key] = true;
+        header.closest('.project-section')?.classList.add('expanded');
+
+        // Open the appropriate dashboard tab for this section
+        if (section === 'sources') {
+          this.openTab('sources');
+        } else if (section === 'sets') {
+          this.openTab('sets');
+        } else if (section === 'definitions') {
+          this.openTab('definitions');
+        }
       });
     });
 
