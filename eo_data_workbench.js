@@ -3151,21 +3151,17 @@ class EODataWorkbench {
   }
 
   _saveData() {
-    // When using lazy loading, merge loaded records back into full set data
-    let setsToSave = this.sets;
-    if (this._useLazyLoading && this._fullSetData) {
-      setsToSave = this._fullSetData.map(fullSet => {
-        const loadedSet = this.sets.find(s => s.id === fullSet.id);
-        if (loadedSet && loadedSet._recordsLoaded) {
-          // Use loaded set data (may have been modified)
-          const { _recordsLoaded, _recordCount, ...cleanSet } = loadedSet;
-          return cleanSet;
-        }
-        return fullSet;
-      });
-      // Also update the full set data cache
-      this._fullSetData = setsToSave;
-    }
+    // Use hybrid storage: metadata in localStorage, records in IndexedDB
+    this._saveDataHybrid();
+  }
+
+  /**
+   * Hybrid save: stores metadata in localStorage, large record data in IndexedDB
+   * This solves the localStorage quota issue for large datasets
+   */
+  async _saveDataHybrid() {
+    // Initialize IndexedDB storage if available
+    const storage = typeof eoStorage !== 'undefined' ? eoStorage : null;
 
     // Serialize projects (strip helper methods)
     const projectsToSave = (this.projects || []).map(p => {
@@ -3173,10 +3169,16 @@ class EODataWorkbench {
       return cleanProject;
     });
 
+    // Prepare sources for localStorage - strip records, store in IndexedDB
+    const sourcesToSave = await this._prepareSourcesForSave(storage);
+
+    // Prepare sets for localStorage - strip records from non-virtual sets
+    const setsToSave = await this._prepareSetsForSave(storage);
+
     // Prepare data with configurable trimming levels for quota management
     const prepareDataForSave = (trimLevel = 0) => {
       // Progressive trimming based on level:
-      // 0: No trimming (full data)
+      // 0: No trimming (metadata only - records already in IndexedDB)
       // 1: Reduce activity log to 100, clear recently closed tabs
       // 2: Reduce activity log to 50, clear tossed items older than 1 day
       // 3: Reduce activity log to 20, clear all tossed items
@@ -3208,7 +3210,7 @@ class EODataWorkbench {
       return {
         projects: projectsToSave,
         currentProjectId: this.currentProjectId,
-        sources: this.sources || [],
+        sources: sourcesToSave,
         definitions: this.definitions || [],
         exports: this.exports || [],
         sets: setsToSave,
@@ -3219,7 +3221,9 @@ class EODataWorkbench {
         activityLog: activityLogToSave,
         browserTabs: this.browserTabs || [],
         activeTabId: this.activeTabId,
-        recentlyClosedTabs: recentlyClosedToSave
+        recentlyClosedTabs: recentlyClosedToSave,
+        _storageVersion: 2, // Mark as hybrid storage format
+        _hasIndexedDB: !!storage
       };
     };
 
@@ -3268,6 +3272,95 @@ class EODataWorkbench {
     // All trim levels failed
     console.error('Failed to save data after all trim attempts:', lastError);
     this._showStorageError();
+  }
+
+  /**
+   * Prepare sources for localStorage save - strips records and stores them in IndexedDB
+   */
+  async _prepareSourcesForSave(storage) {
+    const sources = this.sources || [];
+    const sourcesToSave = [];
+
+    for (const source of sources) {
+      // Create a copy without records for localStorage
+      const { records, ...sourceMetadata } = source;
+
+      // Store record count for reference
+      sourceMetadata.recordCount = records?.length || source.recordCount || 0;
+      sourceMetadata._recordsInIndexedDB = !!storage;
+
+      // Store records in IndexedDB if available and source has records
+      if (storage && records && records.length > 0) {
+        try {
+          await storage.storeSourceRecords(source.id, records);
+        } catch (e) {
+          console.warn(`Failed to store source records in IndexedDB for ${source.id}:`, e);
+          // Fall back to storing inline if IndexedDB fails
+          sourceMetadata.records = records;
+          sourceMetadata._recordsInIndexedDB = false;
+        }
+      } else if (!storage && records) {
+        // No IndexedDB, must store inline (legacy mode)
+        sourceMetadata.records = records;
+      }
+
+      sourcesToSave.push(sourceMetadata);
+    }
+
+    return sourcesToSave;
+  }
+
+  /**
+   * Prepare sets for localStorage save - handles virtual sets and strips records
+   */
+  async _prepareSetsForSave(storage) {
+    // When using lazy loading, merge loaded records back into full set data
+    let sets = this.sets;
+    if (this._useLazyLoading && this._fullSetData) {
+      sets = this._fullSetData.map(fullSet => {
+        const loadedSet = this.sets.find(s => s.id === fullSet.id);
+        if (loadedSet && loadedSet._recordsLoaded) {
+          const { _recordsLoaded, _recordCount, ...cleanSet } = loadedSet;
+          return cleanSet;
+        }
+        return fullSet;
+      });
+      this._fullSetData = sets;
+    }
+
+    const setsToSave = [];
+
+    for (const set of sets) {
+      // Virtual sets (merged sets) don't need record storage - they compute on demand
+      if (set.isVirtual || set.derivation?.operator === 'relational_merge') {
+        const { records, ...setMetadata } = set;
+        setMetadata.isVirtual = true;
+        setMetadata.recordCount = set.recordCount || null; // May be computed later
+        setsToSave.push(setMetadata);
+        continue;
+      }
+
+      // Non-virtual sets - store records in IndexedDB if available
+      const { records, _recordsLoaded, _recordCount, ...setMetadata } = set;
+      setMetadata.recordCount = records?.length || set.recordCount || 0;
+      setMetadata._recordsInIndexedDB = !!storage;
+
+      if (storage && records && records.length > 0) {
+        try {
+          await storage.storeSetRecords(set.id, records);
+        } catch (e) {
+          console.warn(`Failed to store set records in IndexedDB for ${set.id}:`, e);
+          setMetadata.records = records;
+          setMetadata._recordsInIndexedDB = false;
+        }
+      } else if (!storage && records) {
+        setMetadata.records = records;
+      }
+
+      setsToSave.push(setMetadata);
+    }
+
+    return setsToSave;
   }
 
   _showStorageWarning(trimLevel) {
@@ -3392,12 +3485,144 @@ class EODataWorkbench {
     return set?.records?.find(r => r.id === recordId);
   }
 
+  /**
+   * Ensure a set has its records loaded/computed
+   * Handles virtual sets (lazy merge computation) and IndexedDB storage
+   */
+  async _ensureSetRecords(set) {
+    if (!set) return [];
+
+    // Check if this is a virtual merged set that needs computation
+    if (set.isVirtual || (set.derivation?.operator === 'relational_merge' && (!set.records || set.records.length === 0))) {
+      return this._computeVirtualSetRecords(set);
+    }
+
+    // Check if records need to be loaded from IndexedDB
+    if (set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+      return this._loadSetRecordsFromIndexedDB(set);
+    }
+
+    // Records are already available inline
+    return set.records || [];
+  }
+
+  /**
+   * Compute records for a virtual (merged) set
+   */
+  async _computeVirtualSetRecords(set) {
+    const derivation = set.derivation;
+    if (!derivation || derivation.operator !== 'relational_merge') {
+      return set.records || [];
+    }
+
+    // Show loading indicator
+    this._showToast('Computing merged data...', 'info');
+
+    try {
+      // Get the merge engine
+      const engine = typeof mergeEngine !== 'undefined' ? mergeEngine : new MergeEngine();
+
+      // Function to get source records by ID
+      const getSourceRecords = async (sourceId) => {
+        const source = this.sources?.find(s => String(s.id) === String(sourceId));
+        if (!source) {
+          throw new Error(`Source not found: ${sourceId}`);
+        }
+
+        // Check if records are in IndexedDB
+        if (source._recordsInIndexedDB && (!source.records || source.records.length === 0)) {
+          return this._loadSourceRecordsFromIndexedDB(source);
+        }
+
+        return source.records || [];
+      };
+
+      // Compute the merge
+      const result = await engine.computeMerge(set, getSourceRecords);
+
+      if (!result.success) {
+        this._showToast(`Merge computation failed: ${result.error}`, 'error');
+        return [];
+      }
+
+      // Cache the computed records on the set object
+      set.records = result.records;
+      set.recordCount = result.totalCount;
+      set._computedAt = new Date().toISOString();
+
+      // Also cache in IndexedDB for faster subsequent access
+      const storage = typeof eoStorage !== 'undefined' ? eoStorage : null;
+      if (storage) {
+        await storage.storeMergeResult(set.id, result);
+      }
+
+      this._showToast(`Computed ${result.totalCount} merged records`, 'success');
+      return result.records;
+
+    } catch (error) {
+      console.error('Failed to compute virtual set records:', error);
+      this._showToast(`Error computing merge: ${error.message}`, 'error');
+      return [];
+    }
+  }
+
+  /**
+   * Load set records from IndexedDB
+   */
+  async _loadSetRecordsFromIndexedDB(set) {
+    const storage = typeof eoStorage !== 'undefined' ? eoStorage : null;
+    if (!storage) {
+      return set.records || [];
+    }
+
+    try {
+      // First check if there's a cached merge result
+      if (set.isVirtual) {
+        const cached = await storage.getMergeResult(set.id);
+        if (cached) {
+          set.records = cached.records;
+          set.recordCount = cached.totalCount;
+          return cached.records;
+        }
+      }
+
+      // Load from set_records store
+      const records = await storage.getSetRecords(set.id);
+      set.records = records;
+      return records;
+    } catch (error) {
+      console.error('Failed to load set records from IndexedDB:', error);
+      return set.records || [];
+    }
+  }
+
+  /**
+   * Load source records from IndexedDB
+   */
+  async _loadSourceRecordsFromIndexedDB(source) {
+    const storage = typeof eoStorage !== 'undefined' ? eoStorage : null;
+    if (!storage) {
+      return source.records || [];
+    }
+
+    try {
+      const records = await storage.getSourceRecords(source.id);
+      source.records = records;
+      return records;
+    } catch (error) {
+      console.error('Failed to load source records from IndexedDB:', error);
+      return source.records || [];
+    }
+  }
+
   getFilteredRecords() {
     const set = this.getCurrentSet();
     const view = this.getCurrentView();
     if (!set) return [];
 
-    let records = [...set.records];
+    // For virtual sets, records may need to be computed asynchronously
+    // Use cached records if available, otherwise return empty and trigger async load
+    let records = [...(set.records || [])];
 
     // Apply lens filter if a lens is selected
     const lens = this.getCurrentLens();
@@ -20029,17 +20254,29 @@ class EODataWorkbench {
     // Create and show the RelationalMergeUI
     const ui = new RelationalMergeUI(this.sourceStore, container);
     ui.show({
-      onComplete: (result) => {
-        // Add the new joined set to our sets array
+      onComplete: async (result) => {
+        // Add the new virtual set to our sets array
         this.sets.push(result.set);
         this._addSetToProject(result.set.id);
+
+        // For virtual sets, we need to compute records lazily when viewed
+        // The set stores only the derivation spec, not the actual records
+        if (result.isVirtual) {
+          // Show toast with pending message since records aren't computed yet
+          this._showToast(
+            `Merged set "${result.set.name}" created (records computed on view)`,
+            'success'
+          );
+        } else {
+          this._showToast(
+            `Merged set "${result.set.name}" created with ${result.stats.resultRecords} records`,
+            'success'
+          );
+        }
+
         this._saveData();
         this._renderSidebar();
         this._selectSet(result.set.id);
-        this._showToast(
-          `Merged set "${result.set.name}" created with ${result.stats.resultRecords} records`,
-          'success'
-        );
       },
       onCancel: () => {
         // Nothing to do on cancel
@@ -21563,8 +21800,15 @@ class EODataWorkbench {
     // Clear search when switching sets
     this.viewSearchTerm = '';
 
-    // Lazy load records for this set if needed
-    if (this._useLazyLoading) {
+    // Handle virtual sets (merged sets) and IndexedDB storage
+    // These need async record loading/computation
+    if (set.isVirtual || set._recordsInIndexedDB || set.derivation?.operator === 'relational_merge') {
+      this._ensureSetRecords(set).then(() => {
+        // Re-render after records are loaded
+        this._renderView();
+      });
+    } else if (this._useLazyLoading) {
+      // Legacy lazy loading for other sets
       this._loadSetRecords(setId);
     }
 

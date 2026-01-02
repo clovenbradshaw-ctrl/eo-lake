@@ -1875,35 +1875,42 @@ class RelationalMergeUI {
   }
 
   _executeMerge() {
-    const result = this._executeJoin(false);
-
-    if (!result.success) {
-      // Show error
-      alert(result.error || 'Merge failed');
+    // Validate configuration before creating virtual set
+    const validConditions = this.config.joinConditions.filter(c => c.leftField && c.rightField);
+    if (validConditions.length === 0) {
+      alert('At least one complete join condition is required');
       return;
     }
 
-    // Create the new set
+    if (this.config.outputFields.length === 0) {
+      alert('At least one output field must be selected');
+      return;
+    }
+
+    // Create a VIRTUAL merged set - no records stored inline
+    // Records will be computed on-demand when the set is viewed
     const timestamp = new Date().toISOString();
     const setId = `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+
+    // Build field definitions with source tracking
+    const fields = this.config.outputFields.map((f, i) => ({
+      id: `fld_${setId}_${i}`,
+      name: f.rename || f.field,
+      originalField: f.field,
+      source: f.source,
+      type: f.type || 'text',
+      width: 150
+    }));
 
     const newSet = {
       id: setId,
       name: this.config.setName || 'Merged Set',
       icon: 'ph-git-merge',
-      fields: result.fields.map((f, i) => ({
-        id: `fld_${Date.now().toString(36)}_${i}`,
-        name: f.name,
-        type: f.type || 'text',
-        width: 150
-      })),
-      records: result.records.map((rec, i) => ({
-        id: `rec_${Date.now().toString(36)}_${i}`,
-        setId: setId,
-        values: rec.values,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      })),
+      fields: fields,
+      // VIRTUAL SET: No records stored inline - computed on-demand
+      records: [],
+      recordCount: null, // Will be computed on first access
+      isVirtual: true,
       views: [{
         id: `view_${Date.now().toString(36)}`,
         name: 'All Records',
@@ -1916,25 +1923,38 @@ class RelationalMergeUI {
         strategy: 'CON',
         operator: 'relational_merge',
         sourceItems: [
-          { type: 'source', id: this.config.leftSource?.id },
-          { type: 'source', id: this.config.rightSource?.id }
+          { type: 'source', id: this.config.leftSource?.id, name: this.config.leftSource?.name },
+          { type: 'source', id: this.config.rightSource?.id, name: this.config.rightSource?.name }
         ],
         relationalPosition: this.config.toJSON(),
         joinConfig: {
           type: this.config.getJoinType(),
-          conditions: this.config.joinConditions
-        }
+          conditions: validConditions.map(c => ({
+            leftField: c.leftField,
+            rightField: c.rightField,
+            operator: c.operator || 'eq'
+          }))
+        },
+        outputFields: this.config.outputFields.map(f => ({
+          field: f.field,
+          source: f.source,
+          rename: f.rename,
+          type: f.type
+        }))
       }
     };
 
-    // Call completion handler
+    // Call completion handler with the virtual set
     this.hide();
     this._onComplete?.({
       set: newSet,
+      isVirtual: true,
       stats: {
-        resultRecords: result.records.length,
+        resultRecords: 'pending', // Will be computed on-demand
         leftSource: this.config.leftSource?.name,
         rightSource: this.config.rightSource?.name,
+        leftRecordCount: this.config.leftSource?.recordCount || this.config.leftSource?.records?.length || 0,
+        rightRecordCount: this.config.rightSource?.recordCount || this.config.rightSource?.records?.length || 0,
         joinType: this.config.getJoinType(),
         relationalPosition: this.config.getConfigKey()
       }
