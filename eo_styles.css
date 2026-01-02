@@ -2688,6 +2688,171 @@ html, body {
 }
 
 /* ========================================
+   Definition Items (Master-level like Sets)
+   ======================================== */
+
+.definition-item-container {
+  margin-bottom: 2px;
+}
+
+.definition-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 3px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: var(--transition-fast);
+}
+
+.definition-item-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.definition-item-header.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--text-primary);
+}
+
+/* Definition status colors */
+.definition-item-header.verified .definition-status-icon {
+  color: #16a34a;
+}
+
+.definition-item-header.complete .definition-status-icon {
+  color: #3b82f6;
+}
+
+.definition-item-header.partial .definition-status-icon {
+  color: #f59e0b;
+}
+
+.definition-item-header.stub .definition-status-icon {
+  color: var(--text-muted);
+}
+
+.definition-item-header.local .definition-status-icon {
+  color: #8b5cf6;
+}
+
+.definition-item-expand {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+
+.definition-item-expand i {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.definition-item-expand-spacer {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.definition-item-container.expanded .definition-item-expand {
+  transform: rotate(90deg);
+}
+
+.definition-status-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.definition-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.definition-authority-badge {
+  font-size: 9px;
+  padding: 1px 4px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border-radius: 3px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.definition-item-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 0;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+/* Definition Fields List (nested under definition) */
+.definition-fields-list {
+  display: none;
+  padding-left: 28px;
+  padding-bottom: 4px;
+}
+
+.definition-item-container.expanded .definition-fields-list {
+  display: block;
+}
+
+.definition-field-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  transition: var(--transition-fast);
+}
+
+.definition-field-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.definition-field-item i {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.definition-field-item.bound i {
+  color: #16a34a;
+}
+
+.definition-field-item.unbound i {
+  color: var(--text-muted);
+}
+
+.definition-field-item .field-set-name {
+  color: var(--text-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.definition-field-item .field-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* MEANT badge for definitions section */
+.section-badge.meant-badge {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
+
+/* ========================================
    Set Dashboard View (Horizontal Layout)
    ======================================== */
 

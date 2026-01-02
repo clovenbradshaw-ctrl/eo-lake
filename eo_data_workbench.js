@@ -513,6 +513,7 @@ class EODataWorkbench {
     this.showingSetDetail = false; // Track when showing set detail view (Input → Transformation → Output)
     this.lastViewPerSet = {}; // Remember last active view for each set
     this.expandedSets = {}; // Track which sets are expanded in sidebar
+    this.expandedDefinitions = {}; // Track which definitions are expanded in sidebar
     this.currentSetTagFilter = null; // Filter sets by tag in header
     this.selectedRecords = new Set();
     this.editingCell = null;
@@ -6862,26 +6863,194 @@ class EODataWorkbench {
 
   /**
    * Render nested Definitions section within a project
-   * Shows which fields are linked to which definitions
+   * Master-level definitions that work across all sets
+   * Shows all keys/fields from all sets with their definition status
    */
   _renderNestedDefinitions(definitions, projectId, projectSets) {
-    if (definitions.length === 0) return '';
+    const isExpanded = this.expandedProjectSections?.[`${projectId}-definitions`] ?? true;
 
-    // Check if definitions table view is currently active
-    const isActive = this.isViewingDefinitionsTable && this.currentProjectId === projectId;
+    // Collect ALL unique fields from ALL sets in this project
+    const allFields = [];
+    const fieldsByKey = new Map(); // key -> array of {setId, setName, field}
 
-    // Definitions now shows as a single clickable item (like Sources) that opens a table view
+    for (const set of projectSets) {
+      for (const field of (set.fields || [])) {
+        const key = (field.name || '').toLowerCase().trim();
+        if (!key) continue;
+
+        if (!fieldsByKey.has(key)) {
+          fieldsByKey.set(key, []);
+        }
+        fieldsByKey.get(key).push({
+          setId: set.id,
+          setName: set.name,
+          field: field
+        });
+      }
+    }
+
+    // Build definition items from both existing definitions AND all discovered fields
+    const definitionItems = [];
+    const processedKeys = new Set();
+
+    // First, add existing definitions
+    for (const def of definitions) {
+      const key = (def.term?.term || def.term?.label || '').toLowerCase().trim();
+      processedKeys.add(key);
+
+      const linkedFields = this._getDefinitionLinkedFields(def, projectSets);
+      const allFieldsForKey = fieldsByKey.get(key) || [];
+
+      definitionItems.push({
+        id: def.id,
+        term: def.term?.label || def.term?.term || 'Unnamed',
+        termKey: def.term?.term || key,
+        status: def.status || 'stub',
+        authority: def.authority?.shortName || def.authority?.name || null,
+        linkedFields: linkedFields,
+        allFieldsForKey: allFieldsForKey,
+        definition: def
+      });
+    }
+
+    // Then, add stub entries for fields that don't have definitions yet
+    for (const [key, fieldsForKey] of fieldsByKey) {
+      if (processedKeys.has(key)) continue;
+
+      // Create a virtual stub definition for this key
+      const displayName = key
+        .replace(/[_-]/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .split(' ')
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(' ');
+
+      definitionItems.push({
+        id: `stub_${key}`,
+        term: displayName,
+        termKey: key,
+        status: 'stub',
+        authority: null,
+        linkedFields: [], // No bindings yet
+        allFieldsForKey: fieldsForKey,
+        definition: null
+      });
+    }
+
+    // Sort: bound definitions first, then by term name
+    definitionItems.sort((a, b) => {
+      // Verified/complete first
+      const statusOrder = { verified: 0, complete: 1, partial: 2, stub: 3, local_only: 4 };
+      const aOrder = statusOrder[a.status] ?? 5;
+      const bOrder = statusOrder[b.status] ?? 5;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+
+      return a.term.localeCompare(b.term);
+    });
+
+    // Show empty state if no fields at all
+    if (definitionItems.length === 0) {
+      return '';
+    }
+
+    // Count bound vs unbound
+    const boundCount = definitionItems.filter(d => d.status !== 'stub' && d.definition).length;
+    const totalCount = definitionItems.length;
+
+    // Render individual definition items
+    const definitionsListHtml = definitionItems.map(item => {
+      const isActive = this.currentDefinitionId === item.id;
+      const isDefExpanded = this.expandedDefinitions?.[item.id] || isActive;
+      const hasLinkedFields = item.allFieldsForKey.length > 0;
+
+      // Status badge and icon based on definition status
+      let statusIcon = 'ph-circle-dashed';
+      let statusClass = 'stub';
+      let statusTitle = 'No definition yet';
+
+      switch (item.status) {
+        case 'verified':
+          statusIcon = 'ph-seal-check';
+          statusClass = 'verified';
+          statusTitle = 'Verified definition';
+          break;
+        case 'complete':
+          statusIcon = 'ph-check-circle';
+          statusClass = 'complete';
+          statusTitle = 'Complete definition';
+          break;
+        case 'partial':
+          statusIcon = 'ph-circle-half';
+          statusClass = 'partial';
+          statusTitle = 'Partial definition';
+          break;
+        case 'local_only':
+          statusIcon = 'ph-house';
+          statusClass = 'local';
+          statusTitle = 'Local definition';
+          break;
+        default:
+          statusIcon = 'ph-circle-dashed';
+          statusClass = 'stub';
+          statusTitle = 'No definition - click to define';
+      }
+
+      // Render linked fields/sets as nested items
+      const linkedSetsHtml = item.allFieldsForKey.map(({ setId, setName, field }) => {
+        const isBound = field.semanticBinding?.definitionId === item.id ||
+                        field.definitionId === item.id ||
+                        field.boundDefinitionId === item.id;
+        return `
+          <div class="definition-field-item ${isBound ? 'bound' : 'unbound'}"
+               data-set-id="${setId}"
+               data-field-id="${field.id}"
+               data-definition-id="${item.id}"
+               title="${this._escapeHtml(setName)}: ${this._escapeHtml(field.name)}${isBound ? ' (bound)' : ' (unbound)'}">
+            <i class="ph ${isBound ? 'ph-link' : 'ph-link-break'}"></i>
+            <span class="field-set-name">${this._escapeHtml(this._truncateName(setName, 12))}</span>
+            <span class="field-name">${this._escapeHtml(field.name)}</span>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="definition-item-container ${isDefExpanded ? 'expanded' : ''}"
+             data-definition-id="${item.id}" data-project-id="${projectId}">
+          <div class="definition-item-header ${isActive ? 'active' : ''} ${statusClass}"
+               data-definition-id="${item.id}"
+               title="${statusTitle}${item.authority ? `\nAuthority: ${item.authority}` : ''}\nUsed in ${item.allFieldsForKey.length} field(s)">
+            ${hasLinkedFields ? `
+              <div class="definition-item-expand">
+                <i class="ph ph-caret-right"></i>
+              </div>
+            ` : '<div class="definition-item-expand-spacer"></div>'}
+            <i class="ph ${statusIcon} definition-status-icon"></i>
+            <span class="definition-item-name">${this._escapeHtml(item.term)}</span>
+            ${item.authority ? `<span class="definition-authority-badge">${this._escapeHtml(item.authority)}</span>` : ''}
+            <span class="definition-item-count" title="${item.allFieldsForKey.length} field(s) across sets">${item.allFieldsForKey.length}</span>
+            <span class="epistemic-mini-badge meant-mini">MEANT</span>
+          </div>
+          ${hasLinkedFields ? `
+            <div class="definition-fields-list">
+              ${linkedSetsHtml}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
+
     return `
-      <div class="project-section definitions-section"
+      <div class="project-section definitions-section ${isExpanded ? 'expanded' : ''}"
            data-section="definitions" data-project-id="${projectId}">
-        <div class="nested-nav-item definitions-table-item ${isActive ? 'active' : ''}"
-             data-project-id="${projectId}"
-             data-action="definitions-table"
-             title="View all definitions">
-          <i class="ph ph-book-open"></i>
-          <span class="nested-item-name">Definitions</span>
-          <span class="nested-item-count">${definitions.length}</span>
-          <span class="epistemic-mini-badge meant-mini">MEANT</span>
+        <div class="project-section-header" data-section="definitions" data-project-id="${projectId}">
+          <i class="ph ph-caret-right section-expand-icon"></i>
+          <i class="ph ph-book-open section-icon"></i>
+          <span class="section-title">Definitions</span>
+          <span class="section-badge meant-badge">MEANT</span>
+          <span class="section-count" title="${boundCount} defined of ${totalCount} keys">${boundCount}/${totalCount}</span>
+        </div>
+        <div class="project-section-content">
+          ${definitionsListHtml}
         </div>
       </div>
     `;
@@ -7151,18 +7320,66 @@ class EODataWorkbench {
       });
     });
 
-    // Definitions table item (single entry that opens table view)
-    container.querySelectorAll('.definitions-table-item').forEach(item => {
+    // Definition item headers (expand/collapse and select)
+    container.querySelectorAll('.definition-item-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const definitionId = header.dataset.definitionId;
+        const containerEl = header.closest('.definition-item-container');
+
+        // If clicking on expand arrow, just toggle expansion
+        if (e.target.closest('.definition-item-expand')) {
+          if (!this.expandedDefinitions) this.expandedDefinitions = {};
+          this.expandedDefinitions[definitionId] = !this.expandedDefinitions[definitionId];
+          containerEl?.classList.toggle('expanded');
+          return;
+        }
+
+        // Otherwise expand the definition and select it
+        if (!this.expandedDefinitions) this.expandedDefinitions = {};
+        this.expandedDefinitions[definitionId] = true;
+        containerEl?.classList.add('expanded');
+
+        // Select the definition - open definition detail/editor
+        this.currentDefinitionId = definitionId;
+        this._renderSidebar();
+
+        // If it's a stub (virtual definition), prompt to create a real one
+        if (definitionId.startsWith('stub_')) {
+          const termKey = definitionId.replace('stub_', '');
+          this._promptCreateDefinition(termKey);
+        } else {
+          // Open definition detail view
+          this._showDefinitionDetail(definitionId);
+        }
+      });
+
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._showDefinitionContextMenu(e, header.dataset.definitionId);
+      });
+    });
+
+    // Definition field items (clicking navigates to that field in the set)
+    container.querySelectorAll('.definition-field-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
-        const projectId = item.dataset.projectId;
-        this._showDefinitionsTable(projectId);
+        const setId = item.dataset.setId;
+        const fieldId = item.dataset.fieldId;
+        const definitionId = item.dataset.definitionId;
+
+        // Navigate to the set's schema view with this field highlighted
+        this._openSchemaTab(setId, fieldId);
       });
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        // Could show context menu for definitions section if needed
+        const setId = item.dataset.setId;
+        const fieldId = item.dataset.fieldId;
+        const definitionId = item.dataset.definitionId;
+        this._showFieldDefinitionContextMenu(e, setId, fieldId, definitionId);
       });
     });
 
@@ -10647,6 +10864,20 @@ class EODataWorkbench {
    */
   _showDefinitionContextMenu(e, definitionId) {
     const definition = this.definitions?.find(d => d.id === definitionId);
+
+    // Handle stub definitions (virtual definitions not yet created)
+    if (definitionId.startsWith('stub_')) {
+      const termKey = definitionId.replace('stub_', '');
+      const menuItems = [
+        { label: 'Create Definition', icon: 'ph-plus', action: () => this._promptCreateDefinition(termKey) },
+        { label: 'Mark as Local Only', icon: 'ph-house', action: () => this._createLocalDefinition(termKey) },
+        { divider: true },
+        { label: 'Search for Definition', icon: 'ph-magnifying-glass', action: () => this._searchForDefinition(termKey) }
+      ];
+      this._showContextMenu(e, menuItems);
+      return;
+    }
+
     if (!definition) return;
 
     const menuItems = [
@@ -10660,6 +10891,279 @@ class EODataWorkbench {
     ];
 
     this._showContextMenu(e, menuItems);
+  }
+
+  /**
+   * Show context menu for a field's definition binding
+   */
+  _showFieldDefinitionContextMenu(e, setId, fieldId, definitionId) {
+    const set = this.sets?.find(s => s.id === setId);
+    const field = set?.fields?.find(f => f.id === fieldId);
+    const definition = this.definitions?.find(d => d.id === definitionId);
+
+    if (!set || !field) return;
+
+    const isBound = field.semanticBinding?.definitionId === definitionId ||
+                    field.definitionId === definitionId ||
+                    field.boundDefinitionId === definitionId;
+
+    const menuItems = [
+      { label: `Go to ${set.name}`, icon: 'ph-arrow-right', action: () => this._selectSet(setId) },
+      { label: 'View Field Schema', icon: 'ph-blueprint', action: () => this._openSchemaTab(setId, fieldId) },
+      { divider: true }
+    ];
+
+    if (isBound) {
+      menuItems.push({ label: 'Unbind Definition', icon: 'ph-link-break', action: () => this._unbindFieldDefinition(setId, fieldId) });
+    } else {
+      if (definitionId.startsWith('stub_')) {
+        menuItems.push({ label: 'Create & Bind Definition', icon: 'ph-link', action: () => this._promptCreateDefinition(definitionId.replace('stub_', ''), setId, fieldId) });
+      } else {
+        menuItems.push({ label: 'Bind Definition', icon: 'ph-link', action: () => this._bindFieldDefinition(setId, fieldId, definitionId) });
+      }
+    }
+
+    this._showContextMenu(e, menuItems);
+  }
+
+  /**
+   * Prompt to create a new definition for a term key
+   */
+  _promptCreateDefinition(termKey, setId = null, fieldId = null) {
+    // Use the Definition Builder if available
+    if (window.EODefinitionBuilder?.showDefinitionBuilderModal) {
+      window.EODefinitionBuilder.showDefinitionBuilderModal({
+        frame: this.currentProjectId || 'default',
+        user: this._getCurrentUser(),
+        api: window.EO?.getDefinitionAPI ? window.EO.getDefinitionAPI() : null,
+        initialTerm: termKey,
+        bindToField: setId && fieldId ? { setId, fieldId } : null
+      }).then((definition) => {
+        if (definition) {
+          this._addDefinition(definition);
+
+          // Auto-bind if we have a field context
+          if (setId && fieldId) {
+            this._bindFieldDefinition(setId, fieldId, definition.id);
+          }
+
+          this._showToast('Definition created successfully', 'success');
+          this._renderSidebar();
+        }
+      });
+    } else {
+      // Fallback to simple modal
+      this._showSimpleDefinitionModal(termKey, setId, fieldId);
+    }
+  }
+
+  /**
+   * Simple definition creation modal (fallback)
+   */
+  _showSimpleDefinitionModal(termKey, setId = null, fieldId = null) {
+    const displayName = termKey
+      .replace(/[_-]/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(' ')
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+
+    // Create a simple modal for definition
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+          <h3><i class="ph ph-book-open"></i> Create Definition</h3>
+          <button class="modal-close"><i class="ph ph-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Term</label>
+            <input type="text" id="def-term" value="${this._escapeHtml(termKey)}" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label>Label</label>
+            <input type="text" id="def-label" value="${this._escapeHtml(displayName)}" class="form-input" />
+          </div>
+          <div class="form-group">
+            <label>Definition Text</label>
+            <textarea id="def-text" class="form-input" rows="3" placeholder="Enter the definition..."></textarea>
+          </div>
+          <div class="form-group">
+            <label>Authority (optional)</label>
+            <input type="text" id="def-authority" class="form-input" placeholder="e.g., ISO, IRS, NIST" />
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary modal-cancel">Cancel</button>
+          <button class="btn btn-primary modal-save">Create Definition</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Event handlers
+    const closeModal = () => modal.remove();
+
+    modal.querySelector('.modal-close').addEventListener('click', closeModal);
+    modal.querySelector('.modal-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    modal.querySelector('.modal-save').addEventListener('click', () => {
+      const term = modal.querySelector('#def-term').value.trim();
+      const label = modal.querySelector('#def-label').value.trim();
+      const definitionText = modal.querySelector('#def-text').value.trim();
+      const authority = modal.querySelector('#def-authority').value.trim();
+
+      if (!term) {
+        this._showToast('Term is required', 'error');
+        return;
+      }
+
+      // Create the definition
+      const definition = {
+        id: `def_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        status: definitionText ? 'complete' : 'partial',
+        populationMethod: 'manual',
+        term: {
+          term: term,
+          label: label || term,
+          definitionText: definitionText || null
+        },
+        authority: authority ? {
+          name: authority,
+          shortName: authority.split(' ')[0]
+        } : null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      this._addDefinition(definition);
+
+      // Bind to field if context provided
+      if (setId && fieldId) {
+        this._bindFieldDefinition(setId, fieldId, definition.id);
+      }
+
+      // Add to project
+      if (this.currentProjectId) {
+        const project = this.projects?.find(p => p.id === this.currentProjectId);
+        if (project) {
+          if (!project.definitionIds) project.definitionIds = [];
+          project.definitionIds.push(definition.id);
+        }
+      }
+
+      this._showToast('Definition created', 'success');
+      this._renderSidebar();
+      closeModal();
+    });
+  }
+
+  /**
+   * Create a local-only definition (no external authority needed)
+   */
+  _createLocalDefinition(termKey) {
+    const displayName = termKey
+      .replace(/[_-]/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(' ')
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+
+    const definition = {
+      id: `def_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      status: 'local_only',
+      populationMethod: 'manual',
+      term: {
+        term: termKey,
+        label: displayName,
+        definitionText: `Local term: ${displayName}`
+      },
+      authority: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    this._addDefinition(definition);
+
+    // Add to project
+    if (this.currentProjectId) {
+      const project = this.projects?.find(p => p.id === this.currentProjectId);
+      if (project) {
+        if (!project.definitionIds) project.definitionIds = [];
+        project.definitionIds.push(definition.id);
+      }
+    }
+
+    this._showToast(`"${displayName}" marked as local term`, 'success');
+    this._renderSidebar();
+  }
+
+  /**
+   * Search for a definition using the API
+   */
+  _searchForDefinition(termKey) {
+    // Try to use the key suggestion panel if available
+    if (window.EOKeySuggestionPanel) {
+      window.EOKeySuggestionPanel.show?.(termKey);
+    } else {
+      // Fallback: open definitions tab with search
+      this.openTab('definitions');
+      // TODO: implement search focus
+      this._showToast(`Search for: ${termKey}`, 'info');
+    }
+  }
+
+  /**
+   * Bind a definition to a field
+   */
+  _bindFieldDefinition(setId, fieldId, definitionId) {
+    const set = this.sets?.find(s => s.id === setId);
+    if (!set) return;
+
+    const field = set.fields?.find(f => f.id === fieldId);
+    if (!field) return;
+
+    // Set the semantic binding
+    if (!field.semanticBinding) {
+      field.semanticBinding = {};
+    }
+    field.semanticBinding.definitionId = definitionId;
+
+    // Also set legacy bindings for compatibility
+    field.definitionId = definitionId;
+    field.boundDefinitionId = definitionId;
+
+    this._showToast('Definition bound to field', 'success');
+    this._renderSidebar();
+    this._emitChange?.('field_definition_bound', { setId, fieldId, definitionId });
+  }
+
+  /**
+   * Unbind a definition from a field
+   */
+  _unbindFieldDefinition(setId, fieldId) {
+    const set = this.sets?.find(s => s.id === setId);
+    if (!set) return;
+
+    const field = set.fields?.find(f => f.id === fieldId);
+    if (!field) return;
+
+    // Clear all bindings
+    if (field.semanticBinding) {
+      delete field.semanticBinding.definitionId;
+    }
+    delete field.definitionId;
+    delete field.boundDefinitionId;
+
+    this._showToast('Definition unbound from field', 'success');
+    this._renderSidebar();
+    this._emitChange?.('field_definition_unbound', { setId, fieldId });
   }
 
   /**
