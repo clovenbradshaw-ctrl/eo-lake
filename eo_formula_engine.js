@@ -1367,6 +1367,21 @@ class PipelineEvaluator {
         return { value: new Date(args[0]).getMonth() + 1 };
       case 'DAY':
         return { value: new Date(args[0]).getDate() };
+      case 'DATETIME_FORMAT': {
+        const d = new Date(args[0]);
+        const format = args[1];
+        if (!format) return { value: d.toISOString() };
+        return { value: format
+          .replace('YYYY', d.getFullYear())
+          .replace('MM', String(d.getMonth() + 1).padStart(2, '0'))
+          .replace('DD', String(d.getDate()).padStart(2, '0'))
+          .replace('HH', String(d.getHours()).padStart(2, '0'))
+          .replace('mm', String(d.getMinutes()).padStart(2, '0'))
+          .replace('ss', String(d.getSeconds()).padStart(2, '0'))
+        };
+      }
+      case 'DATETIME_PARSE':
+        return { value: new Date(args[0]).toISOString() };
 
       // Array functions
       case 'ARRAYUNIQUE':
