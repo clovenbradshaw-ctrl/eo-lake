@@ -5203,21 +5203,12 @@ class EODataWorkbench {
       action: {
         label: 'Undo',
         callback: () => {
-          // Restore the view
+          // Restore the view using _restoreTossedItem (which also records activity)
           const tossedIndex = this.tossedItems.findIndex(
             t => t.type === 'view' && t.view.id === view.id
           );
           if (tossedIndex !== -1) {
-            this.tossedItems.splice(tossedIndex, 1);
-            set.views.splice(viewIndex, 0, view);
-            this.currentViewId = view.id;
-            this.lastViewPerSet[setId] = view.id;
-            this._renderSidebar();
-            this._renderView();
-            this._updateBreadcrumb();
-            this._saveData();
-            this._updateTossedBadge();
-            this._showToast(`Restored view "${view.name}"`, 'success');
+            this._restoreTossedItem(tossedIndex);
           }
         }
       }
@@ -15169,35 +15160,12 @@ class EODataWorkbench {
       action: {
         label: 'Undo',
         callback: () => {
-          // Restore the source
+          // Restore the source using _restoreTossedItem (which also records activity)
           const tossedIndex = this.tossedItems.findIndex(
             t => t.type === 'source' && t.source.id === sourceId
           );
           if (tossedIndex !== -1) {
-            const tossedItem = this.tossedItems.splice(tossedIndex, 1)[0];
-
-            // Re-add to sources array
-            if (!this.sources) this.sources = [];
-            this.sources.push(tossedItem.source);
-
-            // Re-add to sourceStore if present
-            if (this.sourceStore) {
-              this.sourceStore.sources.set(sourceId, tossedItem.source);
-            }
-
-            // Resurrect from ghost registry if available
-            if (typeof getGhostRegistry === 'function') {
-              const ghostRegistry = getGhostRegistry();
-              if (ghostRegistry.isGhost(sourceId)) {
-                ghostRegistry.resurrect(sourceId, 'user', { reason: 'User undid source deletion' });
-              }
-            }
-
-            this._saveData();
-            this._renderSidebar();
-            this._renderFileExplorer?.();
-            this._updateTossedBadge();
-            this._showToast(`Restored source "${sourceName}"`, 'success');
+            this._restoreTossedItem(tossedIndex);
           }
         }
       }
@@ -20831,29 +20799,12 @@ class EODataWorkbench {
       action: {
         label: 'Undo',
         callback: () => {
-          // Restore the set at its original position
+          // Restore the set using _restoreTossedItem (which also records activity)
           const tossedIndex = this.tossedItems.findIndex(
             t => t.type === 'set' && t.set.id === set.id
           );
           if (tossedIndex !== -1) {
-            this.tossedItems.splice(tossedIndex, 1);
-            // Re-insert at original position
-            this.sets.splice(setIndex, 0, set);
-            if (wasCurrentSet) {
-              this.currentSetId = set.id;
-              this.currentViewId = set.views[0]?.id;
-              if (this.currentSetId && this.currentViewId) {
-                this.lastViewPerSet[this.currentSetId] = this.currentViewId;
-              }
-            }
-            this._renderTabBar();
-            this._renderSetsNavFlat();
-            this._renderSidebar();
-            this._renderView();
-            this._updateBreadcrumb();
-            this._saveData();
-            this._updateTossedBadge();
-            this._showToast(`Restored set "${set.name}"`, 'success');
+            this._restoreTossedItem(tossedIndex);
           }
         }
       }
@@ -21057,27 +21008,12 @@ class EODataWorkbench {
       action: {
         label: 'Undo',
         callback: () => {
-          // Restore the view at its original position
+          // Restore the view using _restoreTossedItem (which also records activity)
           const tossedIndex = this.tossedItems.findIndex(
             t => t.type === 'view' && t.view.id === view.id
           );
           if (tossedIndex !== -1) {
-            this.tossedItems.splice(tossedIndex, 1);
-            // Re-insert at original position
-            set.views.splice(viewIndex, 0, view);
-            if (wasCurrentView) {
-              this.currentViewId = view.id;
-              // Remember this view for the current set
-              if (this.currentSetId) {
-                this.lastViewPerSet[this.currentSetId] = view.id;
-              }
-            }
-            this._renderViewsNav();
-            this._renderView();
-            this._updateBreadcrumb();
-            this._saveData();
-            this._updateTossedBadge();
-            this._showToast(`Restored "${view.name}"`, 'success');
+            this._restoreTossedItem(tossedIndex);
           }
         }
       }
@@ -21093,94 +21029,8 @@ class EODataWorkbench {
       return;
     }
 
-    const tossedItem = this.tossedItems.shift();
-
-    if (tossedItem.type === 'view') {
-      const set = this.sets.find(s => s.id === tossedItem.setId);
-      if (!set) {
-        this._showToast('Original set no longer exists', 'warning');
-        return;
-      }
-
-      // Restore the view
-      set.views.push(tossedItem.view);
-      this.currentViewId = tossedItem.view.id;
-
-      if (this.currentSetId !== tossedItem.setId) {
-        this.currentSetId = tossedItem.setId;
-        this._renderSidebar();
-      }
-
-      // Remember this view for the set (use tossedItem.setId as that's the current set now)
-      this.lastViewPerSet[tossedItem.setId] = tossedItem.view.id;
-
-      this._renderViewsNav();
-      this._renderView();
-      this._updateBreadcrumb();
-      this._saveData();
-      this._showToast(`Picked up view "${tossedItem.view.name}"`, 'success');
-    } else if (tossedItem.type === 'record') {
-      const set = this.sets.find(s => s.id === tossedItem.setId);
-      if (!set) {
-        this._showToast('Original set no longer exists', 'warning');
-        return;
-      }
-
-      // Restore the record
-      set.records.push(tossedItem.record);
-
-      if (this.currentSetId !== tossedItem.setId) {
-        this.currentSetId = tossedItem.setId;
-        this._renderSidebar();
-      }
-
-      this._renderView();
-      this._saveData();
-      this._showToast('Picked up record', 'success');
-    } else if (tossedItem.type === 'set') {
-      // Restore the set
-      this.sets.push(tossedItem.set);
-      this.currentSetId = tossedItem.set.id;
-      this.currentViewId = tossedItem.set.views[0]?.id;
-      if (this.currentSetId && this.currentViewId) {
-        this.lastViewPerSet[this.currentSetId] = this.currentViewId;
-      }
-
-      this._renderTabBar();
-      this._renderSetsNavFlat();
-      this._renderSidebar();
-      this._renderView();
-      this._updateBreadcrumb();
-      this._saveData();
-      this._showToast(`Picked up set "${tossedItem.set.name}"`, 'success');
-    } else if (tossedItem.type === 'field') {
-      const set = this.sets.find(s => s.id === tossedItem.setId);
-      if (!set) {
-        this._showToast('Original set no longer exists', 'warning');
-        return;
-      }
-
-      // Restore the field
-      set.fields.push(tossedItem.field);
-
-      // Restore field values to records
-      if (tossedItem.fieldValues) {
-        Object.entries(tossedItem.fieldValues).forEach(([recordId, value]) => {
-          const record = set.records.find(r => r.id === recordId);
-          if (record) {
-            record.values[tossedItem.field.id] = value;
-          }
-        });
-      }
-
-      if (this.currentSetId !== tossedItem.setId) {
-        this.currentSetId = tossedItem.setId;
-      }
-
-      this._renderView();
-      this._saveData();
-      this._showToast(`Picked up field "${tossedItem.field.name}"`, 'success');
-    }
+    // Use _restoreTossedItem which handles all restore logic and records activity
+    this._restoreTossedItem(0);
   }
 
   /**
@@ -21528,26 +21378,8 @@ class EODataWorkbench {
       item.addEventListener('click', () => {
         const index = parseInt(item.dataset.pickupIndex, 10);
         if (index >= 0 && index < this.tossedItems.length) {
-          const tossedItem = this.tossedItems.splice(index, 1)[0];
-          const set = this.sets.find(s => s.id === tossedItem.setId);
-
-          if (set) {
-            if (tossedItem.type === 'view') {
-              set.views.push(tossedItem.view);
-              this.currentViewId = tossedItem.view.id;
-              // Remember this view for the set
-              this.lastViewPerSet[tossedItem.setId] = tossedItem.view.id;
-              this._renderViewsNav();
-              this._renderView();
-              this._saveData();
-              this._showToast(`Picked up view "${tossedItem.view.name}"`, 'success');
-            } else if (tossedItem.type === 'record') {
-              set.records.push(tossedItem.record);
-              this._renderView();
-              this._saveData();
-              this._showToast('Picked up record', 'success');
-            }
-          }
+          // Use _restoreTossedItem which handles all restore logic and records activity
+          this._restoreTossedItem(index);
         }
         this._closeTabListDropdown();
       });
@@ -30967,18 +30799,12 @@ class EODataWorkbench {
       action: {
         label: 'Undo',
         callback: () => {
-          // Restore the record
+          // Restore the record using _restoreTossedItem (which also records activity)
           const tossedIndex = this.tossedItems.findIndex(
             t => t.type === 'record' && t.record.id === record.id
           );
           if (tossedIndex !== -1) {
-            this.tossedItems.splice(tossedIndex, 1);
-            set.records.splice(index, 0, record);
-            this._saveData();
-            this._renderView();
-            this._renderSidebar();
-            this._updateTossedBadge();
-            this._showToast(`Restored record "${deletedRecordName}"`, 'success');
+            this._restoreTossedItem(tossedIndex);
           }
         }
       }
@@ -31162,33 +30988,12 @@ class EODataWorkbench {
       action: {
         label: 'Undo',
         callback: () => {
-          // Restore the field at its original position
+          // Restore the field using _restoreTossedItem (which also records activity and field event)
           const tossedIndex = this.tossedItems.findIndex(
             t => t.type === 'field' && t.field.id === field.id
           );
           if (tossedIndex !== -1) {
-            const tossedItem = this.tossedItems.splice(tossedIndex, 1)[0];
-            // Re-insert at original position
-            set.fields.splice(index, 0, field);
-            // Restore field values
-            if (tossedItem.fieldValues) {
-              Object.entries(tossedItem.fieldValues).forEach(([recordId, value]) => {
-                const record = set.records.find(r => r.id === recordId);
-                if (record) {
-                  record.values[fieldId] = value;
-                }
-              });
-            }
-            // Record restore event
-            this._recordFieldEvent(fieldId, 'field.restored', {
-              name: field.name,
-              type: field.type
-            });
-
-            this._saveData();
-            this._renderView();
-            this._updateTossedBadge();
-            this._showToast(`Restored field "${field.name}"`, 'success');
+            this._restoreTossedItem(tossedIndex);
           }
         }
       }
@@ -36412,13 +36217,19 @@ class EODataWorkbench {
     return date.toLocaleDateString();
   }
 
-  _restoreTossedItem(index) {
+  _restoreTossedItem(index, options = {}) {
     if (index < 0 || index >= this.tossedItems.length) return;
 
     const item = this.tossedItems[index];
 
+    // Get the item name before removing from array
+    const itemName = this._getTossedItemName(item);
+
     // Remove from tossed items
     this.tossedItems.splice(index, 1);
+
+    // Track if restore was successful
+    let restored = false;
 
     // Restore based on type
     switch (item.type) {
@@ -36443,6 +36254,7 @@ class EODataWorkbench {
         this._renderSidebar();
         this._renderFileExplorer?.();
         this._showToast(`Restored source "${item.source.name}"`, 'success');
+        restored = true;
         break;
 
       case 'set':
@@ -36458,6 +36270,7 @@ class EODataWorkbench {
         this._renderView();
         this._updateBreadcrumb();
         this._showToast(`Restored set "${item.set.name}"`, 'success');
+        restored = true;
         break;
 
       case 'view':
@@ -36474,6 +36287,7 @@ class EODataWorkbench {
           this._renderView();
           this._updateBreadcrumb();
           this._showToast(`Restored view "${item.view.name}"`, 'success');
+          restored = true;
         } else {
           this._showToast('Original set no longer exists', 'warning');
         }
@@ -36489,6 +36303,7 @@ class EODataWorkbench {
           }
           this._renderView();
           this._showToast('Restored record', 'success');
+          restored = true;
         } else {
           this._showToast('Original set no longer exists', 'warning');
         }
@@ -36510,8 +36325,14 @@ class EODataWorkbench {
           if (this.currentSetId !== item.setId) {
             this.currentSetId = item.setId;
           }
+          // Record field restore event for event stream
+          this._recordFieldEvent(item.field.id, 'field.restored', {
+            name: item.field.name,
+            type: item.field.type
+          });
           this._renderView();
           this._showToast(`Restored field "${item.field.name}"`, 'success');
+          restored = true;
         } else {
           this._showToast('Original set no longer exists', 'warning');
         }
@@ -36520,6 +36341,16 @@ class EODataWorkbench {
 
     this._saveData();
     this._renderTossedPanel();
+
+    // Record the restore activity (unless caller wants to handle it)
+    if (restored && !options.skipActivityRecord) {
+      this._recordActivity({
+        action: 'restore',
+        entityType: item.type,
+        name: itemName,
+        details: `Restored from toss bin`
+      });
+    }
   }
 
   _permanentlyDeleteTossedItem(index) {
@@ -36934,14 +36765,8 @@ class EODataWorkbench {
           return false;
         });
         if (tossedIndex !== -1) {
+          // _restoreTossedItem now records the restore activity automatically
           this._restoreTossedItem(tossedIndex);
-          // Record the restore activity
-          this._recordActivity({
-            action: 'restore',
-            entityType: reverseData.item.type,
-            name: this._getTossedItemName(reverseData.item),
-            details: 'Restored from activity stream'
-          });
         }
         break;
 
@@ -38599,18 +38424,20 @@ class EODataWorkbench {
     if (result.success) {
       // Restore the item based on its type
       const ghost = result.ghost;
-      if (ghost.entityType === 'set' && ghost.snapshot?.payload) {
-        // Find in tossed items and restore
-        const tossedIndex = this.tossedItems.findIndex(
-          t => t.type === 'set' && t.set.id === ghostId
-        );
-        if (tossedIndex >= 0) {
-          const tossedItem = this.tossedItems.splice(tossedIndex, 1)[0];
-          this.sets.push(tossedItem.set);
-          this._renderTabBar();
-          this._renderSidebar();
-          this._saveData();
-        }
+
+      // Find in tossed items and restore using _restoreTossedItem
+      // which handles all types and records activity
+      const tossedIndex = this.tossedItems.findIndex(t => {
+        if (t.type === 'set') return t.set?.id === ghostId;
+        if (t.type === 'source') return t.source?.id === ghostId;
+        if (t.type === 'view') return t.view?.id === ghostId;
+        if (t.type === 'record') return t.record?.id === ghostId;
+        if (t.type === 'field') return t.field?.id === ghostId;
+        return false;
+      });
+
+      if (tossedIndex >= 0) {
+        this._restoreTossedItem(tossedIndex);
       }
 
       this._showToast(`Resurrected "${ghost.snapshot?.payload?.name || ghost.id}"`, 'success');
