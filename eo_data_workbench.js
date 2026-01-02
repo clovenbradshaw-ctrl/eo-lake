@@ -25059,7 +25059,13 @@ class EODataWorkbench {
    * Show modal to configure/edit a field
    */
   _showFieldConfigModal(field) {
-    // Use the rename field modal for now, which allows editing the name
+    // For formula fields, use the dedicated formula editor
+    if (field.type === FieldTypes.FORMULA) {
+      this._showFormulaEditor(field);
+      return;
+    }
+
+    // For other field types, use the rename field modal for now
     // In the future, this could be expanded to show more field options
     this._showRenameFieldModal(field.id);
   }
@@ -30578,6 +30584,9 @@ class EODataWorkbench {
               this._addField(type, 'Link', { linkedSetId, linkedViewId, allowMultiple });
             }
           });
+        } else if (type === FieldTypes.FORMULA) {
+          // For FORMULA type, show the formula editor
+          this._showFormulaEditor(null, callback);
         } else {
           if (callback) {
             callback(type);
@@ -32764,6 +32773,60 @@ class EODataWorkbench {
     setTimeout(() => {
       document.getElementById('linked-set-select')?.focus();
     }, 100);
+  }
+
+  /**
+   * Show the formula editor modal for creating or editing formula fields
+   * @param {Object|null} field - Existing field to edit, or null for creating new
+   * @param {Function|null} callback - Callback when changing an existing field's type
+   */
+  _showFormulaEditor(field, callback = null) {
+    if (!this.formulaEditor) {
+      this.formulaEditor = new EOFormulaEditor(this);
+    }
+
+    if (field) {
+      // Editing existing formula field
+      this.formulaEditor.showEdit(field, (data) => {
+        // Update the field
+        field.name = data.name;
+        field.options.formula = data.formula;
+        field.options.resultType = data.resultType;
+
+        // Record field history event
+        this._recordFieldEvent(field.id, 'field.updated', {
+          name: data.name,
+          formula: data.formula,
+          resultType: data.resultType
+        });
+
+        this._saveData();
+        this._renderView();
+        this._showToast(`Updated formula field "${data.name}"`, 'success');
+      }, () => {
+        // Cancelled
+      });
+    } else {
+      // Creating new formula field
+      this.formulaEditor.showCreate((data) => {
+        if (callback) {
+          // This is for type change scenarios
+          callback(FieldTypes.FORMULA, {
+            formula: data.formula,
+            resultType: data.resultType
+          });
+        } else {
+          // Adding a new field directly
+          this._addField(FieldTypes.FORMULA, data.name, {
+            formula: data.formula,
+            resultType: data.resultType
+          });
+          this._showToast(`Created formula field "${data.name}"`, 'success');
+        }
+      }, () => {
+        // Cancelled - do nothing
+      });
+    }
   }
 
   // --------------------------------------------------------------------------
