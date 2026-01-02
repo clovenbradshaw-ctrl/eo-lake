@@ -8402,6 +8402,7 @@ class EODataWorkbench {
       return;
     }
 
+    const previousStatus = project.status || 'active';
     project.status = 'archived';
     project.updatedAt = new Date().toISOString();
 
@@ -8409,6 +8410,15 @@ class EODataWorkbench {
     if (this.currentProjectId === projectId) {
       this.currentProjectId = null;
     }
+
+    // Record activity for state reconstruction
+    this._recordActivity({
+      action: 'archive',
+      entityType: 'project',
+      entityId: projectId,
+      name: project.name,
+      delta: [previousStatus, 'archived']
+    });
 
     this._renderSidebar();
     this._updateBreadcrumb();
@@ -8477,8 +8487,18 @@ class EODataWorkbench {
     const project = this.projects.find(p => p.id === projectId);
     if (!project) return;
 
+    const previousStatus = project.status;
     project.status = 'active';
     project.updatedAt = new Date().toISOString();
+
+    // Record activity for state reconstruction
+    this._recordActivity({
+      action: 'restore',
+      entityType: 'project',
+      entityId: projectId,
+      name: project.name,
+      delta: [previousStatus, 'active']
+    });
 
     this._renderSidebar();
     this._saveData();
@@ -8498,8 +8518,18 @@ class EODataWorkbench {
       return;
     }
 
+    const previousStatus = source.status || 'active';
     source.status = 'archived';
     source.updatedAt = new Date().toISOString();
+
+    // Record activity for state reconstruction
+    this._recordActivity({
+      action: 'archive',
+      entityType: 'source',
+      entityId: sourceId,
+      name: source.name,
+      delta: [previousStatus, 'archived']
+    });
 
     this._renderSidebar();
     this._saveData();
@@ -8513,8 +8543,18 @@ class EODataWorkbench {
     const source = this.sources?.find(s => s.id === sourceId);
     if (!source) return;
 
+    const previousStatus = source.status;
     source.status = 'active';
     source.updatedAt = new Date().toISOString();
+
+    // Record activity for state reconstruction
+    this._recordActivity({
+      action: 'restore',
+      entityType: 'source',
+      entityId: sourceId,
+      name: source.name,
+      delta: [previousStatus, 'active']
+    });
 
     this._renderSidebar();
     this._saveData();
@@ -8534,6 +8574,7 @@ class EODataWorkbench {
       return;
     }
 
+    const previousStatus = set.status || 'active';
     set.status = 'archived';
     set.updatedAt = new Date().toISOString();
 
@@ -8555,6 +8596,15 @@ class EODataWorkbench {
       this.currentSetId = null;
     }
 
+    // Record activity for state reconstruction
+    this._recordActivity({
+      action: 'archive',
+      entityType: 'set',
+      entityId: setId,
+      name: set.name,
+      delta: [previousStatus, 'archived']
+    });
+
     this._renderSidebar();
     this._renderTabBar();
     this._saveData();
@@ -8568,8 +8618,18 @@ class EODataWorkbench {
     const set = this.sets?.find(s => s.id === setId);
     if (!set) return;
 
+    const previousStatus = set.status;
     set.status = 'active';
     set.updatedAt = new Date().toISOString();
+
+    // Record activity for state reconstruction
+    this._recordActivity({
+      action: 'restore',
+      entityType: 'set',
+      entityId: setId,
+      name: set.name,
+      delta: [previousStatus, 'active']
+    });
 
     this._renderSidebar();
     this._saveData();
@@ -8583,8 +8643,18 @@ class EODataWorkbench {
     const definition = this.definitions?.find(d => d.id === definitionId);
     if (!definition) return;
 
+    const previousStatus = definition.status || 'active';
     definition.status = 'archived';
     definition.updatedAt = new Date().toISOString();
+
+    // Record activity for state reconstruction
+    this._recordActivity({
+      action: 'archive',
+      entityType: 'definition',
+      entityId: definitionId,
+      name: definition.name,
+      delta: [previousStatus, 'archived']
+    });
 
     this._renderSidebar();
     this._saveData();
@@ -8598,8 +8668,18 @@ class EODataWorkbench {
     const definition = this.definitions?.find(d => d.id === definitionId);
     if (!definition) return;
 
+    const previousStatus = definition.status;
     definition.status = 'active';
     definition.updatedAt = new Date().toISOString();
+
+    // Record activity for state reconstruction
+    this._recordActivity({
+      action: 'restore',
+      entityType: 'definition',
+      entityId: definitionId,
+      name: definition.name,
+      delta: [previousStatus, 'active']
+    });
 
     this._renderSidebar();
     this._saveData();
