@@ -42,33 +42,36 @@ const RECOGNITION_OPTIONS = {
   MUTUAL: {
     id: 'mutual',
     phaseValue: -1,
-    title: 'Mutual recognition only',
-    description: 'Both sides must recognize.',
-    details: 'An entity exists only if both sides recognize it. Identity requires agreement. Unmatched entities do not instantiate.',
-    tag: 'Consensus-only',
+    title: 'Keep only matches',
+    description: 'Only rows that exist in both sources.',
+    details: 'Like finding the overlap in a Venn diagram. If a record doesn\'t have a match in both sources, it\'s excluded.',
+    tag: 'INNER JOIN',
     icon: 'ph-handshake',
-    sqlFamily: 'INNER'
+    sqlFamily: 'INNER',
+    sqlHint: 'SELECT * FROM A INNER JOIN B'
   },
   ONE_SIDED: {
     id: 'one_sided',
     phaseValue: 1,
-    title: 'One-sided recognition',
-    description: 'Ground side recognized regardless.',
-    details: 'One side grants recognition unilaterally. The other may enrich but not contradict existence.',
-    tag: 'Asymmetric ground',
+    title: 'Keep all from one side',
+    description: 'All rows from primary source, matches from other.',
+    details: 'Keep every record from your chosen "primary" source. Add matching data from the other source where available.',
+    tag: 'LEFT/RIGHT JOIN',
     icon: 'ph-crown-simple',
     requiresDirection: true,
-    sqlFamily: 'LEFT/RIGHT'
+    sqlFamily: 'LEFT/RIGHT',
+    sqlHint: 'SELECT * FROM A LEFT JOIN B'
   },
   INDEPENDENT: {
     id: 'independent',
     phaseValue: 0,
-    title: 'Independent recognition',
-    description: 'Each side recognized independently.',
-    details: 'Each side grants recognition independently. Conflicting identities may coexist.',
-    tag: 'Independent existence',
+    title: 'Keep all from both',
+    description: 'All rows from both sources, matched where possible.',
+    details: 'Include every record from both sources. Matched rows are combined; unmatched rows appear with gaps.',
+    tag: 'FULL OUTER JOIN',
     icon: 'ph-users-three',
-    sqlFamily: 'FULL'
+    sqlFamily: 'FULL',
+    sqlHint: 'SELECT * FROM A FULL OUTER JOIN B'
   }
 };
 
@@ -79,30 +82,33 @@ const BOUNDARY_OPTIONS = {
   DROP: {
     id: 'drop',
     phaseValue: -1,
-    title: 'Drop mismatches',
-    description: 'Absence is noise.',
-    details: 'Missing relationships are discarded. Clean but brittle.',
-    tag: 'Hard boundary',
+    title: 'Remove unmatched rows',
+    description: 'Discard rows without matches.',
+    details: 'Rows that don\'t find a match are excluded from results. Simplest output, but you lose visibility into what didn\'t match.',
+    tag: 'Filter out gaps',
     icon: 'ph-prohibit',
-    warning: 'Absence will not be inspectable downstream.'
+    warning: 'Unmatched rows will be permanently excluded.',
+    sqlHint: 'WHERE match IS NOT NULL'
   },
   MARK: {
     id: 'mark',
     phaseValue: 1,
-    title: 'Mark mismatches',
-    description: 'Absence is preserved.',
-    details: 'Gaps are preserved but de-emphasized via NULL placeholders.',
-    tag: 'Soft boundary',
-    icon: 'ph-minus-circle'
+    title: 'Keep with NULL values',
+    description: 'Unmatched rows show NULL for missing fields.',
+    details: 'Standard SQL behavior. Unmatched rows are kept but have NULL values where data from the other source would appear.',
+    tag: 'Standard NULLs',
+    icon: 'ph-minus-circle',
+    sqlHint: 'Unmatched fields → NULL'
   },
   EXPOSE: {
     id: 'expose',
     phaseValue: '√2',
-    title: 'Expose mismatch structure',
-    description: 'Absence is information.',
-    details: 'Gaps are preserved as signals. Includes counts, diagnostics, gap tables.',
-    tag: 'Permeable boundary',
-    icon: 'ph-chart-bar'
+    title: 'Track gaps as data',
+    description: 'Create visible records of what didn\'t match.',
+    details: 'In addition to NULLs, generate gap analysis: counts of unmatched rows, which sources they came from, and diagnostic tables.',
+    tag: 'Gap analysis',
+    icon: 'ph-chart-bar',
+    sqlHint: '+ gap tracking tables'
   }
 };
 
@@ -113,29 +119,32 @@ const RESOLUTION_OPTIONS = {
   IMMEDIATE: {
     id: 'immediate',
     phaseValue: -1,
-    title: 'Resolve now',
-    description: 'Merge result is authoritative.',
-    details: 'Differences eliminated during merge. Single, stable output.',
-    tag: 'Static resolution',
-    icon: 'ph-lightning'
+    title: 'Create final result',
+    description: 'The merged data is ready to use.',
+    details: 'Merge produces a single, definitive output. Any conflicts are resolved during the merge. Best for production data.',
+    tag: 'Final output',
+    icon: 'ph-lightning',
+    sqlHint: 'CREATE TABLE merged_result AS ...'
   },
   DEFERRED: {
     id: 'deferred',
     phaseValue: 1,
-    title: 'Inspect first, resolve later',
-    description: 'Merge feeds later logic.',
-    details: 'Plurality preserved through merge. Resolution happens downstream.',
-    tag: 'Dynamic resolution',
-    icon: 'ph-hourglass-medium'
+    title: 'Create staging table',
+    description: 'Review and clean up before finalizing.',
+    details: 'Merge creates a working copy for inspection. You can review conflicts, fix issues, then finalize. Best for data cleaning workflows.',
+    tag: 'Review first',
+    icon: 'ph-hourglass-medium',
+    sqlHint: 'CREATE TEMP TABLE staging AS ...'
   },
   NON_FINAL: {
     id: 'non_final',
     phaseValue: 0,
-    title: 'Differences persist',
-    description: 'Merge is for inspection only.',
-    details: 'Multiple perspectives remain active. For longitudinal sensemaking.',
-    tag: 'Recursive resolution',
-    icon: 'ph-magnifying-glass'
+    title: 'Keep both versions',
+    description: 'Preserve all source data for comparison.',
+    details: 'Both source perspectives remain visible. Use for auditing, comparing datasets over time, or when you need to see "what changed".',
+    tag: 'Compare mode',
+    icon: 'ph-magnifying-glass',
+    sqlHint: 'UNION ALL with source markers'
   }
 };
 
@@ -489,7 +498,7 @@ class RelationalMergeUI {
       <div class="rm-step-content rm-questions-content">
         ${!this._purposeShown ? `
           <div class="rm-purpose-banner" id="rm-purpose-banner">
-            <p><em>Answer three questions about how these realities should relate.</em></p>
+            <p><em>Answer three questions to configure your merge. Each maps to familiar SQL concepts.</em></p>
             <button class="rm-purpose-dismiss" id="rm-purpose-dismiss">
               <i class="ph ph-x"></i>
             </button>
@@ -497,9 +506,9 @@ class RelationalMergeUI {
         ` : ''}
 
         <div class="rm-panels">
-          ${this._renderQuestionPanel('recognition', 'Recognition', 'Who is recognized as a row/entity?', RECOGNITION_OPTIONS)}
-          ${this._renderQuestionPanel('boundary', 'Boundary', 'What happens to mismatches/absence?', BOUNDARY_OPTIONS)}
-          ${this._renderQuestionPanel('resolution', 'Resolution', 'When do differences collapse?', RESOLUTION_OPTIONS)}
+          ${this._renderQuestionPanel('recognition', '1. Which Rows to Include', 'Which records appear in the output?', RECOGNITION_OPTIONS)}
+          ${this._renderQuestionPanel('boundary', '2. Handle Unmatched Rows', 'What happens to rows without matches?', BOUNDARY_OPTIONS)}
+          ${this._renderQuestionPanel('resolution', '3. Output Type', 'What kind of result do you want?', RESOLUTION_OPTIONS)}
         </div>
 
         ${this._renderPositionSummary()}
@@ -511,22 +520,27 @@ class RelationalMergeUI {
     const currentValue = this.config[questionId];
     const isSet = currentValue !== null;
 
+    // Get SQL crosswalk hint for this question type
+    const sqlCrosswalk = this._getSqlCrosswalk(questionId);
+
     return `
-      <div class="rm-panel ${isSet ? 'rm-panel-set' : ''}">
+      <div class="rm-panel ${isSet ? 'rm-panel-set' : ''}" data-panel="${questionId}">
         <div class="rm-panel-header">
           <h3><i class="ph ${this._getQuestionIcon(questionId)}"></i> ${title}</h3>
           <span class="rm-panel-question">${question}</span>
         </div>
+        ${sqlCrosswalk ? `<div class="rm-panel-sql-hint"><i class="ph ph-database"></i> ${sqlCrosswalk}</div>` : ''}
 
         <div class="rm-options">
           ${Object.values(options).map(opt => `
-            <button class="rm-option ${currentValue === opt.id ? 'selected' : ''}"
+            <button type="button" class="rm-option ${currentValue === opt.id ? 'selected' : ''}"
                     data-question="${questionId}" data-value="${opt.id}">
               <div class="rm-option-icon"><i class="ph ${opt.icon}"></i></div>
               <div class="rm-option-content">
                 <span class="rm-option-title">${opt.title}</span>
                 <span class="rm-option-desc">${opt.description}</span>
                 <span class="rm-option-details">${opt.details}</span>
+                ${opt.sqlHint ? `<span class="rm-option-sql-hint"><code>${opt.sqlHint}</code></span>` : ''}
               </div>
               <span class="rm-option-tag">${opt.tag}</span>
             </button>
@@ -569,6 +583,19 @@ class RelationalMergeUI {
       case 'boundary': return 'ph-map-trifold';
       case 'resolution': return 'ph-clock';
       default: return 'ph-question';
+    }
+  }
+
+  _getSqlCrosswalk(questionId) {
+    switch (questionId) {
+      case 'recognition':
+        return 'SQL equivalent: Determines JOIN type (INNER, LEFT, RIGHT, FULL)';
+      case 'boundary':
+        return 'SQL equivalent: How unmatched rows are handled (filtered, NULL, tracked)';
+      case 'resolution':
+        return 'SQL equivalent: Result table type (permanent, temp/staging, view)';
+      default:
+        return null;
     }
   }
 
@@ -938,9 +965,17 @@ class RelationalMergeUI {
       this._render();
     });
 
-    // Question answers
-    this.container.querySelectorAll('.rm-option').forEach(btn => {
-      btn.addEventListener('click', () => {
+    // Question answers - using event delegation for reliability
+    // This fixes issues where buttons in later panels might not respond
+    const panelsContainer = this.container.querySelector('.rm-panels');
+    if (panelsContainer) {
+      panelsContainer.addEventListener('click', (e) => {
+        const btn = e.target.closest('.rm-option');
+        if (!btn) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
         const question = btn.dataset.question;
         const value = btn.dataset.value;
 
@@ -954,7 +989,7 @@ class RelationalMergeUI {
 
         this._render();
       });
-    });
+    }
 
     // Direction selection
     this.container.querySelectorAll('.rm-direction-btn').forEach(btn => {
