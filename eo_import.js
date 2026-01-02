@@ -1133,6 +1133,23 @@ class ImportOrchestrator {
           divergenceScore: options.schemaDivergence.divergenceScore
         } : null,
 
+        // RSS feed metadata (for provenance self-answer)
+        // Stores the original URL and channel metadata extracted from the feed
+        rssFeedMetadata: options.feedMetadata ? {
+          sourceUrl: options.sourceUrl,
+          title: options.feedMetadata.title,
+          description: options.feedMetadata.description,
+          link: options.feedMetadata.link,
+          author: options.feedMetadata.author,
+          language: options.feedMetadata.language,
+          categories: options.feedMetadata.categories,
+          lastBuildDate: options.feedMetadata.lastBuildDate,
+          generator: options.feedMetadata.generator,
+          copyright: options.feedMetadata.copyright,
+          format: options.feedMetadata.format,
+          timeframe: options.feedMetadata.timeframe
+        } : null,
+
         // View preference for multi-record sources
         sourceViewMode: 'unified',
 
@@ -3600,6 +3617,97 @@ function initImportHandlers() {
     }
   });
 
+  // Helper function to extract feed channel metadata for provenance self-answer
+  function extractFeedMetadata(xmlDoc, isAtom) {
+    const metadata = {
+      title: null,
+      description: null,
+      link: null,
+      author: null,
+      language: null,
+      categories: [],
+      lastBuildDate: null,
+      generator: null,
+      copyright: null,
+      format: isAtom ? 'Atom' : 'RSS 2.0'
+    };
+
+    if (isAtom) {
+      // Atom format - feed element is the root or first feed element
+      const feed = xmlDoc.querySelector('feed');
+      if (feed) {
+        metadata.title = feed.querySelector(':scope > title')?.textContent?.trim() || null;
+        metadata.description = feed.querySelector(':scope > subtitle')?.textContent?.trim() || null;
+        metadata.link = feed.querySelector(':scope > link[rel="alternate"]')?.getAttribute('href') ||
+                        feed.querySelector(':scope > link')?.getAttribute('href') || null;
+        metadata.author = feed.querySelector(':scope > author name')?.textContent?.trim() || null;
+        metadata.lastBuildDate = feed.querySelector(':scope > updated')?.textContent?.trim() || null;
+        metadata.generator = feed.querySelector(':scope > generator')?.textContent?.trim() || null;
+        metadata.copyright = feed.querySelector(':scope > rights')?.textContent?.trim() || null;
+        // Atom categories
+        const categories = feed.querySelectorAll(':scope > category');
+        metadata.categories = Array.from(categories)
+          .map(c => c.getAttribute('term') || c.textContent?.trim())
+          .filter(Boolean);
+      }
+    } else {
+      // RSS 2.0 format
+      const channel = xmlDoc.querySelector('channel');
+      if (channel) {
+        metadata.title = channel.querySelector(':scope > title')?.textContent?.trim() || null;
+        metadata.description = channel.querySelector(':scope > description')?.textContent?.trim() || null;
+        metadata.link = channel.querySelector(':scope > link')?.textContent?.trim() || null;
+        metadata.author = channel.querySelector(':scope > managingEditor')?.textContent?.trim() ||
+                          channel.querySelector(':scope > webMaster')?.textContent?.trim() ||
+                          channel.querySelector(':scope > dc\\:creator')?.textContent?.trim() || null;
+        metadata.language = channel.querySelector(':scope > language')?.textContent?.trim() || null;
+        metadata.lastBuildDate = channel.querySelector(':scope > lastBuildDate')?.textContent?.trim() ||
+                                  channel.querySelector(':scope > pubDate')?.textContent?.trim() || null;
+        metadata.generator = channel.querySelector(':scope > generator')?.textContent?.trim() || null;
+        metadata.copyright = channel.querySelector(':scope > copyright')?.textContent?.trim() || null;
+        // RSS categories
+        const categories = channel.querySelectorAll(':scope > category');
+        metadata.categories = Array.from(categories)
+          .map(c => c.textContent?.trim())
+          .filter(Boolean);
+      }
+    }
+
+    return metadata;
+  }
+
+  // Helper function to compute timeframe from item pubDates
+  function computeTimeframeFromItems(items) {
+    const dates = items
+      .map(item => item.pubDate)
+      .filter(d => d)
+      .map(d => new Date(d))
+      .filter(d => !isNaN(d.getTime()))
+      .sort((a, b) => a - b);
+
+    if (dates.length === 0) return null;
+
+    const earliest = dates[0];
+    const latest = dates[dates.length - 1];
+
+    // Format dates nicely
+    const formatDate = (d) => {
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+    };
+
+    if (earliest.getTime() === latest.getTime()) {
+      return formatDate(earliest);
+    }
+
+    // Check if same day
+    if (earliest.toDateString() === latest.toDateString()) {
+      return formatDate(earliest);
+    }
+
+    return `${formatDate(earliest)} – ${formatDate(latest)}`;
+  }
+
   // RSS Fetch button
   const rssFetchBtn = document.getElementById('rss-fetch-btn');
   rssFetchBtn?.addEventListener('click', async () => {
@@ -3640,6 +3748,9 @@ function initImportHandlers() {
       const feedItems = rssItems.length > 0 ? rssItems : atomEntries;
       const isAtom = atomEntries.length > 0;
 
+      // Extract feed channel metadata for provenance self-answer
+      const feedMetadata = extractFeedMetadata(xmlDoc, isAtom);
+
       let count = 0;
       for (const item of feedItems) {
         if (count >= maxItems) break;
@@ -3668,6 +3779,9 @@ function initImportHandlers() {
         count++;
       }
 
+      // Compute timeframe from item pubDates
+      feedMetadata.timeframe = computeTimeframeFromItems(items);
+
       if (items.length === 0) {
         throw new Error('No items found in RSS feed');
       }
@@ -3682,7 +3796,7 @@ function initImportHandlers() {
       currentFile = virtualFile;
       currentSourceType = 'rss';
 
-      await handleApiOrRssData(virtualFile, jsonContent, 'rss', url);
+      await handleApiOrRssData(virtualFile, jsonContent, 'rss', url, feedMetadata);
 
     } catch (error) {
       alert('RSS fetch failed: ' + error.message);
@@ -3724,7 +3838,7 @@ function initImportHandlers() {
   }
 
   // Handle API/RSS data preview
-  async function handleApiOrRssData(file, content, sourceType, sourceUrl) {
+  async function handleApiOrRssData(file, content, sourceType, sourceUrl, feedMetadata = null) {
     if (!orchestrator) {
       alert('Workbench not initialized');
       return;
@@ -3772,11 +3886,78 @@ function initImportHandlers() {
       // Render sample table
       renderSampleTable(previewData);
 
-      // Pre-fill provenance
+      // Pre-fill provenance - RSS feeds can self-answer many provenance fields
       const provSource = document.getElementById('prov-source');
       const provMethod = document.getElementById('prov-method');
-      if (provSource && !provSource.value) provSource.value = sourceUrl;
-      if (provMethod && !provMethod.value) provMethod.value = sourceType === 'api' ? 'API fetch' : 'RSS feed';
+      const provAgent = document.getElementById('prov-agent');
+      const provTerm = document.getElementById('prov-term');
+      const provTimeframe = document.getElementById('prov-timeframe');
+      const provScale = document.getElementById('prov-scale');
+      const provBackground = document.getElementById('prov-background');
+
+      // Basic provenance (always set)
+      if (provMethod && !provMethod.value) {
+        provMethod.value = sourceType === 'api' ? 'API fetch' : 'RSS feed';
+      }
+
+      // RSS-specific self-answer from feed metadata
+      if (sourceType === 'rss' && feedMetadata) {
+        // Store feed metadata for later use (will be passed to import)
+        previewData.feedMetadata = feedMetadata;
+        previewData.sourceUrl = sourceUrl;
+
+        // SOURCE: URL clearly first, then channel title
+        if (provSource && !provSource.value) {
+          const sourceInfo = feedMetadata.title
+            ? `${sourceUrl} (${feedMetadata.title})`
+            : sourceUrl;
+          provSource.value = sourceInfo;
+        }
+
+        // AGENT: Feed author/editor/publisher
+        if (provAgent && !provAgent.value && feedMetadata.author) {
+          provAgent.value = feedMetadata.author;
+        }
+
+        // TERM: Feed title and categories describe the semantic subject
+        if (provTerm && !provTerm.value) {
+          const terms = [];
+          if (feedMetadata.title) terms.push(feedMetadata.title);
+          if (feedMetadata.categories?.length > 0) {
+            terms.push(...feedMetadata.categories.slice(0, 3));
+          }
+          if (terms.length > 0) {
+            provTerm.value = terms.join(', ');
+          }
+        }
+
+        // TIMEFRAME: Computed from item pubDates
+        if (provTimeframe && !provTimeframe.value && feedMetadata.timeframe) {
+          provTimeframe.value = feedMetadata.timeframe;
+        }
+
+        // SCALE: Item count indicates scope
+        if (provScale && !provScale.value) {
+          provScale.value = `${data.length} items`;
+        }
+
+        // BACKGROUND: Feed description provides context
+        if (provBackground && !provBackground.value && feedMetadata.description) {
+          // Truncate long descriptions
+          const desc = feedMetadata.description.length > 200
+            ? feedMetadata.description.slice(0, 197) + '...'
+            : feedMetadata.description;
+          provBackground.value = desc;
+        }
+
+        // Enhance method with format info
+        if (provMethod) {
+          provMethod.value = `RSS feed (${feedMetadata.format})`;
+        }
+      } else {
+        // API or RSS without metadata - just set source URL
+        if (provSource && !provSource.value) provSource.value = sourceUrl;
+      }
 
       confirmBtn.disabled = false;
 
@@ -4173,7 +4354,10 @@ function initImportHandlers() {
           originalSource: rawFileContent,
           schemaDivergence: analysisData?.schemaDivergence,
           sourceType: currentSourceType,
-          endpoint: endpoint
+          endpoint: endpoint,
+          // Include RSS feed metadata if available (for provenance tracking)
+          feedMetadata: previewData?.feedMetadata || null,
+          sourceUrl: previewData?.sourceUrl || null
         });
 
         window.removeEventListener('eo-import-progress', progressHandler);
