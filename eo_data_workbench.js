@@ -36003,7 +36003,10 @@ class EODataWorkbench {
   }
 
   _renderDetailFieldValue(field, value) {
-    if (value === null || value === undefined || value === '') {
+    // Computed field types don't have stored values - they evaluate dynamically
+    const computedFieldTypes = [FieldTypes.FORMULA, FieldTypes.ROLLUP, FieldTypes.COUNT, FieldTypes.AUTONUMBER];
+
+    if (!computedFieldTypes.includes(field.type) && (value === null || value === undefined || value === '')) {
       return '<span class="cell-empty">Empty - click to add</span>';
     }
 
