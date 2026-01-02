@@ -3376,6 +3376,14 @@ class EODataWorkbench {
   }
 
   /**
+   * Get the current workspace name
+   */
+  _getCurrentWorkspaceName() {
+    const workspace = this.viewRegistry?.getWorkspace?.(this.currentWorkspaceId);
+    return workspace?.name || 'Workspace';
+  }
+
+  /**
    * Get a record by its ID from the current set
    */
   _getRecordById(recordId) {
