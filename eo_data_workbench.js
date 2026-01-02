@@ -18945,11 +18945,105 @@ class EODataWorkbench {
   /**
    * Show the DataPipelineUI modal for creating a Set from Source(s)
    * Uses a visual pipeline flow: Sources → Transforms → Output
+   * First shows a prompt asking if user wants to create new or merge with existing data
    */
   _showSetFromSourceUI(sourceId) {
     // Find the source from this.sources (single source of truth)
     const source = this.sources?.find(s => s.id === sourceId);
 
+    if (!source) {
+      this._showToast('Source not found. Please re-import the file to create a set.', 'error');
+      return;
+    }
+
+    // Check if there are existing sets or sources to merge with
+    const hasExistingSets = this.sets && this.sets.length > 0;
+    const hasOtherSources = this.sources && this.sources.filter(s => s.id !== sourceId).length > 0;
+    const canMerge = hasExistingSets || hasOtherSources;
+
+    // If there's nothing to merge with, skip the prompt and go straight to create
+    if (!canMerge) {
+      this._proceedWithCreateSet(sourceId);
+      return;
+    }
+
+    // Show the merge prompt
+    this._showCreateSetMergePrompt(sourceId, source);
+  }
+
+  /**
+   * Show prompt asking user whether to create a new set or merge with existing data
+   */
+  _showCreateSetMergePrompt(sourceId, source) {
+    const intents = [
+      {
+        id: 'CREATE',
+        icon: 'ph-plus-circle',
+        label: 'Create New Set',
+        description: 'Create a standalone set from this source data'
+      },
+      {
+        id: 'MERGE',
+        icon: 'ph-git-merge',
+        label: 'Merge with Existing Data',
+        description: 'Combine this source with existing sets or sources'
+      }
+    ];
+
+    const html = `
+      <div class="operator-creation-modal">
+        <div class="source-preview-header" style="margin-bottom: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i class="ph ph-file-csv" style="font-size: 20px; color: var(--accent-primary);"></i>
+            <div>
+              <div style="font-weight: 500;">${source.name}</div>
+              <div style="font-size: 12px; color: var(--text-secondary);">${source.records?.length || 0} records</div>
+            </div>
+          </div>
+        </div>
+        <p class="creation-prompt">What would you like to do with this data?</p>
+        <div class="creation-intents">
+          ${intents.map(intent => `
+            <button class="creation-intent-btn" data-intent="${intent.id}">
+              <i class="ph ${intent.icon}"></i>
+              <div class="intent-content">
+                <span class="intent-label">${intent.label}</span>
+                <span class="intent-description">${intent.description}</span>
+              </div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+
+    this._showModal('Create Set from Data', html, null, { hideFooter: true });
+
+    // Use event delegation on modal body for click handling
+    const modalBody = document.getElementById('modal-body');
+    if (modalBody) {
+      const handleIntentClick = (e) => {
+        const btn = e.target.closest('.creation-intent-btn');
+        if (btn) {
+          const intent = btn.dataset.intent;
+          modalBody.removeEventListener('click', handleIntentClick);
+          this._closeModal();
+
+          if (intent === 'CREATE') {
+            this._proceedWithCreateSet(sourceId);
+          } else if (intent === 'MERGE') {
+            this._showRelationalMergeUI(sourceId);
+          }
+        }
+      };
+      modalBody.addEventListener('click', handleIntentClick);
+    }
+  }
+
+  /**
+   * Proceed with creating a new set from source using DataPipelineUI
+   */
+  _proceedWithCreateSet(sourceId) {
+    const source = this.sources?.find(s => s.id === sourceId);
     if (!source) {
       this._showToast('Source not found. Please re-import the file to create a set.', 'error');
       return;
