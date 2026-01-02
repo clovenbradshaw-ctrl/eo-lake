@@ -3159,6 +3159,14 @@ class EODataWorkbench {
     return set?.lenses?.find(l => l.id === this.currentLensId);
   }
 
+  /**
+   * Get a record by its ID from the current set
+   */
+  _getRecordById(recordId) {
+    const set = this.getCurrentSet();
+    return set?.records?.find(r => r.id === recordId);
+  }
+
   getFilteredRecords() {
     const set = this.getCurrentSet();
     const view = this.getCurrentView();
