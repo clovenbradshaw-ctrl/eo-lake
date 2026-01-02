@@ -112,6 +112,7 @@ const PivotTypes = Object.freeze({
 const SourceTypes = Object.freeze({
   FILE: 'file',     // CSV, JSON, Excel uploaded
   API: 'api',       // External system connected
+  RSS: 'rss',       // RSS/Atom feed subscription
   SCRAPE: 'scrape', // Web data captured
   NULL: 'null'      // Empty origin for user-created tables
 });

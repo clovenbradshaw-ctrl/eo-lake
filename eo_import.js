@@ -3004,14 +3004,113 @@ function showImportModal() {
 
   modalBody.innerHTML = `
     <div class="import-container">
-      <!-- Drop Zone -->
+      <!-- Source Type Tabs -->
+      <div class="import-source-tabs" id="import-source-tabs">
+        <button class="import-source-tab active" data-source-type="file">
+          <i class="ph ph-file-arrow-up"></i>
+          <span>File</span>
+        </button>
+        <button class="import-source-tab" data-source-type="api">
+          <i class="ph ph-plugs-connected"></i>
+          <span>API</span>
+        </button>
+        <button class="import-source-tab" data-source-type="rss">
+          <i class="ph ph-rss"></i>
+          <span>RSS</span>
+        </button>
+      </div>
+
+      <!-- File Drop Zone -->
       <div class="import-dropzone" id="import-dropzone">
         <div class="dropzone-content">
           <i class="ph ph-download-simple dropzone-icon"></i>
           <p class="dropzone-text">${dropzoneText}</p>
-          <p class="dropzone-subtext">or click to browse</p>
+          <p class="dropzone-subtext">or click to browse (multiple files supported)</p>
         </div>
-        <input type="file" id="import-file-input" accept="${acceptTypes}" hidden>
+        <input type="file" id="import-file-input" accept="${acceptTypes}" multiple hidden>
+      </div>
+
+      <!-- API Import Form (hidden initially) -->
+      <div class="import-api-form" id="import-api-form" style="display: none;">
+        <div class="api-form-content">
+          <div class="api-form-field">
+            <label class="api-form-label">
+              <i class="ph ph-link"></i> API Endpoint URL
+            </label>
+            <input type="url" class="api-form-input" id="api-endpoint-url"
+                   placeholder="https://api.example.com/data">
+          </div>
+          <div class="api-form-field">
+            <label class="api-form-label">
+              <i class="ph ph-code"></i> HTTP Method
+            </label>
+            <select class="api-form-select" id="api-method">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+            </select>
+          </div>
+          <div class="api-form-field">
+            <label class="api-form-label">
+              <i class="ph ph-key"></i> Headers (optional)
+            </label>
+            <textarea class="api-form-textarea" id="api-headers" rows="3"
+                      placeholder='{"Authorization": "Bearer token", "Content-Type": "application/json"}'></textarea>
+          </div>
+          <div class="api-form-field" id="api-body-field" style="display: none;">
+            <label class="api-form-label">
+              <i class="ph ph-brackets-curly"></i> Request Body (JSON)
+            </label>
+            <textarea class="api-form-textarea" id="api-body" rows="4"
+                      placeholder='{"query": "...", "params": {}}'></textarea>
+          </div>
+          <div class="api-form-field">
+            <label class="api-form-label">
+              <i class="ph ph-path"></i> Data Path (optional)
+            </label>
+            <input type="text" class="api-form-input" id="api-data-path"
+                   placeholder="data.results or leave empty for root">
+            <p class="api-form-hint">JSON path to the array of records (e.g., "data.items", "results")</p>
+          </div>
+          <button class="btn btn-primary api-fetch-btn" id="api-fetch-btn">
+            <i class="ph ph-cloud-arrow-down"></i> Fetch Data
+          </button>
+        </div>
+      </div>
+
+      <!-- RSS Import Form (hidden initially) -->
+      <div class="import-rss-form" id="import-rss-form" style="display: none;">
+        <div class="rss-form-content">
+          <div class="rss-form-field">
+            <label class="rss-form-label">
+              <i class="ph ph-rss"></i> RSS/Atom Feed URL
+            </label>
+            <input type="url" class="rss-form-input" id="rss-feed-url"
+                   placeholder="https://example.com/feed.xml">
+          </div>
+          <div class="rss-form-field">
+            <label class="rss-form-label">
+              <i class="ph ph-list-numbers"></i> Maximum Items
+            </label>
+            <input type="number" class="rss-form-input" id="rss-max-items"
+                   placeholder="50" value="50" min="1" max="1000">
+            <p class="rss-form-hint">Number of feed items to import (1-1000)</p>
+          </div>
+          <button class="btn btn-primary rss-fetch-btn" id="rss-fetch-btn">
+            <i class="ph ph-cloud-arrow-down"></i> Fetch Feed
+          </button>
+        </div>
+      </div>
+
+      <!-- Multiple Files List (hidden initially) -->
+      <div class="import-files-list" id="import-files-list" style="display: none;">
+        <div class="files-list-header">
+          <h4><i class="ph ph-files"></i> Selected Files</h4>
+          <button class="btn btn-sm btn-secondary" id="import-add-more-files">
+            <i class="ph ph-plus"></i> Add More
+          </button>
+        </div>
+        <div class="files-list-items" id="files-list-items"></div>
+        <div class="files-list-summary" id="files-list-summary"></div>
       </div>
 
       <!-- Preview Section (hidden initially) -->
@@ -3313,12 +3412,21 @@ function initImportHandlers() {
   const confirmBtn = document.getElementById('import-confirm');
   const cancelBtn = document.getElementById('import-cancel');
   const changeFileBtn = document.getElementById('import-change-file');
+  const sourceTabs = document.getElementById('import-source-tabs');
+  const apiForm = document.getElementById('import-api-form');
+  const rssForm = document.getElementById('import-rss-form');
+  const filesListSection = document.getElementById('import-files-list');
+  const filesListItems = document.getElementById('files-list-items');
+  const filesListSummary = document.getElementById('files-list-summary');
+  const addMoreFilesBtn = document.getElementById('import-add-more-files');
 
   let currentFile = null;
+  let currentFiles = []; // Support multiple files
   let previewData = null;
   let analysisData = null;
   let rawFileContent = null;
   let orchestrator = null;
+  let currentSourceType = 'file'; // Track current source type: file, api, rss
   const analyzer = new ImportAnalyzer();
 
   // Get workbench reference and ensure sourceStore is initialized
@@ -3339,15 +3447,551 @@ function initImportHandlers() {
     orchestrator = new ImportOrchestrator(workbench);
   }
 
+  // Source type tab switching
+  sourceTabs?.addEventListener('click', (e) => {
+    const tab = e.target.closest('.import-source-tab');
+    if (!tab) return;
+
+    const sourceType = tab.dataset.sourceType;
+    if (sourceType === currentSourceType) return;
+
+    // Update active tab
+    sourceTabs.querySelectorAll('.import-source-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    currentSourceType = sourceType;
+
+    // Reset state
+    currentFile = null;
+    currentFiles = [];
+    previewData = null;
+    analysisData = null;
+    confirmBtn.disabled = true;
+
+    // Show/hide appropriate forms
+    dropzone.style.display = sourceType === 'file' ? 'flex' : 'none';
+    apiForm.style.display = sourceType === 'api' ? 'block' : 'none';
+    rssForm.style.display = sourceType === 'rss' ? 'block' : 'none';
+    filesListSection.style.display = 'none';
+    previewSection.style.display = 'none';
+
+    // Reset dropzone content if switching back to file
+    if (sourceType === 'file') {
+      const dropzoneText = ExcelParser.isAvailable()
+        ? 'Drop spreadsheet or data file here'
+        : 'Drop CSV, TSV, JSON, or ICS file here';
+      dropzone.innerHTML = `
+        <div class="dropzone-content">
+          <i class="ph ph-download-simple dropzone-icon"></i>
+          <p class="dropzone-text">${dropzoneText}</p>
+          <p class="dropzone-subtext">or click to browse (multiple files supported)</p>
+        </div>
+        <input type="file" id="import-file-input" accept="${fileInput.accept}" multiple hidden>
+      `;
+      // Re-bind file input
+      const newFileInput = document.getElementById('import-file-input');
+      newFileInput?.addEventListener('change', handleFileInputChange);
+    }
+  });
+
+  // API method change - show/hide body field
+  const apiMethodSelect = document.getElementById('api-method');
+  apiMethodSelect?.addEventListener('change', (e) => {
+    const bodyField = document.getElementById('api-body-field');
+    if (bodyField) {
+      bodyField.style.display = e.target.value === 'POST' ? 'block' : 'none';
+    }
+  });
+
+  // API Fetch button
+  const apiFetchBtn = document.getElementById('api-fetch-btn');
+  apiFetchBtn?.addEventListener('click', async () => {
+    const url = document.getElementById('api-endpoint-url')?.value?.trim();
+    if (!url) {
+      alert('Please enter an API endpoint URL');
+      return;
+    }
+
+    try {
+      apiFetchBtn.disabled = true;
+      apiFetchBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Fetching...';
+
+      const method = document.getElementById('api-method')?.value || 'GET';
+      const headersText = document.getElementById('api-headers')?.value?.trim();
+      const bodyText = document.getElementById('api-body')?.value?.trim();
+      const dataPath = document.getElementById('api-data-path')?.value?.trim();
+
+      let headers = {};
+      if (headersText) {
+        try {
+          headers = JSON.parse(headersText);
+        } catch (e) {
+          throw new Error('Invalid JSON in headers field');
+        }
+      }
+
+      const fetchOptions = { method, headers };
+      if (method === 'POST' && bodyText) {
+        fetchOptions.body = bodyText;
+        if (!headers['Content-Type']) {
+          headers['Content-Type'] = 'application/json';
+        }
+      }
+
+      const response = await fetch(url, fetchOptions);
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}: ${response.statusText}`);
+      }
+
+      let data = await response.json();
+
+      // Navigate to data path if specified
+      if (dataPath) {
+        const pathParts = dataPath.split('.');
+        for (const part of pathParts) {
+          if (data && typeof data === 'object' && part in data) {
+            data = data[part];
+          } else {
+            throw new Error(`Data path "${dataPath}" not found in response`);
+          }
+        }
+      }
+
+      // Ensure data is an array
+      if (!Array.isArray(data)) {
+        if (typeof data === 'object' && data !== null) {
+          data = [data];
+        } else {
+          throw new Error('API response is not an array or object');
+        }
+      }
+
+      // Create a virtual file from the API data
+      const fileName = new URL(url).hostname + '_api_data.json';
+      const jsonContent = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const virtualFile = new File([blob], fileName, { type: 'application/json' });
+
+      // Store provenance info
+      rawFileContent = jsonContent;
+
+      // Use existing file handling
+      currentFile = virtualFile;
+      currentSourceType = 'api';
+
+      // Parse and preview
+      await handleApiOrRssData(virtualFile, jsonContent, 'api', url);
+
+    } catch (error) {
+      alert('API fetch failed: ' + error.message);
+    } finally {
+      apiFetchBtn.disabled = false;
+      apiFetchBtn.innerHTML = '<i class="ph ph-cloud-arrow-down"></i> Fetch Data';
+    }
+  });
+
+  // RSS Fetch button
+  const rssFetchBtn = document.getElementById('rss-fetch-btn');
+  rssFetchBtn?.addEventListener('click', async () => {
+    const url = document.getElementById('rss-feed-url')?.value?.trim();
+    if (!url) {
+      alert('Please enter an RSS feed URL');
+      return;
+    }
+
+    try {
+      rssFetchBtn.disabled = true;
+      rssFetchBtn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Fetching...';
+
+      const maxItems = parseInt(document.getElementById('rss-max-items')?.value) || 50;
+
+      // Fetch the RSS feed (may need CORS proxy in production)
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch feed: ${response.status}`);
+      }
+
+      const xmlText = await response.text();
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+
+      // Check for parse errors
+      const parseError = xmlDoc.querySelector('parsererror');
+      if (parseError) {
+        throw new Error('Invalid RSS/XML feed format');
+      }
+
+      // Parse RSS 2.0 or Atom feed
+      const items = [];
+      const rssItems = xmlDoc.querySelectorAll('item');
+      const atomEntries = xmlDoc.querySelectorAll('entry');
+
+      const feedItems = rssItems.length > 0 ? rssItems : atomEntries;
+      const isAtom = atomEntries.length > 0;
+
+      let count = 0;
+      for (const item of feedItems) {
+        if (count >= maxItems) break;
+
+        if (isAtom) {
+          // Atom format
+          items.push({
+            title: item.querySelector('title')?.textContent || '',
+            link: item.querySelector('link')?.getAttribute('href') || item.querySelector('link')?.textContent || '',
+            description: item.querySelector('summary')?.textContent || item.querySelector('content')?.textContent || '',
+            pubDate: item.querySelector('published')?.textContent || item.querySelector('updated')?.textContent || '',
+            author: item.querySelector('author name')?.textContent || '',
+            id: item.querySelector('id')?.textContent || ''
+          });
+        } else {
+          // RSS 2.0 format
+          items.push({
+            title: item.querySelector('title')?.textContent || '',
+            link: item.querySelector('link')?.textContent || '',
+            description: item.querySelector('description')?.textContent || '',
+            pubDate: item.querySelector('pubDate')?.textContent || '',
+            author: item.querySelector('author')?.textContent || item.querySelector('dc\\:creator')?.textContent || '',
+            guid: item.querySelector('guid')?.textContent || ''
+          });
+        }
+        count++;
+      }
+
+      if (items.length === 0) {
+        throw new Error('No items found in RSS feed');
+      }
+
+      // Create a virtual file from the RSS data
+      const fileName = new URL(url).hostname + '_rss_feed.json';
+      const jsonContent = JSON.stringify(items, null, 2);
+      const blob = new Blob([jsonContent], { type: 'application/json' });
+      const virtualFile = new File([blob], fileName, { type: 'application/json' });
+
+      rawFileContent = jsonContent;
+      currentFile = virtualFile;
+      currentSourceType = 'rss';
+
+      await handleApiOrRssData(virtualFile, jsonContent, 'rss', url);
+
+    } catch (error) {
+      alert('RSS fetch failed: ' + error.message);
+    } finally {
+      rssFetchBtn.disabled = false;
+      rssFetchBtn.innerHTML = '<i class="ph ph-cloud-arrow-down"></i> Fetch Feed';
+    }
+  });
+
+  // Render sample table from preview data
+  function renderSampleTable(data) {
+    const sampleTableWrapper = document.getElementById('sample-table-wrapper');
+    if (!sampleTableWrapper || !data?.sampleRows?.length) return;
+
+    const headers = data.headers || data.schema?.fields?.map(f => f.name) || Object.keys(data.sampleRows[0] || {});
+
+    sampleTableWrapper.innerHTML = `
+      <table class="sample-table" id="sample-table">
+        <thead>
+          <tr>
+            ${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${data.sampleRows.slice(0, 5).map(row => `
+            <tr>
+              ${headers.map(h => {
+                const val = row[h];
+                const display = val == null ? '' :
+                  typeof val === 'object' ? JSON.stringify(val) :
+                  String(val).slice(0, 100);
+                return `<td title="${escapeHtml(String(val || ''))}">${escapeHtml(display)}</td>`;
+              }).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  // Handle API/RSS data preview
+  async function handleApiOrRssData(file, content, sourceType, sourceUrl) {
+    if (!orchestrator) {
+      alert('Workbench not initialized');
+      return;
+    }
+
+    try {
+      // Parse the JSON content
+      const data = JSON.parse(content);
+      const headers = data.length > 0 ? Object.keys(data[0]) : [];
+      const schema = new SchemaInferrer().inferSchema(headers, data);
+
+      previewData = {
+        fileName: file.name,
+        fileSize: file.size,
+        isCSV: false,
+        isJSON: true,
+        headers,
+        schema,
+        rowCount: data.length,
+        sampleRows: data.slice(0, 5)
+      };
+
+      analysisData = analyzer.analyze(previewData, content);
+
+      // Hide form, show preview
+      apiForm.style.display = 'none';
+      rssForm.style.display = 'none';
+      previewSection.style.display = 'block';
+
+      // Update file info display
+      const previewFilename = document.getElementById('preview-filename');
+      const previewFilesize = document.getElementById('preview-filesize');
+      const fileIcon = document.getElementById('preview-file-icon');
+
+      if (previewFilename) previewFilename.textContent = sourceType === 'api' ? 'API Response' : 'RSS Feed';
+      if (previewFilesize) previewFilesize.textContent = `(${data.length} items from ${new URL(sourceUrl).hostname})`;
+      if (fileIcon) fileIcon.className = sourceType === 'api' ? 'ph ph-plugs-connected' : 'ph ph-rss';
+
+      // Update stats
+      const previewRows = document.getElementById('preview-rows');
+      const previewFields = document.getElementById('preview-fields');
+      if (previewRows) previewRows.textContent = previewData.rowCount;
+      if (previewFields) previewFields.textContent = previewData.schema.fields.length;
+
+      // Render sample table
+      renderSampleTable(previewData);
+
+      // Pre-fill provenance
+      const provSource = document.getElementById('prov-source');
+      const provMethod = document.getElementById('prov-method');
+      if (provSource && !provSource.value) provSource.value = sourceUrl;
+      if (provMethod && !provMethod.value) provMethod.value = sourceType === 'api' ? 'API fetch' : 'RSS feed';
+
+      confirmBtn.disabled = false;
+
+    } catch (error) {
+      alert('Failed to process data: ' + error.message);
+    }
+  }
+
+  // File input change handler (extracted for re-binding)
+  async function handleFileInputChange(e) {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    if (files.length === 1) {
+      // Single file - use original behavior
+      await handleFileSelect(files[0]);
+    } else {
+      // Multiple files - show files list
+      await handleMultipleFiles(files);
+    }
+  }
+
+  // Handle multiple file selection
+  async function handleMultipleFiles(files) {
+    currentFiles = files;
+    currentFile = null; // Clear single file
+
+    // Hide dropzone, show files list
+    dropzone.style.display = 'none';
+    filesListSection.style.display = 'block';
+    previewSection.style.display = 'none';
+
+    // Render files list
+    let totalSize = 0;
+    filesListItems.innerHTML = files.map((file, index) => {
+      totalSize += file.size;
+      const icon = getFileIcon(file.name);
+      return `
+        <div class="files-list-item" data-index="${index}">
+          <i class="ph ${icon}"></i>
+          <span class="file-name">${file.name}</span>
+          <span class="file-size">${formatFileSize(file.size)}</span>
+          <button class="files-list-remove" data-index="${index}" title="Remove">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    filesListSummary.innerHTML = `
+      <strong>${files.length} files</strong> selected (${formatFileSize(totalSize)} total)
+    `;
+
+    // Add remove handlers
+    filesListItems.querySelectorAll('.files-list-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const index = parseInt(btn.dataset.index);
+        currentFiles = currentFiles.filter((_, i) => i !== index);
+        if (currentFiles.length === 0) {
+          filesListSection.style.display = 'none';
+          dropzone.style.display = 'flex';
+          confirmBtn.disabled = true;
+        } else if (currentFiles.length === 1) {
+          filesListSection.style.display = 'none';
+          handleFileSelect(currentFiles[0]);
+        } else {
+          handleMultipleFiles(currentFiles);
+        }
+      });
+    });
+
+    confirmBtn.disabled = false;
+  }
+
+  // Get appropriate icon for file type
+  function getFileIcon(fileName) {
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.json')) return 'ph-file-js';
+    if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'ph-file-xls';
+    if (lower.endsWith('.ics')) return 'ph-calendar-blank';
+    return 'ph-file-csv';
+  }
+
+  // Handle multiple files import
+  async function handleMultipleFilesImport() {
+    if (!orchestrator || currentFiles.length === 0) return;
+
+    // Show progress
+    dropzone.style.display = 'none';
+    filesListSection.style.display = 'none';
+    previewSection.style.display = 'none';
+    progressSection.style.display = 'flex';
+    confirmBtn.disabled = true;
+    cancelBtn.disabled = true;
+
+    // Collect provenance fields
+    const provenance = {
+      agent: document.getElementById('prov-agent')?.value || null,
+      method: document.getElementById('prov-method')?.value || null,
+      source: document.getElementById('prov-source')?.value || null,
+      term: document.getElementById('prov-term')?.value || null,
+      definition: document.getElementById('prov-definition')?.value || null,
+      jurisdiction: document.getElementById('prov-jurisdiction')?.value || null,
+      scale: document.getElementById('prov-scale')?.value || null,
+      timeframe: document.getElementById('prov-timeframe')?.value || null,
+      background: document.getElementById('prov-background')?.value || null
+    };
+
+    const results = [];
+    let totalRecords = 0;
+    let completedFiles = 0;
+
+    try {
+      for (const file of currentFiles) {
+        // Update progress text
+        const progressText = document.getElementById('progress-text');
+        const progressDetail = document.getElementById('progress-detail');
+        const progressBar = document.getElementById('progress-bar');
+
+        if (progressText) progressText.textContent = `Importing ${file.name}...`;
+        if (progressDetail) progressDetail.textContent = `File ${completedFiles + 1} of ${currentFiles.length}`;
+        if (progressBar) progressBar.style.width = `${(completedFiles / currentFiles.length) * 100}%`;
+
+        // Read file content
+        const fileName = file.name.toLowerCase();
+        const isSpreadsheet = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') ||
+                             fileName.endsWith('.numbers') || fileName.endsWith('.ods');
+        let fileContent;
+
+        if (isSpreadsheet) {
+          fileContent = await readFileAsArrayBuffer(file);
+        } else {
+          fileContent = await readFileAsText(file);
+        }
+
+        // Import the file
+        const result = await orchestrator.importToSource(file, {
+          provenance,
+          originalSource: fileContent
+        });
+
+        results.push({
+          fileName: file.name,
+          source: result.source,
+          recordCount: result.recordCount
+        });
+        totalRecords += result.recordCount;
+        completedFiles++;
+
+        // Update progress
+        if (progressBar) progressBar.style.width = `${(completedFiles / currentFiles.length) * 100}%`;
+      }
+
+      // Show success
+      progressSection.style.display = 'none';
+      successSection.style.display = 'flex';
+
+      const successMsg = document.getElementById('success-message');
+      if (successMsg) {
+        successMsg.textContent = `Successfully imported ${totalRecords} records from ${results.length} files`;
+      }
+
+      // Show created sources
+      const sourcesList = results.map(r =>
+        `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: var(--bg-tertiary); border-radius: 4px;">
+          ${r.fileName} (${r.recordCount})
+        </span>`
+      ).join('');
+
+      const successViews = document.getElementById('success-views-created');
+      if (successViews) {
+        successViews.innerHTML = `
+          <div style="margin-top: 8px;"><i class="ph ph-files"></i> Imported sources:</div>
+          <div style="margin-top: 6px;">${sourcesList}</div>
+        `;
+      }
+
+      // Refresh workbench sidebar
+      if (workbench?._renderSidebar) {
+        workbench._renderSidebar();
+      }
+
+      // Record activity for each imported source
+      if (workbench?._recordActivity) {
+        for (const r of results) {
+          workbench._recordActivity({
+            action: 'create',
+            entityType: 'source',
+            name: r.source?.name || r.fileName,
+            details: `${r.recordCount} records imported`,
+            canReverse: false
+          });
+        }
+      }
+
+      // Navigate to the first imported source
+      if (workbench?._showSourceDetail && results[0]?.source?.id) {
+        setTimeout(() => {
+          workbench._showSourceDetail(results[0].source.id);
+        }, 1900);
+      }
+
+      // Close after delay
+      setTimeout(() => {
+        closeModal();
+      }, 1800);
+
+    } catch (error) {
+      progressSection.style.display = 'none';
+      filesListSection.style.display = 'block';
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+      alert('Import failed: ' + error.message);
+    }
+  }
+
+  // Add more files button
+  addMoreFilesBtn?.addEventListener('click', () => {
+    fileInput.click();
+  });
+
   // Dropzone click
   dropzone.addEventListener('click', () => fileInput.click());
 
   // File input change
-  fileInput.addEventListener('change', async (e) => {
-    if (e.target.files[0]) {
-      await handleFileSelect(e.target.files[0]);
-    }
-  });
+  fileInput.addEventListener('change', handleFileInputChange);
 
   // Drag and drop
   dropzone.addEventListener('dragover', (e) => {
@@ -3363,18 +4007,26 @@ function initImportHandlers() {
     e.preventDefault();
     dropzone.classList.remove('dragover');
 
-    const file = e.dataTransfer.files[0];
+    const files = Array.from(e.dataTransfer.files);
     const validExtensions = ['.csv', '.tsv', '.json', '.xlsx', '.xls', '.numbers', '.ods', '.ics'];
-    if (file && validExtensions.some(ext => file.name.toLowerCase().endsWith(ext))) {
-      await handleFileSelect(file);
+    const validFiles = files.filter(file =>
+      validExtensions.some(ext => file.name.toLowerCase().endsWith(ext))
+    );
+
+    if (validFiles.length === 1) {
+      await handleFileSelect(validFiles[0]);
+    } else if (validFiles.length > 1) {
+      await handleMultipleFiles(validFiles);
     }
   });
 
   // Change file button
   changeFileBtn?.addEventListener('click', () => {
     previewSection.style.display = 'none';
+    filesListSection.style.display = 'none';
     dropzone.style.display = 'flex';
     confirmBtn.disabled = true;
+    currentFiles = [];
     fileInput.click();
   });
 
@@ -3385,11 +4037,18 @@ function initImportHandlers() {
 
   // Confirm import
   confirmBtn.addEventListener('click', async () => {
+    // Handle multiple files import
+    if (currentFiles.length > 0) {
+      await handleMultipleFilesImport();
+      return;
+    }
+
     if (!currentFile || !orchestrator) return;
 
     // Show progress
     dropzone.style.display = 'none';
     previewSection.style.display = 'none';
+    filesListSection.style.display = 'none';
     progressSection.style.display = 'flex';
     confirmBtn.disabled = true;
     cancelBtn.disabled = true;
@@ -4044,6 +4703,210 @@ const importStyles = document.createElement('style');
 importStyles.textContent = `
   .import-container {
     min-height: 400px;
+  }
+
+  /* Source Type Tabs */
+  .import-source-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-primary);
+  }
+
+  .import-source-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+  }
+
+  .import-source-tab:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+  }
+
+  .import-source-tab.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: white;
+  }
+
+  .import-source-tab i {
+    font-size: 16px;
+  }
+
+  /* API Form Styles */
+  .import-api-form,
+  .import-rss-form {
+    padding: 20px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+  }
+
+  .api-form-content,
+  .rss-form-content {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .api-form-field,
+  .rss-form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .api-form-label,
+  .rss-form-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+  }
+
+  .api-form-label i,
+  .rss-form-label i {
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .api-form-input,
+  .api-form-select,
+  .api-form-textarea,
+  .rss-form-input {
+    padding: 10px 12px;
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-family: inherit;
+  }
+
+  .api-form-input:focus,
+  .api-form-select:focus,
+  .api-form-textarea:focus,
+  .rss-form-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+  }
+
+  .api-form-textarea {
+    resize: vertical;
+    min-height: 60px;
+    font-family: monospace;
+    font-size: 12px;
+  }
+
+  .api-form-hint,
+  .rss-form-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .api-fetch-btn,
+  .rss-fetch-btn {
+    align-self: flex-start;
+    margin-top: 8px;
+  }
+
+  /* Multiple Files List */
+  .import-files-list {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+  }
+
+  .files-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .files-list-header h4 {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .files-list-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+  }
+
+  .files-list-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-primary);
+  }
+
+  .files-list-item i:first-child {
+    font-size: 18px;
+    color: var(--text-muted);
+  }
+
+  .files-list-item .file-name {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .files-list-item .file-size {
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .files-list-remove {
+    padding: 4px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s;
+  }
+
+  .files-list-remove:hover {
+    background: var(--error-bg);
+    color: var(--error);
+  }
+
+  .files-list-summary {
+    font-size: 13px;
+    color: var(--text-secondary);
+    padding-top: 8px;
+    border-top: 1px solid var(--border-primary);
   }
 
   .import-dropzone {
