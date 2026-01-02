@@ -608,6 +608,7 @@ class EODataWorkbench {
       source: { id: 'source', label: 'Source', icon: 'ph-file-csv', singleton: true },
       transforms: { id: 'transforms', label: 'Transforms', icon: 'ph-shuffle', singleton: true },
       fields: { id: 'fields', label: 'Fields', icon: 'ph-list-checks', singleton: true },
+      definitions: { id: 'definitions', label: 'Definitions', icon: 'ph-book-open', singleton: true },
       exports: { id: 'exports', label: 'Exports', icon: 'ph-export', singleton: true },
       lenses: { id: 'lenses', label: 'Lenses', icon: 'ph-funnel', singleton: true },
       recordTypes: { id: 'recordTypes', label: 'Record Types', icon: 'ph-stack', singleton: true }
@@ -22456,6 +22457,9 @@ class EODataWorkbench {
       case 'fields':
         this._renderFieldsPanelContent(container);
         break;
+      case 'definitions':
+        this._renderDefinitionsPanelContent(container);
+        break;
       case 'exports':
         this._renderExportsPanelContent(container);
         break;
@@ -22703,6 +22707,241 @@ class EODataWorkbench {
         this._selectSet(set.id, 'fields');
       });
     });
+  }
+
+  /**
+   * Render Definitions panel content - shows all field keys and their definition bindings
+   */
+  _renderDefinitionsPanelContent(container) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      container.innerHTML = '<div class="panel-tab-error">No set selected</div>';
+      return;
+    }
+
+    const fields = set.fields || [];
+    const keyDefinitions = this._getSetKeyDefinitions(set);
+    const boundCount = keyDefinitions.filter(k => k.isBound).length;
+    const unboundCount = keyDefinitions.length - boundCount;
+
+    container.innerHTML = `
+      <div class="panel-content definitions-panel">
+        <div class="panel-content-header">
+          <h3><i class="ph ph-book-open"></i> Key Definitions</h3>
+          <div class="panel-header-stats">
+            <span class="stat-bound" title="Keys with definitions">${boundCount} bound</span>
+            <span class="stat-unbound" title="Keys without definitions">${unboundCount} unbound</span>
+          </div>
+        </div>
+        <div class="panel-content-body">
+          ${keyDefinitions.length > 0 ? `
+            <div class="key-definitions-list">
+              ${keyDefinitions.map(keyDef => `
+                <div class="key-definition-item ${keyDef.isBound ? 'bound' : 'unbound'}"
+                     data-field-id="${keyDef.fieldId}">
+                  <div class="key-definition-status">
+                    <i class="ph ${keyDef.isBound ? 'ph-check-circle' : 'ph-circle-dashed'}"></i>
+                  </div>
+                  <div class="key-definition-info">
+                    <div class="key-definition-name">${this._escapeHtml(keyDef.fieldName)}</div>
+                    ${keyDef.isBound ? `
+                      <div class="key-definition-binding">
+                        <i class="ph ph-link"></i>
+                        ${this._escapeHtml(keyDef.definitionName || 'Linked')}
+                      </div>
+                    ` : `
+                      <div class="key-definition-unbound">No definition</div>
+                    `}
+                  </div>
+                  <div class="key-definition-type">
+                    <i class="ph ${this._getFieldTypeIcon(keyDef.fieldType)}"></i>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          ` : `
+            <div class="panel-empty-state">
+              <i class="ph ph-book-open"></i>
+              <span>No fields in this set</span>
+            </div>
+          `}
+          ${unboundCount > 0 ? `
+            <button class="panel-add-btn panel-import-keys-btn" id="definitions-panel-import-all">
+              <i class="ph ph-download-simple"></i> Import All Keys (${unboundCount})
+            </button>
+          ` : `
+            <div class="panel-complete-state">
+              <i class="ph ph-check-circle"></i>
+              <span>All keys have definitions</span>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    // Attach import all keys handler
+    document.getElementById('definitions-panel-import-all')?.addEventListener('click', () => {
+      this._importAllKeysAsDefinitions(set);
+    });
+
+    // Attach individual key click handlers
+    container.querySelectorAll('.key-definition-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const fieldId = item.dataset.fieldId;
+        const field = fields.find(f => f.id === fieldId);
+        if (field) {
+          if (field.semanticBinding?.definitionId) {
+            // Show the linked definition
+            this._showDefinitionDetail(field.semanticBinding.definitionId);
+          } else {
+            // Offer to create/link a definition for this key
+            this._importKeyAsDefinition(set, field);
+          }
+        }
+      });
+    });
+  }
+
+  /**
+   * Get key definitions status for all fields in a set
+   */
+  _getSetKeyDefinitions(set) {
+    const fields = set.fields || [];
+    return fields.map(field => {
+      const binding = field.semanticBinding;
+      const isBound = !!(binding?.definitionId);
+      let definitionName = null;
+
+      if (isBound) {
+        const definition = this.definitions.find(d => d.id === binding.definitionId);
+        definitionName = definition?.name || binding.termId || 'Linked Definition';
+      }
+
+      return {
+        fieldId: field.id,
+        fieldName: field.name,
+        fieldType: field.type,
+        isBound,
+        definitionId: binding?.definitionId || null,
+        termId: binding?.termId || null,
+        definitionName
+      };
+    });
+  }
+
+  /**
+   * Import all unbound keys as definitions for a set
+   */
+  _importAllKeysAsDefinitions(set) {
+    const fields = set.fields || [];
+    const unboundFields = fields.filter(f => !f.semanticBinding?.definitionId);
+
+    if (unboundFields.length === 0) {
+      this._showNotification('All keys already have definitions', 'info');
+      return;
+    }
+
+    // Create a definition that contains all the keys as terms
+    const timestamp = new Date().toISOString();
+    const definition = {
+      id: `def_${Date.now()}`,
+      name: `${set.name} Keys`,
+      description: `Auto-imported key definitions from set "${set.name}"`,
+      sourceUri: null,
+      format: 'local',
+      importedAt: timestamp,
+      status: 'active',
+      terms: unboundFields.map(field => ({
+        id: `term_${field.id}`,
+        name: field.name,
+        label: this._humanizeFieldName(field.name),
+        type: field.type,
+        description: `Field "${field.name}" from set "${set.name}"`
+      }))
+    };
+
+    // Add the definition
+    this.definitions.push(definition);
+
+    // Bind each field to the definition
+    unboundFields.forEach(field => {
+      field.semanticBinding = {
+        definitionId: definition.id,
+        termId: `term_${field.id}`
+      };
+    });
+
+    // Add definition to current project if applicable
+    if (this.currentProjectId) {
+      const project = this.projects.find(p => p.id === this.currentProjectId);
+      if (project && !project.definitionIds.includes(definition.id)) {
+        project.definitionIds.push(definition.id);
+      }
+    }
+
+    this._saveData();
+    this._renderDefinitionsPanelContent(document.getElementById('panel-tab-content'));
+    this._renderDefinitionsNav();
+    this._showNotification(`Imported ${unboundFields.length} key definitions`, 'success');
+  }
+
+  /**
+   * Import a single key as a definition
+   */
+  _importKeyAsDefinition(set, field) {
+    const timestamp = new Date().toISOString();
+    const definition = {
+      id: `def_${Date.now()}`,
+      name: this._humanizeFieldName(field.name),
+      description: `Key definition for "${field.name}" from set "${set.name}"`,
+      sourceUri: null,
+      format: 'local',
+      importedAt: timestamp,
+      status: 'active',
+      terms: [{
+        id: `term_${field.id}`,
+        name: field.name,
+        label: this._humanizeFieldName(field.name),
+        type: field.type,
+        description: `Field "${field.name}" from set "${set.name}"`
+      }]
+    };
+
+    // Add the definition
+    this.definitions.push(definition);
+
+    // Bind the field to the definition
+    field.semanticBinding = {
+      definitionId: definition.id,
+      termId: `term_${field.id}`
+    };
+
+    // Add definition to current project if applicable
+    if (this.currentProjectId) {
+      const project = this.projects.find(p => p.id === this.currentProjectId);
+      if (project && !project.definitionIds.includes(definition.id)) {
+        project.definitionIds.push(definition.id);
+      }
+    }
+
+    this._saveData();
+    this._renderDefinitionsPanelContent(document.getElementById('panel-tab-content'));
+    this._renderDefinitionsNav();
+    this._showNotification(`Created definition for "${field.name}"`, 'success');
+  }
+
+  /**
+   * Convert a field name to a human-readable label
+   */
+  _humanizeFieldName(name) {
+    return name
+      .replace(/([a-z])([A-Z])/g, '$1 $2')  // camelCase to spaces
+      .replace(/[_-]/g, ' ')                 // underscores/dashes to spaces
+      .replace(/\s+/g, ' ')                  // normalize spaces
+      .trim()
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
   }
 
   /**
