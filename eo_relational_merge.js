@@ -952,7 +952,7 @@ class RelationalMergeUI {
             <select id="rm-left-source" class="rm-source-select">
               <option value="">Select source...</option>
               ${sources.map(s => `
-                <option value="${s.id}" ${this.config.leftSource?.id === s.id ? 'selected' : ''}>
+                <option value="${s.id}" ${String(this.config.leftSource?.id) === String(s.id) ? 'selected' : ''}>
                   ${this._escapeHtml(s.name)} (${s.recordCount} records)
                 </option>
               `).join('')}
@@ -971,7 +971,7 @@ class RelationalMergeUI {
             <select id="rm-right-source" class="rm-source-select">
               <option value="">Select source...</option>
               ${sources.map(s => `
-                <option value="${s.id}" ${this.config.rightSource?.id === s.id ? 'selected' : ''}>
+                <option value="${s.id}" ${String(this.config.rightSource?.id) === String(s.id) ? 'selected' : ''}>
                   ${this._escapeHtml(s.name)} (${s.recordCount} records)
                 </option>
               `).join('')}
@@ -1520,14 +1520,26 @@ class RelationalMergeUI {
     });
 
     // Source selection
+    // Note: e.target.value is always a string, but source IDs may be stored as numbers
+    // We try direct lookup first, then fallback to type-coerced search
     this.container.querySelector('#rm-left-source')?.addEventListener('change', (e) => {
-      const source = this.sourceStore.get(e.target.value);
+      const selectedId = e.target.value;
+      let source = this.sourceStore.get(selectedId);
+      if (!source) {
+        // Fallback: find by loose equality (handles number vs string mismatch)
+        source = this.sourceStore.getAll().find(s => String(s.id) === String(selectedId));
+      }
       this.config.leftSource = source;
       this._render();
     });
 
     this.container.querySelector('#rm-right-source')?.addEventListener('change', (e) => {
-      const source = this.sourceStore.get(e.target.value);
+      const selectedId = e.target.value;
+      let source = this.sourceStore.get(selectedId);
+      if (!source) {
+        // Fallback: find by loose equality (handles number vs string mismatch)
+        source = this.sourceStore.getAll().find(s => String(s.id) === String(selectedId));
+      }
       this.config.rightSource = source;
       this._render();
     });
