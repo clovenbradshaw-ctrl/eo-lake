@@ -12298,6 +12298,31 @@ class EODataWorkbench {
         this._showToast('Provenance panel visible', 'info');
       }
     });
+
+    // Expand button clicks for long text cells (use event delegation for dynamic content)
+    // Also allow clicking on the cell wrapper itself to open the modal
+    document.getElementById('source-data-table-container')?.addEventListener('click', (e) => {
+      // Check for expand button click
+      const expandBtn = e.target.closest('.source-cell-expand-btn');
+      if (expandBtn) {
+        e.stopPropagation();
+        const fieldName = expandBtn.dataset.fieldName || 'Field';
+        const fullValue = expandBtn.dataset.fullValue || '';
+        this._showSourceLongTextModal(fieldName, fullValue);
+        return;
+      }
+      // Check for wrapper click (to allow clicking anywhere on the truncated text)
+      const wrapper = e.target.closest('.source-cell-longtext-wrapper');
+      if (wrapper) {
+        e.stopPropagation();
+        const btn = wrapper.querySelector('.source-cell-expand-btn');
+        if (btn) {
+          const fieldName = btn.dataset.fieldName || 'Field';
+          const fullValue = btn.dataset.fullValue || '';
+          this._showSourceLongTextModal(fieldName, fullValue);
+        }
+      }
+    });
   }
 
   /**
@@ -12441,7 +12466,7 @@ class EODataWorkbench {
                   ? `background: ${typeOwner.color.bg};`
                   : 'background: var(--common-col-bg, rgba(148, 163, 184, 0.12));';
                 const cellClass = this._getSourceCellClass(value);
-                const displayValue = this._formatSourceCellValue(value);
+                const displayValue = this._formatSourceCellValue(value, { fieldName: field.name });
                 const titleValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
                 return `<td class="${cellClass}" style="${bgStyle}" title="${this._escapeHtml(titleValue)}">${displayValue}</td>`;
               }).join('')}
@@ -12536,7 +12561,7 @@ class EODataWorkbench {
                       ${typeFields.filter(f => f.name !== typeField).map(field => {
                         const value = record.values?.[field.id];
                         const cellClass = this._getSourceCellClass(value);
-                        const displayValue = this._formatSourceCellValue(value);
+                        const displayValue = this._formatSourceCellValue(value, { fieldName: field.name });
                         const titleValue = typeof value === 'object' && value !== null ? JSON.stringify(value) : String(value ?? '');
                         return `<td class="${cellClass}" title="${this._escapeHtml(titleValue)}">${displayValue}</td>`;
                       }).join('')}
@@ -13813,7 +13838,7 @@ class EODataWorkbench {
   /**
    * Format source cell value for display
    */
-  _formatSourceCellValue(value) {
+  _formatSourceCellValue(value, options = {}) {
     if (value === null || value === undefined) return '<span class="null-value">null</span>';
     if (typeof value === 'boolean') return value ? 'true' : 'false';
     // Handle objects and arrays with proper JSON rendering
@@ -13821,7 +13846,18 @@ class EODataWorkbench {
       return this._renderJsonKeyValue(value);
     }
     const str = String(value);
-    return str.length > 50 ? this._escapeHtml(str.substring(0, 50)) + '...' : this._escapeHtml(str);
+    // For long text, add expand button to allow viewing full content
+    if (str.length > 50) {
+      const fieldName = options.fieldName || 'Field';
+      const encodedValue = this._escapeHtml(str).replace(/"/g, '&quot;');
+      return `<div class="source-cell-longtext-wrapper">
+        <span class="source-cell-longtext-content">${this._escapeHtml(str.substring(0, 50))}...</span>
+        <button class="source-cell-expand-btn" data-field-name="${this._escapeHtml(fieldName)}" data-full-value="${encodedValue}" title="Click to view full content">
+          <i class="ph ph-arrows-out-simple"></i>
+        </button>
+      </div>`;
+    }
+    return this._escapeHtml(str);
   }
 
   /**
@@ -25969,6 +26005,35 @@ class EODataWorkbench {
             }
           }
         },
+        {
+          text: 'Close',
+          variant: 'primary',
+          action: () => modal.hide()
+        }
+      ]
+    });
+
+    modal.show();
+  }
+
+  /**
+   * Show modal with full source long text content (read-only)
+   * Used for viewing source data which is immutable
+   */
+  _showSourceLongTextModal(fieldName, fullValue) {
+    const modal = new EOModal({
+      title: fieldName,
+      size: 'large',
+      content: `
+        <div class="longtext-modal-content source-longtext-modal">
+          <div class="source-longtext-modal-notice">
+            <i class="ph ph-lock-simple"></i>
+            <span>Source data is read-only</span>
+          </div>
+          <div class="longtext-modal-text">${this._escapeHtml(fullValue).replace(/\n/g, '<br>')}</div>
+        </div>
+      `,
+      buttons: [
         {
           text: 'Close',
           variant: 'primary',
