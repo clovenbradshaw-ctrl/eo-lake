@@ -140,10 +140,10 @@
         </div>
       </div>
 
-      <!-- Five-Panel Navigation: Projects / Sources (GIVEN) / Definitions (TERMS) / Sets (SCHEMA) / Exports (SNAPSHOT) -->
-      <!-- Reordered for workflow: Organize → Input (Sources + Definitions) → Transform (Sets) → Output (Exports) -->
+      <!-- Project-Centric Navigation: All content nested under each Project -->
+      <!-- Structure: Project → Sources (GIVEN) / Sets (SCHEMA) / Definitions (MEANT) / Exports (GIVEN) -->
       <nav class="sidebar-nav" id="sidebar-nav">
-        <!-- Panel 0: PROJECTS (Super Object - Organizational Container) -->
+        <!-- Unified Project Panel with nested content -->
         <div class="nav-panel projects-panel" data-panel="projects">
           <div class="nav-panel-header">
             <div class="nav-panel-title">
@@ -152,96 +152,15 @@
               <span class="nav-panel-badge project-badge">ORG</span>
             </div>
             <div class="nav-panel-actions">
-              <button class="nav-panel-action" id="btn-projects-view-toggle" title="Toggle view mode">
-                <i class="ph ph-list"></i>
+              <button class="nav-panel-action" id="btn-new-project" title="Create new project">
+                <i class="ph ph-plus"></i>
               </button>
             </div>
           </div>
           <div class="nav-panel-content" id="projects-nav">
-            <!-- Projects tree rendered dynamically -->
+            <!-- Projects with nested Sources/Sets/Definitions/Exports rendered dynamically -->
           </div>
         </div>
-
-        <!-- Panel 1: SOURCES (Given - Physical Origins) -->
-        <div class="nav-panel sources-panel given-panel" data-panel="sources">
-          <div class="nav-panel-header">
-            <div class="nav-panel-title">
-              <i class="ph ph-download-simple"></i>
-              <span>Sources</span>
-              <span class="nav-panel-badge given-badge">GIVEN</span>
-            </div>
-            <div class="nav-panel-actions">
-              <button class="nav-panel-action" id="btn-file-explorer" title="Open File Explorer">
-                <i class="ph ph-folder-open"></i>
-              </button>
-            </div>
-          </div>
-          <div class="nav-panel-content" id="sources-nav">
-            <!-- Sources tree rendered dynamically -->
-          </div>
-        </div>
-
-        <!-- Panel 2: DEFINITIONS (Column/Key Schemas from URIs) - MEANT: Semantic layer -->
-        <div class="nav-panel definitions-panel meant-panel" data-panel="definitions">
-          <div class="nav-panel-header" data-collapsible="true">
-            <div class="nav-panel-title">
-              <i class="ph ph-caret-right nav-panel-collapse-icon"></i>
-              <i class="ph ph-book-open"></i>
-              <span>Definitions</span>
-              <span class="nav-panel-badge dictionary-badge">MEANT</span>
-              <span class="nav-panel-count-badge" id="definitions-count-badge" style="display: none;">0</span>
-            </div>
-            <div class="nav-panel-actions">
-              <button class="nav-panel-action" id="btn-definitions-explorer" title="Open Definitions Explorer">
-                <i class="ph ph-folder-open"></i>
-              </button>
-            </div>
-          </div>
-          <div class="nav-panel-content" id="definitions-nav">
-            <!-- Definition schemas rendered dynamically -->
-          </div>
-        </div>
-
-        <!-- Panel 3: SETS (Data Collections) - Hybrid: GIVEN structure + MEANT interpretation -->
-        <div class="nav-panel sets-panel hybrid-panel" data-panel="sets">
-          <div class="nav-panel-header">
-            <div class="nav-panel-title">
-              <i class="ph ph-database"></i>
-              <span>Sets</span>
-              <span class="nav-panel-badge schema-badge">SCHEMA</span>
-            </div>
-            <div class="nav-panel-actions">
-              <button class="nav-panel-action" id="btn-sets-explorer" title="Open Sets Explorer">
-                <i class="ph ph-folder-open"></i>
-              </button>
-            </div>
-          </div>
-          <div class="nav-panel-content" id="sets-nav">
-            <!-- Sets with nested views rendered dynamically -->
-          </div>
-        </div>
-
-        <!-- Panel 4: EXPORTS (Immutable Snapshot Captures) - GIVEN: Frozen in time -->
-        <div class="nav-panel exports-panel given-panel" data-panel="exports">
-          <div class="nav-panel-header" data-collapsible="true">
-            <div class="nav-panel-title">
-              <i class="ph ph-caret-right nav-panel-collapse-icon"></i>
-              <i class="ph ph-export"></i>
-              <span>Exports</span>
-              <span class="nav-panel-badge export-badge">GIVEN</span>
-              <span class="nav-panel-count-badge" id="exports-count-badge" style="display: none;">0</span>
-            </div>
-            <div class="nav-panel-actions">
-              <button class="nav-panel-action" id="btn-exports-explorer" title="Open Exports Explorer">
-                <i class="ph ph-folder-open"></i>
-              </button>
-            </div>
-          </div>
-          <div class="nav-panel-content" id="exports-nav">
-            <!-- Exports rendered dynamically -->
-          </div>
-        </div>
-
       </nav>
 
       <!-- Sidebar Footer -->
@@ -293,20 +212,30 @@
           <button class="header-btn mobile-menu" id="mobile-menu-btn">
             <i class="ph ph-list"></i>
           </button>
-          <div class="breadcrumb">
-            <span class="breadcrumb-item" id="current-project-name" title="Project">
+          <!-- Data Flow Breadcrumb: Source → Set → Lens → View -->
+          <div class="breadcrumb data-flow-breadcrumb">
+            <!-- Project (Organization) -->
+            <span class="breadcrumb-item breadcrumb-project" id="current-project-name" title="Project">
               <i class="ph ph-folder-simple-dashed"></i>
               All Items
             </span>
             <i class="ph ph-caret-right breadcrumb-separator project-separator"></i>
-            <span class="breadcrumb-item" id="current-workspace-name" title="Workspace (Rule 4)">
-              <i class="ph ph-folder-simple"></i>
-              Workspace
+            <!-- Source (GIVEN) - shown when viewing source or set derived from source -->
+            <span class="breadcrumb-item breadcrumb-source" id="current-source-name" title="Source (GIVEN)" style="display: none;">
+              <span class="breadcrumb-epistemic-dot given-dot"></span>
+              <i class="ph ph-download-simple"></i>
+              <span class="breadcrumb-source-text">Source</span>
             </span>
-            <i class="ph ph-caret-right"></i>
-            <span class="breadcrumb-item" id="current-set-name">All Records</span>
-            <i class="ph ph-caret-right"></i>
-            <span class="breadcrumb-item" id="current-view-name">Lens</span>
+            <i class="ph ph-caret-right breadcrumb-separator source-separator" style="display: none;"></i>
+            <!-- Set (SCHEMA) -->
+            <span class="breadcrumb-item breadcrumb-set" id="current-set-name" title="Set (SCHEMA)">
+              <span class="breadcrumb-epistemic-dot schema-dot"></span>
+              Set
+            </span>
+            <i class="ph ph-caret-right breadcrumb-separator"></i>
+            <!-- Lens/View -->
+            <span class="breadcrumb-item breadcrumb-view" id="current-view-name" title="Lens/View">Lens</span>
+            <!-- Focus (Rule 5 Restriction) -->
             <span class="breadcrumb-item active focus-breadcrumb" id="current-focus-name" style="display: none;">
               <i class="ph ph-caret-right"></i>
               <i class="ph ph-funnel"></i>

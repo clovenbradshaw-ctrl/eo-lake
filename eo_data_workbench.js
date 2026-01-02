@@ -3353,17 +3353,10 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _renderSidebar() {
-    // Five-panel navigation: Projects / Sources (GIVEN) / Definitions (TERMS) / Sets (SCHEMA) / Exports (SNAPSHOT)
-    // Reordered for workflow: Organize → Input (Sources + Definitions) → Transform (Sets) → Output (Exports)
-    // Projects are super objects that contain all other entities
-    // Views are shown nested under sets in sidebar (Airtable-style)
-    this._renderProjectsNav();
-    this._renderSourcesNav();
-    this._renderDefinitionsNav();  // Moved before Sets - definitions inform data structure
-    this._renderSetsNavFlat();
-    this._renderExportsNav();
-    // Update collapsible panel states (progressive disclosure)
-    this._updateCollapsiblePanels();
+    // Project-centric navigation: All content nested under each Project
+    // Structure: Project → Sources (GIVEN) / Sets (SCHEMA) / Definitions (MEANT) / Exports (GIVEN)
+    // This makes the SOURCE→SET→VIEW chain obvious and reduces confusion
+    this._renderProjectsNavNested();
     // Update tab bar (view disclosure removed - views in sidebar only)
     this._renderTabBar();
   }
@@ -6206,11 +6199,715 @@ class EODataWorkbench {
    * Sets are MEANT (interpretive schema definitions)
    */
   // --------------------------------------------------------------------------
-  // Projects Panel Rendering
+  // Projects Panel Rendering - Nested Structure
   // --------------------------------------------------------------------------
 
   /**
-   * Render Projects navigation panel
+   * Render Projects navigation with nested content (Sources, Sets, Definitions, Exports)
+   * This creates a hierarchical view where all content is organized under projects.
+   * Each project expands to show its Sources (GIVEN), Sets (SCHEMA), Definitions (MEANT), Exports (GIVEN)
+   */
+  _renderProjectsNavNested() {
+    const container = document.getElementById('projects-nav');
+    if (!container) return;
+
+    // Ensure data arrays exist
+    if (!Array.isArray(this.projects)) this.projects = [];
+    if (!Array.isArray(this.sources)) this.sources = [];
+    if (!Array.isArray(this.sets)) this.sets = [];
+    if (!Array.isArray(this.definitions)) this.definitions = [];
+    if (!Array.isArray(this.exports)) this.exports = [];
+
+    // Get all active projects
+    const activeProjects = this.projects.filter(p => p.status !== 'archived');
+
+    // Sort projects by creation date (newest first)
+    const sortedProjects = activeProjects.sort((a, b) => {
+      if (!a.createdAt) return 1;
+      if (!b.createdAt) return -1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    // View type icons mapping
+    const viewTypeIcons = {
+      'table': 'ph-table',
+      'cards': 'ph-cards',
+      'kanban': 'ph-kanban',
+      'calendar': 'ph-calendar-blank',
+      'graph': 'ph-graph',
+      'filesystem': 'ph-folder-open'
+    };
+
+    // Empty state - no projects yet
+    if (sortedProjects.length === 0) {
+      container.innerHTML = `
+        <div class="nav-empty-state">
+          <i class="ph ph-folder-simple-dashed"></i>
+          <span>No projects yet</span>
+          <button class="btn-link" id="btn-first-project">Create a project</button>
+        </div>
+      `;
+      container.querySelector('#btn-first-project')?.addEventListener('click', () => {
+        this._showNewProjectModal();
+      });
+      // Attach new project button handler
+      this._attachNewProjectButtonHandler();
+      return;
+    }
+
+    // Build HTML for projects with nested content
+    let html = '';
+
+    // "All Items" option to show everything without project filter
+    const allSourcesCount = this.sources.filter(s => s.status !== 'archived').length;
+    const allSetsCount = this.sets.length;
+    const allDefinitionsCount = this.definitions.filter(d => d.status !== 'archived').length;
+    const allExportsCount = this.exports.length;
+    const totalItemCount = allSourcesCount + allSetsCount + allDefinitionsCount + allExportsCount;
+
+    html += `
+      <div class="project-tree-item all-projects-item ${!this.currentProjectId ? 'active' : ''}"
+           data-project-id="">
+        <div class="project-tree-header">
+          <i class="ph ph-stack project-icon"></i>
+          <span class="project-name">All Items</span>
+          <span class="project-item-count">${totalItemCount}</span>
+        </div>
+      </div>
+    `;
+
+    // Render each project with nested content
+    for (const project of sortedProjects) {
+      const isActiveProject = this.currentProjectId === project.id;
+      const isExpanded = this.expandedProjects?.[project.id] ?? isActiveProject;
+
+      // Get project's content
+      const projectSources = this.sources.filter(s =>
+        s.status !== 'archived' && project.sourceIds?.includes(s.id)
+      );
+      const projectSets = this.sets.filter(s => project.setIds?.includes(s.id));
+      const projectDefinitions = this.definitions.filter(d =>
+        d.status !== 'archived' && project.definitionIds?.includes(d.id)
+      );
+      const projectExports = this.exports.filter(e => project.exportIds?.includes(e.id));
+
+      const projectItemCount = projectSources.length + projectSets.length +
+                               projectDefinitions.length + projectExports.length;
+
+      // Render nested Sources section
+      const sourcesHtml = this._renderNestedSources(projectSources, project.id, viewTypeIcons);
+
+      // Render nested Sets section
+      const setsHtml = this._renderNestedSets(projectSets, project.id, viewTypeIcons);
+
+      // Render nested Definitions section
+      const definitionsHtml = this._renderNestedDefinitions(projectDefinitions, project.id, projectSets);
+
+      // Render nested Exports section
+      const exportsHtml = this._renderNestedExports(projectExports, project.id);
+
+      html += `
+        <div class="project-tree-item ${isActiveProject ? 'active' : ''} ${isExpanded ? 'expanded' : ''}"
+             data-project-id="${project.id}">
+          <div class="project-tree-header"
+               data-project-id="${project.id}"
+               title="${this._escapeHtml(project.description || project.name)}">
+            <div class="project-expand-icon">
+              <i class="ph ph-caret-right"></i>
+            </div>
+            <span class="project-color-dot" style="background-color: ${project.color || '#3B82F6'}"></span>
+            <i class="ph ${project.icon || 'ph-folder-simple-dashed'} project-icon"></i>
+            <span class="project-name">${this._escapeHtml(this._truncateName(project.name, 18))}</span>
+            <span class="project-item-count">${projectItemCount}</span>
+          </div>
+          <div class="project-tree-content">
+            ${sourcesHtml}
+            ${setsHtml}
+            ${definitionsHtml}
+            ${exportsHtml}
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+
+    // Attach event handlers
+    this._attachProjectsNavNestedHandlers(container);
+    this._attachNewProjectButtonHandler();
+  }
+
+  /**
+   * Render nested Sources section within a project
+   */
+  _renderNestedSources(sources, projectId, viewTypeIcons) {
+    if (sources.length === 0) return '';
+
+    const isExpanded = this.expandedProjectSections?.[`${projectId}-sources`] ?? true;
+
+    const sourcesListHtml = sources.map(source => {
+      const isActive = this.currentSourceId === source.id;
+      const recordCount = source.data?.length || source.records?.length || 0;
+
+      return `
+        <div class="nested-nav-item source-nested-item ${isActive ? 'active' : ''}"
+             data-source-id="${source.id}"
+             data-project-id="${projectId}"
+             title="${this._escapeHtml(source.name)}">
+          <i class="ph ph-file-text"></i>
+          <span class="nested-item-name">${this._escapeHtml(this._truncateName(source.name, 20))}</span>
+          <span class="nested-item-count">${recordCount} rows</span>
+          <span class="epistemic-mini-badge given-mini">GIVEN</span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="project-section sources-section ${isExpanded ? 'expanded' : ''}"
+           data-section="sources" data-project-id="${projectId}">
+        <div class="project-section-header" data-section="sources" data-project-id="${projectId}">
+          <i class="ph ph-caret-right section-expand-icon"></i>
+          <i class="ph ph-download-simple section-icon"></i>
+          <span class="section-title">Sources</span>
+          <span class="section-badge given-badge">GIVEN</span>
+          <span class="section-count">${sources.length}</span>
+        </div>
+        <div class="project-section-content">
+          ${sourcesListHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render nested Sets section within a project
+   */
+  _renderNestedSets(sets, projectId, viewTypeIcons) {
+    if (sets.length === 0) return '';
+
+    const isExpanded = this.expandedProjectSections?.[`${projectId}-sets`] ?? true;
+    const isViewingSource = !!this.currentSourceId;
+
+    const setsListHtml = sets.map(set => {
+      const isActiveSet = !isViewingSource && set.id === this.currentSetId;
+      const isSetExpanded = this.expandedSets[set.id] || set.id === this.currentSetId;
+      const recordCount = set.records?.length || 0;
+      const fieldCount = set.fields?.length || 0;
+      const views = set.views || [];
+      const lenses = set.lenses || [];
+
+      // Get derivation info
+      const derivation = this._getSetDerivationInfo(set);
+      const operatorBadge = this._getOperatorBadgeHTML(derivation.operator);
+
+      // Render Schema item
+      const isFieldsActive = isActiveSet && this.showingSetFields;
+      const schemaItem = `
+        <div class="set-view-item set-fields-item ${isFieldsActive ? 'active' : ''}"
+             data-set-id="${set.id}"
+             data-action="fields"
+             title="Schema: ${fieldCount} fields">
+          <i class="ph ph-blueprint"></i>
+          <span>Schema</span>
+          <span class="view-item-count">${fieldCount} fields</span>
+        </div>
+      `;
+
+      // Render views
+      const viewsHtml = views.map(view => {
+        const isActiveView = view.id === this.currentViewId && isActiveSet;
+        const viewIcon = viewTypeIcons[view.type] || 'ph-eye';
+        const viewCount = view.metadata?.recordCount;
+        const countHtml = viewCount !== undefined ? `<span class="view-item-count">${viewCount}</span>` : '';
+
+        return `
+          <div class="set-view-item ${isActiveView ? 'active' : ''}"
+               data-view-id="${view.id}"
+               data-set-id="${set.id}"
+               title="${this._escapeHtml(view.name)} (${view.type})">
+            <i class="ph ${viewIcon}"></i>
+            <span>${this._escapeHtml(view.name)}</span>
+            ${countHtml}
+          </div>
+        `;
+      }).join('');
+
+      // Render lenses with human-readable names
+      const lensesHtml = lenses.map(lens => {
+        const isActiveLens = this.currentLensId === lens.id;
+        const lensRecordCount = this._getLensRecordCount(set, lens);
+        const isLensExpanded = this.expandedLenses?.[lens.id];
+
+        // Generate human-readable lens name if it looks like an ID
+        const displayName = this._getHumanReadableLensName(lens, set);
+
+        const lensViewsHtml = (lens.views || []).map(view => {
+          const isActiveView = view.id === this.currentViewId && isActiveLens;
+          const viewIcon = viewTypeIcons[view.type] || 'ph-eye';
+          return `
+            <div class="set-view-item lens-view-item ${isActiveView ? 'active' : ''}"
+                 data-view-id="${view.id}"
+                 data-lens-id="${lens.id}"
+                 data-set-id="${set.id}">
+              <i class="ph ${viewIcon}"></i>
+              <span>${this._escapeHtml(view.name)}</span>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="set-lens-container ${isLensExpanded ? 'expanded' : ''}"
+               data-lens-id="${lens.id}" data-set-id="${set.id}">
+            <div class="set-lens-header ${isActiveLens ? 'active' : ''}"
+                 data-lens-id="${lens.id}"
+                 data-set-id="${set.id}"
+                 title="Lens: ${this._escapeHtml(displayName)} · ${lensRecordCount} records">
+              <div class="lens-expand-icon">
+                <i class="ph ph-caret-right"></i>
+              </div>
+              <i class="ph ${lens.icon || 'ph-funnel'}"></i>
+              <span>${this._escapeHtml(displayName)}</span>
+              <span class="lens-item-count">${lensRecordCount}</span>
+            </div>
+            <div class="lens-views-list">
+              ${lensViewsHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="set-item-container nested-set ${isSetExpanded ? 'expanded' : ''}"
+             data-set-id="${set.id}" data-project-id="${projectId}">
+          <div class="set-item-header ${isActiveSet && !this.showingSetFields ? 'active' : ''}"
+               data-set-id="${set.id}"
+               title="${derivation.description}\n${fieldCount} fields · ${recordCount} records">
+            <div class="set-item-expand">
+              <i class="ph ph-caret-right"></i>
+            </div>
+            ${operatorBadge}
+            <i class="set-item-icon ${set.icon || 'ph ph-table'}"></i>
+            <span class="set-item-name">${this._escapeHtml(set.name)}</span>
+            <span class="set-item-count">${recordCount}</span>
+            <span class="epistemic-mini-badge schema-mini">SCHEMA</span>
+          </div>
+          <div class="set-views-list">
+            ${schemaItem}
+            ${lensesHtml}
+            ${viewsHtml}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="project-section sets-section ${isExpanded ? 'expanded' : ''}"
+           data-section="sets" data-project-id="${projectId}">
+        <div class="project-section-header" data-section="sets" data-project-id="${projectId}">
+          <i class="ph ph-caret-right section-expand-icon"></i>
+          <i class="ph ph-database section-icon"></i>
+          <span class="section-title">Sets</span>
+          <span class="section-badge schema-badge">SCHEMA</span>
+          <span class="section-count">${sets.length}</span>
+        </div>
+        <div class="project-section-content">
+          ${setsListHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render nested Definitions section within a project
+   * Shows which fields are linked to which definitions
+   */
+  _renderNestedDefinitions(definitions, projectId, projectSets) {
+    if (definitions.length === 0) return '';
+
+    const isExpanded = this.expandedProjectSections?.[`${projectId}-definitions`] ?? false;
+
+    const definitionsListHtml = definitions.map(def => {
+      const isActive = this.currentDefinitionId === def.id;
+      const termCount = def.terms?.length || def.properties?.length || 0;
+
+      // Find which fields in project sets use this definition
+      const linkedFields = this._getDefinitionLinkedFields(def, projectSets);
+      const linkedFieldsHtml = linkedFields.length > 0
+        ? `<div class="definition-linked-fields">
+             ${linkedFields.map(lf => `
+               <span class="linked-field-badge" title="${lf.setName}: ${lf.fieldName} → ${def.name}">
+                 ${this._escapeHtml(this._truncateName(lf.fieldName, 12))}
+               </span>
+             `).join('')}
+           </div>`
+        : '';
+
+      return `
+        <div class="nested-nav-item definition-nested-item ${isActive ? 'active' : ''}"
+             data-definition-id="${def.id}"
+             data-project-id="${projectId}"
+             title="${this._escapeHtml(def.name)}">
+          <i class="ph ph-book-open"></i>
+          <span class="nested-item-name">${this._escapeHtml(this._truncateName(def.name, 20))}</span>
+          <span class="nested-item-count">${termCount} terms</span>
+          <span class="epistemic-mini-badge meant-mini">MEANT</span>
+          ${linkedFieldsHtml}
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="project-section definitions-section ${isExpanded ? 'expanded' : ''}"
+           data-section="definitions" data-project-id="${projectId}">
+        <div class="project-section-header" data-section="definitions" data-project-id="${projectId}">
+          <i class="ph ph-caret-right section-expand-icon"></i>
+          <i class="ph ph-book-open section-icon"></i>
+          <span class="section-title">Definitions</span>
+          <span class="section-badge dictionary-badge">MEANT</span>
+          <span class="section-count">${definitions.length}</span>
+        </div>
+        <div class="project-section-content">
+          ${definitionsListHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render nested Exports section within a project
+   */
+  _renderNestedExports(exports, projectId) {
+    if (exports.length === 0) return '';
+
+    const isExpanded = this.expandedProjectSections?.[`${projectId}-exports`] ?? false;
+
+    const exportsListHtml = exports.map(exp => {
+      const isActive = this.currentExportId === exp.id;
+      const exportDate = exp.createdAt ? new Date(exp.createdAt).toLocaleDateString() : '';
+
+      return `
+        <div class="nested-nav-item export-nested-item ${isActive ? 'active' : ''}"
+             data-export-id="${exp.id}"
+             data-project-id="${projectId}"
+             title="${this._escapeHtml(exp.name)} - ${exportDate}">
+          <i class="ph ph-snowflake"></i>
+          <span class="nested-item-name">${this._escapeHtml(this._truncateName(exp.name, 20))}</span>
+          <span class="nested-item-date">${exportDate}</span>
+          <span class="epistemic-mini-badge given-mini">GIVEN</span>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="project-section exports-section ${isExpanded ? 'expanded' : ''}"
+           data-section="exports" data-project-id="${projectId}">
+        <div class="project-section-header" data-section="exports" data-project-id="${projectId}">
+          <i class="ph ph-caret-right section-expand-icon"></i>
+          <i class="ph ph-export section-icon"></i>
+          <span class="section-title">Exports</span>
+          <span class="section-badge export-badge">GIVEN</span>
+          <span class="section-count">${exports.length}</span>
+        </div>
+        <div class="project-section-content">
+          ${exportsListHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Get human-readable lens name based on pivot field value
+   * Converts opaque IDs like "id_mjuczjawettak" to "By Status" style names
+   */
+  _getHumanReadableLensName(lens, set) {
+    // If the name doesn't look like an auto-generated ID, use it as-is
+    if (lens.name && !lens.name.startsWith('id_') && lens.name.length < 30) {
+      return lens.name;
+    }
+
+    // Try to generate a meaningful name from pivot field
+    if (lens.pivotFieldId && lens.pivotValue) {
+      const field = set.fields?.find(f => f.id === lens.pivotFieldId);
+      if (field) {
+        return `By ${field.name}: ${lens.pivotValue}`;
+      }
+    }
+
+    // Fallback to original name
+    return lens.name || 'Unnamed Lens';
+  }
+
+  /**
+   * Find fields in sets that link to a given definition
+   */
+  _getDefinitionLinkedFields(definition, projectSets) {
+    const linkedFields = [];
+
+    for (const set of projectSets) {
+      for (const field of (set.fields || [])) {
+        // Check if field references this definition
+        if (field.definitionId === definition.id ||
+            field.boundDefinitionId === definition.id ||
+            field.semanticBinding?.definitionId === definition.id) {
+          linkedFields.push({
+            setId: set.id,
+            setName: set.name,
+            fieldId: field.id,
+            fieldName: field.name
+          });
+        }
+      }
+    }
+
+    return linkedFields;
+  }
+
+  /**
+   * Attach event handlers for new project button
+   */
+  _attachNewProjectButtonHandler() {
+    document.getElementById('btn-new-project')?.addEventListener('click', () => {
+      this._showNewProjectModal();
+    });
+  }
+
+  /**
+   * Attach event handlers for nested project navigation
+   */
+  _attachProjectsNavNestedHandlers(container) {
+    // Initialize expansion state tracking
+    if (!this.expandedProjects) this.expandedProjects = {};
+    if (!this.expandedProjectSections) this.expandedProjectSections = {};
+
+    // All Items option
+    container.querySelector('.all-projects-item')?.addEventListener('click', () => {
+      this._selectProject(null);
+    });
+
+    // Project headers (expand/collapse and select)
+    container.querySelectorAll('.project-tree-header[data-project-id]').forEach(header => {
+      header.addEventListener('click', (e) => {
+        const projectId = header.dataset.projectId;
+        if (!projectId) return; // Skip "All Items"
+
+        // If clicking on expand arrow, just toggle expansion
+        if (e.target.closest('.project-expand-icon')) {
+          this.expandedProjects[projectId] = !this.expandedProjects[projectId];
+          header.closest('.project-tree-item')?.classList.toggle('expanded');
+          return;
+        }
+
+        // Otherwise select the project and expand it
+        this.expandedProjects[projectId] = true;
+        this._selectProject(projectId);
+      });
+
+      header.addEventListener('contextmenu', (e) => {
+        const projectId = header.dataset.projectId;
+        if (!projectId) return;
+        e.preventDefault();
+        this._showProjectContextMenu(e, projectId);
+      });
+    });
+
+    // Section headers (Sources, Sets, Definitions, Exports)
+    container.querySelectorAll('.project-section-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const section = header.dataset.section;
+        const projectId = header.dataset.projectId;
+        const key = `${projectId}-${section}`;
+
+        this.expandedProjectSections[key] = !this.expandedProjectSections[key];
+        header.closest('.project-section')?.classList.toggle('expanded');
+      });
+    });
+
+    // Source items
+    container.querySelectorAll('.source-nested-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const sourceId = item.dataset.sourceId;
+        this._selectSource(sourceId);
+      });
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._showSourceContextMenu(e, item.dataset.sourceId);
+      });
+    });
+
+    // Set headers and views (reuse existing handlers)
+    container.querySelectorAll('.set-item-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const setId = header.dataset.setId;
+        const containerEl = header.closest('.set-item-container');
+
+        // If clicking on expand arrow, just toggle expansion
+        if (e.target.closest('.set-item-expand')) {
+          this.expandedSets[setId] = !this.expandedSets[setId];
+          containerEl?.classList.toggle('expanded');
+          return;
+        }
+
+        // Otherwise expand the set and open tab for default view
+        this.expandedSets[setId] = true;
+        containerEl?.classList.add('expanded');
+
+        const set = this.sets.find(s => s.id === setId);
+        if (set && set.views && set.views.length > 0) {
+          const defaultView = set.views[0];
+          this._openViewTab(setId, defaultView.id);
+        }
+        this._renderSidebar();
+      });
+
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._showSetContextMenu(e, header.dataset.setId);
+      });
+    });
+
+    // View items
+    container.querySelectorAll('.set-view-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const setId = item.dataset.setId;
+        const viewId = item.dataset.viewId;
+        const action = item.dataset.action;
+
+        if (action === 'fields') {
+          this._openSchemaTab(setId);
+          return;
+        }
+
+        this._openViewTab(setId, viewId);
+      });
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (item.dataset.action === 'fields') return;
+        this._showViewContextMenu(e, item.dataset.viewId, item.dataset.setId);
+      });
+    });
+
+    // Lens headers
+    container.querySelectorAll('.set-lens-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const lensId = header.dataset.lensId;
+        const containerEl = header.closest('.set-lens-container');
+
+        if (e.target.closest('.lens-expand-icon')) {
+          if (!this.expandedLenses) this.expandedLenses = {};
+          this.expandedLenses[lensId] = !this.expandedLenses[lensId];
+          containerEl?.classList.toggle('expanded');
+          return;
+        }
+
+        // Select the lens
+        const setId = header.dataset.setId;
+        this._selectLens(setId, lensId);
+      });
+
+      header.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._showLensContextMenu(e, header.dataset.lensId, header.dataset.setId);
+      });
+    });
+
+    // Definition items
+    container.querySelectorAll('.definition-nested-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const definitionId = item.dataset.definitionId;
+        this._selectDefinition(definitionId);
+      });
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._showDefinitionContextMenu(e, item.dataset.definitionId);
+      });
+    });
+
+    // Export items
+    container.querySelectorAll('.export-nested-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const exportId = item.dataset.exportId;
+        this._selectExport(exportId);
+      });
+
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this._showExportContextMenu(e, item.dataset.exportId);
+      });
+    });
+  }
+
+  /**
+   * Show context menu for lens (with rename option)
+   */
+  _showLensContextMenu(e, lensId, setId) {
+    const set = this.sets.find(s => s.id === setId);
+    const lens = set?.lenses?.find(l => l.id === lensId);
+    if (!lens) return;
+
+    const menuItems = [
+      {
+        label: 'Rename Lens',
+        icon: 'ph-pencil-simple',
+        action: () => this._renameLensInline(lensId, setId)
+      },
+      {
+        label: 'Add View to Lens',
+        icon: 'ph-plus',
+        action: () => this._addViewToLens(lensId, setId)
+      },
+      { divider: true },
+      {
+        label: 'Delete Lens',
+        icon: 'ph-trash',
+        danger: true,
+        action: () => this._deleteLens(lensId, setId)
+      }
+    ];
+
+    this._showContextMenu(e, menuItems);
+  }
+
+  /**
+   * Rename lens inline
+   */
+  _renameLensInline(lensId, setId) {
+    const set = this.sets.find(s => s.id === setId);
+    const lens = set?.lenses?.find(l => l.id === lensId);
+    if (!lens) return;
+
+    const currentName = this._getHumanReadableLensName(lens, set);
+    const newName = prompt('Enter new lens name:', currentName);
+
+    if (newName && newName.trim() && newName !== currentName) {
+      lens.name = newName.trim();
+      this._saveData();
+      this._renderSidebar();
+      this._showToast(`Lens renamed to "${newName}"`, 'success');
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Legacy Projects Panel Rendering (kept for compatibility)
+  // --------------------------------------------------------------------------
+
+  /**
+   * Render Projects navigation panel (legacy - flat view)
    * Projects are super objects that contain Sources, Sets, Definitions, and Exports.
    * Definitions can be cited/referenced across projects.
    */
@@ -18723,24 +19420,42 @@ class EODataWorkbench {
       projectBreadcrumb.onclick = () => this._showProjectBreadcrumbMenu(projectBreadcrumb);
     }
 
-    // Workspace breadcrumb - CLICKABLE (ascend hierarchy)
-    const workspaceBreadcrumb = document.getElementById('current-workspace-name');
-    if (workspaceBreadcrumb) {
-      workspaceBreadcrumb.innerHTML = `
-        <i class="ph ${workspace?.icon || 'ph-folder-simple'}"></i>
-        ${this._escapeHtml(workspace?.name || 'Workspace')}
-        <i class="ph ph-caret-down breadcrumb-dropdown-icon"></i>
-      `;
-      workspaceBreadcrumb.classList.add('breadcrumb-clickable');
-      workspaceBreadcrumb.onclick = () => this._showWorkspaceBreadcrumbMenu(workspaceBreadcrumb);
-      // Log navigation activity with EO operator
-      this._logNavigationActivity('DES', 'workspace', workspace?.id);
+    // Source breadcrumb - CLICKABLE - Shows source in data-flow chain (GIVEN)
+    const sourceBreadcrumb = document.getElementById('current-source-name');
+    const sourceSeparator = document.querySelector('.breadcrumb-separator.source-separator');
+    if (sourceBreadcrumb && sourceSeparator) {
+      // Get source from current selection or from set provenance
+      const currentSource = this.sources?.find(s => s.id === this.currentSourceId);
+      const setProvenance = set?.datasetProvenance;
+      const sourceFromProvenance = setProvenance?.sourceId ?
+        this.sources?.find(s => s.id === setProvenance.sourceId) : null;
+      const effectiveSource = currentSource || sourceFromProvenance;
+
+      if (effectiveSource || this.currentSourceId) {
+        const sourceName = effectiveSource?.name ||
+          setProvenance?.originalFilename ||
+          'Source';
+        sourceBreadcrumb.innerHTML = `
+          <span class="breadcrumb-epistemic-dot given-dot"></span>
+          <i class="ph ph-download-simple"></i>
+          <span class="breadcrumb-source-text">${this._escapeHtml(this._truncateName(sourceName, 15))}</span>
+          <i class="ph ph-caret-down breadcrumb-dropdown-icon"></i>
+        `;
+        sourceBreadcrumb.style.display = 'inline-flex';
+        sourceSeparator.style.display = '';
+        sourceBreadcrumb.classList.add('breadcrumb-clickable');
+        sourceBreadcrumb.onclick = () => this._showSourceBreadcrumbMenu(sourceBreadcrumb);
+      } else {
+        sourceBreadcrumb.style.display = 'none';
+        sourceSeparator.style.display = 'none';
+      }
     }
 
-    // Set breadcrumb - CLICKABLE (shows sibling sets)
+    // Set breadcrumb - CLICKABLE (shows sibling sets) - SCHEMA
     if (this.elements.currentSetName) {
       const provenanceIcon = this._getProvenanceStatusIcon(set);
       this.elements.currentSetName.innerHTML = `
+        <span class="breadcrumb-epistemic-dot schema-dot"></span>
         <span class="breadcrumb-provenance-icon" title="Provenance: ${this._getProvenanceTooltip(set)}">${provenanceIcon}</span>
         ${this._escapeHtml(set?.name || 'No Set')}
         <i class="ph ph-caret-down breadcrumb-dropdown-icon"></i>
@@ -19030,6 +19745,21 @@ class EODataWorkbench {
   /**
    * Show set breadcrumb dropdown menu (sibling sets)
    */
+  /**
+   * Show source breadcrumb dropdown menu (available sources)
+   */
+  _showSourceBreadcrumbMenu(element) {
+    const sources = (this.sources || []).filter(s => s.status !== 'archived');
+    this._showBreadcrumbDropdown(element, sources.map(s => ({
+      id: s.id,
+      name: s.name,
+      icon: 'ph-file-text',
+      badge: `<span class="epistemic-mini-badge given-mini">GIVEN</span>`,
+      active: s.id === this.currentSourceId,
+      onClick: () => this._selectSource(s.id)
+    })), 'Sources (GIVEN)');
+  }
+
   _showSetBreadcrumbMenu(element) {
     const sets = this.sets || [];
     this._showBreadcrumbDropdown(element, sets.map(s => ({

@@ -943,6 +943,282 @@ html, body {
   font-size: 14px;
 }
 
+/* --------------------------------------------------------------------------
+   Project Tree - Nested Navigation Structure
+   All content (Sources, Sets, Definitions, Exports) nested under projects
+   -------------------------------------------------------------------------- */
+
+/* Project Tree Item (container for project + nested content) */
+.project-tree-item {
+  margin-bottom: 2px;
+}
+
+.project-tree-item.active > .project-tree-header {
+  background: var(--bg-active);
+  color: var(--primary-500);
+}
+
+/* Project Tree Header (clickable project row) */
+.project-tree-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background 0.15s ease;
+}
+
+.project-tree-header:hover {
+  background: var(--bg-hover);
+}
+
+.project-tree-header .project-expand-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.project-tree-item.expanded > .project-tree-header .project-expand-icon i {
+  transform: rotate(90deg);
+}
+
+.project-tree-header .project-color-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.project-tree-header .project-icon {
+  font-size: 14px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.project-tree-header .project-name {
+  flex: 1;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-tree-header .project-item-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 1px 6px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+/* Project Tree Content (nested sections) */
+.project-tree-content {
+  display: none;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-secondary);
+  margin-top: 2px;
+  margin-bottom: 4px;
+}
+
+.project-tree-item.expanded > .project-tree-content {
+  display: block;
+}
+
+/* Project Section (Sources, Sets, Definitions, Exports) */
+.project-section {
+  margin-bottom: 2px;
+}
+
+.project-section-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  transition: background 0.15s ease;
+}
+
+.project-section-header:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.project-section-header .section-expand-icon {
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+.project-section.expanded > .project-section-header .section-expand-icon {
+  transform: rotate(90deg);
+}
+
+.project-section-header .section-icon {
+  font-size: 12px;
+}
+
+.project-section-header .section-title {
+  flex: 1;
+}
+
+.project-section-header .section-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.project-section-header .section-count {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 8px;
+}
+
+/* Section Content (list of items) */
+.project-section-content {
+  display: none;
+  padding-left: 4px;
+  margin-top: 2px;
+}
+
+.project-section.expanded > .project-section-content {
+  display: block;
+}
+
+/* Nested Nav Item (source, definition, export items) */
+.nested-nav-item {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: background 0.15s ease;
+}
+
+.nested-nav-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nested-nav-item.active {
+  background: var(--bg-active);
+  color: var(--primary-500);
+}
+
+.nested-nav-item i {
+  font-size: 13px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.nested-nav-item.active i {
+  color: var(--primary-500);
+}
+
+.nested-nav-item .nested-item-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nested-nav-item .nested-item-count,
+.nested-nav-item .nested-item-date {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Epistemic Mini Badges (small badges on nested items) */
+.epistemic-mini-badge {
+  font-size: 8px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.epistemic-mini-badge.given-mini {
+  background: var(--accent-blue-bg, rgba(59, 130, 246, 0.15));
+  color: var(--accent-blue, #3B82F6);
+}
+
+.epistemic-mini-badge.meant-mini {
+  background: var(--accent-purple-bg, rgba(139, 92, 246, 0.15));
+  color: var(--accent-purple, #8B5CF6);
+}
+
+.epistemic-mini-badge.schema-mini {
+  background: var(--accent-green-bg, rgba(34, 197, 94, 0.15));
+  color: var(--accent-green, #22C55E);
+}
+
+/* Definition Linked Fields (shows field→definition mappings) */
+.definition-linked-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  padding-left: 20px;
+  margin-top: 2px;
+}
+
+.linked-field-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: help;
+}
+
+.linked-field-badge:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+/* Nested Set Item in project tree */
+.set-item-container.nested-set {
+  margin-left: 0;
+  margin-bottom: 2px;
+}
+
+.set-item-container.nested-set > .set-item-header {
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.set-item-container.nested-set .set-views-list {
+  padding-left: 16px;
+  margin-left: 6px;
+  border-left: 1px solid var(--border-tertiary);
+}
+
 /* Color picker for project creation */
 .color-picker-grid {
   display: flex;
@@ -9266,6 +9542,48 @@ a:focus-visible,
 /* Provenance icons in breadcrumb */
 .breadcrumb-provenance-icon {
   margin-right: 4px;
+  font-size: 10px;
+}
+
+/* Epistemic dots in breadcrumb (colored indicators for GIVEN/MEANT/SCHEMA) */
+.breadcrumb-epistemic-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.breadcrumb-epistemic-dot.given-dot {
+  background: var(--accent-blue, #3B82F6);
+}
+
+.breadcrumb-epistemic-dot.meant-dot {
+  background: var(--accent-purple, #8B5CF6);
+}
+
+.breadcrumb-epistemic-dot.schema-dot {
+  background: var(--accent-green, #22C55E);
+}
+
+/* Data flow breadcrumb - Source → Set → Lens → View chain */
+.data-flow-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+
+.data-flow-breadcrumb .breadcrumb-source,
+.data-flow-breadcrumb .breadcrumb-set,
+.data-flow-breadcrumb .breadcrumb-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.data-flow-breadcrumb .breadcrumb-separator {
+  margin: 0 6px;
+  color: var(--text-muted);
   font-size: 10px;
 }
 
