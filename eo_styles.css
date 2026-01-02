@@ -36558,3 +36558,255 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 .light-theme .definition-grouped-item:hover {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
+
+/* ===== EO Formula Decomposition Visualization ===== */
+
+/* EO Pipeline Visualization Container */
+.eo-decomposition {
+  background: var(--bg-secondary, #1e293b);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 12px;
+  font-size: 13px;
+  border: 1px solid var(--border-100, rgba(255,255,255,0.08));
+}
+
+.eo-decomposition h4 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted, #94a3b8);
+  margin: 0 0 8px 0;
+}
+
+.eo-decomposition h4:not(:first-child) {
+  margin-top: 12px;
+}
+
+/* Pipeline Step */
+.eo-pipeline-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-tertiary, #334155);
+  border-radius: 4px;
+  margin-bottom: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+}
+
+.eo-pipeline-step:last-child {
+  margin-bottom: 0;
+}
+
+/* EO Operator Badge */
+.eo-operator {
+  font-weight: 600;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  padding: 2px 8px;
+  border-radius: 3px;
+  min-width: 36px;
+  text-align: center;
+}
+
+/* Operator-specific colors */
+.eo-operator.eo-op-con,
+.eo-badge-con {
+  background: rgba(236, 72, 153, 0.15);
+  color: #ec4899;
+  border: 1px solid rgba(236, 72, 153, 0.3);
+}
+
+.eo-operator.eo-op-seg,
+.eo-badge-seg {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.eo-operator.eo-op-des,
+.eo-badge-des {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.eo-operator.eo-op-syn,
+.eo-badge-syn {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.eo-operator.eo-op-alt,
+.eo-badge-alt {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.eo-operator.eo-op-nul,
+.eo-badge-nul {
+  background: rgba(107, 114, 128, 0.15);
+  color: #9ca3af;
+  border: 1px solid rgba(107, 114, 128, 0.3);
+}
+
+.eo-operator.eo-op-ins,
+.eo-badge-ins {
+  background: rgba(6, 182, 212, 0.15);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+.eo-operator.eo-op-sup,
+.eo-badge-sup {
+  background: rgba(249, 115, 22, 0.15);
+  color: #f97316;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}
+
+/* Pipeline Step Description */
+.eo-step-desc {
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 12px;
+  flex: 1;
+}
+
+.eo-params {
+  color: var(--text-muted, #94a3b8);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+
+/* Dependencies Section */
+.eo-dependencies {
+  color: var(--text-muted, #94a3b8);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eo-dependencies div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.eo-dependencies strong {
+  color: var(--text-secondary, #cbd5e1);
+  font-weight: 500;
+  min-width: 80px;
+}
+
+/* EO Badge for Function Browser */
+.eo-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  padding: 2px 5px;
+  border-radius: 3px;
+  margin-right: 3px;
+}
+
+/* Function Browser with EO */
+.formula-fn-item .formula-fn-operators {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 6px;
+}
+
+.formula-fn-eo-explanation {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  font-style: italic;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--border-100, rgba(255,255,255,0.08));
+}
+
+/* Error State */
+.eo-error {
+  color: var(--danger-500, #ef4444);
+  background: var(--danger-50, rgba(239, 68, 68, 0.1));
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* Pipeline Flow Arrow */
+.eo-pipeline-step::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid var(--text-muted, #94a3b8);
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  transform: translateX(-50%);
+  display: none;
+}
+
+.eo-pipeline-step:not(:first-child)::before {
+  display: block;
+}
+
+/* Compact Pipeline View */
+.eo-pipeline-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.eo-pipeline-compact .eo-badge {
+  margin-right: 0;
+}
+
+.eo-pipeline-compact .eo-arrow {
+  color: var(--text-muted, #94a3b8);
+  font-size: 10px;
+}
+
+/* Light Theme Adjustments for EO Decomposition */
+:root.light-theme .eo-decomposition,
+.light-theme .eo-decomposition {
+  background: var(--gray-50, #f9fafb);
+  border-color: var(--gray-200, #e5e7eb);
+}
+
+:root.light-theme .eo-pipeline-step,
+.light-theme .eo-pipeline-step {
+  background: white;
+  border: 1px solid var(--gray-200, #e5e7eb);
+}
+
+:root.light-theme .eo-step-desc,
+.light-theme .eo-step-desc {
+  color: var(--gray-700, #374151);
+}
+
+:root.light-theme .eo-params,
+.light-theme .eo-params {
+  color: var(--gray-500, #6b7280);
+}
+
+:root.light-theme .eo-dependencies,
+.light-theme .eo-dependencies {
+  color: var(--gray-500, #6b7280);
+}
+
+:root.light-theme .eo-dependencies strong,
+.light-theme .eo-dependencies strong {
+  color: var(--gray-700, #374151);
+}
