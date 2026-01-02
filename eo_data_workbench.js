@@ -32952,36 +32952,7 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.SELECT:
-        // Ensure field.options.choices exists (defensive check for legacy data)
-        if (!field.options) field.options = {};
-        if (!field.options.choices) field.options.choices = [];
-
-        const selectChoices = field.options.choices;
-        el.innerHTML = `
-          <select class="detail-editor">
-            <option value="">Select...</option>
-            ${selectChoices.map(c =>
-              `<option value="${c.id}" ${c.id === currentValue ? 'selected' : ''}>${this._escapeHtml(c.name)}</option>`
-            ).join('')}
-          </select>
-        `;
-        const selectEditor = el.querySelector('select');
-        selectEditor.focus();
-        selectEditor.addEventListener('change', () => {
-          const newValue = selectEditor.value || null;
-          this._updateRecordValue(recordId, fieldId, newValue);
-          el.classList.remove('editing');
-          el.innerHTML = this._renderDetailFieldValue(field, newValue);
-          this._renderView();
-        });
-        selectEditor.addEventListener('blur', () => {
-          setTimeout(() => {
-            if (el.classList.contains('editing')) {
-              el.classList.remove('editing');
-              el.innerHTML = this._renderDetailFieldValue(field, record.values[fieldId]);
-            }
-          }, 150);
-        });
+        this._showSelectDetailEditor(el, field, recordId, currentValue);
         break;
 
       case FieldTypes.DATE:
@@ -33258,6 +33229,83 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
   // Multi-Select Detail Editor
   // --------------------------------------------------------------------------
+
+  _showSelectDetailEditor(el, field, recordId, currentValue) {
+    const choices = field.options?.choices || [];
+    const currentChoice = choices.find(c => c.id === currentValue);
+
+    let html = '<div class="detail-select-editor">';
+    html += '<div class="detail-select-search">';
+    html += '<input type="text" placeholder="Find an option..." class="detail-select-search-input">';
+    html += '</div>';
+    html += '<div class="detail-select-options">';
+
+    // Clear selection option
+    if (currentValue) {
+      html += `
+        <div class="detail-select-option detail-select-clear" data-value="">
+          <span class="detail-select-check"><i class="ph ph-x"></i></span>
+          <span class="detail-select-label">Clear selection</span>
+        </div>
+      `;
+    }
+
+    choices.forEach(choice => {
+      const isSelected = choice.id === currentValue;
+      html += `
+        <div class="detail-select-option ${isSelected ? 'selected' : ''}" data-value="${choice.id}">
+          <span class="detail-select-check">${isSelected ? '<i class="ph ph-check"></i>' : ''}</span>
+          <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+        </div>
+      `;
+    });
+
+    if (choices.length === 0) {
+      html += '<div class="detail-select-empty">No options configured. Edit field to add choices.</div>';
+    }
+
+    html += '</div>';
+    html += '</div>';
+
+    el.innerHTML = html;
+
+    const editor = el.querySelector('.detail-select-editor');
+    const searchInput = el.querySelector('.detail-select-search-input');
+
+    // Search filtering
+    searchInput?.addEventListener('input', (e) => {
+      const searchTerm = e.target.value.toLowerCase();
+      editor.querySelectorAll('.detail-select-option:not(.detail-select-clear)').forEach(opt => {
+        const name = opt.querySelector('.select-tag')?.textContent.toLowerCase() || '';
+        opt.style.display = name.includes(searchTerm) ? '' : 'none';
+      });
+    });
+    searchInput?.focus();
+
+    // Selection handler
+    editor.querySelectorAll('.detail-select-option').forEach(option => {
+      option.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const newValue = option.dataset.value || null;
+        this._updateRecordValue(recordId, field.id, newValue);
+        el.classList.remove('editing');
+        el.innerHTML = this._renderDetailFieldValue(field, newValue);
+        this._renderView();
+      });
+    });
+
+    // Close on click outside
+    setTimeout(() => {
+      const closeHandler = (e) => {
+        if (!el.contains(e.target)) {
+          el.classList.remove('editing');
+          el.innerHTML = this._renderDetailFieldValue(field, currentValue);
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      document.addEventListener('click', closeHandler);
+    }, 10);
+  }
 
   _showMultiSelectDetailEditor(el, field, recordId, currentValue) {
     const choices = field.options?.choices || [];

@@ -12655,7 +12655,8 @@ a:focus-visible,
   color: var(--text-primary);
 }
 
-/* Detail Multi-Select Editor */
+/* Detail Select / Multi-Select Editor */
+.detail-select-editor,
 .detail-multiselect-editor,
 .detail-link-editor {
   display: flex;
@@ -12666,12 +12667,14 @@ a:focus-visible,
   overflow: hidden;
 }
 
+.detail-select-search,
 .detail-multiselect-search,
 .detail-link-search {
   padding: 8px;
   border-bottom: 1px solid var(--border-color);
 }
 
+.detail-select-search-input,
 .detail-multiselect-search-input,
 .detail-link-search-input {
   width: 100%;
@@ -12684,11 +12687,13 @@ a:focus-visible,
   outline: none;
 }
 
+.detail-select-search-input:focus,
 .detail-multiselect-search-input:focus,
 .detail-link-search-input:focus {
   border-color: var(--primary-500);
 }
 
+.detail-select-options,
 .detail-multiselect-options,
 .detail-link-options {
   max-height: 200px;
@@ -12696,6 +12701,7 @@ a:focus-visible,
   padding: 4px;
 }
 
+.detail-select-option,
 .detail-multiselect-option,
 .detail-link-option {
   display: flex;
@@ -12707,16 +12713,19 @@ a:focus-visible,
   transition: var(--transition-fast);
 }
 
+.detail-select-option:hover,
 .detail-multiselect-option:hover,
 .detail-link-option:hover {
   background: var(--bg-tertiary);
 }
 
+.detail-select-option.selected,
 .detail-multiselect-option.selected,
 .detail-link-option.selected {
   background: var(--primary-50);
 }
 
+.detail-select-check,
 .detail-multiselect-check,
 .detail-link-check {
   width: 18px;
@@ -12733,12 +12742,18 @@ a:focus-visible,
   color: var(--text-primary);
 }
 
+.detail-select-empty,
 .detail-multiselect-empty,
 .detail-link-empty {
   padding: 16px;
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.detail-select-label {
+  font-size: 13px;
+  color: var(--text-secondary);
 }
 
 .detail-multiselect-footer,
