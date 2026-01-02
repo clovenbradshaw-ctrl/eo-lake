@@ -400,6 +400,11 @@ function createField(name, type, options = {}) {
       field.options.linkedSetId = options.linkedSetId || null;
       field.options.linkedViewId = options.linkedViewId || null; // Optional: link to a specific view within the set
       field.options.allowMultiple = options.allowMultiple || false;
+      // Edge data fields - allows storing data on the relationship itself
+      // edgeFields is an array of field definitions: [{id, name, type, options}]
+      field.options.edgeFields = options.edgeFields || [];
+      // enableEdgeData indicates whether edge data is enabled (creates edge lens)
+      field.options.enableEdgeData = options.enableEdgeData || false;
       break;
     case FieldTypes.ATTACHMENT:
       field.options.maxFiles = options.maxFiles || null; // null = unlimited
@@ -25724,15 +25729,18 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.LINK:
-        if (Array.isArray(value) && value.length > 0) {
+        const normalizedLinks = this._normalizeLinkValue(value);
+        if (normalizedLinks.length > 0) {
+          const linkedSet = this.sets.find(s => s.id === field.options?.linkedSetId);
+          const primaryField = linkedSet?.fields.find(f => f.isPrimary);
+          const hasEdgeFields = field.options?.enableEdgeData && field.options?.edgeFields?.length > 0;
           content = '<div class="cell-link">';
-          value.forEach(linkedId => {
-            // Find linked record name
-            const linkedSet = this.sets.find(s => s.id === field.options?.linkedSetId);
-            const linkedRecord = linkedSet?.records.find(r => r.id === linkedId);
-            const primaryField = linkedSet?.fields.find(f => f.isPrimary);
-            const name = linkedRecord?.values[primaryField?.id] || linkedId;
-            content += `<span class="link-chip" data-linked-id="${linkedId}"><i class="ph ph-link"></i>${this._highlightText(name, searchTerm)}</span>`;
+          normalizedLinks.forEach(link => {
+            const linkedRecord = linkedSet?.records.find(r => r.id === link.recordId);
+            const name = linkedRecord?.values[primaryField?.id] || link.recordId;
+            const hasEdgeData = hasEdgeFields && link.edgeData && Object.keys(link.edgeData).length > 0;
+            const edgeIndicator = hasEdgeData ? '<i class="ph ph-arrows-horizontal edge-indicator" title="Has edge data"></i>' : '';
+            content += `<span class="link-chip${hasEdgeData ? ' has-edge-data' : ''}" data-linked-id="${link.recordId}"><i class="ph ph-link"></i>${this._highlightText(name, searchTerm)}${edgeIndicator}</span>`;
           });
           content += '</div>';
         } else {
@@ -26329,6 +26337,7 @@ class EODataWorkbench {
     const linkedSetId = field.options?.linkedSetId;
     const linkedViewId = field.options?.linkedViewId;
     const allowMultiple = field.options?.allowMultiple !== false;
+    const hasEdgeFields = field.options?.enableEdgeData && field.options?.edgeFields?.length > 0;
     const linkedSet = linkedSetId ? this.sets.find(s => s.id === linkedSetId) : this.getCurrentSet();
 
     if (!linkedSet) {
@@ -26337,7 +26346,10 @@ class EODataWorkbench {
     }
 
     const primaryField = linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0];
-    const currentLinks = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+
+    // Use normalized format for current links (handles both old and new formats)
+    const normalizedLinks = this._normalizeLinkValue(currentValue);
+    const currentLinkIds = normalizedLinks.map(l => l.recordId);
 
     // Get records, optionally filtered by view
     let availableRecords = [...linkedSet.records];
@@ -26360,18 +26372,25 @@ class EODataWorkbench {
     let html = '<div class="link-dropdown">';
     html += '<div class="link-dropdown-header">';
     const viewLabel = linkedView ? ` › ${this._escapeHtml(linkedView.name)}` : '';
-    html += `<span class="link-dropdown-title">Link to ${this._escapeHtml(linkedSet.name)}${viewLabel}</span>`;
+    const edgeBadge = hasEdgeFields ? '<span class="edge-badge" title="Edge data enabled"><i class="ph ph-arrows-horizontal"></i></span>' : '';
+    html += `<span class="link-dropdown-title">Link to ${this._escapeHtml(linkedSet.name)}${viewLabel}${edgeBadge}</span>`;
     html += '</div>';
     html += '<div class="link-dropdown-search"><input type="text" placeholder="Search records..." class="link-search-input"></div>';
     html += '<div class="link-dropdown-options">';
 
     availableRecords.forEach(record => {
       const recordName = record.values?.[primaryField?.id] || 'Untitled';
-      const isLinked = currentLinks.includes(record.id);
+      const isLinked = currentLinkIds.includes(record.id);
+      const linkData = normalizedLinks.find(l => l.recordId === record.id);
+      const hasEdgeData = hasEdgeFields && linkData?.edgeData && Object.keys(linkData.edgeData).length > 0;
+      const edgeButton = hasEdgeFields && isLinked
+        ? `<span class="link-option-edge${hasEdgeData ? ' has-data' : ''}" data-record-id="${record.id}" title="Edit edge data"><i class="ph ph-arrows-horizontal"></i></span>`
+        : '';
       html += `
         <div class="link-option ${isLinked ? 'selected' : ''}" data-record-id="${record.id}">
           <span class="link-option-check">${isLinked ? '<i class="ph ph-check"></i>' : ''}</span>
           <span class="link-option-name">${this._escapeHtml(recordName)}</span>
+          ${edgeButton}
         </div>
       `;
     });
@@ -26386,7 +26405,15 @@ class EODataWorkbench {
 
     const dropdown = cell.querySelector('.link-dropdown');
     const searchInput = cell.querySelector('.link-search-input');
-    let selectedIds = [...currentLinks];
+
+    // Maintain current links in new format (preserving edge data)
+    let selectedLinks = [...normalizedLinks];
+
+    // Helper to convert selected links to value format
+    const getValueFromLinks = () => {
+      if (selectedLinks.length === 0) return null;
+      return selectedLinks;
+    };
 
     // Search filtering
     searchInput?.addEventListener('input', (e) => {
@@ -26398,35 +26425,101 @@ class EODataWorkbench {
     });
     searchInput?.focus();
 
+    // Handle edge button clicks
+    if (hasEdgeFields) {
+      dropdown.querySelectorAll('.link-option-edge').forEach(edgeBtn => {
+        edgeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const recordId = edgeBtn.dataset.recordId;
+          const sourceRecordId = this.editingCell?.recordId;
+          const fieldId = field.id;
+          if (sourceRecordId && recordId) {
+            // Close the editor first, save current state
+            this._updateCellValue(getValueFromLinks());
+            this._endCellEdit();
+            // Then show edge lens panel
+            this._showEdgeLensPanel(sourceRecordId, fieldId, recordId);
+          }
+        });
+      });
+    }
+
     // Toggle selection
     dropdown.querySelectorAll('.link-option').forEach(option => {
       option.addEventListener('click', (e) => {
+        // Don't toggle if clicking on edge button
+        if (e.target.closest('.link-option-edge')) return;
+
         e.stopPropagation();
         const recordId = option.dataset.recordId;
 
         if (allowMultiple) {
           // Toggle in array
-          const idx = selectedIds.indexOf(recordId);
+          const idx = selectedLinks.findIndex(l => l.recordId === recordId);
           if (idx > -1) {
-            selectedIds.splice(idx, 1);
+            selectedLinks.splice(idx, 1);
             option.classList.remove('selected');
             option.querySelector('.link-option-check').innerHTML = '';
+            // Remove edge button
+            const edgeBtn = option.querySelector('.link-option-edge');
+            if (edgeBtn) edgeBtn.remove();
           } else {
-            selectedIds.push(recordId);
+            selectedLinks.push(this._createLinkObject(recordId));
             option.classList.add('selected');
             option.querySelector('.link-option-check').innerHTML = '<i class="ph ph-check"></i>';
+            // Add edge button if applicable
+            if (hasEdgeFields) {
+              const nameSpan = option.querySelector('.link-option-name');
+              if (nameSpan && !option.querySelector('.link-option-edge')) {
+                const edgeBtn = document.createElement('span');
+                edgeBtn.className = 'link-option-edge';
+                edgeBtn.dataset.recordId = recordId;
+                edgeBtn.title = 'Edit edge data';
+                edgeBtn.innerHTML = '<i class="ph ph-arrows-horizontal"></i>';
+                edgeBtn.addEventListener('click', (ev) => {
+                  ev.stopPropagation();
+                  const sourceRecordId = this.editingCell?.recordId;
+                  if (sourceRecordId) {
+                    this._updateCellValue(getValueFromLinks());
+                    this._endCellEdit();
+                    this._showEdgeLensPanel(sourceRecordId, field.id, recordId);
+                  }
+                });
+                option.appendChild(edgeBtn);
+              }
+            }
           }
         } else {
           // Single selection - replace
           dropdown.querySelectorAll('.link-option').forEach(o => {
             o.classList.remove('selected');
             o.querySelector('.link-option-check').innerHTML = '';
+            const oldEdgeBtn = o.querySelector('.link-option-edge');
+            if (oldEdgeBtn) oldEdgeBtn.remove();
           });
-          selectedIds = [recordId];
+          selectedLinks = [this._createLinkObject(recordId)];
           option.classList.add('selected');
           option.querySelector('.link-option-check').innerHTML = '<i class="ph ph-check"></i>';
+          // Add edge button if applicable
+          if (hasEdgeFields) {
+            const edgeBtn = document.createElement('span');
+            edgeBtn.className = 'link-option-edge';
+            edgeBtn.dataset.recordId = recordId;
+            edgeBtn.title = 'Edit edge data';
+            edgeBtn.innerHTML = '<i class="ph ph-arrows-horizontal"></i>';
+            edgeBtn.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              const sourceRecordId = this.editingCell?.recordId;
+              if (sourceRecordId) {
+                this._updateCellValue(getValueFromLinks());
+                this._endCellEdit();
+                this._showEdgeLensPanel(sourceRecordId, field.id, recordId);
+              }
+            });
+            option.appendChild(edgeBtn);
+          }
           // Auto-close for single select
-          this._updateCellValue(selectedIds);
+          this._updateCellValue(getValueFromLinks());
           this._endCellEdit();
           return;
         }
@@ -26437,7 +26530,7 @@ class EODataWorkbench {
     setTimeout(() => {
       const closeHandler = (e) => {
         if (!e.target.closest('.link-dropdown')) {
-          this._updateCellValue(selectedIds.length > 0 ? selectedIds : null);
+          this._updateCellValue(getValueFromLinks());
           this._endCellEdit();
           document.removeEventListener('click', closeHandler);
         }
@@ -28310,40 +28403,47 @@ class EODataWorkbench {
     const edges = [];
     records.forEach(record => {
       linkFields.forEach(field => {
-        let linkedIds = record.values?.[field.id];
+        // Use normalized format to handle both old and new link value formats
+        const normalizedLinks = this._normalizeLinkValue(record.values?.[field.id]);
+        const hasEdgeFields = field.options?.enableEdgeData && field.options?.edgeFields?.length > 0;
 
-        // Normalize to array - handle string values from legacy data
-        if (!linkedIds) return;
-        if (!Array.isArray(linkedIds)) {
-          linkedIds = [linkedIds];
-        }
+        normalizedLinks.forEach(link => {
+          const linkedId = link.recordId;
+          const edgeData = link.edgeData || {};
 
-        linkedIds.forEach(linkedId => {
           // Check if target is in current set
           if (nodeMap.has(linkedId)) {
+            const hasData = hasEdgeFields && Object.keys(edgeData).length > 0;
             edges.push({
               data: {
                 id: `${record.id}-${linkedId}-${field.name}`,
                 source: record.id,
                 target: linkedId,
+                fieldId: field.id,
                 fieldName: field.name,
+                edgeData: edgeData,
+                hasEdgeData: hasData,
                 color: CytoscapeColors.GRAPH_DATA
               },
-              classes: 'link-edge'
+              classes: `link-edge${hasData ? ' has-edge-data' : ''}`
             });
           } else {
             // Try to find by title/name match for cross-set or legacy links
             const targetRecord = nodeByTitle.get(linkedId);
             if (targetRecord) {
+              const hasData = hasEdgeFields && Object.keys(edgeData).length > 0;
               edges.push({
                 data: {
                   id: `${record.id}-${targetRecord.id}-${field.name}`,
                   source: record.id,
                   target: targetRecord.id,
+                  fieldId: field.id,
                   fieldName: field.name,
+                  edgeData: edgeData,
+                  hasEdgeData: hasData,
                   color: CytoscapeColors.GRAPH_DATA
                 },
-                classes: 'link-edge'
+                classes: `link-edge${hasData ? ' has-edge-data' : ''}`
               });
             }
           }
@@ -32486,6 +32586,27 @@ class EODataWorkbench {
       }
     }
 
+    // Build edge fields list if existing
+    const existingEdgeFields = existingOptions.edgeFields || [];
+    const enableEdgeDataChecked = existingOptions.enableEdgeData ? 'checked' : '';
+
+    let edgeFieldsHtml = '';
+    existingEdgeFields.forEach((ef, idx) => {
+      edgeFieldsHtml += `
+        <div class="edge-field-item" data-idx="${idx}">
+          <input type="text" class="form-input edge-field-name" placeholder="Field name" value="${this._escapeHtml(ef.name || '')}">
+          <select class="form-select edge-field-type">
+            <option value="TEXT" ${ef.type === 'TEXT' ? 'selected' : ''}>Text</option>
+            <option value="NUMBER" ${ef.type === 'NUMBER' ? 'selected' : ''}>Number</option>
+            <option value="DATE" ${ef.type === 'DATE' ? 'selected' : ''}>Date</option>
+            <option value="CHECKBOX" ${ef.type === 'CHECKBOX' ? 'selected' : ''}>Checkbox</option>
+            <option value="SELECT" ${ef.type === 'SELECT' ? 'selected' : ''}>Select</option>
+          </select>
+          <button type="button" class="btn btn-sm btn-ghost edge-field-remove" title="Remove field"><i class="ph ph-x"></i></button>
+        </div>
+      `;
+    });
+
     this._showModal('Link to Records', `
       <div class="form-group">
         <label class="form-label">Link to which set?</label>
@@ -32514,10 +32635,50 @@ class EODataWorkbench {
           When enabled, each cell can link to multiple records from the selected set
         </div>
       </div>
+      <div class="form-divider" style="margin: 16px 0; border-top: 1px solid var(--border-color);"></div>
+      <div class="form-group">
+        <label class="form-checkbox" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="enable-edge-data-check" ${enableEdgeDataChecked}>
+          <span><i class="ph ph-arrows-horizontal" style="margin-right: 4px;"></i>Enable Edge Data</span>
+        </label>
+        <div class="form-hint" style="margin-top: 6px; font-size: 11px; color: var(--text-tertiary);">
+          Store data on the relationship itself (creates an "Edge Lens" for editing edge properties)
+        </div>
+      </div>
+      <div id="edge-fields-section" style="display: ${existingOptions.enableEdgeData ? 'block' : 'none'};">
+        <div class="form-group">
+          <label class="form-label">Edge Fields</label>
+          <div id="edge-fields-list" style="display: flex; flex-direction: column; gap: 8px;">
+            ${edgeFieldsHtml}
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" id="add-edge-field-btn" style="margin-top: 8px;">
+            <i class="ph ph-plus"></i> Add Edge Field
+          </button>
+          <div class="form-hint" style="margin-top: 6px; font-size: 11px; color: var(--text-tertiary);">
+            Define fields that will be stored on each link/edge (e.g., "weight", "relationship type", "start date")
+          </div>
+        </div>
+      </div>
     `, () => {
       const linkedSetId = document.getElementById('linked-set-select')?.value;
       const linkedViewId = document.getElementById('linked-view-select')?.value || null;
       const allowMultiple = document.getElementById('allow-multiple-check')?.checked || false;
+      const enableEdgeData = document.getElementById('enable-edge-data-check')?.checked || false;
+
+      // Collect edge fields
+      const edgeFields = [];
+      document.querySelectorAll('.edge-field-item').forEach(item => {
+        const name = item.querySelector('.edge-field-name')?.value?.trim();
+        const type = item.querySelector('.edge-field-type')?.value || 'TEXT';
+        if (name) {
+          edgeFields.push({
+            id: item.dataset.fieldId || `ef-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name,
+            type,
+            options: {}
+          });
+        }
+      });
 
       if (!linkedSetId) {
         alert('Please select a set to link to');
@@ -32525,7 +32686,7 @@ class EODataWorkbench {
       }
 
       if (callback) {
-        callback({ linkedSetId, linkedViewId, allowMultiple });
+        callback({ linkedSetId, linkedViewId, allowMultiple, enableEdgeData, edgeFields });
       }
     });
 
@@ -32548,6 +32709,56 @@ class EODataWorkbench {
       if (viewSelect) {
         viewSelect.innerHTML = viewOptions;
       }
+    });
+
+    // Toggle edge data section visibility
+    const enableEdgeDataCheck = document.getElementById('enable-edge-data-check');
+    const edgeFieldsSection = document.getElementById('edge-fields-section');
+
+    enableEdgeDataCheck?.addEventListener('change', () => {
+      if (edgeFieldsSection) {
+        edgeFieldsSection.style.display = enableEdgeDataCheck.checked ? 'block' : 'none';
+      }
+    });
+
+    // Add edge field button
+    const addEdgeFieldBtn = document.getElementById('add-edge-field-btn');
+    const edgeFieldsList = document.getElementById('edge-fields-list');
+
+    const addEdgeFieldItem = () => {
+      const idx = edgeFieldsList?.querySelectorAll('.edge-field-item').length || 0;
+      const fieldId = `ef-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const itemHtml = `
+        <div class="edge-field-item" data-idx="${idx}" data-field-id="${fieldId}">
+          <input type="text" class="form-input edge-field-name" placeholder="Field name" value="">
+          <select class="form-select edge-field-type">
+            <option value="TEXT">Text</option>
+            <option value="NUMBER">Number</option>
+            <option value="DATE">Date</option>
+            <option value="CHECKBOX">Checkbox</option>
+            <option value="SELECT">Select</option>
+          </select>
+          <button type="button" class="btn btn-sm btn-ghost edge-field-remove" title="Remove field"><i class="ph ph-x"></i></button>
+        </div>
+      `;
+      if (edgeFieldsList) {
+        edgeFieldsList.insertAdjacentHTML('beforeend', itemHtml);
+        // Add remove handler to the new item
+        const newItem = edgeFieldsList.querySelector(`.edge-field-item[data-idx="${idx}"]`);
+        newItem?.querySelector('.edge-field-remove')?.addEventListener('click', () => {
+          newItem.remove();
+        });
+        newItem?.querySelector('.edge-field-name')?.focus();
+      }
+    };
+
+    addEdgeFieldBtn?.addEventListener('click', addEdgeFieldItem);
+
+    // Add remove handlers to existing edge field items
+    document.querySelectorAll('.edge-field-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        btn.closest('.edge-field-item')?.remove();
+      });
     });
 
     setTimeout(() => {
@@ -32681,14 +32892,18 @@ class EODataWorkbench {
     const set = this.getCurrentSet();
     const sourceRecord = set?.records.find(r => r.id === edgeData.source);
     const targetRecord = set?.records.find(r => r.id === edgeData.target);
+    const field = edgeData.fieldId ? set?.fields?.find(f => f.id === edgeData.fieldId) : null;
 
     const primaryField = set?.fields?.find(f => f.isPrimary) || set?.fields?.[0];
     const sourceName = sourceRecord?.values?.[primaryField?.id] || edgeData.source;
     const targetName = targetRecord?.values?.[primaryField?.id] || edgeData.target;
 
+    const hasEdgeFields = field?.options?.enableEdgeData && field?.options?.edgeFields?.length > 0;
+    const storedEdgeData = edgeData.edgeData || {};
+
     this.currentDetailRecordId = null;
 
-    body.innerHTML = `
+    let html = `
       <div class="detail-record">
         <h2 style="font-size: 18px; margin-bottom: 16px;">
           <i class="ph ph-arrow-right" style="color: var(--primary-500);"></i>
@@ -32724,7 +32939,51 @@ class EODataWorkbench {
             ${this._escapeHtml(targetName)}
           </div>
         </div>
+    `;
 
+    // Show edge data if available
+    if (hasEdgeFields && Object.keys(storedEdgeData).length > 0) {
+      html += `
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
+          <div class="detail-field-label" style="margin-bottom: 8px;">
+            <i class="ph ph-database"></i>
+            Edge Data
+          </div>
+      `;
+
+      field.options.edgeFields.forEach(edgeField => {
+        const value = storedEdgeData[edgeField.id];
+        if (value !== null && value !== undefined) {
+          const displayValue = this._renderEdgeLensFieldValue(edgeField, value);
+          html += `
+            <div class="detail-field-group" style="margin-left: 8px;">
+              <div class="detail-field-label" style="font-size: 11px;">
+                ${this._escapeHtml(edgeField.name)}
+              </div>
+              <div class="detail-field-value" style="font-size: 13px;">
+                ${displayValue}
+              </div>
+            </div>
+          `;
+        }
+      });
+
+      html += `</div>`;
+    }
+
+    // Add Edit Edge Data button if edge fields are enabled
+    if (hasEdgeFields) {
+      html += `
+        <div style="margin-top: 16px;">
+          <button class="btn btn-primary btn-sm edit-edge-data-btn" style="width: 100%;">
+            <i class="ph ph-arrows-horizontal"></i>
+            Edit Edge Data
+          </button>
+        </div>
+      `;
+    }
+
+    html += `
         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
           <div style="font-size: 11px; color: var(--text-muted);">
             <i class="ph ph-hash"></i> Edge ID: ${this._escapeHtml(edgeData.id)}
@@ -32732,6 +32991,8 @@ class EODataWorkbench {
         </div>
       </div>
     `;
+
+    body.innerHTML = html;
 
     // Add click handlers for navigating to source/target records
     body.querySelectorAll('.edge-node-link').forEach(el => {
@@ -32743,7 +33004,362 @@ class EODataWorkbench {
       });
     });
 
+    // Add click handler for Edit Edge Data button
+    const editBtn = body.querySelector('.edit-edge-data-btn');
+    if (editBtn && field) {
+      editBtn.addEventListener('click', () => {
+        this._showEdgeLensPanel(edgeData.source, field.id, edgeData.target);
+      });
+    }
+
     this._openDetailPanel();
+  }
+
+  /**
+   * Show Edge Lens panel for editing edge data on a link
+   * @param {string} sourceRecordId - The source record ID
+   * @param {string} fieldId - The link field ID
+   * @param {string} targetRecordId - The target (linked) record ID
+   */
+  _showEdgeLensPanel(sourceRecordId, fieldId, targetRecordId) {
+    const panel = this.elements.detailPanel;
+    const body = document.getElementById('detail-panel-body');
+    if (!panel || !body) return;
+
+    const set = this.getCurrentSet();
+    const sourceRecord = set?.records.find(r => r.id === sourceRecordId);
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!sourceRecord || !field) return;
+
+    const linkedSet = this.sets.find(s => s.id === field.options?.linkedSetId);
+    const targetRecord = linkedSet?.records.find(r => r.id === targetRecordId);
+
+    const primaryField = set?.fields.find(f => f.isPrimary) || set?.fields?.[0];
+    const linkedPrimaryField = linkedSet?.fields?.find(f => f.isPrimary) || linkedSet?.fields?.[0];
+
+    const sourceName = sourceRecord?.values?.[primaryField?.id] || sourceRecordId;
+    const targetName = targetRecord?.values?.[linkedPrimaryField?.id] || targetRecordId;
+
+    const edgeFields = field.options?.edgeFields || [];
+    const currentValue = sourceRecord.values[fieldId];
+    const edgeData = this._getEdgeData(currentValue, targetRecordId) || {};
+
+    this.currentDetailRecordId = null;
+    this.currentEdgeLens = {
+      sourceRecordId,
+      fieldId,
+      targetRecordId,
+      edgeData
+    };
+
+    // Render edge lens panel
+    let html = `
+      <div class="edge-lens-panel">
+        <h2 style="font-size: 18px; margin-bottom: 16px;">
+          <i class="ph ph-arrows-horizontal" style="color: var(--primary-500);"></i>
+          Edge Lens
+        </h2>
+
+        <div class="edge-lens-header">
+          <div class="edge-lens-connection">
+            <div class="edge-lens-node source" data-record-id="${sourceRecordId}" title="Click to view source record">
+              <i class="ph ph-circle-fill" style="color: var(--primary-400);"></i>
+              <span>${this._escapeHtml(sourceName)}</span>
+            </div>
+            <div class="edge-lens-arrow">
+              <i class="ph ph-arrow-right"></i>
+              <span class="edge-lens-field-name">${this._escapeHtml(field.name)}</span>
+            </div>
+            <div class="edge-lens-node target" data-record-id="${targetRecordId}" title="Click to view target record">
+              <i class="ph ph-circle-fill" style="color: var(--success-500);"></i>
+              <span>${this._escapeHtml(targetName)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="edge-lens-divider"></div>
+
+        <div class="edge-lens-fields">
+          <div class="edge-lens-section-title">
+            <i class="ph ph-database"></i>
+            Edge Data
+          </div>
+    `;
+
+    if (edgeFields.length === 0) {
+      html += `
+          <div class="edge-lens-empty">
+            <i class="ph ph-info" style="color: var(--text-muted);"></i>
+            <span>No edge fields defined. Configure edge fields in the field settings.</span>
+          </div>
+      `;
+    } else {
+      edgeFields.forEach(edgeField => {
+        const value = edgeData[edgeField.id];
+        const displayValue = this._renderEdgeLensFieldValue(edgeField, value);
+        html += `
+          <div class="edge-lens-field-group" data-edge-field-id="${edgeField.id}">
+            <div class="edge-lens-field-label">
+              <i class="ph ${this._getFieldTypeIcon(edgeField.type)}"></i>
+              ${this._escapeHtml(edgeField.name)}
+            </div>
+            <div class="edge-lens-field-value editable"
+                 data-edge-field-id="${edgeField.id}"
+                 data-edge-field-type="${edgeField.type}">
+              ${displayValue}
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    html += `
+        </div>
+      </div>
+    `;
+
+    body.innerHTML = html;
+
+    // Add click handlers for source/target nodes
+    body.querySelectorAll('.edge-lens-node').forEach(el => {
+      el.addEventListener('click', () => {
+        const recordId = el.dataset.recordId;
+        if (recordId) {
+          this._showRecordDetail(recordId);
+        }
+      });
+    });
+
+    // Add click handlers for editable edge fields
+    body.querySelectorAll('.edge-lens-field-value.editable').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._startEdgeLensFieldEdit(el);
+      });
+    });
+
+    this._openDetailPanel();
+  }
+
+  /**
+   * Render a value for display in the edge lens
+   */
+  _renderEdgeLensFieldValue(edgeField, value) {
+    if (value === null || value === undefined || value === '') {
+      return '<span class="cell-empty">-</span>';
+    }
+
+    switch (edgeField.type) {
+      case FieldTypes.CHECKBOX:
+        return value ? '<i class="ph ph-check-square"></i>' : '<i class="ph ph-square"></i>';
+      case FieldTypes.NUMBER:
+        return `<span class="cell-number">${this._escapeHtml(String(value))}</span>`;
+      case FieldTypes.DATE:
+        return this._formatDate(value, edgeField);
+      case FieldTypes.SELECT:
+        const choice = edgeField.options?.choices?.find(c => c.id === value);
+        if (choice) {
+          return `<span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>`;
+        }
+        return this._escapeHtml(String(value));
+      case FieldTypes.URL:
+        return `<a href="${this._escapeHtml(value)}" target="_blank">${this._escapeHtml(value)}</a>`;
+      default:
+        return this._escapeHtml(String(value));
+    }
+  }
+
+  /**
+   * Get the icon class for a field type
+   */
+  _getFieldTypeIcon(type) {
+    const icons = {
+      [FieldTypes.TEXT]: 'ph-text-t',
+      [FieldTypes.LONG_TEXT]: 'ph-article',
+      [FieldTypes.NUMBER]: 'ph-hash',
+      [FieldTypes.SELECT]: 'ph-list',
+      [FieldTypes.MULTI_SELECT]: 'ph-list-checks',
+      [FieldTypes.DATE]: 'ph-calendar',
+      [FieldTypes.CHECKBOX]: 'ph-check-square',
+      [FieldTypes.URL]: 'ph-link',
+      [FieldTypes.EMAIL]: 'ph-at',
+      [FieldTypes.PHONE]: 'ph-phone',
+      [FieldTypes.ATTACHMENT]: 'ph-paperclip'
+    };
+    return icons[type] || 'ph-text-t';
+  }
+
+  /**
+   * Start editing an edge lens field
+   */
+  _startEdgeLensFieldEdit(el) {
+    if (!this.currentEdgeLens) return;
+
+    const edgeFieldId = el.dataset.edgeFieldId;
+    const edgeFieldType = el.dataset.edgeFieldType;
+    const { sourceRecordId, fieldId, targetRecordId, edgeData } = this.currentEdgeLens;
+
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    const edgeField = field?.options?.edgeFields?.find(f => f.id === edgeFieldId);
+    if (!edgeField) return;
+
+    const currentValue = edgeData[edgeFieldId] || '';
+
+    el.classList.add('editing');
+
+    // Create appropriate editor based on type
+    switch (edgeFieldType) {
+      case FieldTypes.CHECKBOX:
+        // Toggle immediately
+        const newCheckValue = !currentValue;
+        this._saveEdgeLensFieldValue(edgeFieldId, newCheckValue);
+        el.classList.remove('editing');
+        el.innerHTML = this._renderEdgeLensFieldValue(edgeField, newCheckValue);
+        return;
+
+      case FieldTypes.SELECT:
+        this._renderEdgeLensSelectEditor(el, edgeField, currentValue, edgeFieldId);
+        return;
+
+      case FieldTypes.DATE:
+        const dateInput = document.createElement('input');
+        dateInput.type = edgeField.options?.includeTime ? 'datetime-local' : 'date';
+        dateInput.className = 'edge-lens-input';
+        dateInput.value = currentValue || '';
+        el.innerHTML = '';
+        el.appendChild(dateInput);
+        dateInput.focus();
+        dateInput.addEventListener('blur', () => {
+          this._saveEdgeLensFieldValue(edgeFieldId, dateInput.value);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderEdgeLensFieldValue(edgeField, dateInput.value);
+        });
+        dateInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') dateInput.blur();
+          if (e.key === 'Escape') {
+            el.classList.remove('editing');
+            el.innerHTML = this._renderEdgeLensFieldValue(edgeField, currentValue);
+          }
+        });
+        return;
+
+      case FieldTypes.NUMBER:
+        const numInput = document.createElement('input');
+        numInput.type = 'number';
+        numInput.className = 'edge-lens-input';
+        numInput.value = currentValue || '';
+        el.innerHTML = '';
+        el.appendChild(numInput);
+        numInput.focus();
+        numInput.addEventListener('blur', () => {
+          const numVal = numInput.value ? parseFloat(numInput.value) : null;
+          this._saveEdgeLensFieldValue(edgeFieldId, numVal);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderEdgeLensFieldValue(edgeField, numVal);
+        });
+        numInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') numInput.blur();
+          if (e.key === 'Escape') {
+            el.classList.remove('editing');
+            el.innerHTML = this._renderEdgeLensFieldValue(edgeField, currentValue);
+          }
+        });
+        return;
+
+      default:
+        // Text input
+        const textInput = document.createElement('input');
+        textInput.type = 'text';
+        textInput.className = 'edge-lens-input';
+        textInput.value = currentValue || '';
+        el.innerHTML = '';
+        el.appendChild(textInput);
+        textInput.focus();
+        textInput.addEventListener('blur', () => {
+          this._saveEdgeLensFieldValue(edgeFieldId, textInput.value);
+          el.classList.remove('editing');
+          el.innerHTML = this._renderEdgeLensFieldValue(edgeField, textInput.value);
+        });
+        textInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') textInput.blur();
+          if (e.key === 'Escape') {
+            el.classList.remove('editing');
+            el.innerHTML = this._renderEdgeLensFieldValue(edgeField, currentValue);
+          }
+        });
+        return;
+    }
+  }
+
+  /**
+   * Render a select editor for edge lens field
+   */
+  _renderEdgeLensSelectEditor(el, edgeField, currentValue, edgeFieldId) {
+    const choices = edgeField.options?.choices || [];
+
+    let html = '<div class="edge-lens-select-dropdown">';
+    html += '<div class="edge-lens-select-option" data-value="">Clear selection</div>';
+    choices.forEach(choice => {
+      const selected = choice.id === currentValue ? 'selected' : '';
+      html += `
+        <div class="edge-lens-select-option ${selected}" data-value="${choice.id}">
+          <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+        </div>
+      `;
+    });
+    html += '</div>';
+
+    el.innerHTML = html;
+
+    const dropdown = el.querySelector('.edge-lens-select-dropdown');
+    dropdown.querySelectorAll('.edge-lens-select-option').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const value = opt.dataset.value || null;
+        this._saveEdgeLensFieldValue(edgeFieldId, value);
+        el.classList.remove('editing');
+        el.innerHTML = this._renderEdgeLensFieldValue(edgeField, value);
+      });
+    });
+
+    // Close on click outside
+    setTimeout(() => {
+      const closeHandler = (e) => {
+        if (!e.target.closest('.edge-lens-select-dropdown')) {
+          el.classList.remove('editing');
+          el.innerHTML = this._renderEdgeLensFieldValue(edgeField, currentValue);
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      document.addEventListener('click', closeHandler);
+    }, 100);
+  }
+
+  /**
+   * Save an edge lens field value
+   */
+  _saveEdgeLensFieldValue(edgeFieldId, value) {
+    if (!this.currentEdgeLens) return;
+
+    const { sourceRecordId, fieldId, targetRecordId } = this.currentEdgeLens;
+    const set = this.getCurrentSet();
+    const record = set?.records.find(r => r.id === sourceRecordId);
+    if (!record) return;
+
+    const currentValue = record.values[fieldId];
+    const newEdgeData = { [edgeFieldId]: value };
+    const updatedValue = this._updateEdgeData(currentValue, targetRecordId, newEdgeData);
+
+    // Update current edge lens state
+    this.currentEdgeLens.edgeData = {
+      ...this.currentEdgeLens.edgeData,
+      [edgeFieldId]: value
+    };
+
+    // Save to record
+    this._updateRecordValue(sourceRecordId, fieldId, updatedValue);
+    this._renderView();
   }
 
   /**
@@ -33007,14 +33623,18 @@ class EODataWorkbench {
       case FieldTypes.EMAIL:
         return `<a href="mailto:${this._escapeHtml(value)}" style="color: var(--primary-500);">${this._escapeHtml(value)}</a>`;
       case FieldTypes.LINK:
-        if (Array.isArray(value) && value.length > 0) {
+        const detailLinks = this._normalizeLinkValue(value);
+        if (detailLinks.length > 0) {
           const linkedSetId = field.options?.linkedSetId;
           const linkedSet = linkedSetId ? this.sets?.find(s => s.id === linkedSetId) : this.getCurrentSet?.();
           const primaryField = linkedSet?.fields?.find(f => f.isPrimary) || linkedSet?.fields?.[0];
-          return value.map(recordId => {
-            const linkedRecord = linkedSet?.records?.find(r => r.id === recordId);
+          const hasEdgeFields = field.options?.enableEdgeData && field.options?.edgeFields?.length > 0;
+          return detailLinks.map(link => {
+            const linkedRecord = linkedSet?.records?.find(r => r.id === link.recordId);
             const name = linkedRecord?.values?.[primaryField?.id] || 'Unknown';
-            return `<span class="link-chip">${this._escapeHtml(name)}</span>`;
+            const hasEdgeData = hasEdgeFields && link.edgeData && Object.keys(link.edgeData).length > 0;
+            const edgeIndicator = hasEdgeData ? '<i class="ph ph-arrows-horizontal edge-indicator" title="Has edge data"></i>' : '';
+            return `<span class="link-chip${hasEdgeData ? ' has-edge-data' : ''}" data-linked-id="${link.recordId}">${this._escapeHtml(name)}${edgeIndicator}</span>`;
           }).join(' ');
         }
         return '<span class="cell-empty">No links - click to add</span>';
@@ -36329,6 +36949,101 @@ class EODataWorkbench {
     const div = document.createElement('div');
     div.textContent = String(text);
     return div.innerHTML;
+  }
+
+  // --------------------------------------------------------------------------
+  // Link/Edge Data Utilities
+  // --------------------------------------------------------------------------
+
+  /**
+   * Normalize link field value to the new format with edge data support.
+   * Handles backward compatibility with old format (simple array of IDs).
+   *
+   * New format: [{recordId: "id1", edgeData: {...}}, {recordId: "id2", edgeData: {...}}]
+   * Old format: ["id1", "id2"] or "id1" (single value)
+   *
+   * @param {*} value - The raw link field value
+   * @returns {Array} Normalized array of link objects
+   */
+  _normalizeLinkValue(value) {
+    if (!value) return [];
+
+    // Single string value (legacy)
+    if (typeof value === 'string') {
+      return [{ recordId: value, edgeData: {} }];
+    }
+
+    // Array value
+    if (Array.isArray(value)) {
+      return value.map(item => {
+        // New format: already an object with recordId
+        if (item && typeof item === 'object' && item.recordId) {
+          return {
+            recordId: item.recordId,
+            edgeData: item.edgeData || {}
+          };
+        }
+        // Old format: just a string ID
+        if (typeof item === 'string') {
+          return { recordId: item, edgeData: {} };
+        }
+        // Unknown format, try to use as-is
+        return { recordId: String(item), edgeData: {} };
+      });
+    }
+
+    return [];
+  }
+
+  /**
+   * Extract just the record IDs from a link value (for backwards compatibility)
+   * @param {*} value - The raw link field value
+   * @returns {Array} Array of record IDs
+   */
+  _extractLinkIds(value) {
+    return this._normalizeLinkValue(value).map(link => link.recordId);
+  }
+
+  /**
+   * Create a link value in the new format
+   * @param {string} recordId - The linked record ID
+   * @param {Object} edgeData - Optional edge data
+   * @returns {Object} Link object
+   */
+  _createLinkObject(recordId, edgeData = {}) {
+    return { recordId, edgeData };
+  }
+
+  /**
+   * Get edge data for a specific link
+   * @param {*} value - The raw link field value
+   * @param {string} recordId - The target record ID
+   * @returns {Object|null} Edge data or null if not found
+   */
+  _getEdgeData(value, recordId) {
+    const links = this._normalizeLinkValue(value);
+    const link = links.find(l => l.recordId === recordId);
+    return link ? link.edgeData : null;
+  }
+
+  /**
+   * Update edge data for a specific link
+   * @param {*} value - The raw link field value
+   * @param {string} recordId - The target record ID
+   * @param {Object} newEdgeData - New edge data to merge
+   * @returns {Array} Updated link value array
+   */
+  _updateEdgeData(value, recordId, newEdgeData) {
+    const links = this._normalizeLinkValue(value);
+    return links.map(link => {
+      if (link.recordId === recordId) {
+        return {
+          ...link,
+          edgeData: { ...link.edgeData, ...newEdgeData }
+        };
+      }
+      return link;
+    });
   }
 
   // --------------------------------------------------------------------------
