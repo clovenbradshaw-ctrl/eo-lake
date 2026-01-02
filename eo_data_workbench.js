@@ -32491,8 +32491,8 @@ class EODataWorkbench {
 
         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
           <div style="font-size: 11px; color: var(--text-muted);">
-            <i class="ph ph-clock"></i> Created: ${new Date(record.createdAt).toLocaleString()}<br>
-            <i class="ph ph-pencil"></i> Updated: ${new Date(record.updatedAt).toLocaleString()}<br>
+            <i class="ph ph-clock"></i> Created: ${this._formatDateSafe(record.createdAt)}<br>
+            <i class="ph ph-pencil"></i> Updated: ${this._formatDateSafe(record.updatedAt)}<br>
             <i class="ph ph-hash"></i> ID: ${record.id}
           </div>
         </div>
@@ -36465,10 +36465,15 @@ class EODataWorkbench {
   }
 
   /**
-   * Render Interpretation-level provenance (9-element)
+   * Render record-level interpretation context
    *
-   * This is for MEANT events (interpretations/sets).
-   * Answers: "In what way does this count as something?"
+   * RECORD-LEVEL PRINCIPLE: At the record level, interpretation is about
+   * "this case, this moment, this understanding" - not abstract frameworks.
+   *
+   * Users think in situations, not ontologies. The UI answers:
+   * - Who said this?
+   * - What did they mean in this case?
+   * - When and under what circumstances?
    */
   _renderInterpretationProvenanceSection(record, set, datasetProv) {
     const recordProv = record?.provenance || {};
@@ -36476,64 +36481,63 @@ class EODataWorkbench {
     const status = this._getRecordProvenanceStatus(record, set);
     const indicator = this._getProvenanceIndicator(status);
 
-    // Interpretation elements with their display info (updated labels)
-    const triads = [
+    // Record-level sections with plain language (not ontology terms)
+    // These read like case notes, which is exactly what a record is
+    const sections = [
       {
-        name: 'Epistemic',
-        subtitle: 'From what knowing position?',
+        header: 'Who provided this information?',
         elements: [
-          { key: 'agent', label: 'Interpreting Agent', icon: 'ph-user', hint: 'Who is doing the interpreting?' },
-          { key: 'method', label: 'Interpretive Method', icon: 'ph-flask', hint: 'By what act was meaning constructed?' },
-          { key: 'source', label: 'Source Set', icon: 'ph-file-text', hint: 'What materials does this stand on?' }
+          { key: 'agent', label: 'Who provided this?', icon: 'ph-user', hint: 'Person, team, or system', placeholder: 'Click to add' },
+          { key: 'method', label: 'How was it recorded?', icon: 'ph-flask', hint: 'Observed, reported, calculated, inferred', placeholder: 'Click to add' },
+          { key: 'source', label: 'What did it come from?', icon: 'ph-file-text', hint: 'Import, form, sync, manual entry', placeholder: 'From import', readonly: true }
         ]
       },
       {
-        name: 'Semantic',
-        subtitle: 'What meaning-space?',
+        header: 'What does this represent in this case?',
         elements: [
-          { key: 'term', label: 'Interpreted Term', icon: 'ph-bookmark', hint: 'What concept is being interpreted?' },
-          { key: 'definition', label: 'Definition', icon: 'ph-book-open', hint: 'Which meaning is being used?' },
-          { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-map-pin', hint: 'Where does this apply?' }
+          { key: 'term', label: 'What is this about?', icon: 'ph-bookmark', hint: 'e.g. homelessness, income, risk level', placeholder: 'Click to add' },
+          { key: 'definition', label: 'How is that defined here?', icon: 'ph-book-open', hint: 'Shared or local definition', placeholder: 'Click to add' },
+          { key: 'jurisdiction', label: 'Any rules or standards?', icon: 'ph-map-pin', hint: 'Program guideline, legal definition', placeholder: 'Click to add' }
         ]
       },
       {
-        name: 'Situational',
-        subtitle: 'Under what conditions?',
+        header: 'When and at what level was this true?',
         elements: [
-          { key: 'scale', label: 'Scale', icon: 'ph-arrows-out', hint: 'At what level does this make sense?' },
-          { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', hint: 'Over what horizon is this valid?' },
-          { key: 'background', label: 'Background', icon: 'ph-info', hint: 'What conditions must be true?' }
+          { key: 'scale', label: 'Who does this apply to?', icon: 'ph-arrows-out', hint: 'Individual, household, case, program', placeholder: 'Click to add' },
+          { key: 'timeframe', label: 'When was this true?', icon: 'ph-calendar', hint: 'Date or time range', placeholder: 'Click to add' },
+          { key: 'background', label: 'Anything else that matters?', icon: 'ph-info', hint: 'Context, assumptions, notes', placeholder: 'Click to add' }
         ]
       }
     ];
 
     return `
       <div class="provenance-section interpretation-provenance" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
-        <div class="provenance-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+        <div class="provenance-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
           <span class="prov-indicator prov-${status}" style="font-size: 14px;">${indicator}</span>
-          <span style="font-weight: 500; font-size: 13px;">Interpretation Parameters</span>
+          <span style="font-weight: 500; font-size: 13px;">About this record</span>
           <span style="font-size: 11px; color: var(--text-muted);">
             ${status === 'full' ? '(complete)' : status === 'partial' ? '(partial)' : '(none)'}
           </span>
         </div>
+        <div style="font-size: 11px; color: var(--text-muted); margin-bottom: 12px;">
+          Optional context that explains why this record looks the way it does.
+        </div>
 
-        ${triads.map(triad => `
+        ${sections.map(section => `
           <div class="interpretation-triad" style="margin-bottom: 12px;">
-            <div style="font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.5px;">
-              ${triad.name} <span style="font-weight: 400; text-transform: none;">${triad.subtitle}</span>
+            <div style="font-size: 11px; font-weight: 500; color: var(--text-secondary); margin-bottom: 8px;">
+              ${section.header}
             </div>
             <div style="display: grid; gap: 6px;">
-              ${triad.elements.map(el => {
+              ${section.elements.map(el => {
                 const value = recordProv[el.key] ?? datasetProv[el.key] ?? null;
                 const inherited = !this._hasProvenanceValue(recordProv[el.key]) && this._hasProvenanceValue(datasetProv[el.key]);
                 const isRef = this._isProvenanceRef(value);
                 const displayValue = this._formatProvenanceValue(value);
                 const hasValue = this._hasProvenanceValue(value);
 
-                // Source field is read-only - it comes from imports
-                const isSourceField = el.key === 'source';
-                const isEditable = !isSourceField;
-                const placeholderText = isSourceField ? 'From import' : 'Click to add';
+                const isEditable = !el.readonly;
+                const placeholderText = el.placeholder;
 
                 return `
                   <div class="provenance-field" data-prov-key="${el.key}" data-record-id="${record.id}"
@@ -37593,7 +37597,11 @@ class EODataWorkbench {
 
   /**
    * Render history section for detail panel
-   * Shows: Lineage (where from) → History (what changed) → Impact (what depends)
+   *
+   * RECORD-LEVEL PRINCIPLE: History tracks how understanding of this record evolved.
+   * Data may be stable, but understanding can change.
+   *
+   * Shows: When understanding changed, who changed it, and why
    */
   _renderHistorySection(record) {
     const history = this._getRecordHistory(record.id);
@@ -37618,9 +37626,9 @@ class EODataWorkbench {
       <div class="history-section" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
         <div class="history-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
           <i class="ph ph-clock-counter-clockwise" style="font-size: 14px; color: var(--text-muted);"></i>
-          <span style="font-weight: 500; font-size: 13px;">History</span>
+          <span style="font-weight: 500; font-size: 13px;">Changes to this record</span>
           <span style="font-size: 11px; color: var(--text-muted);">
-            ${hasHistory ? `(${history.length} event${history.length !== 1 ? 's' : ''})` : '(no events tracked)'}
+            ${hasHistory ? `(${history.length} change${history.length !== 1 ? 's' : ''})` : ''}
           </span>
         </div>
 
@@ -37630,17 +37638,11 @@ class EODataWorkbench {
           </div>
         ` : `
           <div style="font-size: 12px; color: var(--text-muted); padding: 8px 0;">
-            <div style="margin-bottom: 8px;">
-              <i class="ph ph-info" style="margin-right: 4px;"></i>
-              Event tracking not connected. History shows:
+            <div style="margin-bottom: 8px; font-style: italic;">
+              No changes recorded yet.
             </div>
-            <ul style="margin: 0; padding-left: 20px; opacity: 0.8;">
-              <li>When records were created/modified</li>
-              <li>Who made changes and why</li>
-              <li>Field-level change details</li>
-            </ul>
             <div style="margin-top: 12px; padding: 8px; background: var(--bg-secondary); border-radius: 4px;">
-              <div style="font-size: 11px; opacity: 0.7;">Inferred from timestamps:</div>
+              <div style="font-size: 11px; opacity: 0.7;">From timestamps:</div>
               <div style="margin-top: 4px;">
                 <i class="ph ph-plus-circle" style="color: var(--success);"></i>
                 Created ${this._formatRelativeTime(record.createdAt)}
@@ -37648,7 +37650,7 @@ class EODataWorkbench {
               ${record.updatedAt !== record.createdAt ? `
                 <div style="margin-top: 2px;">
                   <i class="ph ph-pencil-simple" style="color: var(--primary);"></i>
-                  Modified ${this._formatRelativeTime(record.updatedAt)}
+                  Last updated ${this._formatRelativeTime(record.updatedAt)}
                 </div>
               ` : ''}
             </div>
@@ -37739,6 +37741,7 @@ class EODataWorkbench {
   _formatRelativeTime(date) {
     if (!date) return '';
     const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d.getTime())) return '';
     const now = new Date();
     const diff = now - d;
 
@@ -37752,6 +37755,16 @@ class EODataWorkbench {
     if (hours > 0) return `${hours}h ago`;
     if (minutes > 0) return `${minutes}m ago`;
     return 'just now';
+  }
+
+  /**
+   * Format date safely, handling null/undefined/invalid dates
+   */
+  _formatDateSafe(date) {
+    if (!date) return 'Unknown';
+    const d = date instanceof Date ? date : new Date(date);
+    if (isNaN(d.getTime())) return 'Unknown';
+    return d.toLocaleString();
   }
 
   /**
