@@ -3530,10 +3530,102 @@ function initImportHandlers() {
     }
   });
 
+  // ArcGIS REST API detection and handling
+  function isArcGISRestUrl(url) {
+    // Detect ArcGIS REST API patterns:
+    // - /arcgis/rest/services/
+    // - /FeatureServer/
+    // - /MapServer/
+    // - arcgis.com domains
+    const arcgisPatterns = [
+      /\/arcgis\/rest\/services\//i,
+      /\/FeatureServer(\/\d+)?(\/query)?/i,
+      /\/MapServer(\/\d+)?(\/query)?/i,
+      /arcgis\.com/i,
+      /\/rest\/services\/.*\/(Feature|Map)Server/i
+    ];
+    return arcgisPatterns.some(pattern => pattern.test(url));
+  }
+
+  function prepareArcGISUrl(url) {
+    // Ensure the URL has f=json for JSON response format
+    const urlObj = new URL(url);
+
+    // If it doesn't already have f parameter, add f=json
+    if (!urlObj.searchParams.has('f')) {
+      urlObj.searchParams.set('f', 'json');
+    }
+
+    // Ensure we're hitting a query endpoint if we're at a layer level
+    // e.g., /FeatureServer/0 -> /FeatureServer/0/query
+    const path = urlObj.pathname;
+    if (/\/(Feature|Map)Server\/\d+\/?$/i.test(path) && !path.endsWith('/query')) {
+      urlObj.pathname = path.replace(/\/?$/, '/query');
+      // Add default query params if not present
+      if (!urlObj.searchParams.has('where')) {
+        urlObj.searchParams.set('where', '1=1');
+      }
+      if (!urlObj.searchParams.has('outFields')) {
+        urlObj.searchParams.set('outFields', '*');
+      }
+    }
+
+    return urlObj.toString();
+  }
+
+  function transformArcGISResponse(data) {
+    // ArcGIS response structure:
+    // {
+    //   "objectIdFieldName": "...",
+    //   "fields": [...],
+    //   "features": [{ "attributes": {...}, "geometry": {...} }, ...]
+    // }
+
+    if (data && Array.isArray(data.features)) {
+      // Extract attributes from each feature
+      const records = data.features.map(feature => {
+        const record = { ...feature.attributes };
+
+        // Optionally include geometry if present
+        if (feature.geometry) {
+          // Convert geometry to readable format
+          if (feature.geometry.x !== undefined && feature.geometry.y !== undefined) {
+            record._longitude = feature.geometry.x;
+            record._latitude = feature.geometry.y;
+          } else if (feature.geometry.rings) {
+            record._geometryType = 'polygon';
+            record._geometry = JSON.stringify(feature.geometry);
+          } else if (feature.geometry.paths) {
+            record._geometryType = 'polyline';
+            record._geometry = JSON.stringify(feature.geometry);
+          } else if (feature.geometry.points) {
+            record._geometryType = 'multipoint';
+            record._geometry = JSON.stringify(feature.geometry);
+          }
+        }
+
+        return record;
+      });
+
+      return {
+        records,
+        metadata: {
+          objectIdFieldName: data.objectIdFieldName,
+          globalIdFieldName: data.globalIdFieldName,
+          fields: data.fields,
+          spatialReference: data.spatialReference,
+          exceededTransferLimit: data.exceededTransferLimit
+        }
+      };
+    }
+
+    return null;
+  }
+
   // API Fetch button
   const apiFetchBtn = document.getElementById('api-fetch-btn');
   apiFetchBtn?.addEventListener('click', async () => {
-    const url = document.getElementById('api-endpoint-url')?.value?.trim();
+    let url = document.getElementById('api-endpoint-url')?.value?.trim();
     if (!url) {
       alert('Please enter an API endpoint URL');
       return;
@@ -3547,6 +3639,13 @@ function initImportHandlers() {
       const headersText = document.getElementById('api-headers')?.value?.trim();
       const bodyText = document.getElementById('api-body')?.value?.trim();
       const dataPath = document.getElementById('api-data-path')?.value?.trim();
+
+      // Check if this is an ArcGIS REST API
+      const isArcGIS = isArcGISRestUrl(url);
+      if (isArcGIS) {
+        url = prepareArcGISUrl(url);
+        console.log('Detected ArcGIS REST API, prepared URL:', url);
+      }
 
       let headers = {};
       if (headersText) {
@@ -3572,8 +3671,27 @@ function initImportHandlers() {
 
       let data = await response.json();
 
-      // Navigate to data path if specified
-      if (dataPath) {
+      // Check for ArcGIS error response
+      if (data && data.error) {
+        throw new Error(`ArcGIS API error: ${data.error.message || data.error.details?.[0] || 'Unknown error'}`);
+      }
+
+      // Try to transform ArcGIS response if detected
+      let arcgisMetadata = null;
+      if (isArcGIS || (data && Array.isArray(data.features) && data.features[0]?.attributes)) {
+        const transformed = transformArcGISResponse(data);
+        if (transformed) {
+          data = transformed.records;
+          arcgisMetadata = transformed.metadata;
+          console.log(`Transformed ArcGIS response: ${data.length} records extracted`);
+          if (arcgisMetadata.exceededTransferLimit) {
+            console.warn('ArcGIS transfer limit exceeded - not all records retrieved');
+          }
+        }
+      }
+
+      // Navigate to data path if specified (only if not already transformed)
+      if (dataPath && !arcgisMetadata) {
         const pathParts = dataPath.split('.');
         for (const part of pathParts) {
           if (data && typeof data === 'object' && part in data) {
