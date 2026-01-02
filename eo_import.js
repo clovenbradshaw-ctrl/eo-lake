@@ -1137,7 +1137,18 @@ class ImportOrchestrator {
         sourceViewMode: 'unified',
 
         // Status
-        status: 'active'
+        status: 'active',
+
+        // Source type (file, api, rss, scrape, null)
+        // This distinguishes live sources from static file imports
+        sourceType: options.sourceType || 'file',
+
+        // Live source metadata (for API/RSS sources that can be refreshed)
+        liveSource: options.sourceType === 'api' || options.sourceType === 'rss' ? {
+          endpoint: options.endpoint || null,
+          lastSyncAt: importedAt,
+          syncStatus: 'fresh'
+        } : null
       };
 
       this._emitProgress('progress', {
@@ -4150,10 +4161,19 @@ function initImportHandlers() {
 
       } else {
         // Import as single Source (default)
+        // Get endpoint URL for API/RSS sources to enable re-sync
+        const endpoint = currentSourceType === 'api'
+          ? document.getElementById('api-endpoint-url')?.value?.trim()
+          : currentSourceType === 'rss'
+            ? document.getElementById('rss-feed-url')?.value?.trim()
+            : null;
+
         result = await orchestrator.importToSource(currentFile, {
           provenance,
           originalSource: rawFileContent,
-          schemaDivergence: analysisData?.schemaDivergence
+          schemaDivergence: analysisData?.schemaDivergence,
+          sourceType: currentSourceType,
+          endpoint: endpoint
         });
 
         window.removeEventListener('eo-import-progress', progressHandler);

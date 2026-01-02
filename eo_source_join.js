@@ -5950,6 +5950,13 @@ class SetJoinFilterCreator {
   }
 
   _getSourceIcon(source) {
+    // Check sourceType first for live sources
+    if (source.sourceType === 'rss') return 'ph-rss';
+    if (source.sourceType === 'api') return 'ph-plugs-connected';
+    if (source.sourceType === 'scrape') return 'ph-globe';
+    if (source.sourceType === 'null') return 'ph-table';
+
+    // Fall back to mime type detection
     const type = source.fileIdentity?.mimeType || '';
     if (type.includes('json')) return 'ph-brackets-curly';
     if (type.includes('csv') || type.includes('excel') || type.includes('spreadsheet')) return 'ph-file-xls';
@@ -10790,6 +10797,13 @@ class AddSourceToSetUI {
   // --------------------------------------------------------------------------
 
   _getSourceIcon(source) {
+    // Check sourceType first for live sources
+    if (source.sourceType === 'rss') return 'ph-rss';
+    if (source.sourceType === 'api') return 'ph-plugs-connected';
+    if (source.sourceType === 'scrape') return 'ph-globe';
+    if (source.sourceType === 'null') return 'ph-table';
+
+    // Fall back to mime type detection
     const type = source.fileIdentity?.mimeType || '';
     if (type.includes('json')) return 'ph-brackets-curly';
     if (type.includes('csv') || type.includes('excel') || type.includes('spreadsheet')) return 'ph-file-xls';
