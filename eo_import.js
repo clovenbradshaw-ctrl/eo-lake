@@ -1025,13 +1025,15 @@ class ImportOrchestrator {
       }
 
       this._emitProgress('progress', {
-        phase: 'inferring',
+        phase: 'building_schema',
         percentage: 40,
         rowCount: parseResult.rows.length
       });
 
-      // Step 3: Infer schema from data
-      const schema = this.schemaInferrer.inferSchema(parseResult.headers, parseResult.rows);
+      // Step 3: Build raw schema - NO type inference at GIVEN layer
+      // Type inference is interpretation and belongs in the SET (MEANT) layer
+      // But if the import itself contains explicit types (e.g. EO-aware format), preserve them
+      const schema = this._createRawSchema(parseResult.headers, parseResult.rows, parseResult);
 
       this._emitProgress('progress', {
         phase: 'creating_source',
@@ -1065,14 +1067,18 @@ class ImportOrchestrator {
         records: parseResult.rows,
         recordCount: parseResult.rows.length,
 
-        // Schema information
+        // Schema information - RAW (no type inference at GIVEN layer)
+        // Type inference happens at SET creation (MEANT layer)
         schema: {
           fields: schema.fields || parseResult.headers.map(h => ({
             name: h,
-            type: 'text',
+            type: 'raw',
             sourceColumn: h
           })),
-          inferenceDecisions: schema.inferenceDecisions || null
+          // Mark as raw schema (no inference performed)
+          rawSchema: schema.rawSchema ?? true,
+          // Explicit types from the import itself (if any) - these are GIVEN, not inferred
+          explicitTypes: schema.explicitTypes || null
         },
 
         // File metadata
@@ -1112,6 +1118,9 @@ class ImportOrchestrator {
         derivedSetIds: [],
 
         // Multi-record type analysis (for sources with multiple record types)
+        // NOTE: This is user-approved structural analysis, not field type inference.
+        // It describes record structure (Person vs Organization records) not field types (email vs text).
+        // The user reviews this analysis before import and explicitly approves it.
         multiRecordAnalysis: options.schemaDivergence ? {
           typeField: options.schemaDivergence.typeField,
           types: options.schemaDivergence.types.map(t => ({
@@ -1376,8 +1385,8 @@ class ImportOrchestrator {
           });
         });
 
-        // Infer schema for this type's data
-        const typeSchema = this.schemaInferrer.inferSchema(usedHeaders, typeRows);
+        // Build raw schema - NO type inference at GIVEN layer
+        const typeSchema = this._createRawSchema(usedHeaders, typeRows, parseResult);
 
         // Create the source
         const sourceId = 'src_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 8);
@@ -1391,14 +1400,15 @@ class ImportOrchestrator {
           records: typeRows,
           recordCount: typeRows.length,
 
-          // Type-specific schema
+          // Type-specific schema - RAW (no type inference at GIVEN layer)
           schema: {
             fields: typeSchema.fields || usedHeaders.map(h => ({
               name: h,
-              type: 'text',
+              type: 'raw',
               sourceColumn: h
             })),
-            inferenceDecisions: typeSchema.inferenceDecisions || null
+            rawSchema: typeSchema.rawSchema ?? true,
+            explicitTypes: typeSchema.explicitTypes || null
           },
 
           // File metadata (shared reference to original file)
@@ -1579,6 +1589,97 @@ class ImportOrchestrator {
       reader.onerror = (e) => reject(new Error('Failed to read file'));
       reader.readAsText(file);
     });
+  }
+
+  /**
+   * Create raw schema from headers - NO type inference
+   *
+   * EO PRINCIPLE: At the GIVEN layer (Sources), we store only raw data.
+   * Type inference is interpretation and belongs at the SET (MEANT) layer.
+   *
+   * However, if the import itself contains explicit type information
+   * (e.g., EO-aware format with schema_semantics), that is GIVEN data
+   * and should be preserved.
+   *
+   * @param {string[]} headers - Column headers
+   * @param {object[]} rows - Data rows (used for sample extraction, NOT type inference)
+   * @param {object} parseResult - Optional parse result with embedded schema info
+   * @returns {{ fields: object[], rawSchema: boolean }}
+   */
+  _createRawSchema(headers, rows, parseResult = null) {
+    // Check if parseResult has explicit type information (EO-aware format)
+    const explicitTypes = this._extractExplicitTypes(parseResult);
+
+    const fields = headers.map((header, index) => {
+      // Get sample values for display purposes only (NOT for type inference)
+      const allValues = rows.map(row => row[header]);
+      const nonEmptyValues = allValues.filter(v => v !== '' && v !== null && v !== undefined);
+
+      // Capture unique values for matching (up to 50 unique values)
+      const uniqueValuesSet = new Set(nonEmptyValues.map(v => String(v).trim()).filter(v => v));
+      const uniqueValues = Array.from(uniqueValuesSet).slice(0, 50);
+
+      // Base field structure - NO INFERRED TYPE
+      const field = {
+        name: header,
+        // If explicit type exists in import, use it (GIVEN). Otherwise, mark as raw.
+        type: explicitTypes[header] || 'raw',
+        sourceColumn: header,
+        isPrimary: index === 0,
+        // Sample values for preview (NOT for type detection)
+        samples: nonEmptyValues.slice(0, 10),
+        uniqueValues: uniqueValues,
+        sampleCount: nonEmptyValues.length,
+        uniqueCount: uniqueValuesSet.size
+      };
+
+      // If type came from explicit schema, note it
+      if (explicitTypes[header]) {
+        field.typeSource = 'explicit';  // Type was in the import, not inferred
+      }
+
+      return field;
+    });
+
+    return {
+      fields,
+      // Mark that this schema is raw (no type inference was performed)
+      rawSchema: true,
+      // Explicit types that were in the import (GIVEN data)
+      explicitTypes: Object.keys(explicitTypes).length > 0 ? explicitTypes : null
+    };
+  }
+
+  /**
+   * Extract explicit type information from parse result
+   *
+   * This captures type info that exists IN THE IMPORT ITSELF (GIVEN),
+   * as opposed to inferred types which are interpretation (MEANT).
+   */
+  _extractExplicitTypes(parseResult) {
+    const types = {};
+
+    if (!parseResult) return types;
+
+    // EO-aware format has schema_semantics with type info
+    if (parseResult.eoAware?.schemaSemantics) {
+      for (const semantic of parseResult.eoAware.schemaSemantics) {
+        if (semantic.column_name && semantic.data_type) {
+          types[semantic.column_name] = semantic.data_type;
+        }
+      }
+    }
+
+    // JSON Schema format
+    if (parseResult.jsonSchema?.properties) {
+      for (const [name, prop] of Object.entries(parseResult.jsonSchema.properties)) {
+        if (prop.type) {
+          types[name] = prop.type;
+        }
+      }
+    }
+
+    return types;
   }
 
   /**

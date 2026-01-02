@@ -81,10 +81,12 @@ class SourceStore {
       records: Object.freeze([...records]),
       recordCount: records.length,
 
-      // Schema (inferred from data)
+      // Schema - RAW (no type inference at GIVEN layer)
+      // Type inference is interpretation and belongs at SET creation (MEANT layer)
       schema: {
-        fields: schema.fields || this._inferSchemaFromRecords(records),
-        inferenceDecisions: schema.inferenceDecisions || null
+        fields: schema.fields || this._createRawSchemaFromRecords(records),
+        rawSchema: schema.rawSchema ?? true,
+        explicitTypes: schema.explicitTypes || null
       },
 
       // File identity
@@ -471,6 +473,31 @@ class SourceStore {
     return `src_${timestamp}_${random}`;
   }
 
+  /**
+   * Create raw schema from records - NO type inference
+   *
+   * EO PRINCIPLE: Sources are GIVEN layer - no interpretation.
+   * Type inference happens at SET creation (MEANT layer).
+   */
+  _createRawSchemaFromRecords(records) {
+    if (records.length === 0) return [];
+
+    const firstRecord = records[0];
+    const fields = Object.keys(firstRecord).map(key => ({
+      name: key,
+      type: 'raw',  // No type inference at GIVEN layer
+      sourceColumn: key
+    }));
+
+    return fields;
+  }
+
+  /**
+   * Infer schema from records - for SET creation (MEANT layer)
+   *
+   * This method performs type inference and should ONLY be called
+   * when creating Sets, not when creating Sources.
+   */
   _inferSchemaFromRecords(records) {
     if (records.length === 0) return [];
 
@@ -735,18 +762,20 @@ class SetCreator {
     const timestamp = new Date().toISOString();
     const setId = this._generateSetId();
 
-    // Build field definitions with provenance context
-    const fields = this._buildFieldDefinitions(selectedFields, source.schema.fields, {
-      actor,
-      timestamp,
-      sourceId
-    });
-
-    // Apply filters to source records
+    // Apply filters to source records first (needed for type inference)
     let records = [...source.records];
     if (filters?.length > 0) {
       records = this._applyFilters(records, filters);
     }
+
+    // Build field definitions with provenance context
+    // TYPE INFERENCE HAPPENS HERE (MEANT layer) - pass records for inference
+    const fields = this._buildFieldDefinitions(selectedFields, source.schema.fields, {
+      actor,
+      timestamp,
+      sourceId,
+      records  // Pass records so type inference can happen at SET creation
+    });
 
     // Transform records to use field IDs
     const transformedRecords = records.map((record, index) => ({
@@ -817,14 +846,18 @@ class SetCreator {
       throw new Error(`Source not found: ${sourceId}`);
     }
 
-    // Build preview fields (no provenance context needed for preview - no data is persisted)
-    const fields = this._buildFieldDefinitions(selectedFields, source.schema.fields, { sourceId });
-
-    // Apply filters
+    // Apply filters first (needed for type inference preview)
     let records = [...source.records];
     if (filters?.length > 0) {
       records = this._applyFilters(records, filters);
     }
+
+    // Build preview fields with type inference
+    // TYPE INFERENCE HAPPENS HERE (MEANT layer) - even in preview
+    const fields = this._buildFieldDefinitions(selectedFields, source.schema.fields, {
+      sourceId,
+      records  // Pass records so type inference can happen
+    });
 
     return {
       sourceId,
@@ -993,22 +1026,46 @@ class SetCreator {
 
   /**
    * Build field definitions with EO-compliant provenance
+   *
+   * TYPE INFERENCE HAPPENS HERE (MEANT layer, not GIVEN layer)
+   * If source field type is 'raw', we infer the type from the data.
+   *
    * @param {Object[]} selectedFields - Fields selected by user
    * @param {Object[]} sourceFields - Original source field definitions
-   * @param {Object} context - Context for provenance (actor, timestamp, sourceId)
+   * @param {Object} context - Context for provenance (actor, timestamp, sourceId, records)
    */
   _buildFieldDefinitions(selectedFields, sourceFields, context = {}) {
-    const { actor, timestamp, sourceId } = context;
+    const { actor, timestamp, sourceId, records = [] } = context;
 
     return selectedFields.map((selection, index) => {
       const sourceField = sourceFields.find(f => f.name === selection.name);
+
+      // TYPE INFERENCE AT SET CREATION (MEANT layer)
+      // If user specified a type, use it. Otherwise, if source type is 'raw', infer it.
+      let fieldType = selection.type;
+      let typeWasInferred = false;
+
+      if (!fieldType) {
+        if (sourceField?.type === 'raw' && records.length > 0) {
+          // Infer type from data - this is the interpretative step
+          fieldType = this._inferFieldType(records, selection.name);
+          typeWasInferred = true;
+        } else if (sourceField?.type && sourceField.type !== 'raw') {
+          // Use explicit type from source (was GIVEN, not inferred)
+          fieldType = sourceField.type;
+        } else {
+          // Fallback to text
+          fieldType = 'text';
+        }
+      }
+
       const isRenamed = selection.rename && selection.rename !== selection.name;
       const isTypeChanged = selection.type && selection.type !== sourceField?.type;
 
       return {
         id: this._generateFieldId(),
         name: selection.rename || selection.name,
-        type: selection.type || sourceField?.type || 'text',
+        type: fieldType,
         width: 200,
         isPrimary: index === 0,
         sourceColumn: selection.name,
@@ -1020,10 +1077,12 @@ class SetCreator {
           createdBy: actor || null,
           createdAt: timestamp || new Date().toISOString(),
           // Track transformation type for audit
-          transformationType: isRenamed || isTypeChanged ? 'transformation' : 'identity',
+          transformationType: isRenamed || isTypeChanged || typeWasInferred ? 'transformation' : 'identity',
           transformationDetails: {
             renamed: isRenamed ? { from: selection.name, to: selection.rename } : null,
-            typeChanged: isTypeChanged ? { from: sourceField?.type, to: selection.type } : null
+            typeChanged: isTypeChanged ? { from: sourceField?.type, to: selection.type } : null,
+            // Track that type was inferred at SET creation (interpretation)
+            typeInferred: typeWasInferred ? { inferredType: fieldType, fromRawSource: true } : null
           }
         }
       };
