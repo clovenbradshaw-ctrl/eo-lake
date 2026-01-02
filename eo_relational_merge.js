@@ -867,7 +867,12 @@ class RelationalMergeUI {
   }
 
   _render() {
-    const sources = this.sourceStore.getByStatus('active');
+    // Get active sources, with fallback to all sources if none are marked active
+    let sources = this.sourceStore.getByStatus('active');
+    if (sources.length === 0) {
+      // Fallback: try getAll() in case sources don't have status property
+      sources = this.sourceStore.getAll ? this.sourceStore.getAll() : [];
+    }
 
     this.container.style.display = 'block';
     this.container.innerHTML = `
@@ -1478,30 +1483,32 @@ class RelationalMergeUI {
   }
 
   _attachEventListeners() {
-    // Close button
+    // Use event delegation on footer for more robust button handling
+    const footer = this.container.querySelector('.relational-merge-footer');
+    if (footer) {
+      footer.addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+
+        if (btn.id === 'rm-cancel-btn') {
+          this.hide();
+          this._onCancel?.();
+        } else if (btn.id === 'rm-back-btn') {
+          this._goToPreviousStep();
+        } else if (btn.id === 'rm-next-btn' && !btn.disabled) {
+          if (this._currentStep === 'review') {
+            this._executeMerge();
+          } else {
+            this._goToNextStep();
+          }
+        }
+      });
+    }
+
+    // Close button (in header)
     this.container.querySelector('#rm-close-btn')?.addEventListener('click', () => {
       this.hide();
       this._onCancel?.();
-    });
-
-    // Cancel button
-    this.container.querySelector('#rm-cancel-btn')?.addEventListener('click', () => {
-      this.hide();
-      this._onCancel?.();
-    });
-
-    // Back button
-    this.container.querySelector('#rm-back-btn')?.addEventListener('click', () => {
-      this._goToPreviousStep();
-    });
-
-    // Next/Apply button
-    this.container.querySelector('#rm-next-btn')?.addEventListener('click', () => {
-      if (this._currentStep === 'review') {
-        this._executeMerge();
-      } else {
-        this._goToNextStep();
-      }
     });
 
     // Purpose banner dismiss

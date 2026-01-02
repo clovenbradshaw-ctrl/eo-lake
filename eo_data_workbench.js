@@ -19232,9 +19232,12 @@ class EODataWorkbench {
     }
 
     // Sync all sources to sourceStore for merge compatibility
+    // Ensure sources have status: 'active' so they appear in getByStatus('active')
     for (const source of (this.sources || [])) {
       if (!this.sourceStore.get(source.id)) {
-        this.sourceStore.sources.set(source.id, source);
+        // Ensure the source has an active status for filtering
+        const sourceWithStatus = source.status ? source : { ...source, status: 'active' };
+        this.sourceStore.sources.set(source.id, sourceWithStatus);
       }
     }
 
