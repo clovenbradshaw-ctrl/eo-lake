@@ -1670,6 +1670,26 @@ class EODataWorkbench {
           </div>
 
           <div class="shortcuts-section">
+            <h2>Records</h2>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Add new record</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>N</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Duplicate selected</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>D</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Delete selected</span>
+              <span class="shortcut-keys"><kbd>Delete</kbd></span>
+            </div>
+            <div class="shortcut-item">
+              <span class="shortcut-desc">Select all</span>
+              <span class="shortcut-keys"><kbd>Ctrl</kbd> + <kbd>A</kbd></span>
+            </div>
+          </div>
+
+          <div class="shortcuts-section">
             <h2>Editing</h2>
             <div class="shortcut-item">
               <span class="shortcut-desc">Undo</span>
@@ -29550,7 +29570,10 @@ class EODataWorkbench {
 
   addRecord(values = {}, skipUndo = false) {
     const set = this.getCurrentSet();
-    if (!set) return null;
+    if (!set) {
+      this._showToast('Select a set first to add a record', 'warning');
+      return null;
+    }
 
     const record = createRecord(set.id, values);
     set.records.push(record);
@@ -29587,6 +29610,7 @@ class EODataWorkbench {
 
     this._saveData();
     this._renderView();
+    this._renderSidebar();
 
     return record;
   }
@@ -29716,6 +29740,7 @@ class EODataWorkbench {
 
     this._saveData();
     this._renderView();
+    this._renderSidebar();
     this._updateTossedBadge();
 
     // Show undo toast with countdown (reuse deletedRecordName from activity recording above)
@@ -29733,6 +29758,7 @@ class EODataWorkbench {
             set.records.splice(index, 0, record);
             this._saveData();
             this._renderView();
+            this._renderSidebar();
             this._updateTossedBadge();
             this._showToast(`Restored record "${deletedRecordName}"`, 'success');
           }
@@ -29761,6 +29787,7 @@ class EODataWorkbench {
 
     this._saveData();
     this._renderView();
+    this._renderSidebar();
 
     return duplicate;
   }
@@ -34257,8 +34284,8 @@ class EODataWorkbench {
 
     // ========== RECORD SHORTCUTS ==========
 
-    // Cmd/Ctrl + N for new record
-    if ((e.metaKey || e.ctrlKey) && e.key === 'n' && !e.shiftKey && !e.target.closest('input, textarea')) {
+    // Cmd/Ctrl + N for new record (case-insensitive for cross-browser compatibility)
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n' && !e.shiftKey && !e.target.closest('input, textarea')) {
       e.preventDefault();
       this.addRecord();
     }
