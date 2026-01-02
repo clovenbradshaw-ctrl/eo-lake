@@ -3626,6 +3626,22 @@ class EODataWorkbench {
     }
   }
 
+  /**
+   * Ensure a source has its records loaded from IndexedDB if needed
+   * Similar to _ensureSetRecords but for sources
+   */
+  async _ensureSourceRecords(source) {
+    if (!source) return [];
+
+    // Check if records need to be loaded from IndexedDB
+    if (source._recordsInIndexedDB && (!source.records || source.records.length === 0)) {
+      return this._loadSourceRecordsFromIndexedDB(source);
+    }
+
+    // Records are already available inline
+    return source.records || [];
+  }
+
   getFilteredRecords() {
     const set = this.getCurrentSet();
     const view = this.getCurrentView();
@@ -13221,7 +13237,7 @@ class EODataWorkbench {
    * Simplified approach: reads directly from this.sources array.
    * Displays source data in main content area as read-only table.
    */
-  _showSourceDetail(sourceId) {
+  async _showSourceDetail(sourceId) {
     console.log('_showSourceDetail called', {
       sourceId,
       availableSources: this.sources?.length || 0,
@@ -13241,7 +13257,8 @@ class EODataWorkbench {
       id: source.id,
       name: source.name,
       recordCount: source.recordCount,
-      hasRecords: !!(source.records && source.records.length > 0)
+      hasRecords: !!(source.records && source.records.length > 0),
+      recordsInIndexedDB: source._recordsInIndexedDB
     });
 
     // Set current source and clear set selection
@@ -13259,6 +13276,9 @@ class EODataWorkbench {
 
     // Update tab bar to deselect any active set tab
     this._renderTabBar();
+
+    // Ensure source records are loaded from IndexedDB if needed
+    await this._ensureSourceRecords(source);
 
     // Render source data view in main content area
     this._renderSourceDataView(source);
