@@ -1066,7 +1066,13 @@ class PipelineEvaluator {
   }
 
   /**
-   * Get field value from record, handling field name lookup
+   * Get field value from record, handling field name lookup.
+   *
+   * Field reference resolution order:
+   * 1. Direct lookup by key in values
+   * 2. By field name (display name)
+   * 3. By field ID
+   * 4. By camelCaseName (allows referencing "First Name" as firstName)
    */
   _getFieldValue(context, fieldNameOrId, record) {
     if (!record) {
@@ -1081,12 +1087,23 @@ class PipelineEvaluator {
       return values[fieldNameOrId];
     }
 
-    // Look up by field name in set
+    // Look up by field name, id, or camelCaseName in set
     const set = context.currentSet;
     if (set && set.fields) {
-      const field = set.fields.find(f =>
+      // First try exact match on name or id
+      let field = set.fields.find(f =>
         f.name === fieldNameOrId || f.id === fieldNameOrId
       );
+
+      // If not found, try camelCaseName match
+      if (!field) {
+        field = set.fields.find(f =>
+          f.camelCaseName === fieldNameOrId ||
+          (typeof window !== 'undefined' && window.toCamelCase &&
+           window.toCamelCase(f.name) === fieldNameOrId)
+        );
+      }
+
       if (field) {
         return values[field.id] ?? values[field.name] ?? null;
       }

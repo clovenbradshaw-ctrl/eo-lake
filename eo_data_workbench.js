@@ -86,6 +86,91 @@ const FieldTypeDisplayNames = {
 const SelectColors = ['blue', 'green', 'yellow', 'red', 'purple', 'pink', 'orange', 'gray'];
 
 // ============================================================================
+// Field Name Utilities
+// ============================================================================
+
+/**
+ * Convert a display name to camelCase.
+ * Used for creating formula-referenceable field names.
+ *
+ * Examples:
+ *   "First Name" -> "firstName"
+ *   "Total Sales Amount" -> "totalSalesAmount"
+ *   "email" -> "email"
+ *   "ID" -> "id"
+ *   "SSN Number" -> "ssnNumber"
+ *   "Due Date" -> "dueDate"
+ *
+ * @param {string} displayName - The display name to convert
+ * @returns {string} - The camelCase version
+ */
+function toCamelCase(displayName) {
+  if (!displayName || typeof displayName !== 'string') return '';
+
+  // Split on spaces, hyphens, underscores, and camelCase boundaries
+  const words = displayName
+    .trim()
+    .replace(/([a-z])([A-Z])/g, '$1 $2') // Split camelCase
+    .replace(/[_\-]+/g, ' ')              // Replace underscores/hyphens with spaces
+    .split(/\s+/)                          // Split on whitespace
+    .filter(word => word.length > 0);
+
+  if (words.length === 0) return '';
+
+  // First word is lowercase, rest are title case
+  return words.map((word, index) => {
+    const lower = word.toLowerCase();
+    if (index === 0) {
+      return lower;
+    }
+    return lower.charAt(0).toUpperCase() + lower.slice(1);
+  }).join('');
+}
+
+/**
+ * Check if a field name is a single word (can be cited without brackets).
+ *
+ * @param {string} name - The field display name
+ * @returns {boolean} - True if single word
+ */
+function isSingleWordFieldName(name) {
+  if (!name || typeof name !== 'string') return false;
+  return !/\s/.test(name.trim());
+}
+
+/**
+ * Get the formula reference syntax for a field.
+ *
+ * Citation rules:
+ * - Single word display names: can use the name directly without brackets
+ * - Multi-word display names: require {brackets}
+ * - CamelCase name: always works without brackets
+ *
+ * @param {Object} field - The field object
+ * @returns {{ displayRef: string, camelRef: string, needsBrackets: boolean }}
+ */
+function getFieldReferenceSyntax(field) {
+  if (!field || !field.name) return { displayRef: '', camelRef: '', needsBrackets: true };
+
+  const name = field.name;
+  const camelName = field.camelCaseName || toCamelCase(name);
+  const needsBrackets = !isSingleWordFieldName(name);
+
+  return {
+    displayRef: needsBrackets ? `{${name}}` : name,
+    camelRef: camelName,
+    needsBrackets
+  };
+}
+
+// Export for use in other modules
+if (typeof window !== 'undefined') {
+  window.toCamelCase = toCamelCase;
+  window.isSingleWordFieldName = isSingleWordFieldName;
+  window.getFieldReferenceSyntax = getFieldReferenceSyntax;
+}
+
+// ============================================================================
 // TABLE RENDERING RULES - NEVER VIOLATE THESE
 // ============================================================================
 //
@@ -130,10 +215,13 @@ const FIELD_DEFAULT_TYPE = 'text';
 function ensureValidField(field) {
   if (!field) return null;
 
+  const name = field.name || 'Untitled';
   return {
     ...field,
     id: field.id || generateId(),
-    name: field.name || 'Untitled',
+    name: name,
+    // CamelCase version for formula references (always works without brackets)
+    camelCaseName: field.camelCaseName || toCamelCase(name),
     type: field.type || FIELD_DEFAULT_TYPE,
     width: Math.max(FIELD_MIN_WIDTH, Number(field.width) || FIELD_DEFAULT_WIDTH),
     isPrimary: field.isPrimary || false,
@@ -393,6 +481,8 @@ function createField(name, type, options = {}) {
   const field = {
     id: generateId(),
     name,
+    // CamelCase version for formula references (always works without brackets)
+    camelCaseName: toCamelCase(name),
     type,
     width: options.width || 200,
     isPrimary: options.isPrimary || false,

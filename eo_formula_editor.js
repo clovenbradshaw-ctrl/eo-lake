@@ -440,10 +440,25 @@ class EOFormulaEditor {
 
     return fields.map(field => {
       const icon = fieldTypeIcons[field.type] || 'ph-circle';
+      const camelName = field.camelCaseName || (window.toCamelCase ? window.toCamelCase(field.name) : field.name);
+      const isSingleWord = !/\s/.test(field.name);
+
+      // Build tooltip showing citation options
+      let tooltipText = `Click to insert {${field.name}}`;
+      if (isSingleWord) {
+        tooltipText = `Use: ${field.name} (no brackets needed)`;
+      } else {
+        tooltipText = `Use: {${field.name}} or ${camelName}`;
+      }
+
       return `
-        <button type="button" class="formula-field-chip" data-field-name="${this._escapeHtml(field.name)}" title="Click to insert {${this._escapeHtml(field.name)}}">
+        <button type="button" class="formula-field-chip"
+                data-field-name="${this._escapeHtml(field.name)}"
+                data-camel-name="${this._escapeHtml(camelName)}"
+                title="${this._escapeHtml(tooltipText)}">
           <i class="ph ${icon}"></i>
-          <span>${this._escapeHtml(field.name)}</span>
+          <span class="formula-field-chip-name">${this._escapeHtml(field.name)}</span>
+          ${!isSingleWord ? `<code class="formula-field-chip-camel">${this._escapeHtml(camelName)}</code>` : ''}
         </button>
       `;
     }).join('');
@@ -672,13 +687,334 @@ class EOFormulaEditor {
       });
     });
 
-    // Formula preview on input
+    // Formula preview on input + autocomplete
     const formulaInput = modalEl.querySelector('#formula-input');
     if (formulaInput) {
-      formulaInput.addEventListener('input', () => {
+      formulaInput.addEventListener('input', (e) => {
         this._updatePreview();
+        this._handleAutocomplete(e);
+      });
+
+      formulaInput.addEventListener('keydown', (e) => {
+        this._handleAutocompleteKeydown(e);
+      });
+
+      // Hide autocomplete when clicking outside
+      formulaInput.addEventListener('blur', (e) => {
+        // Delay to allow clicking on autocomplete items
+        setTimeout(() => this._hideAutocomplete(), 150);
       });
     }
+  }
+
+  // ============================================================================
+  // Autocomplete System
+  // ============================================================================
+
+  /**
+   * Handle autocomplete on input change
+   */
+  _handleAutocomplete(e) {
+    const textarea = e.target;
+    const cursorPos = textarea.selectionStart;
+    const text = textarea.value;
+
+    // Get context at cursor position
+    const context = this._getAutocompleteContext(text, cursorPos);
+
+    if (context.type === 'none') {
+      this._hideAutocomplete();
+      return;
+    }
+
+    const suggestions = this._getSuggestions(context);
+    if (suggestions.length === 0) {
+      this._hideAutocomplete();
+      return;
+    }
+
+    this._showAutocomplete(textarea, suggestions, context);
+  }
+
+  /**
+   * Determine the autocomplete context at the cursor position
+   */
+  _getAutocompleteContext(text, cursorPos) {
+    // Look backwards from cursor to find what we're completing
+    const before = text.substring(0, cursorPos);
+
+    // Check for set reference (# trigger)
+    const hashMatch = before.match(/#([a-zA-Z0-9_]*)$/);
+    if (hashMatch) {
+      return {
+        type: 'set',
+        query: hashMatch[1],
+        start: cursorPos - hashMatch[0].length,
+        end: cursorPos
+      };
+    }
+
+    // Check for bracketed field reference in progress
+    const bracketMatch = before.match(/\{([^}]*)$/);
+    if (bracketMatch) {
+      return {
+        type: 'field_bracketed',
+        query: bracketMatch[1],
+        start: cursorPos - bracketMatch[0].length,
+        end: cursorPos
+      };
+    }
+
+    // Check for word at cursor that could be a field reference (camelCase or single word)
+    const wordMatch = before.match(/([a-zA-Z_][a-zA-Z0-9_]*)$/);
+    if (wordMatch && wordMatch[1].length >= 1) {
+      // Don't autocomplete if we're typing after a dot (property access)
+      const charBefore = before[before.length - wordMatch[0].length - 1];
+      if (charBefore !== '.') {
+        return {
+          type: 'field_bare',
+          query: wordMatch[1],
+          start: cursorPos - wordMatch[0].length,
+          end: cursorPos
+        };
+      }
+    }
+
+    return { type: 'none' };
+  }
+
+  /**
+   * Get suggestions based on context
+   */
+  _getSuggestions(context) {
+    const set = this.workbench.getCurrentSet();
+    const fields = set?.fields || [];
+
+    if (context.type === 'set') {
+      // Get all sets in the workspace
+      const sets = this.workbench.sets || [];
+      const query = context.query.toLowerCase();
+
+      return sets
+        .filter(s => s.id !== set?.id) // Exclude current set
+        .filter(s => !query || s.name.toLowerCase().includes(query))
+        .map(s => ({
+          type: 'set',
+          label: s.name,
+          value: `#${s.name.replace(/\s+/g, '')}`, // Remove spaces for set reference
+          description: `${s.records?.length || 0} records`,
+          icon: 'ph-table'
+        }))
+        .slice(0, 10);
+    }
+
+    if (context.type === 'field_bracketed' || context.type === 'field_bare') {
+      const query = context.query.toLowerCase();
+
+      return fields
+        .filter(f => {
+          if (!query) return true;
+          const name = f.name.toLowerCase();
+          const camelName = (f.camelCaseName || '').toLowerCase();
+          return name.includes(query) || camelName.includes(query);
+        })
+        .map(f => {
+          const needsBrackets = /\s/.test(f.name);
+          const camelName = f.camelCaseName || window.toCamelCase?.(f.name) || f.name;
+
+          return {
+            type: 'field',
+            label: f.name,
+            camelCase: camelName,
+            // For field_bare context, suggest camelCase; for bracketed, use display name
+            value: context.type === 'field_bare' ? camelName : `{${f.name}}`,
+            description: needsBrackets
+              ? `or use: ${camelName}`
+              : `single word (no brackets needed)`,
+            icon: this._getFieldTypeIcon(f.type),
+            needsBrackets
+          };
+        })
+        .slice(0, 10);
+    }
+
+    return [];
+  }
+
+  /**
+   * Get icon for field type
+   */
+  _getFieldTypeIcon(type) {
+    const icons = {
+      text: 'ph-text-aa',
+      longText: 'ph-text-align-left',
+      number: 'ph-hash',
+      select: 'ph-list',
+      multiSelect: 'ph-list-checks',
+      date: 'ph-calendar',
+      checkbox: 'ph-check-square',
+      link: 'ph-link',
+      attachment: 'ph-paperclip',
+      url: 'ph-link-simple',
+      email: 'ph-envelope',
+      phone: 'ph-phone',
+      formula: 'ph-function',
+      rollup: 'ph-arrows-merge',
+      count: 'ph-number-circle-one',
+      autonumber: 'ph-number-square-one',
+      json: 'ph-brackets-curly'
+    };
+    return icons[type] || 'ph-circle';
+  }
+
+  /**
+   * Show autocomplete dropdown
+   */
+  _showAutocomplete(textarea, suggestions, context) {
+    let dropdown = this.modal?.element?.querySelector('.formula-autocomplete');
+
+    if (!dropdown) {
+      dropdown = document.createElement('div');
+      dropdown.className = 'formula-autocomplete';
+      textarea.parentNode.appendChild(dropdown);
+    }
+
+    this._autocompleteContext = context;
+    this._autocompleteSuggestions = suggestions;
+    this._autocompleteSelectedIndex = 0;
+
+    dropdown.innerHTML = `
+      <div class="formula-autocomplete-header">
+        ${context.type === 'set' ? '<i class="ph ph-table"></i> Sets' : '<i class="ph ph-columns"></i> Fields'}
+      </div>
+      <div class="formula-autocomplete-list">
+        ${suggestions.map((s, i) => `
+          <div class="formula-autocomplete-item ${i === 0 ? 'selected' : ''}"
+               data-index="${i}"
+               data-value="${this._escapeHtml(s.value)}">
+            <i class="ph ${s.icon}"></i>
+            <div class="formula-autocomplete-item-content">
+              <span class="formula-autocomplete-label">${this._escapeHtml(s.label)}</span>
+              ${s.camelCase && s.camelCase !== s.label ? `<code class="formula-autocomplete-camel">${this._escapeHtml(s.camelCase)}</code>` : ''}
+              <span class="formula-autocomplete-desc">${this._escapeHtml(s.description)}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="formula-autocomplete-footer">
+        <kbd>↑↓</kbd> navigate <kbd>Enter</kbd> select <kbd>Esc</kbd> close
+      </div>
+    `;
+
+    dropdown.style.display = 'block';
+
+    // Add click handlers
+    dropdown.querySelectorAll('.formula-autocomplete-item').forEach(item => {
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const index = parseInt(item.dataset.index, 10);
+        this._selectAutocompleteSuggestion(index);
+      });
+    });
+  }
+
+  /**
+   * Hide autocomplete dropdown
+   */
+  _hideAutocomplete() {
+    const dropdown = this.modal?.element?.querySelector('.formula-autocomplete');
+    if (dropdown) {
+      dropdown.style.display = 'none';
+    }
+    this._autocompleteContext = null;
+    this._autocompleteSuggestions = null;
+  }
+
+  /**
+   * Handle keyboard navigation in autocomplete
+   */
+  _handleAutocompleteKeydown(e) {
+    const dropdown = this.modal?.element?.querySelector('.formula-autocomplete');
+    if (!dropdown || dropdown.style.display === 'none' || !this._autocompleteSuggestions) {
+      return;
+    }
+
+    const suggestions = this._autocompleteSuggestions;
+    let index = this._autocompleteSelectedIndex || 0;
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        index = (index + 1) % suggestions.length;
+        this._updateAutocompleteSelection(index);
+        break;
+
+      case 'ArrowUp':
+        e.preventDefault();
+        index = (index - 1 + suggestions.length) % suggestions.length;
+        this._updateAutocompleteSelection(index);
+        break;
+
+      case 'Enter':
+      case 'Tab':
+        e.preventDefault();
+        this._selectAutocompleteSuggestion(index);
+        break;
+
+      case 'Escape':
+        e.preventDefault();
+        this._hideAutocomplete();
+        break;
+    }
+  }
+
+  /**
+   * Update visual selection in autocomplete dropdown
+   */
+  _updateAutocompleteSelection(index) {
+    this._autocompleteSelectedIndex = index;
+
+    const dropdown = this.modal?.element?.querySelector('.formula-autocomplete');
+    if (!dropdown) return;
+
+    dropdown.querySelectorAll('.formula-autocomplete-item').forEach((item, i) => {
+      item.classList.toggle('selected', i === index);
+    });
+  }
+
+  /**
+   * Select an autocomplete suggestion
+   */
+  _selectAutocompleteSuggestion(index) {
+    const context = this._autocompleteContext;
+    const suggestions = this._autocompleteSuggestions;
+    if (!context || !suggestions || !suggestions[index]) return;
+
+    const suggestion = suggestions[index];
+    const textarea = this.modal?.element?.querySelector('#formula-input');
+    if (!textarea) return;
+
+    const text = textarea.value;
+    const before = text.substring(0, context.start);
+    const after = text.substring(context.end);
+
+    let insertValue = suggestion.value;
+
+    // For bracketed field context, insert just the content within braces
+    if (context.type === 'field_bracketed') {
+      // The { is already there, so just insert name and }
+      insertValue = suggestion.label + '}';
+    }
+
+    textarea.value = before + insertValue + after;
+
+    // Position cursor after inserted text
+    const newPos = context.start + insertValue.length;
+    textarea.setSelectionRange(newPos, newPos);
+    textarea.focus();
+
+    this._hideAutocomplete();
+    this._updatePreview();
   }
 
   /**

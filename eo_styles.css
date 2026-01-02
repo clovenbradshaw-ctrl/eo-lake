@@ -23150,6 +23150,155 @@ body.has-picked-up .browser-tab:hover {
   color: var(--primary-500);
 }
 
+.formula-field-chip-name {
+  font-weight: 500;
+}
+
+.formula-field-chip-camel {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  color: var(--text-muted);
+}
+
+.formula-field-chip:hover .formula-field-chip-camel {
+  background: var(--primary-100);
+  color: var(--primary-600);
+}
+
+/* Formula Autocomplete Dropdown */
+.formula-autocomplete {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  display: none;
+  max-height: 320px;
+  overflow: hidden;
+}
+
+.formula-autocomplete-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.formula-autocomplete-header i {
+  font-size: 12px;
+}
+
+.formula-autocomplete-list {
+  overflow-y: auto;
+  max-height: 240px;
+}
+
+.formula-autocomplete-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.formula-autocomplete-item:hover,
+.formula-autocomplete-item.selected {
+  background: var(--primary-50);
+}
+
+.formula-autocomplete-item.selected {
+  background: var(--primary-100);
+}
+
+.formula-autocomplete-item > i {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.formula-autocomplete-item.selected > i {
+  color: var(--primary-600);
+}
+
+.formula-autocomplete-item-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.formula-autocomplete-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.formula-autocomplete-camel {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Mono', monospace;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  color: var(--primary-600);
+}
+
+.formula-autocomplete-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.formula-autocomplete-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+}
+
+.formula-autocomplete-footer kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 2px 5px;
+  font-size: 10px;
+  font-family: inherit;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  box-shadow: 0 1px 0 var(--border-color);
+}
+
 /* Function Search */
 .formula-fn-search {
   position: relative;
