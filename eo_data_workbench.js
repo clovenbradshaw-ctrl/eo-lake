@@ -18423,37 +18423,32 @@ class EODataWorkbench {
   }
 
   /**
-   * Show the JoinBuilderUI modal for creating joined Sets
-   * Simplified to use this.sources as the primary data source
+   * Show the RelationalMergeUI modal for creating joined Sets
+   * Uses the phase-space merge paradigm with Recognition/Boundary/Decision axes
    */
-  _showJoinBuilderUI(preSelectedSourceId = null) {
+  _showRelationalMergeUI(preSelectedSourceId = null) {
     // Ensure we have a source store
     if (!this.sourceStore) {
       this._initSourceStore();
     }
 
-    // Sync all sources to sourceStore for JoinBuilder compatibility
+    // Sync all sources to sourceStore for merge compatibility
     for (const source of (this.sources || [])) {
       if (!this.sourceStore.get(source.id)) {
         this.sourceStore.sources.set(source.id, source);
       }
     }
 
-    // Get or create the JoinBuilder
-    if (!this._joinBuilder) {
-      this._joinBuilder = new JoinBuilder(this.sourceStore, this.eoApp?.eventStore);
-    }
-
     // Create container for the modal if it doesn't exist
-    let container = document.getElementById('join-builder-container');
+    let container = document.getElementById('relational-merge-container');
     if (!container) {
       container = document.createElement('div');
-      container.id = 'join-builder-container';
+      container.id = 'relational-merge-container';
       document.body.appendChild(container);
     }
 
-    // Create and show the UI
-    const ui = new JoinBuilderUI(this._joinBuilder, container);
+    // Create and show the RelationalMergeUI
+    const ui = new RelationalMergeUI(this.sourceStore, container);
     ui.show({
       onComplete: (result) => {
         // Add the new joined set to our sets array
@@ -18463,7 +18458,7 @@ class EODataWorkbench {
         this._renderSidebar();
         this._selectSet(result.set.id);
         this._showToast(
-          `Joined set "${result.set.name}" created with ${result.stats.resultRecords} records`,
+          `Merged set "${result.set.name}" created with ${result.stats.resultRecords} records`,
           'success'
         );
       },
@@ -18473,11 +18468,21 @@ class EODataWorkbench {
     });
 
     // Pre-select the source if one was provided
-    if (preSelectedSourceId) {
+    if (preSelectedSourceId && ui.config) {
       setTimeout(() => {
-        this._joinBuilder.setLeftSource(preSelectedSourceId);
+        ui.config.setLeftSource(this.sourceStore.get(preSelectedSourceId));
+        ui._render(); // Re-render to show the selected source
       }, 100);
     }
+  }
+
+  /**
+   * Show the JoinBuilderUI modal for creating joined Sets (Legacy)
+   * @deprecated Use _showRelationalMergeUI instead
+   */
+  _showJoinBuilderUI(preSelectedSourceId = null) {
+    // Redirect to the new RelationalMergeUI
+    return this._showRelationalMergeUI(preSelectedSourceId);
   }
 
   /**
