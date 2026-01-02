@@ -6791,6 +6791,288 @@ mark.search-highlight {
   font-size: 12px;
 }
 
+/* Edge Data Indicator */
+.edge-indicator {
+  margin-left: 4px;
+  font-size: 10px;
+  color: var(--primary-400);
+}
+
+.link-chip.has-edge-data {
+  background: var(--primary-50);
+  border: 1px solid var(--primary-200);
+}
+
+.link-chip.has-edge-data:hover {
+  background: var(--primary-100);
+}
+
+/* Edge Badge in Link Dropdown */
+.edge-badge {
+  margin-left: 6px;
+  color: var(--primary-500);
+  font-size: 12px;
+}
+
+/* Edge Button in Link Options */
+.link-option-edge {
+  margin-left: auto;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.link-option-edge:hover {
+  background: var(--primary-100);
+  color: var(--primary-500);
+}
+
+.link-option-edge.has-data {
+  color: var(--primary-500);
+}
+
+.link-option-edge.has-data::after {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  background: var(--primary-500);
+  border-radius: 50%;
+  margin-left: 2px;
+  vertical-align: middle;
+}
+
+/* Edge Lens Panel */
+.edge-lens-panel {
+  padding: 0;
+}
+
+.edge-lens-header {
+  margin-bottom: 16px;
+}
+
+.edge-lens-connection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.edge-lens-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.edge-lens-node:hover {
+  background: var(--primary-50);
+}
+
+.edge-lens-node i {
+  font-size: 10px;
+}
+
+.edge-lens-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.edge-lens-arrow i {
+  font-size: 16px;
+}
+
+.edge-lens-field-name {
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edge-lens-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: 16px 0;
+}
+
+.edge-lens-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edge-lens-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.edge-lens-section-title i {
+  font-size: 14px;
+}
+
+.edge-lens-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.edge-lens-field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.edge-lens-field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.edge-lens-field-label i {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.edge-lens-field-value {
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-primary);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+}
+
+.edge-lens-field-value.editable {
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.edge-lens-field-value.editable:hover {
+  border-color: var(--primary-300);
+  background: var(--primary-50);
+}
+
+.edge-lens-field-value.editing {
+  padding: 0;
+  background: var(--bg-primary);
+}
+
+.edge-lens-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  outline: none;
+  background: transparent;
+}
+
+.edge-lens-input:focus {
+  box-shadow: 0 0 0 2px var(--primary-200);
+}
+
+/* Edge Lens Select Dropdown */
+.edge-lens-select-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.edge-lens-select-option {
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.edge-lens-select-option:hover {
+  background: var(--bg-tertiary);
+}
+
+.edge-lens-select-option.selected {
+  background: var(--primary-50);
+}
+
+/* Graph Edge with Data */
+.cy-edge.has-edge-data {
+  width: 3px;
+}
+
+/* Edge Field Configuration UI */
+.edge-field-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.edge-field-item .edge-field-name {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.edge-field-item .edge-field-type {
+  width: 100px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  background: var(--bg-primary);
+}
+
+.edge-field-item .edge-field-remove {
+  padding: 4px 6px;
+  color: var(--text-muted);
+}
+
+.edge-field-item .edge-field-remove:hover {
+  color: var(--danger-500);
+  background: var(--danger-50);
+}
+
 /* Multi-Select Dropdown Editor */
 .multiselect-dropdown {
   position: absolute;
