@@ -995,6 +995,15 @@ class EODataWorkbench {
 
     tab.isPinned = !tab.isPinned;
 
+    // Record activity for tab pin toggle
+    this._recordActivity({
+      action: 'update',
+      entityType: 'workspace',
+      name: tab.title || 'Tab',
+      details: `${tab.isPinned ? 'Pinned' : 'Unpinned'} tab "${tab.title || 'Unnamed'}"`,
+      canReverse: false
+    });
+
     // Reorder: pinned tabs should be at the front
     this.browserTabs.sort((a, b) => {
       if (a.isPinned && !b.isPinned) return -1;
@@ -1023,6 +1032,15 @@ class EODataWorkbench {
     // Move the tab
     this.browserTabs.splice(currentIndex, 1);
     this.browserTabs.splice(newIndex, 0, tab);
+
+    // Record activity for tab move
+    this._recordActivity({
+      action: 'update',
+      entityType: 'workspace',
+      name: tab.title || 'Tab',
+      details: `Moved tab "${tab.title || 'Unnamed'}" to position ${newIndex + 1}`,
+      canReverse: false
+    });
 
     this._renderBrowserTabBar();
   }
@@ -5137,12 +5155,21 @@ class EODataWorkbench {
       this.expandedSets[setId] = true;
     }
 
+    // Record activity for view creation from column
+    const viewCount = includeAllView ? uniqueValues.length + 1 : uniqueValues.length;
+    this._recordActivity({
+      action: 'create',
+      entityType: 'view',
+      name: `${viewCount} views from ${field.name}`,
+      details: `Created ${viewCount} view${viewCount !== 1 ? 's' : ''} from column "${field.name}" in "${set.name}"`,
+      canReverse: false
+    });
+
     this._renderSidebar();
     this._renderView();
     this._updateBreadcrumb();
     this._saveData();
 
-    const viewCount = includeAllView ? uniqueValues.length + 1 : uniqueValues.length;
     this._showToast(`Created ${viewCount} view${viewCount !== 1 ? 's' : ''} from "${field.name}"`, 'success');
   }
 
@@ -7783,11 +7810,56 @@ class EODataWorkbench {
     const newName = prompt('Enter new lens name:', currentName);
 
     if (newName && newName.trim() && newName !== currentName) {
+      const oldName = lens.name || currentName;
       lens.name = newName.trim();
+
+      // Record activity for lens rename
+      this._recordActivity({
+        action: 'rename',
+        entityType: 'lens',
+        name: newName.trim(),
+        details: `Renamed lens from "${oldName}" to "${newName.trim()}" in "${set.name}"`,
+        canReverse: false
+      });
+
       this._saveData();
       this._renderSidebar();
       this._showToast(`Lens renamed to "${newName}"`, 'success');
     }
+  }
+
+  /**
+   * Delete a lens from a set
+   */
+  _deleteLens(lensId, setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set?.lenses) return;
+
+    const lens = set.lenses.find(l => l.id === lensId);
+    if (!lens) return;
+
+    const lensName = lens.name || this._getHumanReadableLensName(lens, set);
+
+    // Remove from lenses array
+    set.lenses = set.lenses.filter(l => l.id !== lensId);
+
+    // If this was the current lens, clear selection
+    if (this.currentLensId === lensId) {
+      this.currentLensId = null;
+    }
+
+    // Record activity for lens deletion
+    this._recordActivity({
+      action: 'delete',
+      entityType: 'lens',
+      name: lensName,
+      details: `Deleted lens "${lensName}" from "${set.name}"`,
+      canReverse: false
+    });
+
+    this._saveData();
+    this._renderSidebar();
+    this._showToast(`Lens "${lensName}" deleted`, 'success');
   }
 
   // --------------------------------------------------------------------------
@@ -8487,10 +8559,21 @@ class EODataWorkbench {
     const project = this.projects.find(p => p.id === projectId);
     if (!project) return;
 
+    const oldName = project.name;
     const newName = prompt('Rename project:', project.name);
-    if (newName && newName.trim()) {
+    if (newName && newName.trim() && newName.trim() !== oldName) {
       project.name = newName.trim();
       project.updatedAt = new Date().toISOString();
+
+      // Record activity for project rename
+      this._recordActivity({
+        action: 'rename',
+        entityType: 'project',
+        name: newName.trim(),
+        details: `Renamed project from "${oldName}" to "${newName.trim()}"`,
+        canReverse: false
+      });
+
       this._renderProjectsNav();
       this._updateBreadcrumb();
       this._saveData();
@@ -8509,8 +8592,19 @@ class EODataWorkbench {
     const currentIndex = colors.indexOf(project.color);
     const nextIndex = (currentIndex + 1) % colors.length;
 
+    const oldColor = project.color;
     project.color = colors[nextIndex];
     project.updatedAt = new Date().toISOString();
+
+    // Record activity for project color change
+    this._recordActivity({
+      action: 'update',
+      entityType: 'project',
+      name: project.name,
+      details: `Changed color for project "${project.name}"`,
+      canReverse: false
+    });
+
     this._renderProjectsNav();
     this._saveData();
   }
@@ -9801,7 +9895,20 @@ class EODataWorkbench {
    * Delete an export
    */
   _deleteExport(exportId) {
+    const exportItem = this.exports?.find(e => e.id === exportId);
+    const exportName = exportItem?.name || 'Export';
+
     this.exports = this.exports.filter(e => e.id !== exportId);
+
+    // Record activity for export deletion
+    this._recordActivity({
+      action: 'delete',
+      entityType: 'export',
+      name: exportName,
+      details: `Deleted export "${exportName}"`,
+      canReverse: false
+    });
+
     this._saveData();
     this._renderExportsNav();
 
@@ -11799,6 +11906,15 @@ class EODataWorkbench {
 
     this.definitions.push(defRecord);
 
+    // Record activity for definition creation
+    this._recordActivity({
+      action: 'create',
+      entityType: 'definition',
+      name: defRecord.name,
+      details: `Created definition "${defRecord.name}"${defRecord.term ? ` (term: ${defRecord.term})` : ''}`,
+      canReverse: false
+    });
+
     // Emit event for persistence
     if (this.eventBus) {
       this.eventBus.emit('definition:created', { definition: defRecord });
@@ -12659,6 +12775,8 @@ class EODataWorkbench {
     const definition = this.definitions?.find(d => d.id === definitionId);
     if (!definition) return;
 
+    const definitionName = definition.name || 'Unnamed definition';
+
     // Remove from array
     this.definitions = this.definitions.filter(d => d.id !== definitionId);
 
@@ -12666,6 +12784,15 @@ class EODataWorkbench {
     if (this.currentDefinitionId === definitionId) {
       this.currentDefinitionId = null;
     }
+
+    // Record activity for definition deletion
+    this._recordActivity({
+      action: 'delete',
+      entityType: 'definition',
+      name: definitionName,
+      details: `Deleted definition "${definitionName}"`,
+      canReverse: false
+    });
 
     this._saveData();
     this._renderDefinitionsNav();
@@ -12685,10 +12812,21 @@ class EODataWorkbench {
     const definition = this.definitions?.find(d => d.id === definitionId);
     if (!definition) return;
 
+    const definitionName = definition.name || 'Unnamed definition';
+
     // Update status to complete/verified
     definition.status = 'complete';
     definition.populationMethod = 'manual';
     definition.approvedAt = new Date().toISOString();
+
+    // Record activity for definition approval
+    this._recordActivity({
+      action: 'update',
+      entityType: 'definition',
+      name: definitionName,
+      details: `Approved definition "${definitionName}" (status: stub → complete)`,
+      canReverse: false
+    });
 
     this._saveData();
     this._renderDefinitionsNav();
@@ -12730,6 +12868,8 @@ class EODataWorkbench {
           label: 'Dismiss',
           className: 'btn btn-danger',
           action: () => {
+            const definitionName = definition.name || 'Unnamed definition';
+
             // Remove from array
             this.definitions = this.definitions.filter(d => d.id !== definitionId);
 
@@ -12737,6 +12877,15 @@ class EODataWorkbench {
             if (this.currentDefinitionId === definitionId) {
               this.currentDefinitionId = null;
             }
+
+            // Record activity for definition dismissal
+            this._recordActivity({
+              action: 'delete',
+              entityType: 'definition',
+              name: definitionName,
+              details: `Dismissed pending definition "${definitionName}"`,
+              canReverse: false
+            });
 
             this._saveData();
             this._renderDefinitionsNav();
@@ -15001,6 +15150,16 @@ class EODataWorkbench {
     source.name = newName;
     source.updatedAt = new Date().toISOString();
 
+    // Record activity for source rename
+    this._recordActivity({
+      action: 'rename',
+      entityType: 'source',
+      name: newName,
+      details: `Renamed source from "${oldName}" to "${newName}"`,
+      canReverse: true,
+      reverseData: { sourceId: source.id, oldName, newName }
+    });
+
     // Save and refresh
     this._saveData();
     this._renderSidebar();
@@ -15412,6 +15571,16 @@ class EODataWorkbench {
     if (this.sourceStore) {
       this.sourceStore.sources.delete(sourceId);
     }
+
+    // Record activity for source deletion
+    this._recordActivity({
+      action: 'delete',
+      entityType: 'source',
+      name: sourceName,
+      details: `Tossed source "${sourceName}" (${derivedSets.length} derived set${derivedSets.length !== 1 ? 's' : ''})`,
+      canReverse: true,
+      reverseData: { sourceId, tossedIndex: 0 }
+    });
 
     // Save changes
     this._saveData();
@@ -22041,6 +22210,14 @@ class EODataWorkbench {
 
       case 'toggle-provenance':
         view.config.showProvenance = !view.config.showProvenance;
+        // Record activity for provenance visibility toggle
+        this._recordActivity({
+          action: 'filter',
+          entityType: 'view',
+          name: view.name,
+          details: `${view.config.showProvenance ? 'Enabled' : 'Disabled'} provenance visibility for view "${view.name}"`,
+          canReverse: false
+        });
         this._renderView();
         this._saveData();
         this._showToast(view.config.showProvenance ? 'Provenance visible' : 'Provenance hidden', 'info');
@@ -25923,6 +26100,15 @@ class EODataWorkbench {
     // Record event
     this._recordFieldEvent(fieldId, 'field.description_changed', {
       description: { from: oldDescription || '', to: description }
+    });
+
+    // Record activity for field description update
+    this._recordActivity({
+      action: 'update',
+      entityType: 'field',
+      name: field.name,
+      details: `Updated description for field "${field.name}" in "${set.name}"`,
+      canReverse: false
     });
 
     this._saveData();
@@ -31826,14 +32012,28 @@ class EODataWorkbench {
     const targetRecord = set.records.find(r => r.id === targetRecordId);
     if (!targetRecord) return;
 
+    // Count merged fields
+    let mergedFieldCount = 0;
+
     // Merge values from source into target (source wins for non-empty values)
     Object.entries(sourceRecord.values).forEach(([fieldId, value]) => {
       if (value !== undefined && value !== null && value !== '') {
         targetRecord.values[fieldId] = value;
+        mergedFieldCount++;
       }
     });
 
     targetRecord.updatedAt = new Date().toISOString();
+
+    // Record activity for record merge
+    this._recordActivity({
+      action: 'update',
+      operator: 'SYN', // Synthesize - merging identities
+      entityType: 'record',
+      name: `Record in ${set.name}`,
+      details: `Merged ${mergedFieldCount} field${mergedFieldCount !== 1 ? 's' : ''} from source record into target record`,
+      canReverse: false
+    });
 
     this._renderView();
     this._saveData();
@@ -32263,12 +32463,24 @@ class EODataWorkbench {
 
   _hideField(fieldId) {
     const view = this.getCurrentView();
+    const set = this.getCurrentSet();
     if (!view) return;
+
+    const field = set?.fields?.find(f => f.id === fieldId);
 
     if (!view.config.hiddenFields) {
       view.config.hiddenFields = [];
     }
     view.config.hiddenFields.push(fieldId);
+
+    // Record activity for hiding field
+    this._recordActivity({
+      action: 'filter',
+      entityType: 'field',
+      name: field?.name || 'Field',
+      details: `Hid field "${field?.name || 'Unknown'}" in view "${view.name}"`,
+      canReverse: false
+    });
 
     this._saveData();
     this._renderView();
@@ -38089,6 +38301,14 @@ class EODataWorkbench {
 
     const count = view.config.filters.length;
     if (count > 0) {
+      // Record activity for applying filters
+      this._recordActivity({
+        action: 'filter',
+        entityType: 'view',
+        name: view.name,
+        details: `Applied ${count} filter${count !== 1 ? 's' : ''} to view "${view.name}"`,
+        canReverse: false
+      });
       this._showToast(`Applied ${count} filter${count !== 1 ? 's' : ''}`, 'info');
     }
   }
@@ -38097,8 +38317,20 @@ class EODataWorkbench {
     const view = this.getCurrentView();
     if (view) {
       if (!view.config) view.config = {};
+      const hadFilters = (view.config.filters?.length || 0) > 0;
       view.config.filters = [];
       view.config.filterLogic = 'and';
+
+      if (hadFilters) {
+        // Record activity for clearing filters
+        this._recordActivity({
+          action: 'filter',
+          entityType: 'view',
+          name: view.name,
+          details: `Cleared all filters from view "${view.name}"`,
+          canReverse: false
+        });
+      }
     }
 
     const container = document.getElementById('filter-groups');
@@ -38204,6 +38436,14 @@ class EODataWorkbench {
 
     const count = view.config.sorts.length;
     if (count > 0) {
+      // Record activity for applying sorts
+      this._recordActivity({
+        action: 'filter',
+        entityType: 'view',
+        name: view.name,
+        details: `Applied ${count} sort${count !== 1 ? 's' : ''} to view "${view.name}"`,
+        canReverse: false
+      });
       this._showToast(`Applied ${count} sort${count !== 1 ? 's' : ''}`, 'info');
     }
   }
@@ -38212,7 +38452,19 @@ class EODataWorkbench {
     const view = this.getCurrentView();
     if (view) {
       if (!view.config) view.config = {};
+      const hadSorts = (view.config.sorts?.length || 0) > 0;
       view.config.sorts = [];
+
+      if (hadSorts) {
+        // Record activity for clearing sorts
+        this._recordActivity({
+          action: 'filter',
+          entityType: 'view',
+          name: view.name,
+          details: `Cleared all sorts from view "${view.name}"`,
+          canReverse: false
+        });
+      }
     }
 
     const container = document.getElementById('sort-rules');
@@ -38407,11 +38659,21 @@ class EODataWorkbench {
     }
 
     const index = view.config.hiddenFields.indexOf(fieldId);
-    if (index === -1) {
+    const isHiding = index === -1;
+    if (isHiding) {
       view.config.hiddenFields.push(fieldId);
     } else {
       view.config.hiddenFields.splice(index, 1);
     }
+
+    // Record activity for field visibility toggle
+    this._recordActivity({
+      action: 'filter',
+      entityType: 'field',
+      name: field?.name || 'Field',
+      details: `${isHiding ? 'Hid' : 'Showed'} field "${field?.name || 'Unknown'}" in view "${view.name}"`,
+      canReverse: false
+    });
 
     this._saveData();
     this._renderFieldsList();
@@ -38422,7 +38684,20 @@ class EODataWorkbench {
     const view = this.getCurrentView();
     if (!view) return;
 
+    const hadHiddenFields = (view.config.hiddenFields?.length || 0) > 0;
     view.config.hiddenFields = [];
+
+    if (hadHiddenFields) {
+      // Record activity for showing all fields
+      this._recordActivity({
+        action: 'filter',
+        entityType: 'view',
+        name: view.name,
+        details: `Showed all fields in view "${view.name}"`,
+        canReverse: false
+      });
+    }
+
     this._saveData();
     this._renderFieldsList();
     this._renderView();
@@ -38435,9 +38710,17 @@ class EODataWorkbench {
     if (!view || !set) return;
 
     // Hide all non-primary fields
-    view.config.hiddenFields = set.fields
-      .filter(f => !f.isPrimary)
-      .map(f => f.id);
+    const fieldsToHide = set.fields.filter(f => !f.isPrimary);
+    view.config.hiddenFields = fieldsToHide.map(f => f.id);
+
+    // Record activity for hiding all fields
+    this._recordActivity({
+      action: 'filter',
+      entityType: 'view',
+      name: view.name,
+      details: `Hid ${fieldsToHide.length} field${fieldsToHide.length !== 1 ? 's' : ''} in view "${view.name}"`,
+      canReverse: false
+    });
 
     this._saveData();
     this._renderFieldsList();
@@ -41111,6 +41394,14 @@ class EODataWorkbench {
     switch (action) {
       case 'toggle':
         step.enabled = !step.enabled;
+        // Record activity for pipeline step toggle
+        this._recordActivity({
+          action: 'update',
+          entityType: 'pipeline',
+          name: `${this._formatStepType(step.type)} step`,
+          details: `${step.enabled ? 'Enabled' : 'Disabled'} ${this._formatStepType(step.type)} step in "${set.name}"`,
+          canReverse: false
+        });
         this._saveData();
         this._renderPipelinePanel();
         this._showToast(`Step ${step.enabled ? 'enabled' : 'disabled'}`, 'info');
@@ -41123,7 +41414,16 @@ class EODataWorkbench {
       case 'delete':
         const idx = set.pipeline.steps.findIndex(s => s.id === stepId);
         if (idx !== -1) {
+          const stepType = this._formatStepType(step.type);
           set.pipeline.steps.splice(idx, 1);
+          // Record activity for pipeline step deletion
+          this._recordActivity({
+            action: 'delete',
+            entityType: 'pipeline',
+            name: `${stepType} step`,
+            details: `Removed ${stepType} step from pipeline in "${set.name}"`,
+            canReverse: false
+          });
           this._saveData();
           this._renderPipelinePanel();
           this._showToast('Step removed', 'info');
@@ -41645,6 +41945,16 @@ class EODataWorkbench {
     }
 
     set.pipeline.steps.push(step);
+
+    // Record activity for pipeline step addition
+    this._recordActivity({
+      action: 'create',
+      entityType: 'pipeline',
+      name: `${this._formatStepType(type)} step`,
+      details: `Added ${this._formatStepType(type)} step to pipeline in "${set.name}"`,
+      canReverse: false
+    });
+
     this._saveData();
     this._renderPipelinePanel();
     this._showToast(`${this._formatStepType(type)} step added`, 'success');
