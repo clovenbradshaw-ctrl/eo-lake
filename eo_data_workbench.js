@@ -7111,7 +7111,10 @@ class EODataWorkbench {
 
         // Select the lens
         const setId = header.dataset.setId;
-        this._selectLens(setId, lensId);
+        if (!this.expandedLenses) this.expandedLenses = {};
+        this.expandedLenses[lensId] = true;
+        this._openLensTab(setId, lensId);
+        this._renderSidebar();
       });
 
       header.addEventListener('contextmenu', (e) => {
