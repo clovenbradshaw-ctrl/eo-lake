@@ -6396,19 +6396,36 @@ class EODataWorkbench {
       const views = set.views || [];
       const lenses = set.lenses || [];
 
+      // Calculate meaning coverage (fields with semantic bindings)
+      const fieldsWithMeaning = (set.fields || []).filter(f =>
+        f.definitionId || f.boundDefinitionId || f.semanticBinding?.definitionId
+      ).length;
+      const meaningCoverage = fieldCount > 0 ? Math.round((fieldsWithMeaning / fieldCount) * 100) : 0;
+      const meaningStatus = meaningCoverage === 100 ? 'complete' : meaningCoverage >= 50 ? 'partial' : 'low';
+
       // Get derivation info
       const derivation = this._getSetDerivationInfo(set);
       const operatorBadge = this._getOperatorBadgeHTML(derivation.operator);
 
-      // Render Schema item
+      // Render Schema item with Structure and Meaning subsections
       const isFieldsActive = isActiveSet && this.showingSetFields;
+      const meaningBindingsList = (set.fields || [])
+        .filter(f => f.definitionId || f.boundDefinitionId || f.semanticBinding?.definitionId)
+        .slice(0, 3)
+        .map(f => this._escapeHtml(f.name))
+        .join(', ');
+      const moreBindingsCount = Math.max(0, fieldsWithMeaning - 3);
+
       const schemaItem = `
         <div class="set-view-item set-fields-item ${isFieldsActive ? 'active' : ''}"
              data-set-id="${set.id}"
              data-action="fields"
-             title="Schema: ${fieldCount} fields">
+             title="Schema: ${fieldCount} fields${fieldsWithMeaning > 0 ? `\nMeaning (Bindings): ${meaningBindingsList}${moreBindingsCount > 0 ? ` +${moreBindingsCount} more` : ''}` : ''}">
           <i class="ph ph-blueprint"></i>
-          <span>Schema</span>
+          <div class="schema-item-content">
+            <span class="schema-item-label">Schema</span>
+            ${fieldsWithMeaning > 0 ? `<span class="schema-bindings-hint">${fieldsWithMeaning} bound</span>` : ''}
+          </div>
           <span class="view-item-count">${fieldCount} fields</span>
         </div>
       `;
@@ -6476,18 +6493,28 @@ class EODataWorkbench {
         `;
       }).join('');
 
+      // Generate meaning health indicator HTML
+      const meaningHealthHtml = fieldCount > 0 ? `
+        <span class="meaning-health-badge ${meaningStatus}"
+              title="Meaning: ${fieldsWithMeaning} of ${fieldCount} fields have semantic definitions${meaningStatus === 'low' ? '. Consider adding definitions to make your data more reusable.' : ''}">
+          <i class="ph ph-book-open"></i>
+          ${fieldsWithMeaning}/${fieldCount}
+        </span>
+      ` : '';
+
       return `
         <div class="set-item-container nested-set ${isSetExpanded ? 'expanded' : ''}"
              data-set-id="${set.id}" data-project-id="${projectId}">
           <div class="set-item-header ${isActiveSet && !this.showingSetFields ? 'active' : ''}"
                data-set-id="${set.id}"
-               title="${derivation.description}\n${fieldCount} fields · ${recordCount} records">
+               title="${derivation.description}\n${fieldCount} fields · ${recordCount} records · Meaning: ${fieldsWithMeaning}/${fieldCount}">
             <div class="set-item-expand">
               <i class="ph ph-caret-right"></i>
             </div>
             ${operatorBadge}
             <i class="set-item-icon ${set.icon || 'ph ph-table'}"></i>
             <span class="set-item-name">${this._escapeHtml(set.name)}</span>
+            ${meaningHealthHtml}
             <span class="set-item-count">${recordCount}</span>
             <span class="epistemic-mini-badge schema-mini">SCHEMA</span>
           </div>
@@ -6529,6 +6556,7 @@ class EODataWorkbench {
     const definitionsListHtml = definitions.map(def => {
       const isActive = this.currentDefinitionId === def.id;
       const termCount = def.terms?.length || def.properties?.length || 0;
+      const isLocal = !def.sourceUri;
 
       // Find which fields in project sets use this definition
       const linkedFields = this._getDefinitionLinkedFields(def, projectSets);
@@ -6542,15 +6570,24 @@ class EODataWorkbench {
            </div>`
         : '';
 
+      // Local-only indicator
+      const localWarningHtml = isLocal
+        ? `<span class="definition-local-badge" title="This definition has no URI. It works locally but won't carry meaning outside this project.">
+             <i class="ph ph-warning-circle"></i>
+           </span>`
+        : `<span class="definition-uri-badge" title="Linked to external URI">
+             <i class="ph ph-link"></i>
+           </span>`;
+
       return `
-        <div class="nested-nav-item definition-nested-item ${isActive ? 'active' : ''}"
+        <div class="nested-nav-item definition-nested-item ${isActive ? 'active' : ''} ${isLocal ? 'local-only' : ''}"
              data-definition-id="${def.id}"
              data-project-id="${projectId}"
-             title="${this._escapeHtml(def.name)}">
+             title="${this._escapeHtml(def.name)}${isLocal ? ' (local only — no URI)' : ''}">
           <i class="ph ph-book-open"></i>
-          <span class="nested-item-name">${this._escapeHtml(this._truncateName(def.name, 20))}</span>
-          <span class="nested-item-count">${termCount} terms</span>
-          <span class="epistemic-mini-badge meant-mini">MEANT</span>
+          <span class="nested-item-name">${this._escapeHtml(this._truncateName(def.name, 18))}</span>
+          ${localWarningHtml}
+          <span class="nested-item-count">${termCount}</span>
           ${linkedFieldsHtml}
         </div>
       `;
@@ -6559,10 +6596,11 @@ class EODataWorkbench {
     return `
       <div class="project-section definitions-section ${isExpanded ? 'expanded' : ''}"
            data-section="definitions" data-project-id="${projectId}">
-        <div class="project-section-header" data-section="definitions" data-project-id="${projectId}">
+        <div class="project-section-header" data-section="definitions" data-project-id="${projectId}"
+             title="Meaning: Vocabularies that define what your data means">
           <i class="ph ph-caret-right section-expand-icon"></i>
           <i class="ph ph-book-open section-icon"></i>
-          <span class="section-title">Definitions</span>
+          <span class="section-title">Meaning</span>
           <span class="section-badge dictionary-badge">MEANT</span>
           <span class="section-count">${definitions.length}</span>
         </div>
@@ -8577,43 +8615,73 @@ class EODataWorkbench {
     const uniqueTypes = this._getUniqueTermTypes(terms);
     const termLinkages = this._getTermSetLinkages(definition);
     const linkedSets = this._getLinkedSetsForDefinition(definition);
+    const linkedSetsArray = Array.from(linkedSets.values());
+    const isLocal = !definition.sourceUri;
 
     contentArea.innerHTML = `
-      <div class="definition-detail-view">
-        <div class="definition-detail-header">
-          <div class="definition-detail-title">
-            <i class="ph ${this._getDefinitionIcon(definition)}"></i>
-            <h2>${this._escapeHtml(definition.name)}</h2>
-            ${definition.sourceUri ? `<a href="${this._escapeHtml(definition.sourceUri)}" target="_blank" class="definition-uri-link" title="Open source URI">
-              <i class="ph ph-arrow-square-out"></i>
-            </a>` : ''}
-          </div>
-          <div class="definition-detail-meta">
-            ${definition.description ? `<p class="definition-description">${this._escapeHtml(definition.description)}</p>` : ''}
-            <div class="definition-meta-row">
-              <span class="definition-meta-item">
-                <i class="ph ph-calendar"></i> Imported: ${importDate}
-              </span>
-              ${definition.sourceUri ? `<span class="definition-meta-item">
-                <i class="ph ph-link"></i> ${this._escapeHtml(this._truncateName(definition.sourceUri, 50))}
-              </span>` : ''}
-              <span class="definition-meta-item">
-                <i class="ph ph-list-numbers"></i> ${terms.length} term${terms.length !== 1 ? 's' : ''}
-              </span>
+      <div class="definition-detail-view glossary-style">
+        <!-- Glossary Header -->
+        <div class="definition-glossary-header">
+          <div class="glossary-icon-title">
+            <div class="glossary-icon">
+              <i class="ph ${this._getDefinitionIcon(definition)}"></i>
+            </div>
+            <div class="glossary-title-area">
+              <h2>${this._escapeHtml(definition.name)}</h2>
+              ${definition.sourceUri ? `
+                <div class="glossary-uri">
+                  <i class="ph ph-globe"></i>
+                  <a href="${this._escapeHtml(definition.sourceUri)}" target="_blank" class="definition-uri-link">
+                    ${this._escapeHtml(definition.sourceUri)}
+                  </a>
+                </div>
+              ` : `
+                <div class="glossary-uri local-warning">
+                  <i class="ph ph-warning-circle"></i>
+                  <span class="local-only-text">Local only — no URI defined</span>
+                  <span class="local-hint">This definition works locally but won't carry meaning outside this project.</span>
+                </div>
+              `}
             </div>
           </div>
-          <div class="definition-detail-actions">
-            <button class="btn btn-secondary" id="btn-refresh-definition" title="Refresh from URI">
+          <div class="glossary-actions">
+            <button class="btn btn-secondary" id="btn-refresh-definition" title="Refresh from URI" ${isLocal ? 'disabled' : ''}>
               <i class="ph ph-arrows-clockwise"></i> Refresh
             </button>
             <button class="btn btn-secondary" id="btn-apply-definition" title="Apply to keys">
-              <i class="ph ph-arrow-right"></i> Apply to Keys
+              <i class="ph ph-arrow-right"></i> Apply
             </button>
             <button class="btn btn-secondary btn-danger" id="btn-delete-definition" title="Delete definition">
               <i class="ph ph-trash"></i>
             </button>
           </div>
         </div>
+
+        <!-- Purpose Section (Glossary-style) -->
+        <div class="glossary-section purpose-section">
+          <h3><i class="ph ph-info"></i> Purpose</h3>
+          <p class="purpose-text">${this._escapeHtml(definition.description || 'Defines vocabulary terms that can be applied to data fields for semantic meaning.')}</p>
+        </div>
+
+        <!-- Used By Section -->
+        ${linkedSetsArray.length > 0 ? `
+          <div class="glossary-section used-by-section">
+            <h3><i class="ph ph-check-circle"></i> Used by</h3>
+            <div class="used-by-list">
+              ${linkedSetsArray.map(({ set, fields }) => fields.map(f => `
+                <span class="used-by-item" title="${this._escapeHtml(set.name)}.${this._escapeHtml(f.fieldName)} → ${this._escapeHtml(definition.name)}">
+                  <i class="ph ph-check"></i>
+                  <span class="set-name">${this._escapeHtml(set.name)}</span>.<span class="field-name">${this._escapeHtml(f.fieldName)}</span>
+                </span>
+              `).join('')).join('')}
+            </div>
+          </div>
+        ` : `
+          <div class="glossary-section used-by-section unused">
+            <h3><i class="ph ph-minus-circle"></i> Used by</h3>
+            <p class="not-used-text">This definition is not yet linked to any fields. Use "Apply" to bind terms to columns.</p>
+          </div>
+        `}
 
         ${defSource ? this._renderDefinitionSourceSection(defSource) : ''}
 
@@ -9423,12 +9491,23 @@ class EODataWorkbench {
           <div class="form-group">
             <label for="definition-name" class="form-label">Definition Name</label>
             <input type="text" id="definition-name" class="form-input"
-                   placeholder="My Custom Schema">
+                   placeholder="Case Status">
           </div>
           <div class="form-group">
-            <label for="definition-description" class="form-label">Description (optional)</label>
+            <label for="definition-description" class="form-label">Purpose / Description</label>
             <textarea id="definition-description" class="form-input" rows="2"
-                      placeholder="Describe what this definition is for"></textarea>
+                      placeholder="Describes what this vocabulary defines..."></textarea>
+          </div>
+          <div class="form-group">
+            <label for="definition-custom-uri" class="form-label">
+              URI <span class="optional-label">(optional)</span>
+            </label>
+            <input type="url" id="definition-custom-uri" class="form-input"
+                   placeholder="https://yoursite.com/vocab/case_status">
+            <div class="uri-nudge-hint">
+              <i class="ph ph-lightbulb"></i>
+              <span>Definitions with URIs travel better — exports, APIs, and collaborators can understand them without asking you.</span>
+            </div>
           </div>
         </div>
       </div>
@@ -9468,8 +9547,9 @@ class EODataWorkbench {
       } else {
         const name = document.getElementById('definition-name')?.value?.trim();
         const description = document.getElementById('definition-description')?.value?.trim();
+        const customUri = document.getElementById('definition-custom-uri')?.value?.trim();
         if (name) {
-          this._createManualDefinition(name, description);
+          this._createManualDefinition(name, description, customUri);
         } else {
           this._showNotification('Please enter a name', 'error');
         }
@@ -10060,12 +10140,12 @@ class EODataWorkbench {
   /**
    * Create a manual definition (no URI import)
    */
-  _createManualDefinition(name, description = '') {
+  _createManualDefinition(name, description = '', customUri = '') {
     const definition = {
       id: `def_${Date.now()}`,
       name: name,
       description: description,
-      sourceUri: null,
+      sourceUri: customUri || null,
       format: 'manual',
       importedAt: new Date().toISOString(),
       status: 'active',
@@ -10076,7 +10156,13 @@ class EODataWorkbench {
     this._saveData();
     this._renderDefinitionsNav();
     this._showDefinitionDetail(definition.id);
-    this._showNotification(`Created definition: ${name}`, 'success');
+
+    // Show appropriate notification based on whether URI was provided
+    if (customUri) {
+      this._showNotification(`Created definition: ${name} (linked to URI)`, 'success');
+    } else {
+      this._showNotification(`Created local definition: ${name}`, 'success');
+    }
   }
 
   /**

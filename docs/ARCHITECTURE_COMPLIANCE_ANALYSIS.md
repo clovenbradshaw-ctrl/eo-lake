@@ -298,19 +298,19 @@ class ViewConfig {
 
 ---
 
-### 8. Sidebar Structure Must Include Definitions
+### 8. Sidebar Structure Must Include Definitions (now "Meaning")
 
 **Current (eo_data_workbench.js / index.html):**
 ```
 PROJECTS (ORG)
 SOURCES (GIVEN)
-DEFINITIONS (TERMS) ← Exists but may need alignment
+MEANING (Definitions) ← Renamed to clarify semantic role
 SETS (SCHEMA)
   └─ Set → Lens (View Types) → ...
 EXPORTS (SNAPSHOT)
 ```
 
-**Required (per CORE_ARCHITECTURE.md):**
+**Implementation (per CORE_ARCHITECTURE.md):**
 ```
 📁 Wallace Studios Investigation
 
@@ -318,24 +318,26 @@ EXPORTS (SNAPSHOT)
 ├─ 📄 wallace_evictions.csv (33 rows)
 └─ ✏️ My Tasks (null source)
 
-📖 DEFINITIONS (TERMS)
-├─ 🌐 Wikidata Entities (linked)
-├─ 📐 QUDT Units (linked)
-├─ 📋 Eviction Status (custom, linked)
-└─ 📋 My Tags (custom, local) ⚠️
+📖 MEANING (Definitions)
+├─ 🌐 Wikidata Entities 🔗
+├─ 📐 QUDT Units 🔗
+├─ 📋 Eviction Status 🔗
+└─ 📋 My Tags ⚠️ (local only)
 
 📦 SETS (SCHEMA)
-├─ Evictions (180 records)
-│   └─ 4 bindings: 🌐🌐📋📐
-└─ Properties (12 records)
+├─ Evictions (180 records) 📖 4/6
+│   └─ Meaning: plaintiff 🌐, status 📋, amount 📐
+└─ Properties (12 records) 📖 2/4
     └─ 🔷 All Properties (default lens)
         └─ 👁 Grid (view)
 ```
 
-**Key additions:**
-- Show binding indicators on Sets (🌐📋📐)
-- Flag Definitions without URIs (⚠️)
-- Distinguish external vs custom Definitions
+**Implemented features:**
+- ✅ Renamed section to "Meaning" to clarify role
+- ✅ Meaning coverage indicator per Set (📖 X/Y)
+- ✅ URI link badge (🔗) vs local warning (⚠️)
+- ✅ Soft nudge for URIs in definition creation
+- ✅ Glossary-style definition detail view
 
 **Files to modify:**
 - `index.html` - Sidebar panel structure

@@ -350,14 +350,17 @@ When typing a field name that matches a known term:
 ### Sidebar Display
 
 ```
-📖 DEFINITIONS (TERMS)
-├─ 🌐 Wikidata Entities (linked)
-├─ 📐 QUDT Units (linked)
-├─ ⚖️ Schema.org Types (linked)
-├─ 📋 Eviction Status (custom, linked)
-└─ 📋 My Status Codes (custom, local) ⚠️
-                                    └── no URI
+📖 MEANING (Definitions)
+├─ 🌐 Wikidata Entities 🔗
+├─ 📐 QUDT Units 🔗
+├─ ⚖️ Schema.org Types 🔗
+├─ 📋 Eviction Status 🔗
+└─ 📋 My Status Codes ⚠️ (local only — no URI)
 ```
+
+**Key Visual Indicators:**
+- 🔗 = Linked to external URI (preferred)
+- ⚠️ = Local only — works here but won't carry meaning elsewhere
 
 ---
 
@@ -735,20 +738,20 @@ Edits propagate back to Source
 ├─ 🔗 CaseLink sync (147 rows)
 └─ ✏️ Notes (12 rows)
 
-📖 DEFINITIONS (TERMS)
-├─ 🌐 Wikidata Entities
-├─ 📐 QUDT Units
-├─ ⚖️ Schema.org Types
-├─ 📋 Eviction Status (custom, linked)
-└─ 📋 My Tags (custom, local) ⚠️
+📖 MEANING (Definitions)
+├─ 🌐 Wikidata Entities 🔗
+├─ 📐 QUDT Units 🔗
+├─ ⚖️ Schema.org Types 🔗
+├─ 📋 Eviction Status 🔗
+└─ 📋 My Tags ⚠️ (local)
 
 📦 SETS (SCHEMA)
-├─ Evictions (180 records)
-│   └─ 4 bindings: 🌐🌐📋📐
-├─ Properties (12 records)
-│   └─ 2 bindings: 🌐📐
-└─ Notes (12 records)
-    └─ 0 bindings
+├─ Evictions (180 records) 📖 4/6
+│   └─ Meaning: plaintiff 🌐, status 📋, amount 📐
+├─ Properties (12 records) 📖 2/4
+│   └─ Meaning: address 🌐, value 📐
+└─ Notes (12 records) 📖 0/3
+    └─ No bindings yet
 
 🔷 LENSES (DATA SLICE)
 ├─ All Evictions (default)
@@ -773,14 +776,14 @@ Or nested by relationship:
 ├─ 📄 wallace_evictions.csv
 └─ 🔗 CaseLink sync
 
-📖 DEFINITIONS (TERMS)
-├─ 🌐 Wikidata
-├─ 📐 QUDT
-└─ 📋 Eviction Status
+📖 MEANING (Definitions)
+├─ 🌐 Wikidata 🔗
+├─ 📐 QUDT 🔗
+└─ 📋 Eviction Status 🔗
 
 📦 SETS (SCHEMA)
-├─ Evictions (180 records)
-│   ├─ Bindings: plaintiff 🌐, status 📋, amount 📐
+├─ Evictions (180 records) 📖 4/6
+│   ├─ Meaning: plaintiff 🌐, status 📋, amount 📐
 │   ├─ 🔷 All Evictions (default)
 │   │   ├─ 👁 Grid
 │   │   └─ 👁 Kanban

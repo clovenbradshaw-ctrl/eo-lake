@@ -1177,6 +1177,58 @@ html, body {
   color: var(--accent-green, #22C55E);
 }
 
+/* Meaning Health Badge (shows semantic binding coverage per Set) */
+.meaning-health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-weight: 500;
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 4px;
+}
+
+.meaning-health-badge i {
+  font-size: 10px;
+}
+
+.meaning-health-badge.complete {
+  background: var(--accent-green-bg, rgba(34, 197, 94, 0.15));
+  color: var(--accent-green, #22C55E);
+}
+
+.meaning-health-badge.partial {
+  background: var(--accent-yellow-bg, rgba(234, 179, 8, 0.15));
+  color: var(--accent-yellow, #EAB308);
+}
+
+.meaning-health-badge.low {
+  background: var(--accent-orange-bg, rgba(249, 115, 22, 0.1));
+  color: var(--accent-orange, #F97316);
+}
+
+/* Schema Item Content (shows structure + bindings info) */
+.schema-item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.schema-item-label {
+  font-size: 12px;
+}
+
+.schema-bindings-hint {
+  font-size: 9px;
+  color: var(--accent-purple, #8B5CF6);
+  opacity: 0.8;
+}
+
 /* Definition Linked Fields (shows field→definition mappings) */
 .definition-linked-fields {
   display: flex;
@@ -1200,6 +1252,32 @@ html, body {
 .linked-field-badge:hover {
   background: var(--bg-hover);
   color: var(--text-secondary);
+}
+
+/* Definition Local/URI Badge (sidebar indicators) */
+.definition-local-badge,
+.definition-uri-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  margin-right: 4px;
+  font-size: 12px;
+}
+
+.definition-uri-badge {
+  color: var(--accent-green, #22C55E);
+}
+
+.definition-local-badge {
+  color: var(--accent-orange, #F97316);
+}
+
+.definition-nested-item.local-only {
+  opacity: 0.85;
+}
+
+.definition-nested-item.local-only:hover {
+  opacity: 1;
 }
 
 /* Nested Set Item in project tree */
@@ -14564,6 +14642,160 @@ body.has-picked-up .browser-tab:hover {
   overflow: hidden;
 }
 
+/* Glossary-Style Definition Detail View */
+.definition-detail-view.glossary-style {
+  max-width: 900px;
+}
+
+.definition-glossary-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 24px;
+}
+
+.glossary-icon-title {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.glossary-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: rgba(168, 85, 247, 0.15);
+  color: rgb(168, 85, 247);
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.glossary-title-area h2 {
+  margin: 0 0 8px 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.glossary-uri {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.glossary-uri i {
+  font-size: 14px;
+}
+
+.glossary-uri a {
+  color: var(--primary-500);
+  word-break: break-all;
+}
+
+.glossary-uri.local-warning {
+  flex-wrap: wrap;
+  color: var(--accent-orange, #F97316);
+}
+
+.glossary-uri.local-warning .local-only-text {
+  font-weight: 500;
+}
+
+.glossary-uri.local-warning .local-hint {
+  flex-basis: 100%;
+  padding-left: 22px;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.glossary-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Glossary Sections */
+.glossary-section {
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+}
+
+.glossary-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.glossary-section h3 i {
+  color: var(--text-muted);
+}
+
+.purpose-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Used By Section */
+.used-by-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.used-by-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius);
+  font-size: 13px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-secondary);
+}
+
+.used-by-item i {
+  color: var(--accent-green, #22C55E);
+  font-size: 12px;
+}
+
+.used-by-item .set-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.used-by-item .field-name {
+  color: var(--accent-purple, #8B5CF6);
+}
+
+.used-by-section.unused h3 {
+  color: var(--text-muted);
+}
+
+.not-used-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 .definition-terms-table .data-table {
   width: 100%;
   border-collapse: collapse;
@@ -14987,6 +15219,38 @@ body.has-picked-up .browser-tab:hover {
   font-size: 12px;
   color: var(--text-muted);
   margin-top: 8px;
+}
+
+/* Optional label for form fields */
+.optional-label {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+/* URI soft nudge hint */
+.uri-nudge-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: rgba(168, 85, 247, 0.08);
+  border-radius: var(--radius);
+  border-left: 3px solid rgba(168, 85, 247, 0.4);
+}
+
+.uri-nudge-hint i {
+  font-size: 16px;
+  color: var(--accent-purple, #8B5CF6);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.uri-nudge-hint span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 
 .checkbox-list {
