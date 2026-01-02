@@ -596,6 +596,20 @@ class EODataWorkbench {
       shortcuts: { singleton: true, label: 'Shortcuts', icon: 'ph-keyboard' },
       newTab: { singleton: true, label: 'New Tab', icon: 'ph-plus' }
     };
+
+    // Panel tab types - for set detail view panels (overview, fields, source, etc.)
+    this.panelTabTypes = {
+      overview: { id: 'overview', label: 'Overview', icon: 'ph-chart-bar', singleton: true },
+      source: { id: 'source', label: 'Source', icon: 'ph-file-csv', singleton: true },
+      transforms: { id: 'transforms', label: 'Transforms', icon: 'ph-shuffle', singleton: true },
+      fields: { id: 'fields', label: 'Fields', icon: 'ph-list-checks', singleton: true },
+      exports: { id: 'exports', label: 'Exports', icon: 'ph-export', singleton: true },
+      lenses: { id: 'lenses', label: 'Lenses', icon: 'ph-funnel', singleton: true },
+      recordTypes: { id: 'recordTypes', label: 'Record Types', icon: 'ph-stack', singleton: true }
+    };
+
+    // Panel tab history for "reopen tab" feature
+    this.panelTabHistory = [];
   }
 
   // --------------------------------------------------------------------------
