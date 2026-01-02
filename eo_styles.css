@@ -33745,7 +33745,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 
 .rm-option-sql-hint {
   margin-top: 6px;
-  display: none;
 }
 
 .rm-option-sql-hint code {
@@ -33755,11 +33754,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
   padding: 2px 6px;
   border-radius: 3px;
   color: var(--accent-color);
-}
-
-.rm-option.selected .rm-option-sql-hint,
-.rm-option:hover .rm-option-sql-hint {
-  display: block;
 }
 
 .rm-panel-prompt {
@@ -33840,12 +33834,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
   color: var(--text-muted);
   margin-top: 4px;
   line-height: 1.4;
-  display: none;
-}
-
-.rm-option.selected .rm-option-details,
-.rm-option:hover .rm-option-details {
-  display: block;
 }
 
 .rm-option-tag {
