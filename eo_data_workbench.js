@@ -3101,59 +3101,205 @@ class EODataWorkbench {
   }
 
   _saveData() {
-    try {
-      // When using lazy loading, merge loaded records back into full set data
-      let setsToSave = this.sets;
-      if (this._useLazyLoading && this._fullSetData) {
-        setsToSave = this._fullSetData.map(fullSet => {
-          const loadedSet = this.sets.find(s => s.id === fullSet.id);
-          if (loadedSet && loadedSet._recordsLoaded) {
-            // Use loaded set data (may have been modified)
-            const { _recordsLoaded, _recordCount, ...cleanSet } = loadedSet;
-            return cleanSet;
-          }
-          return fullSet;
-        });
-        // Also update the full set data cache
-        this._fullSetData = setsToSave;
+    // When using lazy loading, merge loaded records back into full set data
+    let setsToSave = this.sets;
+    if (this._useLazyLoading && this._fullSetData) {
+      setsToSave = this._fullSetData.map(fullSet => {
+        const loadedSet = this.sets.find(s => s.id === fullSet.id);
+        if (loadedSet && loadedSet._recordsLoaded) {
+          // Use loaded set data (may have been modified)
+          const { _recordsLoaded, _recordCount, ...cleanSet } = loadedSet;
+          return cleanSet;
+        }
+        return fullSet;
+      });
+      // Also update the full set data cache
+      this._fullSetData = setsToSave;
+    }
+
+    // Serialize projects (strip helper methods)
+    const projectsToSave = (this.projects || []).map(p => {
+      const { getItemCount, ...cleanProject } = p;
+      return cleanProject;
+    });
+
+    // Prepare data with configurable trimming levels for quota management
+    const prepareDataForSave = (trimLevel = 0) => {
+      // Progressive trimming based on level:
+      // 0: No trimming (full data)
+      // 1: Reduce activity log to 100, clear recently closed tabs
+      // 2: Reduce activity log to 50, clear tossed items older than 1 day
+      // 3: Reduce activity log to 20, clear all tossed items
+      // 4: Clear activity log entirely, minimal data only
+
+      let activityLogToSave = this.activityLog || [];
+      let tossedItemsToSave = this.tossedItems || [];
+      let recentlyClosedToSave = this.recentlyClosedTabs || [];
+
+      if (trimLevel >= 1) {
+        activityLogToSave = activityLogToSave.slice(0, 100);
+        recentlyClosedToSave = [];
+      }
+      if (trimLevel >= 2) {
+        activityLogToSave = activityLogToSave.slice(0, 50);
+        const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+        tossedItemsToSave = tossedItemsToSave.filter(item =>
+          item.tossedAt && new Date(item.tossedAt).getTime() > oneDayAgo
+        );
+      }
+      if (trimLevel >= 3) {
+        activityLogToSave = activityLogToSave.slice(0, 20);
+        tossedItemsToSave = [];
+      }
+      if (trimLevel >= 4) {
+        activityLogToSave = [];
       }
 
-      // Serialize projects (strip helper methods)
-      const projectsToSave = (this.projects || []).map(p => {
-        const { getItemCount, ...cleanProject } = p;
-        return cleanProject;
-      });
-
-      localStorage.setItem('eo_lake_data', JSON.stringify({
-        projects: projectsToSave, // Save projects (super objects)
-        currentProjectId: this.currentProjectId, // Save current project selection
-        sources: this.sources || [], // CRITICAL: Save sources for import functionality
-        definitions: this.definitions || [], // Save definition schemas
-        exports: this.exports || [], // Save exports (frozen captures)
+      return {
+        projects: projectsToSave,
+        currentProjectId: this.currentProjectId,
+        sources: this.sources || [],
+        definitions: this.definitions || [],
+        exports: this.exports || [],
         sets: setsToSave,
         currentSetId: this.currentSetId,
         currentViewId: this.currentViewId,
         lastViewPerSet: this.lastViewPerSet,
-        tossedItems: this.tossedItems || [], // Save tossed items for recovery
-        activityLog: this.activityLog || [], // Save activity log for activity stream
-        browserTabs: this.browserTabs || [], // Save browser tabs (persistent tabs)
-        activeTabId: this.activeTabId, // Save active tab ID
-        recentlyClosedTabs: this.recentlyClosedTabs || [] // Save recently closed tabs
-      }));
+        tossedItems: tossedItemsToSave,
+        activityLog: activityLogToSave,
+        browserTabs: this.browserTabs || [],
+        activeTabId: this.activeTabId,
+        recentlyClosedTabs: recentlyClosedToSave
+      };
+    };
 
-      // Also create EO events if connected
-      if (this.eoApp) {
-        this._createEOEvent('data_saved', { timestamp: new Date().toISOString() });
-      }
+    // Try saving with progressive data trimming on quota errors
+    let lastError = null;
+    for (let trimLevel = 0; trimLevel <= 4; trimLevel++) {
+      try {
+        const dataToSave = prepareDataForSave(trimLevel);
+        localStorage.setItem('eo_lake_data', JSON.stringify(dataToSave));
 
-      // Update last saved time
-      const lastSaved = document.querySelector('#last-saved span:last-child');
-      if (lastSaved) {
-        lastSaved.textContent = 'Just now';
+        // If we had to trim data, update our in-memory state to match
+        if (trimLevel > 0) {
+          if (trimLevel >= 1) {
+            this.activityLog = dataToSave.activityLog;
+            this.recentlyClosedTabs = dataToSave.recentlyClosedTabs;
+          }
+          if (trimLevel >= 2) {
+            this.tossedItems = dataToSave.tossedItems;
+          }
+          // Show warning to user that data was trimmed
+          this._showStorageWarning(trimLevel);
+        }
+
+        // Also create EO events if connected
+        if (this.eoApp) {
+          this._createEOEvent('data_saved', { timestamp: new Date().toISOString() });
+        }
+
+        // Update last saved time
+        const lastSaved = document.querySelector('#last-saved span:last-child');
+        if (lastSaved) {
+          lastSaved.textContent = trimLevel > 0 ? 'Just now (trimmed)' : 'Just now';
+        }
+        return; // Success
+      } catch (e) {
+        lastError = e;
+        if (e.name !== 'QuotaExceededError') {
+          // Non-quota error, don't retry
+          console.error('Failed to save data:', e);
+          return;
+        }
+        // QuotaExceededError: try next trim level
       }
-    } catch (e) {
-      console.error('Failed to save data:', e);
     }
+
+    // All trim levels failed
+    console.error('Failed to save data after all trim attempts:', lastError);
+    this._showStorageError();
+  }
+
+  _showStorageWarning(trimLevel) {
+    // Avoid showing too many warnings
+    if (this._lastStorageWarning && Date.now() - this._lastStorageWarning < 30000) {
+      return;
+    }
+    this._lastStorageWarning = Date.now();
+
+    const messages = [
+      '',
+      'Storage space low. Cleared recently closed tabs and trimmed activity history.',
+      'Storage space very low. Cleared old tossed items.',
+      'Storage space critical. Cleared all tossed items.',
+      'Storage space exhausted. Cleared all activity history.'
+    ];
+
+    console.warn('Storage warning:', messages[trimLevel]);
+
+    // Show visual notification
+    this._showNotification(messages[trimLevel], 'warning');
+  }
+
+  _showStorageError() {
+    // Avoid showing too many errors
+    if (this._lastStorageError && Date.now() - this._lastStorageError < 60000) {
+      return;
+    }
+    this._lastStorageError = Date.now();
+
+    console.error('Storage quota exceeded. Unable to save data. Consider exporting your data or clearing browser storage.');
+    this._showNotification('Storage full. Unable to save. Please export your data or clear browser storage.', 'error');
+  }
+
+  _showNotification(message, type = 'info') {
+    // Create notification element if it doesn't exist
+    let notification = document.getElementById('eo-storage-notification');
+    if (!notification) {
+      notification = document.createElement('div');
+      notification.id = 'eo-storage-notification';
+      notification.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        z-index: 10000;
+        max-width: 400px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        transition: opacity 0.3s ease;
+      `;
+      document.body.appendChild(notification);
+    }
+
+    // Style based on type
+    if (type === 'error') {
+      notification.style.backgroundColor = '#fee2e2';
+      notification.style.color = '#991b1b';
+      notification.style.border = '1px solid #fecaca';
+    } else if (type === 'warning') {
+      notification.style.backgroundColor = '#fef3c7';
+      notification.style.color = '#92400e';
+      notification.style.border = '1px solid #fde68a';
+    } else {
+      notification.style.backgroundColor = '#dbeafe';
+      notification.style.color = '#1e40af';
+      notification.style.border = '1px solid #bfdbfe';
+    }
+
+    notification.textContent = message;
+    notification.style.display = 'block';
+    notification.style.opacity = '1';
+
+    // Auto-hide after delay
+    clearTimeout(this._notificationTimeout);
+    this._notificationTimeout = setTimeout(() => {
+      notification.style.opacity = '0';
+      setTimeout(() => {
+        notification.style.display = 'none';
+      }, 300);
+    }, type === 'error' ? 10000 : 5000);
   }
 
   // --------------------------------------------------------------------------
