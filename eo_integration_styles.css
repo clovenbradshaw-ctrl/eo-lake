@@ -1,0 +1,984 @@
+/**
+ * EO Integration Styles
+ *
+ * Styles for:
+ * - Explanation panels
+ * - Lens inspector
+ * - Superposition indicators
+ * - Restriction modals
+ * - Definition frame toggles
+ */
+
+/* ============================================================================
+   CSS Variables
+   ============================================================================ */
+
+:root {
+  /* EO Operator Colors */
+  --eo-ins-color: #4CAF50;  /* ⊕ Insert - green */
+  --eo-des-color: #2196F3;  /* ⊙ Designate - blue */
+  --eo-seg-color: #FF9800;  /* ⊘ Segment - orange */
+  --eo-con-color: #9C27B0;  /* ⊗ Connect - purple */
+  --eo-syn-color: #00BCD4;  /* ≡ Synthesize - cyan */
+  --eo-alt-color: #795548;  /* Δ Alternate - brown */
+  --eo-sup-color: #E91E63;  /* ∥ Superpose - pink */
+  --eo-rec-color: #607D8B;  /* ← Record - blue-gray */
+  --eo-nul-color: #9E9E9E;  /* ∅ Nullify - gray */
+
+  /* Panel colors */
+  --eo-panel-bg: var(--surface-primary, #1a1a2e);
+  --eo-panel-border: var(--border-subtle, #333);
+  --eo-panel-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.light-theme {
+  --eo-panel-bg: #ffffff;
+  --eo-panel-border: #e0e0e0;
+  --eo-panel-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* ============================================================================
+   Explanation Panel
+   ============================================================================ */
+
+.eo-explanation-panel {
+  background: var(--eo-panel-bg);
+  border: 1px solid var(--eo-panel-border);
+  border-radius: 8px;
+  box-shadow: var(--eo-panel-shadow);
+  min-width: 320px;
+  max-width: 480px;
+  z-index: 1000;
+  font-size: 13px;
+}
+
+.eo-explanation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--eo-panel-border);
+}
+
+.eo-explanation-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.eo-explanation-title i {
+  font-size: 18px;
+  color: var(--accent-primary, #6366f1);
+}
+
+.eo-explanation-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.eo-toggle-advanced {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.eo-toggle-advanced:hover,
+.eo-toggle-advanced.active {
+  opacity: 1;
+  color: var(--accent-primary, #6366f1);
+}
+
+.eo-explanation-body {
+  padding: 16px;
+}
+
+.eo-explanation-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--eo-panel-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.eo-explanation-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+}
+
+.eo-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Simple explanation steps */
+.eo-simple-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eo-simple-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.eo-step-number {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent-primary, #6366f1);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.eo-step-text {
+  padding-top: 2px;
+  line-height: 1.4;
+}
+
+.eo-step-text strong {
+  color: var(--accent-primary, #6366f1);
+}
+
+/* Advanced explanation */
+.eo-advanced-steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.eo-advanced-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--surface-secondary, #252538);
+  border-radius: 6px;
+}
+
+.eo-operator-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: bold;
+  background: var(--accent-primary, #6366f1);
+  color: white;
+}
+
+.eo-operator-name {
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.eo-operator-params {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  font-family: monospace;
+}
+
+.eo-step-arrow {
+  color: var(--text-secondary, #888);
+  font-size: 16px;
+}
+
+.eo-no-transform {
+  color: var(--text-secondary, #888);
+  font-style: italic;
+}
+
+/* Hidden state */
+.hidden {
+  display: none !important;
+}
+
+/* ============================================================================
+   Lineage Panel
+   ============================================================================ */
+
+.eo-lineage-panel .eo-explanation-body {
+  padding: 16px 16px 16px 8px;
+}
+
+.eo-lineage-timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.eo-lineage-event {
+  display: flex;
+  gap: 12px;
+}
+
+.eo-lineage-connector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 24px;
+}
+
+.eo-lineage-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface-secondary, #252538);
+  border: 2px solid var(--eo-panel-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.eo-lineage-event.current .eo-lineage-dot {
+  background: var(--accent-primary, #6366f1);
+  border-color: var(--accent-primary, #6366f1);
+  color: white;
+}
+
+.eo-lineage-line {
+  width: 2px;
+  flex: 1;
+  min-height: 20px;
+  background: var(--eo-panel-border);
+}
+
+.eo-lineage-content {
+  padding-bottom: 16px;
+  flex: 1;
+}
+
+.eo-lineage-action {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.eo-lineage-description {
+  color: var(--text-secondary, #888);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.eo-lineage-timestamp {
+  font-size: 11px;
+  color: var(--text-tertiary, #666);
+  margin-top: 4px;
+}
+
+/* ============================================================================
+   Field Explanation
+   ============================================================================ */
+
+.eo-field-explanation .eo-explanation-body {
+  padding: 16px;
+}
+
+.eo-field-binding {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.eo-field-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.eo-field-meaning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface-secondary, #252538);
+  border-radius: 6px;
+}
+
+.eo-operator-symbol {
+  font-size: 16px;
+  color: var(--eo-des-color);
+}
+
+.eo-field-uri {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+}
+
+.eo-field-uri code {
+  background: var(--surface-secondary, #252538);
+  padding: 2px 6px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.eo-field-description {
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  line-height: 1.4;
+}
+
+.eo-field-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.eo-field-context .label {
+  color: var(--text-secondary, #888);
+}
+
+.eo-field-context .tag {
+  background: var(--surface-secondary, #252538);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.eo-field-unbound {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+  color: var(--text-secondary, #888);
+}
+
+.eo-field-unbound i {
+  font-size: 32px;
+  opacity: 0.5;
+}
+
+/* ============================================================================
+   Lens Inspector
+   ============================================================================ */
+
+.eo-lens-inspector-container {
+  z-index: 1000;
+}
+
+.eo-lens-inspector {
+  background: var(--eo-panel-bg);
+  border: 1px solid var(--eo-panel-border);
+  border-radius: 8px;
+  box-shadow: var(--eo-panel-shadow);
+  min-width: 320px;
+  max-width: 400px;
+}
+
+.eo-lens-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--eo-panel-border);
+}
+
+.eo-lens-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.eo-lens-controls {
+  display: flex;
+  gap: 4px;
+}
+
+.eo-lens-meta {
+  display: flex;
+  gap: 16px;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  border-bottom: 1px solid var(--eo-panel-border);
+}
+
+.eo-lens-type,
+.eo-lens-steps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.eo-lens-pipeline {
+  padding: 16px;
+}
+
+.eo-pipeline-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-secondary, #888);
+}
+
+.eo-pipeline-empty i {
+  font-size: 24px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.eo-pipeline-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eo-pipeline-step {
+  display: flex;
+  gap: 12px;
+}
+
+.eo-step-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 24px;
+}
+
+.eo-step-connector {
+  width: 2px;
+  height: 16px;
+  background: var(--eo-panel-border);
+}
+
+.eo-step-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  flex: 1;
+}
+
+.eo-step-icon {
+  font-size: 14px;
+}
+
+.eo-step-text {
+  font-size: 13px;
+}
+
+/* Advanced pipeline */
+.eo-pipeline-chain {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.eo-chain-summary {
+  text-align: center;
+  padding: 8px;
+  background: var(--surface-secondary, #252538);
+  border-radius: 6px;
+}
+
+.eo-chain-summary code {
+  font-size: 16px;
+  letter-spacing: 4px;
+}
+
+.eo-chain-details {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.eo-chain-step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--surface-secondary, #252538);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.eo-chain-arrow {
+  color: var(--text-secondary, #888);
+}
+
+.eo-lens-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--eo-panel-border);
+}
+
+.eo-lens-actions .btn {
+  flex: 1;
+}
+
+/* ============================================================================
+   Superposition Display
+   ============================================================================ */
+
+.eo-sup-cell {
+  position: relative;
+}
+
+.eo-sup-cell.has-alternates {
+  padding-right: 32px;
+}
+
+.eo-sup-indicator {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px;
+  background: var(--eo-sup-color);
+  color: white;
+  border-radius: 10px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.eo-sup-indicator:hover {
+  transform: translateY(-50%) scale(1.1);
+  box-shadow: 0 2px 8px rgba(233, 30, 99, 0.4);
+}
+
+.eo-sup-symbol {
+  font-weight: bold;
+}
+
+.eo-sup-count {
+  font-weight: 600;
+}
+
+/* Resolution Panel */
+.eo-sup-resolution-container {
+  z-index: 1000;
+}
+
+.eo-sup-resolution-panel {
+  background: var(--eo-panel-bg);
+  border: 1px solid var(--eo-panel-border);
+  border-radius: 8px;
+  box-shadow: var(--eo-panel-shadow);
+  min-width: 320px;
+  max-width: 400px;
+}
+
+.eo-sup-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--eo-panel-border);
+}
+
+.eo-sup-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.eo-sup-title .eo-sup-symbol {
+  font-size: 18px;
+  color: var(--eo-sup-color);
+}
+
+.eo-sup-intro {
+  padding: 12px 16px;
+  color: var(--text-secondary, #888);
+  font-size: 13px;
+}
+
+.eo-sup-values-list {
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eo-sup-value-option {
+  display: flex;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface-secondary, #252538);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  border: 2px solid transparent;
+}
+
+.eo-sup-value-option:hover {
+  background: var(--surface-tertiary, #2a2a40);
+}
+
+.eo-sup-value-option.selected {
+  border-color: var(--accent-primary, #6366f1);
+}
+
+.eo-sup-value-option.selectable {
+  opacity: 1;
+}
+
+.eo-sup-value-radio {
+  padding-top: 2px;
+}
+
+.eo-sup-value-content {
+  flex: 1;
+}
+
+.eo-sup-value-data {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.eo-sup-value-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+}
+
+.eo-sup-source,
+.eo-sup-timestamp,
+.eo-sup-confidence {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.eo-sup-divider {
+  height: 1px;
+  background: var(--eo-panel-border);
+  margin: 16px 0;
+}
+
+.eo-sup-strategies {
+  padding: 0 16px 16px;
+}
+
+.eo-sup-strategies-label {
+  font-size: 12px;
+  color: var(--text-secondary, #888);
+  margin-bottom: 8px;
+}
+
+.eo-sup-resolution-options,
+.eo-sup-strategies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.eo-sup-strategy {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--surface-secondary, #252538);
+  border: 1px solid var(--eo-panel-border);
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.eo-sup-strategy:hover {
+  border-color: var(--accent-primary, #6366f1);
+}
+
+.eo-sup-strategy.active {
+  background: var(--accent-primary, #6366f1);
+  border-color: var(--accent-primary, #6366f1);
+  color: white;
+}
+
+.eo-sup-actions {
+  padding: 12px 16px;
+  border-top: 1px solid var(--eo-panel-border);
+}
+
+.eo-sup-actions .btn {
+  width: 100%;
+}
+
+/* ============================================================================
+   Restriction Modal
+   ============================================================================ */
+
+.eo-restriction-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eo-restriction-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.eo-restriction-content {
+  position: relative;
+  background: var(--eo-panel-bg);
+  border-radius: 12px;
+  box-shadow: var(--eo-panel-shadow);
+  max-width: 480px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.eo-restriction-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--eo-panel-border);
+}
+
+.eo-restriction-header i:first-child {
+  font-size: 24px;
+  color: #ff9800;
+}
+
+.eo-restriction-header h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+}
+
+.eo-restriction-body {
+  padding: 20px;
+}
+
+.eo-restriction-message {
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.eo-restriction-explanation,
+.eo-restriction-suggestion,
+.eo-restriction-learn-more {
+  margin-bottom: 16px;
+}
+
+.eo-restriction-explanation h4,
+.eo-restriction-suggestion h4,
+.eo-restriction-learn-more h4 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary, #888);
+  margin-bottom: 6px;
+}
+
+.eo-restriction-explanation p,
+.eo-restriction-suggestion p,
+.eo-restriction-learn-more p {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary, #888);
+}
+
+.eo-restriction-principle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--surface-secondary, #252538);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.principle-label {
+  color: var(--text-secondary, #888);
+}
+
+.principle-text {
+  font-weight: 500;
+  color: var(--accent-primary, #6366f1);
+}
+
+.eo-restriction-footer {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--eo-panel-border);
+}
+
+.eo-restriction-footer .btn {
+  flex: 1;
+}
+
+/* ============================================================================
+   Definition Frame Selector
+   ============================================================================ */
+
+.eo-frame-selector {
+  padding: 12px 16px;
+  background: var(--surface-secondary, #252538);
+  border-radius: 8px;
+}
+
+.eo-frame-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.eo-frame-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.eo-frame-indicator {
+  opacity: 0.5;
+  cursor: help;
+}
+
+.eo-frame-controls {
+  display: flex;
+  gap: 12px;
+}
+
+.eo-frame-control {
+  flex: 1;
+}
+
+.eo-frame-control-label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  margin-bottom: 4px;
+}
+
+.eo-frame-select {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--surface-primary, #1a1a2e);
+  border: 1px solid var(--eo-panel-border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: inherit;
+}
+
+/* Definition Toggle (inline in header) */
+.eo-frame-toggle-container {
+  margin-left: auto;
+}
+
+.eo-definition-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.eo-toggle-label {
+  color: var(--text-secondary, #888);
+}
+
+.eo-definition-select {
+  padding: 4px 8px;
+  background: var(--surface-secondary, #252538);
+  border: 1px solid var(--eo-panel-border);
+  border-radius: 4px;
+  font-size: 12px;
+  color: inherit;
+}
+
+.eo-toggle-hint {
+  opacity: 0.5;
+  cursor: help;
+}
+
+/* ============================================================================
+   Why Button (in filter panel)
+   ============================================================================ */
+
+.eo-why-btn {
+  margin-left: auto;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.eo-why-btn:hover {
+  opacity: 1;
+  color: var(--accent-primary, #6366f1);
+}
+
+/* Field info button */
+.eo-field-info-btn {
+  transition: opacity 0.2s;
+}
+
+.eo-field-info-btn:hover {
+  opacity: 1 !important;
+  color: var(--accent-primary, #6366f1);
+}
+
+/* Lens inspector button */
+.eo-lens-inspector-btn {
+  margin-left: 8px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+.eo-lens-inspector-btn:hover {
+  opacity: 1;
+  color: var(--accent-primary, #6366f1);
+}
+
+/* ============================================================================
+   Responsive Adjustments
+   ============================================================================ */
+
+@media (max-width: 600px) {
+  .eo-explanation-panel,
+  .eo-lens-inspector,
+  .eo-sup-resolution-panel {
+    position: fixed !important;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    top: auto !important;
+    max-width: 100%;
+    border-radius: 16px 16px 0 0;
+    max-height: 70vh;
+    overflow-y: auto;
+  }
+
+  .eo-restriction-content {
+    width: 95%;
+    max-height: 85vh;
+  }
+
+  .eo-frame-controls {
+    flex-direction: column;
+  }
+}
