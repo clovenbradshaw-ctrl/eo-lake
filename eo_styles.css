@@ -18907,6 +18907,19 @@ body.has-picked-up .browser-tab:hover {
   color: rgb(34, 197, 94);
 }
 
+.def-tree-item-badge.stub {
+  background: rgba(251, 191, 36, 0.15);
+  color: rgb(217, 119, 6);
+}
+
+.def-tree-item.stub-definition {
+  opacity: 0.85;
+}
+
+.def-tree-item.stub-definition .def-tree-item-name {
+  font-style: italic;
+}
+
 .def-tree-item-count {
   font-size: 11px;
   color: var(--text-muted);
@@ -19448,6 +19461,33 @@ body.has-picked-up .browser-tab:hover {
 }
 
 .definition-pending-badge i {
+  font-size: 14px;
+}
+
+.definition-item.stub {
+  background: rgba(251, 191, 36, 0.05);
+}
+
+.definition-item.stub .definition-name {
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.definition-item.stub .definition-meta-inline {
+  color: rgb(217, 119, 6);
+}
+
+.definition-stub-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: rgb(217, 119, 6);
+  font-size: 12px;
+}
+
+.definition-stub-badge i {
   font-size: 14px;
 }
 

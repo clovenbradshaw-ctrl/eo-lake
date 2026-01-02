@@ -9709,6 +9709,9 @@ class EODataWorkbench {
       this.definitions = [];
     }
 
+    // Ensure all keys from project sets have stub definitions
+    this._ensureAllKeysHaveDefinitions();
+
     // Get definitions filtered by current project
     const activeDefinitions = this._getProjectDefinitions();
     const totalDefinitions = this.definitions.filter(d => d.status !== 'archived').length;
@@ -9750,14 +9753,15 @@ class EODataWorkbench {
       const defIcon = this._getDefinitionIcon(definition);
       const importDate = definition.importedAt ? new Date(definition.importedAt).toLocaleDateString() : '';
       const termCount = definition.terms?.length || definition.properties?.length || 0;
-      const sourceLabel = definition.sourceUri ? 'URI' : 'local';
+      const isStub = definition.status === 'stub' || definition.populationMethod === 'pending';
+      const sourceLabel = definition.sourceUri ? 'URI' : (isStub ? 'stub' : 'local');
       const isActive = this.currentDefinitionId === definition.id;
       const isPending = this._isDefinitionPending(definition);
 
       html += `
-        <div class="nav-item definition-item ${isActive ? 'active' : ''} ${isPending ? 'pending' : ''}"
+        <div class="nav-item definition-item ${isActive ? 'active' : ''} ${isPending ? 'pending' : ''} ${isStub ? 'stub' : ''}"
              data-definition-id="${definition.id}"
-             title="${this._escapeHtml(definition.description || definition.name)}${isPending ? ' (Pending approval)' : ''}">
+             title="${this._escapeHtml(definition.description || definition.name)}${isPending ? ' (Pending approval)' : ''}${isStub ? ' (Stub - needs population)' : ''}">
           <i class="ph ${defIcon} definition-icon"></i>
           <div class="definition-info">
             <span class="definition-name">${this._escapeHtml(this._truncateName(definition.name, 20))}</span>
@@ -9766,6 +9770,10 @@ class EODataWorkbench {
           ${isPending ? `
             <span class="definition-pending-badge" title="Pending approval">
               <i class="ph ph-clock"></i>
+            </span>
+          ` : isStub ? `
+            <span class="definition-stub-badge" title="Stub definition - needs population">
+              <i class="ph ph-warning-circle"></i>
             </span>
           ` : `
             <span class="definition-source-badge" title="${sourceLabel === 'URI' ? 'Imported from external URI' : 'Locally created'}">
@@ -16391,6 +16399,9 @@ class EODataWorkbench {
     this.currentSetId = null;
     this.currentDefinitionId = null;
 
+    // Ensure all keys from project sets have stub definitions before displaying
+    this._ensureAllKeysHaveDefinitions();
+
     // Get definitions for current project (filtered by project.definitionIds when a project is selected)
     const activeDefinitions = this._getProjectDefinitions();
 
@@ -16492,14 +16503,16 @@ class EODataWorkbench {
                       ${defs.map(def => {
                         const termCount = def.terms?.length || def.properties?.length || 0;
                         const defIcon = this._getDefinitionIcon(def);
-                        const sourceLabel = def.sourceUri ? 'URI' : 'local';
+                        const isStub = def.status === 'stub' || def.populationMethod === 'pending';
+                        const sourceLabel = def.sourceUri ? 'URI' : (isStub ? 'stub' : 'local');
+                        const badgeClass = def.sourceUri ? 'uri' : (isStub ? 'stub' : 'local');
                         return `
-                          <div class="def-tree-item" data-definition-id="${def.id}">
+                          <div class="def-tree-item${isStub ? ' stub-definition' : ''}" data-definition-id="${def.id}">
                             <div class="def-tree-item-header">
                               <i class="ph ph-caret-right item-expand-icon"></i>
                               <i class="ph ${defIcon} item-type-icon"></i>
                               <span class="def-tree-item-name">${this._escapeHtml(def.name)}</span>
-                              <span class="def-tree-item-badge ${sourceLabel === 'URI' ? 'uri' : 'local'}">${sourceLabel}</span>
+                              <span class="def-tree-item-badge ${badgeClass}">${sourceLabel}</span>
                               <span class="def-tree-item-count">${termCount}</span>
                               <div class="def-tree-item-actions">
                                 <button class="def-tree-action-btn" data-action="view" title="View definition">
@@ -16566,6 +16579,7 @@ class EODataWorkbench {
    */
   _getDefinitionFormatLabel(format) {
     const formatLower = (format || '').toLowerCase();
+    if (formatLower === 'local') return 'Local Keys';
     if (formatLower.includes('jsonld') || formatLower.includes('json-ld')) return 'JSON-LD';
     if (formatLower.includes('csvw') || formatLower.includes('csv')) return 'CSV Schema';
     if (formatLower.includes('rdf')) return 'RDF';
@@ -16579,6 +16593,7 @@ class EODataWorkbench {
    */
   _getDefinitionFormatIcon(formatLabel) {
     switch (formatLabel) {
+      case 'Local Keys': return 'ph-key';
       case 'JSON-LD': return 'ph-brackets-curly';
       case 'CSV Schema': return 'ph-file-csv';
       case 'RDF': return 'ph-graph';
@@ -24853,6 +24868,75 @@ class EODataWorkbench {
     this._renderDefinitionsPanelContent(document.getElementById('panel-tab-content'));
     this._renderDefinitionsNav();
     this._showNotification(`Created definition for "${field.name}"`, 'success');
+  }
+
+  /**
+   * Ensure all keys from all sets in the current project have stub definitions
+   * This auto-creates definitions for fields that don't have semantic bindings
+   * Called when viewing the Definitions tab to ensure all keys appear
+   */
+  _ensureAllKeysHaveDefinitions() {
+    const projectSets = this._getProjectSets();
+    if (!projectSets || projectSets.length === 0) return;
+
+    const project = this.currentProjectId
+      ? this.projects.find(p => p.id === this.currentProjectId)
+      : null;
+
+    let definitionsCreated = 0;
+
+    projectSets.forEach(set => {
+      const fields = set.fields || [];
+      const unboundFields = fields.filter(f => !f.semanticBinding?.definitionId);
+
+      if (unboundFields.length === 0) return;
+
+      // Create individual stub definitions for each unbound field
+      unboundFields.forEach(field => {
+        const timestamp = new Date().toISOString();
+        const definition = {
+          id: `def_stub_${field.id}_${Date.now()}`,
+          name: this._humanizeFieldName(field.name),
+          description: `Stub definition for key "${field.name}" from set "${set.name}"`,
+          sourceUri: null,
+          format: 'local',
+          importedAt: timestamp,
+          status: 'stub',
+          populationMethod: 'pending',
+          sourceSetId: set.id,
+          sourceFieldId: field.id,
+          terms: [{
+            id: `term_${field.id}`,
+            name: field.name,
+            label: this._humanizeFieldName(field.name),
+            type: field.type,
+            description: `Field "${field.name}" from set "${set.name}"`
+          }]
+        };
+
+        // Add the definition
+        this.definitions.push(definition);
+        definitionsCreated++;
+
+        // Bind the field to the definition
+        field.semanticBinding = {
+          definitionId: definition.id,
+          termId: `term_${field.id}`
+        };
+
+        // Add definition to current project if applicable
+        if (project) {
+          if (!project.definitionIds) project.definitionIds = [];
+          if (!project.definitionIds.includes(definition.id)) {
+            project.definitionIds.push(definition.id);
+          }
+        }
+      });
+    });
+
+    if (definitionsCreated > 0) {
+      this._saveData();
+    }
   }
 
   /**
