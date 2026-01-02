@@ -3353,10 +3353,12 @@ class EODataWorkbench {
       });
     }
 
-    // Apply filters
+    // Apply filters (only enabled filters)
     if (view?.config.filters?.length > 0) {
       records = records.filter(record => {
         return view.config.filters.every(filter => {
+          // Skip disabled filters
+          if (filter.enabled === false) return true;
           const value = record.values[filter.fieldId];
           return this._matchesFilter(value, filter);
         });
@@ -14029,26 +14031,71 @@ class EODataWorkbench {
 
   /**
    * Filter source records based on search term
+   * Handles all view modes: unified, split (By Type), and cards
    */
   _filterSourceRecords(source, searchTerm) {
-    const tbody = document.querySelector('.source-data-table tbody');
-    if (!tbody) return;
-
-    const rows = tbody.querySelectorAll('tr');
     const term = searchTerm.toLowerCase();
+    const viewMode = source.sourceViewMode || 'unified';
+    let totalRows = 0;
+    let visibleCount = 0;
 
-    rows.forEach(row => {
-      const text = row.textContent.toLowerCase();
-      row.style.display = term === '' || text.includes(term) ? '' : 'none';
-    });
+    if (viewMode === 'unified') {
+      // Unified view - single table
+      const tbody = document.querySelector('.source-data-table tbody');
+      if (tbody) {
+        const rows = tbody.querySelectorAll('tr');
+        totalRows = rows.length;
+        rows.forEach(row => {
+          const text = row.textContent.toLowerCase();
+          const visible = term === '' || text.includes(term);
+          row.style.display = visible ? '' : 'none';
+          if (visible) visibleCount++;
+        });
+      }
+    } else if (viewMode === 'split') {
+      // Split view (By Type) - multiple tables
+      const tables = document.querySelectorAll('.source-split-table tbody');
+      tables.forEach(tbody => {
+        const rows = tbody.querySelectorAll('tr');
+        totalRows += rows.length;
+        rows.forEach(row => {
+          const text = row.textContent.toLowerCase();
+          const visible = term === '' || text.includes(term);
+          row.style.display = visible ? '' : 'none';
+          if (visible) visibleCount++;
+        });
+      });
 
-    // Update count
-    const visibleCount = Array.from(rows).filter(r => r.style.display !== 'none').length;
+      // Also update section visibility - hide sections with no visible rows
+      document.querySelectorAll('.source-split-table-section').forEach(section => {
+        const tbody = section.querySelector('tbody');
+        if (tbody) {
+          const visibleRows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.style.display !== 'none');
+          section.style.display = visibleRows.length > 0 ? '' : 'none';
+        }
+      });
+    } else if (viewMode === 'cards') {
+      // Cards view - filter type cards by matching records
+      const cards = document.querySelectorAll('.source-type-card');
+      // In cards view, we don't filter individual records, just show/hide based on type name match
+      cards.forEach(card => {
+        const text = card.textContent.toLowerCase();
+        const visible = term === '' || text.includes(term);
+        card.style.display = visible ? '' : 'none';
+        if (visible) {
+          totalRows++;
+          visibleCount++;
+        }
+      });
+    }
+
+    // Update count display
     const countEl = document.querySelector('.source-record-count');
     if (countEl) {
+      const totalRecords = source.recordCount || totalRows;
       countEl.textContent = term
         ? `Showing ${visibleCount} matching records`
-        : `Showing ${rows.length} of ${source.recordCount} records`;
+        : `Showing ${Math.min(totalRows, 100)} of ${totalRecords} records`;
     }
   }
 
@@ -27623,12 +27670,27 @@ class EODataWorkbench {
       });
     }
 
+    // Deduplicate records by ID to prevent rendering the same record multiple times
+    const seenIds = new Set();
+    records = records.filter(record => {
+      if (seenIds.has(record.id)) return false;
+      seenIds.add(record.id);
+      return true;
+    });
+
     // Find grouping field (must be a select field)
     // Check for groupByFieldId (preferred) or kanbanField (legacy)
-    let groupField = set?.fields.find(f => f.type === FieldTypes.SELECT);
-    const groupFieldId = view?.config.groupByFieldId || view?.config.kanbanField;
+    const groupFieldId = view?.config?.groupByFieldId || view?.config?.kanbanField;
+    let groupField = null;
+
+    // First, try to find the explicitly configured grouping field
     if (groupFieldId) {
-      groupField = set?.fields.find(f => f.id === groupFieldId) || groupField;
+      groupField = set?.fields?.find(f => f.id === groupFieldId);
+    }
+
+    // Fallback to first SELECT field if configured field not found
+    if (!groupField) {
+      groupField = set?.fields?.find(f => f.type === FieldTypes.SELECT);
     }
 
     if (!groupField) {
@@ -28089,7 +28151,19 @@ class EODataWorkbench {
         const val = r.values[dateField.id];
         if (!val) return false;
         // Handle both string dates and Date objects
-        const dateValue = typeof val === 'string' ? val : (val instanceof Date ? val.toISOString() : String(val));
+        // Use local date formatting to avoid timezone offset issues
+        let dateValue;
+        if (typeof val === 'string') {
+          dateValue = val;
+        } else if (val instanceof Date) {
+          // Use local date components to avoid UTC conversion offset
+          const y = val.getFullYear();
+          const m = String(val.getMonth() + 1).padStart(2, '0');
+          const d = String(val.getDate()).padStart(2, '0');
+          dateValue = `${y}-${m}-${d}`;
+        } else {
+          dateValue = String(val);
+        }
         return dateValue.startsWith(dateStr);
       });
 
