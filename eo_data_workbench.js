@@ -14576,8 +14576,8 @@ class EODataWorkbench {
     this.currentSetId = null;
     this.currentDefinitionId = null;
 
-    // Get all active definitions
-    const activeDefinitions = (this.definitions || []).filter(d => d.status !== 'archived');
+    // Get definitions for current project (filtered by project.definitionIds when a project is selected)
+    const activeDefinitions = this._getProjectDefinitions();
 
     // Group definitions by format type
     const groupedByFormat = {};
