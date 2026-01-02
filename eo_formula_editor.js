@@ -380,6 +380,9 @@ class EOFormulaEditor {
               <button type="button" class="formula-ref-tab" data-tab="functions">
                 <i class="ph ph-function"></i> Functions
               </button>
+              <button type="button" class="formula-ref-tab" data-tab="guide">
+                <i class="ph ph-book-open"></i> Guide
+              </button>
             </div>
 
             <!-- Fields Tab -->
@@ -402,6 +405,19 @@ class EOFormulaEditor {
               </div>
               <div class="formula-fn-disclosure-list" id="formula-function-list">
                 ${this._renderFunctionDisclosures()}
+              </div>
+            </div>
+
+            <!-- Guide Tab -->
+            <div class="formula-tab-content" data-tab-content="guide">
+              <div class="formula-guide-content" id="formula-guide-content">
+                <div class="formula-guide-placeholder">
+                  <i class="ph ph-book-open" style="font-size: 32px; opacity: 0.5; margin-bottom: 12px;"></i>
+                  <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">Learn about the Noema formula language</p>
+                  <button type="button" class="btn btn-secondary formula-open-guide-btn" onclick="showFormulaExplainer()">
+                    <i class="ph ph-arrow-square-out"></i> Open Full Guide
+                  </button>
+                </div>
               </div>
             </div>
           </div>
