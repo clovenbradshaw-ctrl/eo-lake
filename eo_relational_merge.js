@@ -643,6 +643,14 @@ class RelationalMergeConfig {
     this.decision = decision;
   }
 
+  setLeftSource(source) {
+    this.leftSource = source;
+  }
+
+  setRightSource(source) {
+    this.rightSource = source;
+  }
+
   isComplete() {
     return this.recognition && this.boundary && this.decision;
   }
@@ -1559,14 +1567,17 @@ class RelationalMergeUI {
 
       condEl.querySelector('.rm-condition-left')?.addEventListener('change', (e) => {
         condition.leftField = e.target.value;
+        this._updateNextButtonState();
       });
 
       condEl.querySelector('.rm-condition-operator')?.addEventListener('change', (e) => {
         condition.operator = e.target.value;
+        this._updateNextButtonState();
       });
 
       condEl.querySelector('.rm-condition-right')?.addEventListener('change', (e) => {
         condition.rightField = e.target.value;
+        this._updateNextButtonState();
       });
 
       condEl.querySelector('.rm-condition-remove')?.addEventListener('click', () => {
@@ -1602,6 +1613,14 @@ class RelationalMergeUI {
     this.container.querySelector('#rm-preview-btn')?.addEventListener('click', () => {
       this._showPreview();
     });
+  }
+
+  _updateNextButtonState() {
+    const nextBtn = this.container.querySelector('#rm-next-btn');
+    if (nextBtn) {
+      const canProceed = this._canProceedFromCurrentStep();
+      nextBtn.disabled = !canProceed;
+    }
   }
 
   _goToNextStep() {
