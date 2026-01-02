@@ -4940,8 +4940,8 @@ importStyles.textContent = `
   }
 
   .import-source-tab.active {
-    background: var(--primary);
-    border-color: var(--primary);
+    background: var(--primary-500);
+    border-color: var(--primary-500);
     color: white;
   }
 
