@@ -143,6 +143,64 @@ class EOFormulaEditor {
         functions: [
           { name: 'RECORD_ID', syntax: 'RECORD_ID()', description: 'Current record ID' }
         ]
+      },
+      superposition: {
+        name: 'Superposition',
+        icon: 'ph-git-fork',
+        functions: [
+          // Creation
+          { name: 'SUPERPOSE', syntax: 'SUPERPOSE(value1, value2, [...])', description: 'Hold multiple values without resolution' },
+          { name: 'SUPERPOSE_IF', syntax: 'SUPERPOSE_IF(value1, value2, [...])', description: 'Superpose only if values differ' },
+          { name: 'WEIGHTED', syntax: 'WEIGHTED(value1, weight1, [...])', description: 'Superposition with probabilities' },
+          { name: 'SOURCED', syntax: 'SOURCED(value1, source1, [...])', description: 'Superposition with source attribution' },
+          { name: 'UNCERTAIN', syntax: 'UNCERTAIN(value, uncertainty, [type])', description: 'Measurement with error margin' },
+          { name: 'RANGE_SUP', syntax: 'RANGE_SUP(min, max, [steps])', description: 'Discretized range superposition' },
+          { name: 'SNAPSHOT', syntax: 'SNAPSHOT(superposition, [label])', description: 'Capture superposition state' },
+          // Inspection
+          { name: 'IS_SUPERPOSED', syntax: 'IS_SUPERPOSED(value)', description: 'Check if value is superposed' },
+          { name: 'COUNT_STATES', syntax: 'COUNT_STATES(superposition)', description: 'Count states in superposition' },
+          { name: 'GET_STATES', syntax: 'GET_STATES(superposition)', description: 'Extract all values as array' },
+          { name: 'GET_STATE', syntax: 'GET_STATE(superposition, index)', description: 'Get specific state by index' },
+          { name: 'GET_WEIGHTS', syntax: 'GET_WEIGHTS(superposition)', description: 'Extract weights as array' },
+          { name: 'GET_SOURCES', syntax: 'GET_SOURCES(superposition)', description: 'Extract sources as array' },
+          { name: 'SPREAD', syntax: 'SPREAD(superposition)', description: 'Range of numeric superposition' },
+          { name: 'EXPECTED', syntax: 'EXPECTED(superposition)', description: 'Weighted expected value' },
+          { name: 'PROBABILITY_OF', syntax: 'PROBABILITY_OF(superposition, value)', description: 'Probability of specific value' },
+          { name: 'VARIANCE', syntax: 'VARIANCE(superposition)', description: 'Statistical variance' },
+          { name: 'ENTROPY', syntax: 'ENTROPY(superposition)', description: 'Information entropy in bits' },
+          { name: 'CONFLICT_LEVEL', syntax: 'CONFLICT_LEVEL(superposition)', description: 'Disagreement measure (0-1)' },
+          { name: 'CONSENSUS', syntax: 'CONSENSUS(superposition, threshold)', description: 'Check if spread below threshold' },
+          // Collapse
+          { name: 'COLLAPSE', syntax: 'COLLAPSE(superposition, method)', description: 'Force resolution to single value' },
+          { name: 'COLLAPSE_BY_SOURCE', syntax: 'COLLAPSE_BY_SOURCE(superposition, source)', description: 'Select value by source' },
+          { name: 'COLLAPSE_IF', syntax: 'COLLAPSE_IF(superposition, condition, method)', description: 'Conditional collapse' },
+          { name: 'COLLAPSE_WHEN_SINGLE', syntax: 'COLLAPSE_WHEN_SINGLE(superposition)', description: 'Collapse only if unanimous' },
+          { name: 'COALESCE_SUP', syntax: 'COALESCE_SUP(value1, [...], method)', description: 'First definite value' },
+          { name: 'RESOLVE', syntax: 'RESOLVE(superposition, prompt, [resolver])', description: 'Mark for human resolution' },
+          { name: 'TIMEOUT', syntax: 'TIMEOUT(superposition, duration, method)', description: 'Auto-collapse after time' },
+          // Combination
+          { name: 'UNION_SUP', syntax: 'UNION_SUP(sup1, sup2, [...])', description: 'Combine keeping all unique states' },
+          { name: 'INTERSECT_SUP', syntax: 'INTERSECT_SUP(sup1, sup2, [...])', description: 'Keep common states only' },
+          { name: 'DIFF_SUP', syntax: 'DIFF_SUP(sup1, sup2)', description: 'States in first not in second' },
+          { name: 'PRODUCT_SUP', syntax: 'PRODUCT_SUP(sup1, sup2, [combiner])', description: 'Cartesian product' },
+          { name: 'ZIP_SUP', syntax: 'ZIP_SUP(sup1, sup2, [combiner])', description: 'Pair states by position' },
+          // Propagation
+          { name: 'MAP_SUP', syntax: 'MAP_SUP(superposition, transform)', description: 'Apply function to each state' },
+          { name: 'FILTER_SUP', syntax: 'FILTER_SUP(superposition, predicate)', description: 'Keep matching states' },
+          { name: 'REDUCE_SUP', syntax: 'REDUCE_SUP(superposition, reducer, initial)', description: 'Reduce to single value' },
+          { name: 'PROPAGATE', syntax: 'PROPAGATE(superposition, formula, mode)', description: 'Control flow through formula' },
+          // Stabilization
+          { name: 'HOLD', syntax: 'HOLD(superposition)', description: 'Prevent accidental collapse' },
+          { name: 'DEFER', syntax: 'DEFER(superposition, until)', description: 'Mark for later resolution' },
+          { name: 'REQUIRE_RESOLUTION', syntax: 'REQUIRE_RESOLUTION(superposition, message)', description: 'Mark as blocking' },
+          // Comparison
+          { name: 'COMPARE_SUP', syntax: 'COMPARE_SUP(sup1, sup2)', description: 'Compare for similarity' },
+          { name: 'DIVERGENCE', syntax: 'DIVERGENCE(sup1, sup2, [method])', description: 'Measure difference' },
+          { name: 'OUTLIERS', syntax: 'OUTLIERS(superposition, [threshold])', description: 'Identify statistical outliers' },
+          // Display
+          { name: 'FORMAT_SUP', syntax: 'FORMAT_SUP(superposition, format)', description: 'Format for display' },
+          { name: 'SUMMARIZE_SUP', syntax: 'SUMMARIZE_SUP(superposition)', description: 'Human-readable summary' }
+        ]
       }
     };
 
