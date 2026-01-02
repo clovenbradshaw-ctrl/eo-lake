@@ -8156,6 +8156,8 @@ mark.search-highlight {
   padding: 8px;
   cursor: pointer;
   transition: var(--transition-fast);
+  overflow: hidden;
+  min-width: 0;
 }
 
 .calendar-day:hover {
@@ -8194,6 +8196,8 @@ mark.search-highlight {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* ===== Graph View ===== */
