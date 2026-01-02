@@ -15347,6 +15347,93 @@ body.has-picked-up .browser-tab:hover {
   transition: transform 0.2s ease;
 }
 
+/* ============================================================================
+   Source Type Visual Distinction
+   RSS feeds, API imports, and file uploads have distinct visual styling
+   ============================================================================ */
+
+/* Source type badge - shows FILE, API, or RSS */
+.source-type-badge {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  text-transform: uppercase;
+}
+
+/* GIVEN badge at the end */
+.nav-item-given-badge {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--given-color, #22c55e);
+  color: white;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+/* FILE source type - Blue/teal theme */
+.source-item.source-type-file .source-type-badge {
+  background: var(--primary-100, #dbeafe);
+  color: var(--primary-700, #1d4ed8);
+}
+
+.source-item.source-type-file .source-icon {
+  color: var(--primary-500, #3b82f6);
+}
+
+.source-item.source-type-file {
+  border-left: 3px solid var(--primary-500, #3b82f6);
+}
+
+/* API source type - Purple/violet theme */
+.source-item.source-type-api .source-type-badge {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+.source-item.source-type-api .source-icon {
+  color: #8b5cf6;
+}
+
+.source-item.source-type-api {
+  border-left: 3px solid #8b5cf6;
+}
+
+/* RSS source type - Orange/amber theme */
+.source-item.source-type-rss .source-type-badge {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.source-item.source-type-rss .source-icon {
+  color: #f97316;
+}
+
+.source-item.source-type-rss {
+  border-left: 3px solid #f97316;
+}
+
+/* Active state adjustments for source types */
+.source-item.source-type-api.active {
+  border-color: #8b5cf6;
+  background: #f5f3ff;
+}
+
+.source-item.source-type-rss.active {
+  border-color: #f97316;
+  background: #fff7ed;
+}
+
+.source-item.source-type-file.active {
+  border-color: var(--primary-500, #3b82f6);
+  background: var(--primary-50, #eff6ff);
+}
+
 /* Definition Item Styling */
 .definition-item {
   display: flex;

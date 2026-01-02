@@ -9998,14 +9998,20 @@ class AddSourceToSetUI {
               <p>No sources available</p>
               <span>Import data first to merge into this set</span>
             </div>
-          ` : sources.map(source => `
-            <div class="asts-source-item ${this._selectedSourceId === source.id ? 'selected' : ''}"
+          ` : sources.map(source => {
+            const sourceTypeClass = `asts-source-type-${source.sourceType || 'file'}`;
+            const typeBadgeLabel = source.sourceType === 'rss' ? 'RSS'
+              : source.sourceType === 'api' ? 'API'
+              : 'FILE';
+            return `
+            <div class="asts-source-item ${this._selectedSourceId === source.id ? 'selected' : ''} ${sourceTypeClass}"
                  data-source-id="${source.id}">
               <div class="asts-source-radio">
                 ${this._selectedSourceId === source.id
                   ? '<i class="ph-fill ph-check-circle"></i>'
                   : '<i class="ph ph-circle"></i>'}
               </div>
+              <div class="asts-source-type-badge">${typeBadgeLabel}</div>
               <div class="asts-source-icon">
                 <i class="ph ${this._getSourceIcon(source)}"></i>
               </div>
@@ -10015,7 +10021,7 @@ class AddSourceToSetUI {
               </div>
               <div class="asts-source-badge">GIVEN</div>
             </div>
-          `).join('')}
+          `;}).join('')}
         </div>
 
         <div class="asts-current-set-info">
@@ -11248,6 +11254,52 @@ class AddSourceToSetUI {
         color: var(--success, #00b894);
         border-radius: 4px;
         font-weight: 600;
+      }
+
+      /* Source type badge for visual distinction */
+      .asts-source-type-badge {
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+        padding: 2px 5px;
+        border-radius: 3px;
+        flex-shrink: 0;
+      }
+
+      /* FILE source type - Blue theme */
+      .asts-source-type-file .asts-source-type-badge {
+        background: rgba(59, 130, 246, 0.2);
+        color: #60a5fa;
+      }
+      .asts-source-type-file .asts-source-icon i {
+        color: #3b82f6;
+      }
+      .asts-source-type-file {
+        border-left: 3px solid #3b82f6;
+      }
+
+      /* API source type - Purple theme */
+      .asts-source-type-api .asts-source-type-badge {
+        background: rgba(139, 92, 246, 0.2);
+        color: #a78bfa;
+      }
+      .asts-source-type-api .asts-source-icon i {
+        color: #8b5cf6;
+      }
+      .asts-source-type-api {
+        border-left: 3px solid #8b5cf6;
+      }
+
+      /* RSS source type - Orange theme */
+      .asts-source-type-rss .asts-source-type-badge {
+        background: rgba(249, 115, 22, 0.2);
+        color: #fb923c;
+      }
+      .asts-source-type-rss .asts-source-icon i {
+        color: #f97316;
+      }
+      .asts-source-type-rss {
+        border-left: 3px solid #f97316;
       }
 
       .asts-current-set-info {

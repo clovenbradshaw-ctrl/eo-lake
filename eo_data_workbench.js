@@ -9647,6 +9647,9 @@ class EODataWorkbench {
       const liveSourceClass = isLiveSource ? 'live-source' : '';
       const syncStatus = source.liveSource?.syncStatus || 'fresh';
 
+      // Determine source type class for visual distinction
+      const sourceTypeClass = `source-type-${source.sourceType || 'file'}`;
+
       // Determine live indicator
       let liveIndicator = '';
       if (isLiveSource) {
@@ -9659,18 +9662,21 @@ class EODataWorkbench {
         `;
       }
 
+      // Type badge for visual distinction
+      const typeBadgeLabel = source.sourceType === 'rss' ? 'RSS'
+        : source.sourceType === 'api' ? 'API'
+        : 'FILE';
+
       html += `
-        <div class="nav-item source-item ${liveSourceClass}" data-source-id="${source.id}" title="${provenanceInfo}">
+        <div class="nav-item source-item ${liveSourceClass} ${sourceTypeClass}" data-source-id="${source.id}" title="${provenanceInfo}">
+          <span class="source-type-badge">${typeBadgeLabel}</span>
           <i class="ph ${sourceIcon} source-icon"></i>
           <div class="source-info">
             <span class="source-name">${this._escapeHtml(this._truncateSourceName(source.name))}</span>
             ${isLiveSource ? liveIndicator : `<span class="source-meta-inline">${importDate}</span>`}
           </div>
-          ${isLiveSource
-            ? `<span class="source-provenance-badge live" title="LIVE: Can refresh from ${source.sourceType.toUpperCase()}">↻</span>`
-            : `<span class="source-provenance-badge" title="GIVEN: Immutable import">◉</span>`
-          }
-          <span class="nav-item-count" title="${recordCount} records imported">${recordCount}</span>
+          <span class="nav-item-count" title="${recordCount} rows">${recordCount} rows</span>
+          <span class="nav-item-given-badge">GIVEN</span>
         </div>
       `;
     }
