@@ -23227,6 +23227,8 @@ body.has-picked-up .browser-tab:hover {
   font-size: 13px;
   line-height: 1.6;
   resize: vertical;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 .query-editor:focus {
@@ -23672,8 +23674,15 @@ body.has-picked-up .browser-tab:hover {
   line-height: 1.6;
   white-space: pre-wrap;
   word-wrap: break-word;
-  overflow: hidden;
+  overflow-wrap: break-word;
+  overflow: auto;
   color: transparent;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.query-editor-highlight::-webkit-scrollbar {
+  display: none; /* Chrome/Safari/Opera */
 }
 
 .query-editor.with-highlight {
