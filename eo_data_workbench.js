@@ -31837,8 +31837,9 @@ class EODataWorkbench {
         field.options.defaultCountry = 'US';
         break;
       case FieldTypes.FORMULA:
-        field.options.formula = '';
-        field.options.resultType = 'text';
+        // Use provided options from the formula editor or defaults
+        field.options.formula = options.formula || '';
+        field.options.resultType = options.resultType || 'text';
         break;
       case FieldTypes.ROLLUP:
         field.options.linkedFieldId = null;

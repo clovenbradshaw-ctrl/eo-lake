@@ -246,6 +246,12 @@ class EOFormulaEditor {
    * Internal method to show the modal
    */
   _showModal(title, isEdit) {
+    // Destroy any existing modal immediately to prevent duplicate element IDs
+    if (this.modal) {
+      this.modal.destroy();
+      this.modal = null;
+    }
+
     const set = this.workbench.getCurrentSet();
     const fields = set?.fields || [];
 
@@ -288,9 +294,9 @@ class EOFormulaEditor {
     this.modal.show();
     this._attachEventListeners();
 
-    // Focus the name input
+    // Focus the name input (use modal element for scoped lookup)
     setTimeout(() => {
-      const nameInput = document.getElementById('formula-field-name');
+      const nameInput = this.modal?.element?.querySelector('#formula-field-name');
       if (nameInput) nameInput.focus();
     }, 100);
   }
@@ -679,7 +685,7 @@ class EOFormulaEditor {
    * Insert text at cursor position in formula input
    */
   _insertAtCursor(text) {
-    const textarea = document.getElementById('formula-input');
+    const textarea = this.modal?.element?.querySelector('#formula-input');
     if (!textarea) return;
 
     const start = textarea.selectionStart;
@@ -769,8 +775,9 @@ class EOFormulaEditor {
    * Update formula preview
    */
   _updatePreview() {
-    const formulaInput = document.getElementById('formula-input');
-    const preview = document.getElementById('formula-preview');
+    const modalEl = this.modal?.element;
+    const formulaInput = modalEl?.querySelector('#formula-input');
+    const preview = modalEl?.querySelector('#formula-preview');
     if (!formulaInput || !preview) return;
 
     const formula = formulaInput.value.trim();
@@ -824,11 +831,12 @@ class EOFormulaEditor {
    * Handle save button click
    */
   _handleSave(modal) {
-    const nameInput = document.getElementById('formula-field-name');
-    const formulaInput = document.getElementById('formula-input');
+    const modalEl = modal.element;
+    const nameInput = modalEl?.querySelector('#formula-field-name');
+    const formulaInput = modalEl?.querySelector('#formula-input');
     // Support both new design (hidden input) and old design (radio buttons)
-    const hiddenResultType = document.querySelector('input[name="resultType"][type="hidden"]');
-    const checkedResultType = document.querySelector('input[name="resultType"]:checked');
+    const hiddenResultType = modalEl?.querySelector('input[name="resultType"][type="hidden"]');
+    const checkedResultType = modalEl?.querySelector('input[name="resultType"]:checked');
 
     const name = nameInput?.value?.trim() || '';
     const formula = formulaInput?.value?.trim() || '';
@@ -873,7 +881,7 @@ class EOFormulaEditor {
    * Show error on a field
    */
   _showFieldError(inputId, message) {
-    const input = document.getElementById(inputId);
+    const input = this.modal?.element?.querySelector(`#${inputId}`);
     if (!input) return;
 
     input.classList.add('error');
