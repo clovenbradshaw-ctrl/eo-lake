@@ -686,7 +686,7 @@ class KeySuggestionPanel {
   }
 
   /**
-   * Render a single suggestion item
+   * Render a single suggestion item with all 9 definition fields
    * @param {Object} suggestion - Suggestion object
    * @param {string} sourceId - Source ID
    * @returns {string} - HTML string
@@ -709,36 +709,98 @@ class KeySuggestionPanel {
 
     const roleIcon = roleIcons[def.role] || 'ph-circle';
 
+    // Extract all definition fields
+    const term = def.term || {};
+    const authority = def.authority || {};
+    const source = def.source || {};
+    const version = def.version || {};
+    const validity = def.validity || {};
+    const jurisdiction = def.jurisdiction || {};
+    const status = def.status || suggestion.status || 'stub';
+    const populationMethod = def.populationMethod || 'pending';
+
+    // Build sample values display
+    const samplesHtml = suggestion.sampleValues?.length > 0
+      ? `<span class="def-field-value samples" title="${suggestion.sampleValues.slice(0, 5).join(', ')}">
+           e.g. "${suggestion.sampleValues[0]}"${suggestion.sampleValues.length > 1 ? ` (+${suggestion.sampleValues.length - 1} more)` : ''}
+         </span>`
+      : '';
+
+    // Build jurisdiction display
+    const jurisdictionParts = [];
+    if (jurisdiction.geographic) jurisdictionParts.push(jurisdiction.geographic);
+    if (jurisdiction.programs?.length) jurisdictionParts.push(jurisdiction.programs.join(', '));
+    const jurisdictionText = jurisdictionParts.join(' • ') || '—';
+
+    // Build validity display
+    const validityText = validity.from
+      ? `${validity.from}${validity.to ? ' to ' + validity.to : ' onwards'}`
+      : '—';
+
     return `
-      <div class="suggestion-item" data-field-id="${suggestion.fieldId}" data-source-id="${sourceId}">
-        <div class="item-main">
+      <div class="suggestion-item suggestion-item-expanded" data-field-id="${suggestion.fieldId}" data-source-id="${sourceId}">
+        <div class="item-header-row">
           <div class="item-icon">
             <i class="ph ${roleIcon}"></i>
           </div>
-          <div class="item-content">
-            <div class="item-header">
-              <span class="field-name">${suggestion.fieldName}</span>
-              <span class="confidence ${confidenceClass}">${confidence}%</span>
-            </div>
-            <div class="item-details">
-              <span class="role">${def.role || 'property'}</span>
-              <span class="type">${suggestion.fieldType}</span>
-              ${suggestion.sampleValues?.length > 0 ? `
-                <span class="samples" title="${suggestion.sampleValues.join(', ')}">
-                  e.g. "${suggestion.sampleValues[0]}"
-                </span>
-              ` : ''}
-            </div>
-            <div class="item-description">${def.description || ''}</div>
+          <div class="item-title">
+            <span class="field-name">${suggestion.fieldName}</span>
+            <span class="confidence ${confidenceClass}">${confidence}%</span>
+          </div>
+          <div class="item-actions">
+            <button class="btn-icon btn-approve" title="Approve" data-action="approve" data-field-id="${suggestion.fieldId}" data-source-id="${sourceId}">
+              <i class="ph ph-check"></i>
+            </button>
+            <button class="btn-icon btn-reject" title="Reject" data-action="reject" data-field-id="${suggestion.fieldId}" data-source-id="${sourceId}">
+              <i class="ph ph-x"></i>
+            </button>
           </div>
         </div>
-        <div class="item-actions">
-          <button class="btn-icon btn-approve" title="Approve" data-action="approve" data-field-id="${suggestion.fieldId}" data-source-id="${sourceId}">
-            <i class="ph ph-check"></i>
-          </button>
-          <button class="btn-icon btn-reject" title="Reject" data-action="reject" data-field-id="${suggestion.fieldId}" data-source-id="${sourceId}">
-            <i class="ph ph-x"></i>
-          </button>
+
+        <div class="definition-fields-grid">
+          <!-- Row 1: Role, Type, Samples -->
+          <div class="def-field">
+            <span class="def-field-label">Role</span>
+            <span class="def-field-value role-badge">${def.role || 'property'}</span>
+          </div>
+          <div class="def-field">
+            <span class="def-field-label">Type</span>
+            <span class="def-field-value type-badge">${suggestion.fieldType}</span>
+          </div>
+          <div class="def-field def-field-wide">
+            <span class="def-field-label">Samples</span>
+            ${samplesHtml || '<span class="def-field-value muted">—</span>'}
+          </div>
+
+          <!-- Row 2: Definition Text -->
+          <div class="def-field def-field-full">
+            <span class="def-field-label">Definition</span>
+            <span class="def-field-value definition-text">${term.definitionText || def.description || '<span class="muted">No definition text</span>'}</span>
+          </div>
+
+          <!-- Row 3: Authority, Source Citation -->
+          <div class="def-field">
+            <span class="def-field-label">Authority</span>
+            <span class="def-field-value">${authority.shortName || authority.name || '<span class="muted">—</span>'}</span>
+          </div>
+          <div class="def-field def-field-wide">
+            <span class="def-field-label">Source Citation</span>
+            <span class="def-field-value citation">${source.citation || source.title || '<span class="muted">—</span>'}</span>
+          </div>
+
+          <!-- Row 4: Validity, Jurisdiction, Status -->
+          <div class="def-field">
+            <span class="def-field-label">Validity</span>
+            <span class="def-field-value">${validityText}</span>
+          </div>
+          <div class="def-field">
+            <span class="def-field-label">Jurisdiction</span>
+            <span class="def-field-value">${jurisdictionText}</span>
+          </div>
+          <div class="def-field">
+            <span class="def-field-label">Status</span>
+            <span class="def-field-value status-badge status-${status}">${status}</span>
+          </div>
         </div>
       </div>
     `;
@@ -1103,13 +1165,13 @@ function injectKeySuggestionStyles() {
       padding: 4px 0;
     }
 
-    /* Suggestion Item */
+    /* Suggestion Item - Expanded View */
     .suggestion-item {
       display: flex;
-      align-items: flex-start;
+      flex-direction: column;
       padding: 12px;
-      margin: 4px 0;
-      border-radius: 6px;
+      margin: 8px 0;
+      border-radius: 8px;
       background: var(--bg-primary, #ffffff);
       border: 1px solid var(--border-color, #e5e7eb);
       transition: all 0.2s ease;
@@ -1117,7 +1179,7 @@ function injectKeySuggestionStyles() {
 
     .suggestion-item:hover {
       border-color: var(--primary-color, #3b82f6);
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     }
 
     .suggestion-item.approved-out {
@@ -1144,42 +1206,42 @@ function injectKeySuggestionStyles() {
       }
     }
 
-    .suggestion-item .item-main {
+    /* Header Row */
+    .suggestion-item .item-header-row {
       display: flex;
-      gap: 12px;
-      flex: 1;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border-color, #e5e7eb);
     }
 
     .suggestion-item .item-icon {
-      width: 36px;
-      height: 36px;
+      width: 32px;
+      height: 32px;
       display: flex;
       align-items: center;
       justify-content: center;
-      border-radius: 8px;
+      border-radius: 6px;
       background: var(--bg-secondary, #f3f4f6);
       color: var(--primary-color, #3b82f6);
       flex-shrink: 0;
     }
 
     .suggestion-item .item-icon i {
-      font-size: 18px;
+      font-size: 16px;
     }
 
-    .suggestion-item .item-content {
+    .suggestion-item .item-title {
       flex: 1;
-      min-width: 0;
-    }
-
-    .suggestion-item .item-header {
       display: flex;
       align-items: center;
       gap: 8px;
-      margin-bottom: 4px;
     }
 
     .suggestion-item .field-name {
       font-weight: 600;
+      font-size: 14px;
       color: var(--text-primary, #1f2937);
     }
 
@@ -1205,32 +1267,6 @@ function injectKeySuggestionStyles() {
       color: #6b7280;
     }
 
-    .suggestion-item .item-details {
-      display: flex;
-      gap: 8px;
-      font-size: 12px;
-      color: var(--text-secondary, #6b7280);
-      margin-bottom: 4px;
-    }
-
-    .suggestion-item .item-details span {
-      padding: 2px 6px;
-      background: var(--bg-secondary, #f3f4f6);
-      border-radius: 4px;
-    }
-
-    .suggestion-item .item-details .samples {
-      max-width: 150px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .suggestion-item .item-description {
-      font-size: 12px;
-      color: var(--text-secondary, #6b7280);
-    }
-
     .suggestion-item .item-actions {
       display: flex;
       gap: 4px;
@@ -1251,6 +1287,120 @@ function injectKeySuggestionStyles() {
 
     .suggestion-item .btn-reject:hover {
       background: #fee2e2;
+    }
+
+    /* Definition Fields Grid - 9 fields layout */
+    .definition-fields-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px 12px;
+    }
+
+    .def-field {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .def-field-wide {
+      grid-column: span 2;
+    }
+
+    .def-field-full {
+      grid-column: span 3;
+    }
+
+    .def-field-label {
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary, #6b7280);
+    }
+
+    .def-field-value {
+      font-size: 12px;
+      color: var(--text-primary, #1f2937);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .def-field-value.muted,
+    .def-field-value .muted {
+      color: var(--text-secondary, #9ca3af);
+      font-style: italic;
+    }
+
+    .def-field-value.role-badge,
+    .def-field-value.type-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      background: var(--bg-secondary, #f3f4f6);
+      border-radius: 4px;
+      font-size: 11px;
+      width: fit-content;
+    }
+
+    .def-field-value.samples {
+      background: #fef3c7;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .def-field-value.definition-text {
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .def-field-value.citation {
+      font-family: monospace;
+      font-size: 11px;
+      background: var(--bg-secondary, #f9fafb);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .def-field-value.status-badge {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      width: fit-content;
+    }
+
+    .status-badge.status-stub {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .status-badge.status-partial {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .status-badge.status-complete {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .status-badge.status-verified {
+      background: #d1fae5;
+      color: #047857;
+    }
+
+    .status-badge.status-local_only {
+      background: #f3f4f6;
+      color: #6b7280;
     }
 
     /* Empty State */
