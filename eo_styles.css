@@ -16326,7 +16326,7 @@ body.has-picked-up .browser-tab:hover {
 
 /* Field History Popover */
 .field-history-popover {
-  width: 320px;
+  width: 380px;
   max-height: 480px;
   background: var(--bg-primary);
   border: 1px solid var(--border-primary);
@@ -16614,7 +16614,7 @@ body.has-picked-up .browser-tab:hover {
 .field-history-event .event-change .old-value {
   color: var(--text-muted);
   text-decoration: line-through;
-  max-width: 100px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -16623,7 +16623,7 @@ body.has-picked-up .browser-tab:hover {
 .field-history-event .event-change .new-value {
   color: var(--success-600);
   font-weight: 500;
-  max-width: 100px;
+  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
