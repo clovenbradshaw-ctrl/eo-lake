@@ -1,148 +1,42 @@
 /**
  * EO Relational Merge - Phase-Space Mode
  *
- * A principled approach to data merging based on EO's merge-local coordinate system.
+ * Refactored to center on the 3 Questions framework.
  *
- * ONE-LINE SUMMARY (the design's spine):
- * Users don't choose joins. They choose how recognition, boundaries, and resolution
- * behave — and the system does the rest.
+ * CORE PRINCIPLE:
+ * Users don't choose joins. They answer three questions about how
+ * realities should relate - and the system derives everything else.
  *
- * IMPORTANT DISTINCTION:
- * - Phaseposts describe what kind of thing EXISTS (ontological states)
- * - Merges describe how two descriptions are RELATED (relational operators)
+ * THE THREE QUESTIONS:
+ * 1. Recognition: "Who is recognized as a row/entity?"
+ * 2. Boundary: "What happens to mismatches/absence?"
+ * 3. Resolution: "When do differences collapse?"
  *
- * This module operates at the MERGE level, not the ontological level.
- * A merge is a local phase transition operator acting on already-existing states,
- * not a world-state itself. We intentionally flatten the abstraction here.
- *
- * THE THREE MERGE-LOCAL AXES (restricted subspace of EO):
- *
- * 1. RECOGNITION (R): How rows are recognized relative to each other
- *    −1 = Mutual recognition only (both sides must recognize → INNER-like)
- *    +1 = One-sided recognition (ground side recognized regardless → LEFT/RIGHT-like)
- *     0 = Independent recognition (each side recognized independently → FULL-like)
- *    ⚠️ Note: No φ here. We are not talking about archetypes.
- *
- * 2. BOUNDARY HANDLING (B): What happens to mismatches/absence
- *    −1 = Drop mismatches (erase absence)
- *    +1 = Mark mismatches (NULLs, placeholders)
- *    √2 = Expose structure (counts, diagnostics, gap tables, audit rows)
- *    This is the ONLY axis where √2 is appropriate — boundary complexity, not being.
- *
- * 3. DECISION TIMING (D): When the merge enforces a decision
- *    −1 = Immediate (merge result is authoritative)
- *    +1 = Deferred (merge feeds later logic)
- *     0 = Non-final (merge is exploratory/inspect-only)
- *    ⚠️ Again: no τ. No recursion metaphysics. Just pipeline behavior.
- *
- * A merge mode is written: [R, B, D]
- * This gives 3 × 3 × 3 = 27 merge-local modes.
- *
- * KEY INSIGHT:
- * INNER / LEFT / FULL are not identities — they are commitment bundles.
- * By decomposing into recognition, boundary handling, and decision timing,
- * we get EO's value without pretending a merge defines ontology.
- *
- * SQL EQUIVALENCE:
- * - INNER / LEFT / FULL each occupy 9 positions, not 1
- * - SQL exposes mostly B = −1 or +1, D = −1
- * - √2 is where EO adds value: seeing boundary structure
- * - 0 on Decision is crucial: inspection without enforcement
+ * See eo_merge_questions.js for the core model.
  */
 
-// ============================================================================
-// Merge-Local Phasepost Constants
-// ============================================================================
-
-const MERGE_AXES = {
-  RECOGNITION: {
-    MUTUAL: -1,      // Both sides must recognize (INNER family)
-    ONE_SIDED: 1,    // Ground side recognized regardless (LEFT/RIGHT family)
-    INDEPENDENT: 0   // Each side recognized independently (FULL family)
-  },
-  BOUNDARY: {
-    DROP: -1,        // Erase mismatches
-    MARK: 1,         // NULLs / placeholders
-    EXPOSE: '√2'     // Counts, diagnostics, gap tables, audit rows
-  },
-  DECISION: {
-    IMMEDIATE: -1,   // Merge result is authoritative
-    DEFERRED: 1,     // Merge feeds later logic
-    NON_FINAL: 0     // Merge is exploratory / inspect-only
-  }
-};
-
-/**
- * The 27 merge-local modes with their coordinates and descriptions.
- * Grouped by Recognition axis.
- */
-const MERGE_MODES = {
-  // ========== I. MUTUAL RECOGNITION (R = −1) — INNER family ==========
-
-  // Drop mismatches
-  'M1':  { coord: [-1, -1, -1], name: 'Classic INNER JOIN', description: 'Drop mismatches, decide immediately' },
-  'M2':  { coord: [-1, -1,  1], name: 'INNER for staging', description: 'Drop mismatches, decide later' },
-  'M3':  { coord: [-1, -1,  0], name: 'INNER preview', description: 'Drop mismatches, inspect only' },
-
-  // Mark mismatches
-  'M4':  { coord: [-1,  1, -1], name: 'INNER with NULL marking', description: 'Rare but explicit' },
-  'M5':  { coord: [-1,  1,  1], name: 'INNER + audit', description: 'Marked gaps reviewed before decision' },
-  'M6':  { coord: [-1,  1,  0], name: 'INNER diagnostics', description: 'Consensus rows only, gaps visible' },
-
-  // Expose structure
-  'M7':  { coord: [-1, '√2', -1], name: 'Loss-aware INNER', description: 'Gap structure exposed, still collapsed' },
-  'M8':  { coord: [-1, '√2',  1], name: 'Contested INNER', description: 'Gap structure informs later decision' },
-  'M9':  { coord: [-1, '√2',  0], name: 'Consensus gap analysis', description: 'Pure inspection of overlap failure' },
-
-  // ========== II. ONE-SIDED RECOGNITION (R = +1) — LEFT/RIGHT family ==========
-
-  // Drop mismatches
-  'M10': { coord: [ 1, -1, -1], name: 'Strict LEFT/RIGHT JOIN', description: 'Drop unmatched non-ground rows' },
-  'M11': { coord: [ 1, -1,  1], name: 'LEFT/RIGHT with deferred cleanup', description: 'Decide later' },
-  'M12': { coord: [ 1, -1,  0], name: 'Ground-only preview', description: 'See what survives before commitment' },
-
-  // Mark mismatches
-  'M13': { coord: [ 1,  1, -1], name: 'Standard LEFT/RIGHT JOIN', description: 'NULLs marked, decision immediate' },
-  'M14': { coord: [ 1,  1,  1], name: 'Governed LEFT/RIGHT', description: 'NULLs reviewed before enforcement' },
-  'M15': { coord: [ 1,  1,  0], name: 'Grounded inspection', description: 'NULL patterns without commitment' },
-
-  // Expose structure
-  'M16': { coord: [ 1, '√2', -1], name: 'Accountable dominance', description: 'Gap structure tracked, ground enforced' },
-  'M17': { coord: [ 1, '√2',  1], name: 'Equity-aware LEFT/RIGHT', description: 'Gap structure informs later rules' },
-  'M18': { coord: [ 1, '√2',  0], name: 'Power analysis', description: 'Inspect who is excluded and how' },
-
-  // ========== III. INDEPENDENT RECOGNITION (R = 0) — FULL family ==========
-
-  // Drop mismatches
-  'M19': { coord: [ 0, -1, -1], name: 'FULL then force collapse', description: 'Everything seen, then immediately reduced' },
-  'M20': { coord: [ 0, -1,  1], name: 'FULL → later filter', description: 'Common ETL pattern' },
-  'M21': { coord: [ 0, -1,  0], name: 'Parallel preview', description: 'Side-by-side without commitment' },
-
-  // Mark mismatches
-  'M22': { coord: [ 0,  1, -1], name: 'FULL with NULLs, immediate use', description: 'Common but risky' },
-  'M23': { coord: [ 0,  1,  1], name: 'Exploratory FULL (safe default)', description: 'Inspect first, decide later' },
-  'M24': { coord: [ 0,  1,  0], name: 'Sensemaking merge', description: 'Pure exploration' },
-
-  // Expose structure
-  'M25': { coord: [ 0, '√2', -1], name: 'Loss-accounted synthesis', description: 'Decision made with explicit loss metrics' },
-  'M26': { coord: [ 0, '√2',  1], name: 'Reflective merge (EO best practice)', description: 'Structure first, decision later' },
-  'M27': { coord: [ 0, '√2',  0], name: 'Maximum insight merge', description: 'No collapse, full gap visibility' }
-};
+// Import or reference the Questions model
+// (In browser, these are global; in Node, use require)
+const Questions = (typeof require !== 'undefined')
+  ? require('./eo_merge_questions.js')
+  : {
+      Recognition: window.Recognition,
+      Boundary: window.Boundary,
+      Resolution: window.Resolution,
+      MergePosition: window.MergePosition,
+      MergeExecutor: window.MergeExecutor,
+      createMerge: window.createMerge,
+      Presets: window.Presets,
+      MODES: window.MERGE_MODES_27,
+      findModeByKey: window.findModeByKey
+    };
 
 // ============================================================================
-// User-Facing Options (mapped to merge-local coordinates)
+// UI OPTIONS - User-facing presentations of the 3 Questions
 // ============================================================================
 
 /**
- * Recognition Options (R-axis)
- * How rows are recognized relative to each other
- *
- * Values:
- *   −1 = Mutual only (both sides must recognize → INNER-like)
- *   +1 = One-sided (ground side recognized regardless → LEFT/RIGHT-like)
- *    0 = Independent (each side recognized independently → FULL-like)
- *
- * Note: No φ here. We are not talking about archetypes.
+ * Recognition options for UI
  */
 const RECOGNITION_OPTIONS = {
   MUTUAL: {
@@ -150,7 +44,7 @@ const RECOGNITION_OPTIONS = {
     phaseValue: -1,
     title: 'Mutual recognition only',
     description: 'Both sides must recognize.',
-    details: 'An entity exists only if both sides recognize it. Identity requires agreement. Unmatched entities do not instantiate. Use when enforcing shared definitions.',
+    details: 'An entity exists only if both sides recognize it. Identity requires agreement. Unmatched entities do not instantiate.',
     tag: 'Consensus-only',
     icon: 'ph-handshake',
     sqlFamily: 'INNER'
@@ -160,7 +54,7 @@ const RECOGNITION_OPTIONS = {
     phaseValue: 1,
     title: 'One-sided recognition',
     description: 'Ground side recognized regardless.',
-    details: 'One side grants recognition unilaterally. One dataset defines what "counts." The other may enrich but not contradict existence. Direction must be chosen explicitly.',
+    details: 'One side grants recognition unilaterally. The other may enrich but not contradict existence.',
     tag: 'Asymmetric ground',
     icon: 'ph-crown-simple',
     requiresDirection: true,
@@ -171,7 +65,7 @@ const RECOGNITION_OPTIONS = {
     phaseValue: 0,
     title: 'Independent recognition',
     description: 'Each side recognized independently.',
-    details: 'Each side grants recognition independently. Existence does not require agreement. Conflicting identities may coexist. Use for exploration, comparison, reconciliation.',
+    details: 'Each side grants recognition independently. Conflicting identities may coexist.',
     tag: 'Independent existence',
     icon: 'ph-users-three',
     sqlFamily: 'FULL'
@@ -179,16 +73,7 @@ const RECOGNITION_OPTIONS = {
 };
 
 /**
- * Boundary Handling Options (B-axis)
- * What happens to mismatches/absence
- *
- * Values:
- *   −1 = Drop mismatches (erase absence)
- *   +1 = Mark mismatches (NULLs, placeholders)
- *   √2 = Expose structure (counts, diagnostics, gap tables, audit rows)
- *
- * This is the only axis where √2 is appropriate — because this is about
- * boundary complexity, not being.
+ * Boundary options for UI
  */
 const BOUNDARY_OPTIONS = {
   DROP: {
@@ -196,7 +81,7 @@ const BOUNDARY_OPTIONS = {
     phaseValue: -1,
     title: 'Drop mismatches',
     description: 'Absence is noise.',
-    details: 'Missing relationships are discarded. Boundaries are hard. Clean but brittle.',
+    details: 'Missing relationships are discarded. Clean but brittle.',
     tag: 'Hard boundary',
     icon: 'ph-prohibit',
     warning: 'Absence will not be inspectable downstream.'
@@ -206,7 +91,7 @@ const BOUNDARY_OPTIONS = {
     phaseValue: 1,
     title: 'Mark mismatches',
     description: 'Absence is preserved.',
-    details: 'Gaps are preserved but de-emphasized. Typically paired with privileged identity. Boundaries are asymmetric.',
+    details: 'Gaps are preserved but de-emphasized via NULL placeholders.',
     tag: 'Soft boundary',
     icon: 'ph-minus-circle'
   },
@@ -215,30 +100,22 @@ const BOUNDARY_OPTIONS = {
     phaseValue: '√2',
     title: 'Expose mismatch structure',
     description: 'Absence is information.',
-    details: 'Gaps are preserved as signals. Mismatch is analytically relevant. Boundaries are relational / fractal. Includes counts, diagnostics, gap tables, audit rows.',
+    details: 'Gaps are preserved as signals. Includes counts, diagnostics, gap tables.',
     tag: 'Permeable boundary',
     icon: 'ph-chart-bar'
   }
 };
 
 /**
- * Decision Timing Options (D-axis)
- * When the merge becomes final
- *
- * Values:
- *   −1 = Immediate (merge result is authoritative)
- *   +1 = Deferred (merge feeds later logic)
- *    0 = Non-final (merge is exploratory / inspect-only)
- *
- * Again: no τ. No recursion metaphysics. Just pipeline behavior.
+ * Resolution options for UI
  */
-const DECISION_OPTIONS = {
+const RESOLUTION_OPTIONS = {
   IMMEDIATE: {
     id: 'immediate',
     phaseValue: -1,
     title: 'Resolve now',
     description: 'Merge result is authoritative.',
-    details: 'Differences eliminated during merge. Produces a single, stable output. Suitable for reporting and enforcement.',
+    details: 'Differences eliminated during merge. Single, stable output.',
     tag: 'Static resolution',
     icon: 'ph-lightning'
   },
@@ -247,7 +124,7 @@ const DECISION_OPTIONS = {
     phaseValue: 1,
     title: 'Inspect first, resolve later',
     description: 'Merge feeds later logic.',
-    details: 'Plurality preserved through merge. Resolution happens downstream via filters, rules, or review. Supports analysis and review.',
+    details: 'Plurality preserved through merge. Resolution happens downstream.',
     tag: 'Dynamic resolution',
     icon: 'ph-hourglass-medium'
   },
@@ -256,392 +133,17 @@ const DECISION_OPTIONS = {
     phaseValue: 0,
     title: 'Differences persist',
     description: 'Merge is for inspection only.',
-    details: 'Multiple perspectives remain active. System supports ongoing reconciliation. Suitable for longitudinal sensemaking.',
+    details: 'Multiple perspectives remain active. For longitudinal sensemaking.',
     tag: 'Recursive resolution',
     icon: 'ph-magnifying-glass'
   }
 };
 
-// ============================================================================
-// Configuration to Operation Mapping
-// ============================================================================
-
-/**
- * Helper to get merge mode from coordinates
- */
-function getMergeModeFromCoords(recognition, boundary, decision) {
-  const coordStr = `${recognition},${boundary},${decision}`;
-
-  for (const [key, mode] of Object.entries(MERGE_MODES)) {
-    const modeCoordStr = mode.coord.join(',');
-    if (modeCoordStr === coordStr) {
-      return { key, ...mode };
-    }
-  }
-  return null;
-}
-
-/**
- * Maps merge-local coordinates to SQL implementation
- */
-function deriveJoinBehavior(recognition, boundary, decision) {
-  const mode = getMergeModeFromCoords(recognition, boundary, decision);
-  if (!mode) return null;
-
-  // Determine base join type from recognition
-  let joinType;
-  if (recognition === -1) {
-    joinType = 'INNER';
-  } else if (recognition === 1) {
-    joinType = 'LEFT'; // Direction chosen by user
-  } else {
-    joinType = 'FULL';
-  }
-
-  // Determine null handling from boundary
-  let nullHandling;
-  if (boundary === -1) {
-    nullHandling = 'DROP';
-  } else if (boundary === 1) {
-    nullHandling = 'MARK';
-  } else {
-    nullHandling = 'EXPOSE';
-  }
-
-  // Determine finality from decision
-  let finality;
-  if (decision === -1) {
-    finality = 'IMMEDIATE';
-  } else if (decision === 1) {
-    finality = 'DEFERRED';
-  } else {
-    finality = 'NON_FINAL';
-  }
-
-  // Build SQL equivalent description
-  let sqlEquivalent = joinType + ' JOIN';
-  const modifiers = [];
-
-  if (boundary === -1) {
-    modifiers.push('filtered');
-  } else if (boundary === '√2') {
-    modifiers.push('+ gap diagnostics');
-  }
-
-  if (decision === 1) {
-    modifiers.push('deferred');
-  } else if (decision === 0) {
-    modifiers.push('preview only');
-  }
-
-  if (modifiers.length > 0) {
-    sqlEquivalent += ` (${modifiers.join(', ')})`;
-  }
-
-  // Check if this requires custom/staged logic
-  const requiresCustomLogic =
-    boundary === '√2' || // Expose structure needs gap tables
-    (recognition === 0 && boundary === -1); // FULL + drop is unusual
-
-  return {
-    mode: mode.key,
-    name: mode.name,
-    description: mode.description,
-    coord: mode.coord,
-    joinType,
-    nullHandling,
-    finality,
-    preserveNulls: boundary !== -1,
-    exposeStructure: boundary === '√2',
-    deferDecision: decision !== -1,
-    isExploratory: decision === 0,
-    sqlEquivalent,
-    requiresCustomLogic
-  };
-}
-
-/**
- * Legacy configuration map for compatibility
- * Key format: {recognition}_{boundary}_{decision}
- */
-const CONFIGURATION_MAP = {
-  // ========== MUTUAL RECOGNITION (INNER family) ==========
-
-  'mutual_drop_immediate': {
-    coord: [-1, -1, -1],
-    joinType: 'INNER',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: false,
-    sqlEquivalent: 'INNER JOIN',
-    modeName: 'Classic INNER JOIN'
-  },
-  'mutual_drop_deferred': {
-    coord: [-1, -1, 1],
-    joinType: 'INNER',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: true,
-    sqlEquivalent: 'INNER JOIN (staged)',
-    modeName: 'INNER for staging'
-  },
-  'mutual_drop_non_final': {
-    coord: [-1, -1, 0],
-    joinType: 'INNER',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'INNER JOIN (preview)',
-    modeName: 'INNER preview'
-  },
-  'mutual_mark_immediate': {
-    coord: [-1, 1, -1],
-    joinType: 'INNER',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: false,
-    sqlEquivalent: 'INNER JOIN + NULL marking',
-    modeName: 'INNER with NULL marking'
-  },
-  'mutual_mark_deferred': {
-    coord: [-1, 1, 1],
-    joinType: 'INNER',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: true,
-    sqlEquivalent: 'INNER JOIN + audit (staged)',
-    modeName: 'INNER + audit'
-  },
-  'mutual_mark_non_final': {
-    coord: [-1, 1, 0],
-    joinType: 'INNER',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'INNER JOIN (diagnostics)',
-    modeName: 'INNER diagnostics'
-  },
-  'mutual_expose_immediate': {
-    coord: [-1, '√2', -1],
-    joinType: 'INNER',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: false,
-    sqlEquivalent: 'INNER JOIN + gap tables',
-    modeName: 'Loss-aware INNER',
-    requiresCustomLogic: true
-  },
-  'mutual_expose_deferred': {
-    coord: [-1, '√2', 1],
-    joinType: 'INNER',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: true,
-    sqlEquivalent: 'INNER JOIN + gap tables (staged)',
-    modeName: 'Contested INNER',
-    requiresCustomLogic: true
-  },
-  'mutual_expose_non_final': {
-    coord: [-1, '√2', 0],
-    joinType: 'INNER',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'Gap analysis only',
-    modeName: 'Consensus gap analysis',
-    requiresCustomLogic: true
-  },
-
-  // ========== ONE-SIDED RECOGNITION (LEFT/RIGHT family) ==========
-
-  'one_sided_drop_immediate': {
-    coord: [1, -1, -1],
-    joinType: 'LEFT',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: false,
-    sqlEquivalent: 'LEFT/RIGHT JOIN (filtered)',
-    modeName: 'Strict LEFT/RIGHT JOIN'
-  },
-  'one_sided_drop_deferred': {
-    coord: [1, -1, 1],
-    joinType: 'LEFT',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: true,
-    sqlEquivalent: 'LEFT/RIGHT JOIN (staged, filtered)',
-    modeName: 'LEFT/RIGHT with deferred cleanup'
-  },
-  'one_sided_drop_non_final': {
-    coord: [1, -1, 0],
-    joinType: 'LEFT',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'LEFT/RIGHT JOIN (preview)',
-    modeName: 'Ground-only preview'
-  },
-  'one_sided_mark_immediate': {
-    coord: [1, 1, -1],
-    joinType: 'LEFT',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: false,
-    sqlEquivalent: 'LEFT/RIGHT JOIN',
-    modeName: 'Standard LEFT/RIGHT JOIN'
-  },
-  'one_sided_mark_deferred': {
-    coord: [1, 1, 1],
-    joinType: 'LEFT',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: true,
-    sqlEquivalent: 'LEFT/RIGHT JOIN (staged)',
-    modeName: 'Governed LEFT/RIGHT'
-  },
-  'one_sided_mark_non_final': {
-    coord: [1, 1, 0],
-    joinType: 'LEFT',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'LEFT/RIGHT JOIN (inspection)',
-    modeName: 'Grounded inspection'
-  },
-  'one_sided_expose_immediate': {
-    coord: [1, '√2', -1],
-    joinType: 'LEFT',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: false,
-    sqlEquivalent: 'LEFT/RIGHT JOIN + gap tables',
-    modeName: 'Accountable dominance',
-    requiresCustomLogic: true
-  },
-  'one_sided_expose_deferred': {
-    coord: [1, '√2', 1],
-    joinType: 'LEFT',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: true,
-    sqlEquivalent: 'LEFT/RIGHT JOIN + gap tables (staged)',
-    modeName: 'Equity-aware LEFT/RIGHT',
-    requiresCustomLogic: true
-  },
-  'one_sided_expose_non_final': {
-    coord: [1, '√2', 0],
-    joinType: 'LEFT',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'Power analysis',
-    modeName: 'Power analysis',
-    requiresCustomLogic: true
-  },
-
-  // ========== INDEPENDENT RECOGNITION (FULL family) ==========
-
-  'independent_drop_immediate': {
-    coord: [0, -1, -1],
-    joinType: 'FULL',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: false,
-    sqlEquivalent: 'FULL OUTER JOIN (then collapse)',
-    modeName: 'FULL then force collapse',
-    requiresCustomLogic: true
-  },
-  'independent_drop_deferred': {
-    coord: [0, -1, 1],
-    joinType: 'FULL',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: true,
-    sqlEquivalent: 'FULL OUTER JOIN → later filter',
-    modeName: 'FULL → later filter'
-  },
-  'independent_drop_non_final': {
-    coord: [0, -1, 0],
-    joinType: 'FULL',
-    preserveNulls: false,
-    exposeStructure: false,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'FULL OUTER JOIN (parallel preview)',
-    modeName: 'Parallel preview'
-  },
-  'independent_mark_immediate': {
-    coord: [0, 1, -1],
-    joinType: 'FULL',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: false,
-    sqlEquivalent: 'FULL OUTER JOIN',
-    modeName: 'FULL with NULLs, immediate use'
-  },
-  'independent_mark_deferred': {
-    coord: [0, 1, 1],
-    joinType: 'FULL',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: true,
-    sqlEquivalent: 'FULL OUTER JOIN (staged)',
-    modeName: 'Exploratory FULL (safe default)',
-    isRecommended: true
-  },
-  'independent_mark_non_final': {
-    coord: [0, 1, 0],
-    joinType: 'FULL',
-    preserveNulls: true,
-    exposeStructure: false,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'FULL OUTER JOIN (sensemaking)',
-    modeName: 'Sensemaking merge'
-  },
-  'independent_expose_immediate': {
-    coord: [0, '√2', -1],
-    joinType: 'FULL',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: false,
-    sqlEquivalent: 'FULL OUTER JOIN + loss metrics',
-    modeName: 'Loss-accounted synthesis',
-    requiresCustomLogic: true
-  },
-  'independent_expose_deferred': {
-    coord: [0, '√2', 1],
-    joinType: 'FULL',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: true,
-    sqlEquivalent: 'FULL OUTER JOIN + gap tables (staged)',
-    modeName: 'Reflective merge (EO best practice)',
-    isRecommended: true,
-    requiresCustomLogic: true
-  },
-  'independent_expose_non_final': {
-    coord: [0, '√2', 0],
-    joinType: 'FULL',
-    preserveNulls: true,
-    exposeStructure: true,
-    deferDecision: true,
-    isExploratory: true,
-    sqlEquivalent: 'Maximum insight (no collapse)',
-    modeName: 'Maximum insight merge',
-    requiresCustomLogic: true
-  }
-};
-
+// Alias for backward compatibility
+const DECISION_OPTIONS = RESOLUTION_OPTIONS;
 
 // ============================================================================
-// RelationalMergeConfig - Configuration State Management
+// RelationalMergeConfig - Configuration State (delegates to MergePosition)
 // ============================================================================
 
 class RelationalMergeConfig {
@@ -650,11 +152,11 @@ class RelationalMergeConfig {
   }
 
   reset() {
-    // The three merge-local axes
-    this.recognition = null;        // 'mutual' | 'one_sided' | 'independent'
-    this.recognitionDirection = null; // 'left' | 'right' (only for one_sided)
-    this.boundary = null;           // 'drop' | 'mark' | 'expose'
-    this.decision = null;           // 'immediate' | 'deferred' | 'non_final'
+    // The 3 answers
+    this._recognition = null;
+    this._boundary = null;
+    this._resolution = null;
+    this._direction = null;
 
     // Sources and join configuration
     this.leftSource = null;
@@ -662,180 +164,120 @@ class RelationalMergeConfig {
     this.joinConditions = [];
     this.outputFields = [];
     this.setName = '';
+
+    // Internal position (rebuilt on changes)
+    this._position = null;
   }
 
+  // === Setters that update the position ===
+
   setRecognition(recognition, direction = null) {
-    this.recognition = recognition;
-    this.recognitionDirection = recognition === 'one_sided' ? (direction || 'left') : null;
+    this._recognition = recognition;
+    this._direction = recognition === 'one_sided' ? (direction || 'left') : null;
+    this._rebuildPosition();
   }
 
   setBoundary(boundary) {
-    this.boundary = boundary;
+    this._boundary = boundary;
+    this._rebuildPosition();
   }
 
+  setResolution(resolution) {
+    this._resolution = resolution;
+    this._rebuildPosition();
+  }
+
+  // Alias for backward compatibility
   setDecision(decision) {
-    this.decision = decision;
+    this.setResolution(decision);
   }
 
-  setLeftSource(source) {
-    this.leftSource = source;
+  _rebuildPosition() {
+    if (this._recognition && this._boundary && this._resolution) {
+      this._position = new Questions.MergePosition(
+        this._recognition,
+        this._boundary,
+        this._resolution,
+        this._direction
+      );
+    } else {
+      this._position = null;
+    }
   }
 
-  setRightSource(source) {
-    this.rightSource = source;
+  // === Getters (delegate to position) ===
+
+  get recognition() { return this._recognition; }
+  get boundary() { return this._boundary; }
+  get resolution() { return this._resolution; }
+  get decision() { return this._resolution; } // alias
+  get recognitionDirection() { return this._direction; }
+
+  getPosition() {
+    return this._position;
   }
 
   isComplete() {
-    return this.recognition && this.boundary && this.decision;
+    return this._position?.isComplete() ?? false;
   }
 
-  /**
-   * Get the coordinate values [R, B, D] for this configuration
-   */
   getCoordinates() {
-    if (!this.isComplete()) return null;
-
-    const r = RECOGNITION_OPTIONS[this.recognition.toUpperCase()]?.phaseValue;
-    const b = BOUNDARY_OPTIONS[this.boundary.toUpperCase()]?.phaseValue;
-    const d = DECISION_OPTIONS[this.decision.toUpperCase()]?.phaseValue;
-
-    return [r, b, d];
+    return this._position?.getCoordinates() ?? null;
   }
 
   getConfigKey() {
-    if (!this.isComplete()) return null;
-    return `${this.recognition}_${this.boundary}_${this.decision}`;
-  }
-
-  getDerivedOperation() {
-    const key = this.getConfigKey();
-    if (!key) return null;
-    return CONFIGURATION_MAP[key] || null;
+    return this._position?.getModeKey() ?? null;
   }
 
   getMergeMode() {
-    const coords = this.getCoordinates();
-    if (!coords) return null;
-    return getMergeModeFromCoords(...coords);
+    const key = this.getConfigKey();
+    return key ? Questions.findModeByKey(key) : null;
+  }
+
+  getDerivedOperation() {
+    return this._position?.deriveBehavior() ?? null;
   }
 
   getJoinType() {
-    const op = this.getDerivedOperation();
-    if (!op) return null;
-
-    // Handle direction for one-sided recognition
-    if (this.recognition === 'one_sided') {
-      return this.recognitionDirection === 'right' ? 'RIGHT' : 'LEFT';
-    }
-
-    return op.joinType;
+    return this._position?.deriveJoinType() ?? null;
   }
 
   getSummary() {
-    const recognitionLabel = this.recognition
-      ? RECOGNITION_OPTIONS[this.recognition.toUpperCase()]?.title || this.recognition
+    const recognitionLabel = this._recognition
+      ? RECOGNITION_OPTIONS[this._recognition.toUpperCase()]?.title || this._recognition
       : 'Not set';
-    const boundaryLabel = this.boundary
-      ? BOUNDARY_OPTIONS[this.boundary.toUpperCase()]?.title || this.boundary
+    const boundaryLabel = this._boundary
+      ? BOUNDARY_OPTIONS[this._boundary.toUpperCase()]?.title || this._boundary
       : 'Not set';
-    const resolutionLabel = this.decision
-      ? DECISION_OPTIONS[this.decision.toUpperCase()]?.title || this.decision
+    const resolutionLabel = this._resolution
+      ? RESOLUTION_OPTIONS[this._resolution.toUpperCase()]?.title || this._resolution
       : 'Not set';
 
     return {
       recognition: recognitionLabel,
       boundary: boundaryLabel,
       resolution: resolutionLabel,
-      // Legacy alias for backward compatibility
-      decision: resolutionLabel
+      decision: resolutionLabel // alias
     };
   }
 
   getPlainLanguageDescription() {
-    if (!this.isComplete()) return null;
-
-    const parts = [];
-
-    // Recognition description
-    switch (this.recognition) {
-      case 'mutual':
-        parts.push('enforces mutual recognition');
-        break;
-      case 'one_sided':
-        parts.push(`preserves ${this.recognitionDirection === 'right' ? 'Source B' : 'Source A'} as ground`);
-        break;
-      case 'independent':
-        parts.push('preserves independent existence');
-        break;
-    }
-
-    // Boundary description
-    switch (this.boundary) {
-      case 'drop':
-        parts.push('treats gaps as noise');
-        break;
-      case 'mark':
-        parts.push('treats gaps as notable');
-        break;
-      case 'expose':
-        parts.push('treats gaps as signals');
-        break;
-    }
-
-    // Resolution description
-    switch (this.decision) {
-      case 'immediate':
-        parts.push('collapses immediately');
-        break;
-      case 'deferred':
-        parts.push('delays consensus');
-        break;
-      case 'non_final':
-        parts.push('persists plurality');
-        break;
-    }
-
-    return `This configuration ${parts.join(', ')}.`;
+    return this._position?.describe() ?? null;
   }
 
   getGuardrailWarnings() {
-    const warnings = [];
-    const op = this.getDerivedOperation();
-
-    // Independent + non-final = exploration mode
-    if (this.recognition === 'independent' && this.decision === 'non_final') {
-      warnings.push('This configuration preserves plurality indefinitely. Ensure downstream systems can handle multiple truths.');
-    }
-
-    // Drop boundary warning
-    if (this.boundary === 'drop') {
-      warnings.push('Erased absence cannot be recovered or inspected downstream.');
-    }
-
-    // One-sided without direction
-    if (this.recognition === 'one_sided' && !this.recognitionDirection) {
-      warnings.push('One-sided recognition requires choosing which source has priority.');
-    }
-
-    // Custom logic required
-    if (op?.requiresCustomLogic) {
-      warnings.push('No single standard join corresponds to this configuration. This merge requires staged or custom logic.');
-    }
-
-    return warnings;
+    const warnings = this._position?.getWarnings() ?? [];
+    return warnings.map(w => w.message);
   }
 
   getRecommendations() {
     const recommendations = [];
-    const op = this.getDerivedOperation();
-
-    if (op?.isRecommended) {
+    if (this._position?.isRecommended()) {
       recommendations.push('This is an EO-recommended configuration.');
     }
 
-    // Suggest safer alternatives for risky configs
-    if (this.boundary === 'drop' && this.decision === 'immediate') {
-      recommendations.push('Consider using "Mark mismatches" or "Defer decision" for more visibility.');
+    if (this._boundary === 'drop' && this._resolution === 'immediate') {
+      recommendations.push('Consider using "Mark mismatches" or "Defer resolution" for more visibility.');
     }
 
     return recommendations;
@@ -843,16 +285,23 @@ class RelationalMergeConfig {
 
   toJSON() {
     const mode = this.getMergeMode();
+    const behavior = this.getDerivedOperation();
+
     return {
-      recognition: this.recognition,
-      recognitionDirection: this.recognitionDirection,
-      boundary: this.boundary,
-      decision: this.decision,
+      // The 3 answers
+      recognition: this._recognition,
+      boundary: this._boundary,
+      resolution: this._resolution,
+      recognitionDirection: this._direction,
+
+      // Derived values
       coordinates: this.getCoordinates(),
       configKey: this.getConfigKey(),
-      mergeMode: mode ? { key: mode.key, name: mode.name } : null,
-      derivedOperation: this.getDerivedOperation(),
+      mergeMode: mode ? { key: mode.id, name: mode.name } : null,
+      derivedOperation: behavior,
       joinType: this.getJoinType(),
+
+      // Sources and config
       leftSource: this.leftSource?.id,
       rightSource: this.rightSource?.id,
       joinConditions: this.joinConditions,
@@ -861,7 +310,6 @@ class RelationalMergeConfig {
     };
   }
 }
-
 
 // ============================================================================
 // RelationalMergeUI - User Interface
@@ -877,7 +325,7 @@ class RelationalMergeUI {
     this.config = new RelationalMergeConfig();
     this._onComplete = null;
     this._onCancel = null;
-    this._currentStep = 'sources'; // 'sources' | 'relational' | 'conditions' | 'review'
+    this._currentStep = 'sources';
     this._purposeShown = false;
   }
 
@@ -898,11 +346,9 @@ class RelationalMergeUI {
   }
 
   _render() {
-    // Get active sources, with fallback to all sources if none are marked active
-    let sources = this.sourceStore.getByStatus('active');
+    let sources = this.sourceStore.getByStatus?.('active') || [];
     if (sources.length === 0) {
-      // Fallback: try getAll() in case sources don't have status property
-      sources = this.sourceStore.getAll ? this.sourceStore.getAll() : [];
+      sources = this.sourceStore.getAll?.() || [];
     }
 
     this.container.style.display = 'block';
@@ -937,7 +383,7 @@ class RelationalMergeUI {
   _renderStepIndicator() {
     const steps = [
       { id: 'sources', label: 'Sources', icon: 'ph-database' },
-      { id: 'relational', label: 'Relational Position', icon: 'ph-compass' },
+      { id: 'questions', label: 'Three Questions', icon: 'ph-compass' },
       { id: 'conditions', label: 'Conditions', icon: 'ph-link' },
       { id: 'review', label: 'Review', icon: 'ph-check-circle' }
     ];
@@ -963,8 +409,8 @@ class RelationalMergeUI {
     switch (this._currentStep) {
       case 'sources':
         return this._renderSourcesStep(sources);
-      case 'relational':
-        return this._renderRelationalStep();
+      case 'questions':
+        return this._renderQuestionsStep();
       case 'conditions':
         return this._renderConditionsStep();
       case 'review':
@@ -1035,12 +481,15 @@ class RelationalMergeUI {
     `;
   }
 
-  _renderRelationalStep() {
+  /**
+   * The Three Questions step - the heart of the UI
+   */
+  _renderQuestionsStep() {
     return `
-      <div class="rm-step-content rm-relational-content">
+      <div class="rm-step-content rm-questions-content">
         ${!this._purposeShown ? `
           <div class="rm-purpose-banner" id="rm-purpose-banner">
-            <p><em>Define how realities are allowed to coexist before they are combined.</em></p>
+            <p><em>Answer three questions about how these realities should relate.</em></p>
             <button class="rm-purpose-dismiss" id="rm-purpose-dismiss">
               <i class="ph ph-x"></i>
             </button>
@@ -1048,29 +497,31 @@ class RelationalMergeUI {
         ` : ''}
 
         <div class="rm-panels">
-          ${this._renderRecognitionPanel()}
-          ${this._renderBoundaryPanel()}
-          ${this._renderDecisionPanel()}
+          ${this._renderQuestionPanel('recognition', 'Recognition', 'Who is recognized as a row/entity?', RECOGNITION_OPTIONS)}
+          ${this._renderQuestionPanel('boundary', 'Boundary', 'What happens to mismatches/absence?', BOUNDARY_OPTIONS)}
+          ${this._renderQuestionPanel('resolution', 'Resolution', 'When do differences collapse?', RESOLUTION_OPTIONS)}
         </div>
 
-        ${this._renderPhaseSummary()}
+        ${this._renderPositionSummary()}
       </div>
     `;
   }
 
-  _renderRecognitionPanel() {
+  _renderQuestionPanel(questionId, title, question, options) {
+    const currentValue = this.config[questionId];
+    const isSet = currentValue !== null;
+
     return `
-      <div class="rm-panel ${this.config.recognition ? 'rm-panel-set' : ''}">
+      <div class="rm-panel ${isSet ? 'rm-panel-set' : ''}">
         <div class="rm-panel-header">
-          <h3><i class="ph ph-users"></i> Recognition</h3>
-          <span class="rm-panel-question">Who is recognized as a row/entity?</span>
+          <h3><i class="ph ${this._getQuestionIcon(questionId)}"></i> ${title}</h3>
+          <span class="rm-panel-question">${question}</span>
         </div>
-        <p class="rm-panel-prompt">How are rows recognized relative to each other?</p>
 
         <div class="rm-options">
-          ${Object.values(RECOGNITION_OPTIONS).map(opt => `
-            <button class="rm-option ${this.config.recognition === opt.id ? 'selected' : ''}"
-                    data-panel="recognition" data-value="${opt.id}">
+          ${Object.values(options).map(opt => `
+            <button class="rm-option ${currentValue === opt.id ? 'selected' : ''}"
+                    data-question="${questionId}" data-value="${opt.id}">
               <div class="rm-option-icon"><i class="ph ${opt.icon}"></i></div>
               <div class="rm-option-content">
                 <span class="rm-option-title">${opt.title}</span>
@@ -1082,9 +533,9 @@ class RelationalMergeUI {
           `).join('')}
         </div>
 
-        ${this.config.recognition === 'one_sided' ? `
+        ${questionId === 'recognition' && currentValue === 'one_sided' ? `
           <div class="rm-direction-picker">
-            <label>Which source has priority?</label>
+            <label>Which source has authority?</label>
             <div class="rm-direction-options">
               <button class="rm-direction-btn ${this.config.recognitionDirection === 'left' ? 'selected' : ''}"
                       data-direction="left">
@@ -1100,85 +551,36 @@ class RelationalMergeUI {
           </div>
         ` : ''}
 
-        ${this.config.recognition ? '<div class="rm-panel-status"><i class="ph ph-check-circle"></i> Recognition set</div>' : ''}
-      </div>
-    `;
-  }
-
-  _renderBoundaryPanel() {
-    return `
-      <div class="rm-panel ${this.config.boundary ? 'rm-panel-set' : ''}">
-        <div class="rm-panel-header">
-          <h3><i class="ph ph-map-trifold"></i> Boundary Handling</h3>
-          <span class="rm-panel-question">What happens to mismatches/absence?</span>
-        </div>
-        <p class="rm-panel-prompt">When an expected relationship is missing, how should the system interpret that gap?</p>
-
-        <div class="rm-options">
-          ${Object.values(BOUNDARY_OPTIONS).map(opt => `
-            <button class="rm-option ${this.config.boundary === opt.id ? 'selected' : ''}"
-                    data-panel="boundary" data-value="${opt.id}">
-              <div class="rm-option-icon"><i class="ph ${opt.icon}"></i></div>
-              <div class="rm-option-content">
-                <span class="rm-option-title">${opt.title}</span>
-                <span class="rm-option-desc">${opt.description}</span>
-                <span class="rm-option-details">${opt.details}</span>
-              </div>
-              <span class="rm-option-tag">${opt.tag}</span>
-            </button>
-          `).join('')}
-        </div>
-
-        ${this.config.boundary === 'drop' ? `
+        ${questionId === 'boundary' && currentValue === 'drop' ? `
           <div class="rm-panel-note">
             <i class="ph ph-warning"></i>
-            <span>Mismatches will not be inspectable downstream.</span>
+            <span>Erased gaps cannot be recovered.</span>
           </div>
         ` : ''}
 
-        ${this.config.boundary ? '<div class="rm-panel-status"><i class="ph ph-check-circle"></i> Boundary handling set</div>' : ''}
+        ${isSet ? '<div class="rm-panel-status"><i class="ph ph-check-circle"></i> Answered</div>' : ''}
       </div>
     `;
   }
 
-  _renderDecisionPanel() {
-    return `
-      <div class="rm-panel ${this.config.decision ? 'rm-panel-set' : ''}">
-        <div class="rm-panel-header">
-          <h3><i class="ph ph-clock"></i> Decision Timing</h3>
-          <span class="rm-panel-question">When do differences collapse?</span>
-        </div>
-        <p class="rm-panel-prompt">How long is plurality allowed to exist?</p>
-
-        <div class="rm-options">
-          ${Object.values(DECISION_OPTIONS).map(opt => `
-            <button class="rm-option ${this.config.decision === opt.id ? 'selected' : ''}"
-                    data-panel="decision" data-value="${opt.id}">
-              <div class="rm-option-icon"><i class="ph ${opt.icon}"></i></div>
-              <div class="rm-option-content">
-                <span class="rm-option-title">${opt.title}</span>
-                <span class="rm-option-desc">${opt.description}</span>
-                <span class="rm-option-details">${opt.details}</span>
-              </div>
-              <span class="rm-option-tag">${opt.tag}</span>
-            </button>
-          `).join('')}
-        </div>
-
-        ${this.config.decision ? '<div class="rm-panel-status"><i class="ph ph-check-circle"></i> Decision timing set</div>' : ''}
-      </div>
-    `;
+  _getQuestionIcon(questionId) {
+    switch (questionId) {
+      case 'recognition': return 'ph-users';
+      case 'boundary': return 'ph-map-trifold';
+      case 'resolution': return 'ph-clock';
+      default: return 'ph-question';
+    }
   }
 
-  _renderPhaseSummary() {
+  _renderPositionSummary() {
     if (!this.config.isComplete()) {
       return `
         <div class="rm-phase-summary rm-phase-incomplete">
           <div class="rm-phase-header">
             <i class="ph ph-compass"></i>
-            <span>Relational Position</span>
+            <span>Merge Position</span>
           </div>
-          <p class="rm-phase-message">Select an option from each panel to define the relational position.</p>
+          <p class="rm-phase-message">Answer all three questions to define the merge position.</p>
         </div>
       `;
     }
@@ -1187,7 +589,7 @@ class RelationalMergeUI {
     const description = this.config.getPlainLanguageDescription();
     const warnings = this.config.getGuardrailWarnings();
     const recommendations = this.config.getRecommendations();
-    const operation = this.config.getDerivedOperation();
+    const behavior = this.config.getDerivedOperation();
     const mode = this.config.getMergeMode();
     const coords = this.config.getCoordinates();
 
@@ -1195,8 +597,8 @@ class RelationalMergeUI {
       <div class="rm-phase-summary rm-phase-complete">
         <div class="rm-phase-header">
           <i class="ph ph-check-circle"></i>
-          <span>Relational Position Defined</span>
-          ${mode ? `<code class="rm-mode-code">${mode.key} [${coords.join(', ')}]</code>` : ''}
+          <span>Position Defined</span>
+          ${mode ? `<code class="rm-mode-code">${mode.id} [${coords.join(', ')}]</code>` : ''}
         </div>
 
         ${mode ? `<div class="rm-mode-name">${mode.name}</div>` : ''}
@@ -1212,7 +614,7 @@ class RelationalMergeUI {
           </div>
           <div class="rm-phase-value">
             <label>Resolution:</label>
-            <span>${summary.decision}</span>
+            <span>${summary.resolution}</span>
           </div>
         </div>
 
@@ -1241,19 +643,18 @@ class RelationalMergeUI {
         ` : ''}
 
         <details class="rm-derived-operation">
-          <summary><i class="ph ph-code"></i> Implementation view</summary>
+          <summary><i class="ph ph-code"></i> Derived behavior</summary>
           <div class="rm-derived-content">
-            <div class="rm-derived-behavior">
-              <strong>Derived behavior:</strong>
-              <ul>
-                <li>${this._getDerivedBehaviorText()}</li>
-              </ul>
-            </div>
             <div class="rm-derived-sql">
               <strong>SQL equivalent:</strong>
-              <code>${operation?.sqlEquivalent || 'Custom logic required'}</code>
+              <code>${behavior?.sqlEquivalent || 'Custom logic required'}</code>
             </div>
-            ${operation?.requiresCustomLogic ? `
+            <div class="rm-derived-flags">
+              <span>Preserve NULLs: ${behavior?.preserveNulls ? 'Yes' : 'No'}</span>
+              <span>Expose structure: ${behavior?.exposeStructure ? 'Yes' : 'No'}</span>
+              <span>Defer decision: ${behavior?.deferDecision ? 'Yes' : 'No'}</span>
+            </div>
+            ${behavior?.requiresCustomLogic ? `
               <p class="rm-derived-note">
                 <em>This configuration requires staged or custom logic beyond standard SQL.</em>
               </p>
@@ -1262,39 +663,6 @@ class RelationalMergeUI {
         </details>
       </div>
     `;
-  }
-
-  _getDerivedBehaviorText() {
-    const behaviors = [];
-
-    // Recognition behavior
-    if (this.config.recognition === 'mutual') {
-      behaviors.push('Preserve only entities recognized by both sources');
-    } else if (this.config.recognition === 'one_sided') {
-      behaviors.push(`Preserve all entities from ${this.config.recognitionDirection === 'right' ? 'Source B' : 'Source A'}`);
-    } else {
-      behaviors.push('Preserve all entities from both sources');
-    }
-
-    // Boundary behavior
-    if (this.config.boundary === 'drop') {
-      behaviors.push('Discard missing relationships');
-    } else if (this.config.boundary === 'expose') {
-      behaviors.push('Represent missing relationships explicitly (gap tables, diagnostics)');
-    } else {
-      behaviors.push('Mark missing relationships with NULLs');
-    }
-
-    // Resolution behavior
-    if (this.config.decision === 'immediate') {
-      behaviors.push('Collapse differences immediately');
-    } else if (this.config.decision === 'deferred') {
-      behaviors.push('Defer consolidation to downstream logic');
-    } else {
-      behaviors.push('Preserve plurality for inspection');
-    }
-
-    return behaviors.join('</li><li>');
   }
 
   _renderConditionsStep() {
@@ -1404,7 +772,7 @@ class RelationalMergeUI {
 
   _renderReviewStep() {
     const summary = this.config.getSummary();
-    const operation = this.config.getDerivedOperation();
+    const behavior = this.config.getDerivedOperation();
 
     return `
       <div class="rm-step-content rm-review-content">
@@ -1422,7 +790,7 @@ class RelationalMergeUI {
             </div>
 
             <div class="rm-review-item">
-              <label>Relational Position</label>
+              <label>Three Questions Answered</label>
               <div class="rm-review-position">
                 <span><strong>Recognition:</strong> ${summary.recognition}</span>
                 <span><strong>Boundaries:</strong> ${summary.boundary}</span>
@@ -1432,7 +800,7 @@ class RelationalMergeUI {
 
             <div class="rm-review-item">
               <label>Derived Operation</label>
-              <code class="rm-review-operation">${operation?.sqlEquivalent || 'Custom'}</code>
+              <code class="rm-review-operation">${behavior?.sqlEquivalent || 'Custom'}</code>
             </div>
 
             <div class="rm-review-item">
@@ -1490,7 +858,7 @@ class RelationalMergeUI {
         <div class="rm-footer-right">
           <button class="rm-btn rm-btn-secondary" id="rm-cancel-btn">Cancel</button>
           <button class="rm-btn rm-btn-primary" id="rm-next-btn" ${!canProceed ? 'disabled' : ''}>
-            ${isLastStep ? '<i class="ph ph-check"></i> Apply relational assumptions' : 'Continue <i class="ph ph-arrow-right"></i>'}
+            ${isLastStep ? '<i class="ph ph-check"></i> Apply merge' : 'Continue <i class="ph ph-arrow-right"></i>'}
           </button>
         </div>
         ${isLastStep ? '<p class="rm-footer-warning">You can revise these later. What you erase now cannot be recovered.</p>' : ''}
@@ -1502,10 +870,9 @@ class RelationalMergeUI {
     switch (this._currentStep) {
       case 'sources':
         return this.config.leftSource && this.config.rightSource;
-      case 'relational':
+      case 'questions':
         return this.config.isComplete();
       case 'conditions':
-        // Ensure at least one VALID condition exists (both fields selected), not just any condition
         const validConditions = this.config.joinConditions.filter(c => c.leftField && c.rightField);
         return validConditions.length > 0 && this.config.outputFields.length > 0;
       case 'review':
@@ -1516,7 +883,7 @@ class RelationalMergeUI {
   }
 
   _attachEventListeners() {
-    // Use event delegation on footer for more robust button handling
+    // Footer navigation
     const footer = this.container.querySelector('.relational-merge-footer');
     if (footer) {
       footer.addEventListener('click', (e) => {
@@ -1538,7 +905,7 @@ class RelationalMergeUI {
       });
     }
 
-    // Close button (in header)
+    // Close button
     this.container.querySelector('#rm-close-btn')?.addEventListener('click', () => {
       this.hide();
       this._onCancel?.();
@@ -1551,14 +918,11 @@ class RelationalMergeUI {
     });
 
     // Source selection
-    // Note: e.target.value is always a string, but source IDs may be stored as numbers
-    // We try direct lookup first, then fallback to type-coerced search
     this.container.querySelector('#rm-left-source')?.addEventListener('change', (e) => {
       const selectedId = e.target.value;
-      let source = this.sourceStore.get(selectedId);
+      let source = this.sourceStore.get?.(selectedId);
       if (!source) {
-        // Fallback: find by loose equality (handles number vs string mismatch)
-        source = this.sourceStore.getAll().find(s => String(s.id) === String(selectedId));
+        source = this.sourceStore.getAll?.().find(s => String(s.id) === String(selectedId));
       }
       this.config.leftSource = source;
       this._render();
@@ -1566,42 +930,41 @@ class RelationalMergeUI {
 
     this.container.querySelector('#rm-right-source')?.addEventListener('change', (e) => {
       const selectedId = e.target.value;
-      let source = this.sourceStore.get(selectedId);
+      let source = this.sourceStore.get?.(selectedId);
       if (!source) {
-        // Fallback: find by loose equality (handles number vs string mismatch)
-        source = this.sourceStore.getAll().find(s => String(s.id) === String(selectedId));
+        source = this.sourceStore.getAll?.().find(s => String(s.id) === String(selectedId));
       }
       this.config.rightSource = source;
       this._render();
     });
 
-    // Panel option selection
+    // Question answers
     this.container.querySelectorAll('.rm-option').forEach(btn => {
       btn.addEventListener('click', () => {
-        const panel = btn.dataset.panel;
+        const question = btn.dataset.question;
         const value = btn.dataset.value;
 
-        if (panel === 'recognition') {
+        if (question === 'recognition') {
           this.config.setRecognition(value);
-        } else if (panel === 'boundary') {
+        } else if (question === 'boundary') {
           this.config.setBoundary(value);
-        } else if (panel === 'decision') {
-          this.config.setDecision(value);
+        } else if (question === 'resolution') {
+          this.config.setResolution(value);
         }
 
         this._render();
       });
     });
 
-    // Direction selection (for one-sided recognition)
+    // Direction selection
     this.container.querySelectorAll('.rm-direction-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        this.config.recognitionDirection = btn.dataset.direction;
+        this.config.setRecognition('one_sided', btn.dataset.direction);
         this._render();
       });
     });
 
-    // Add condition button
+    // Conditions step
     this.container.querySelector('#rm-add-condition-btn')?.addEventListener('click', () => {
       this.config.joinConditions.push({
         id: `cond_${Date.now()}`,
@@ -1612,7 +975,6 @@ class RelationalMergeUI {
       this._render();
     });
 
-    // Condition changes
     this.container.querySelectorAll('.rm-condition').forEach(condEl => {
       const index = parseInt(condEl.dataset.index);
       const condition = this.config.joinConditions[index];
@@ -1624,7 +986,6 @@ class RelationalMergeUI {
 
       condEl.querySelector('.rm-condition-operator')?.addEventListener('change', (e) => {
         condition.operator = e.target.value;
-        this._updateNextButtonState();
       });
 
       condEl.querySelector('.rm-condition-right')?.addEventListener('change', (e) => {
@@ -1638,7 +999,7 @@ class RelationalMergeUI {
       });
     });
 
-    // Add all fields buttons
+    // Output fields
     this.container.querySelector('#rm-add-all-left-btn')?.addEventListener('click', () => {
       this._addAllFieldsFromSource('left');
     });
@@ -1647,7 +1008,6 @@ class RelationalMergeUI {
       this._addAllFieldsFromSource('right');
     });
 
-    // Remove output field
     this.container.querySelectorAll('.rm-output-remove').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const index = parseInt(e.target.closest('.rm-output-field').dataset.index);
@@ -1656,12 +1016,12 @@ class RelationalMergeUI {
       });
     });
 
-    // Set name input
+    // Set name
     this.container.querySelector('#rm-set-name')?.addEventListener('input', (e) => {
       this.config.setName = e.target.value;
     });
 
-    // Preview button
+    // Preview
     this.container.querySelector('#rm-preview-btn')?.addEventListener('click', () => {
       this._showPreview();
     });
@@ -1670,13 +1030,12 @@ class RelationalMergeUI {
   _updateNextButtonState() {
     const nextBtn = this.container.querySelector('#rm-next-btn');
     if (nextBtn) {
-      const canProceed = this._canProceedFromCurrentStep();
-      nextBtn.disabled = !canProceed;
+      nextBtn.disabled = !this._canProceedFromCurrentStep();
     }
   }
 
   _goToNextStep() {
-    const steps = ['sources', 'relational', 'conditions', 'review'];
+    const steps = ['sources', 'questions', 'conditions', 'review'];
     const currentIndex = steps.indexOf(this._currentStep);
     if (currentIndex < steps.length - 1) {
       this._currentStep = steps[currentIndex + 1];
@@ -1685,7 +1044,7 @@ class RelationalMergeUI {
   }
 
   _goToPreviousStep() {
-    const steps = ['sources', 'relational', 'conditions', 'review'];
+    const steps = ['sources', 'questions', 'conditions', 'review'];
     const currentIndex = steps.indexOf(this._currentStep);
     if (currentIndex > 0) {
       this._currentStep = steps[currentIndex - 1];
@@ -1699,7 +1058,6 @@ class RelationalMergeUI {
 
     const fields = source.schema?.fields || [];
     for (const field of fields) {
-      // Check if already added
       const exists = this.config.outputFields.some(f =>
         f.source === side && f.field === field.name
       );
@@ -1718,7 +1076,6 @@ class RelationalMergeUI {
     const previewEl = this.container.querySelector('#rm-preview-results');
     if (!previewEl) return;
 
-    // Validate conditions
     const validConditions = this.config.joinConditions.filter(c =>
       c.leftField && c.rightField
     );
@@ -1733,9 +1090,27 @@ class RelationalMergeUI {
       return;
     }
 
-    // Execute preview
     try {
-      const result = this._executeJoin(true);
+      const position = this.config.getPosition();
+      const executor = new Questions.MergeExecutor();
+
+      const leftRecords = this.config.leftSource?.records || [];
+      const rightRecords = this.config.rightSource?.records || [];
+
+      const outputFields = this.config.outputFields.map(f => ({
+        name: f.field,
+        source: f.source,
+        originalField: f.field,
+        type: f.type
+      }));
+
+      const result = executor.execute(
+        position,
+        leftRecords,
+        rightRecords,
+        validConditions,
+        outputFields
+      );
 
       if (!result.success) {
         previewEl.innerHTML = `
@@ -1748,7 +1123,7 @@ class RelationalMergeUI {
       }
 
       const records = result.records.slice(0, 10);
-      const fields = result.fields;
+      const fields = outputFields;
 
       previewEl.innerHTML = `
         <div class="rm-preview-table-wrapper">
@@ -1762,7 +1137,7 @@ class RelationalMergeUI {
               ${records.map(rec => `
                 <tr>
                   ${fields.map(f => `
-                    <td>${this._escapeHtml(String(rec.values?.[f.name] ?? rec[f.name] ?? ''))}</td>
+                    <td>${this._escapeHtml(String(rec.values?.[f.name] ?? ''))}</td>
                   `).join('')}
                 </tr>
               `).join('')}
@@ -1783,130 +1158,7 @@ class RelationalMergeUI {
     }
   }
 
-  _executeJoin(previewOnly = false) {
-    const leftSource = this.config.leftSource;
-    const rightSource = this.config.rightSource;
-
-    if (!leftSource || !rightSource) {
-      return { success: false, error: 'Both sources must be selected' };
-    }
-
-    const joinType = this.config.getJoinType();
-    const conditions = this.config.joinConditions.filter(c => c.leftField && c.rightField);
-
-    if (conditions.length === 0) {
-      return { success: false, error: 'At least one join condition is required' };
-    }
-
-    const leftRecords = leftSource.records || [];
-    const rightRecords = rightSource.records || [];
-
-    // Build field list
-    const outputFields = this.config.outputFields.map(f => ({
-      name: f.rename || f.field,
-      originalField: f.field,
-      source: f.source,
-      type: f.type || 'text'
-    }));
-
-    // Execute join based on type
-    const results = [];
-    const leftMatched = new Set();
-    const rightMatched = new Set();
-
-    // Match records
-    for (let li = 0; li < leftRecords.length; li++) {
-      const leftRec = leftRecords[li];
-
-      for (let ri = 0; ri < rightRecords.length; ri++) {
-        const rightRec = rightRecords[ri];
-
-        // Check all conditions
-        const matches = conditions.every(cond => {
-          const leftVal = leftRec[cond.leftField];
-          const rightVal = rightRec[cond.rightField];
-
-          switch (cond.operator) {
-            case 'eq':
-              return String(leftVal).toLowerCase() === String(rightVal).toLowerCase();
-            case 'contains':
-              return String(leftVal).toLowerCase().includes(String(rightVal).toLowerCase());
-            case 'starts':
-              return String(leftVal).toLowerCase().startsWith(String(rightVal).toLowerCase());
-            case 'ends':
-              return String(leftVal).toLowerCase().endsWith(String(rightVal).toLowerCase());
-            default:
-              return leftVal === rightVal;
-          }
-        });
-
-        if (matches) {
-          leftMatched.add(li);
-          rightMatched.add(ri);
-
-          const merged = {};
-          for (const f of outputFields) {
-            const sourceRec = f.source === 'left' ? leftRec : rightRec;
-            merged[f.name] = sourceRec[f.originalField];
-          }
-          results.push({ values: merged });
-        }
-      }
-    }
-
-    // Handle unmatched records based on join type
-    if (joinType === 'LEFT' || joinType === 'FULL') {
-      for (let li = 0; li < leftRecords.length; li++) {
-        if (!leftMatched.has(li)) {
-          const leftRec = leftRecords[li];
-          const merged = {};
-          for (const f of outputFields) {
-            if (f.source === 'left') {
-              merged[f.name] = leftRec[f.originalField];
-            } else {
-              merged[f.name] = null;
-            }
-          }
-          results.push({ values: merged });
-        }
-      }
-    }
-
-    if (joinType === 'RIGHT' || joinType === 'FULL') {
-      for (let ri = 0; ri < rightRecords.length; ri++) {
-        if (!rightMatched.has(ri)) {
-          const rightRec = rightRecords[ri];
-          const merged = {};
-          for (const f of outputFields) {
-            if (f.source === 'right') {
-              merged[f.name] = rightRec[f.originalField];
-            } else {
-              merged[f.name] = null;
-            }
-          }
-          results.push({ values: merged });
-        }
-      }
-    }
-
-    if (previewOnly) {
-      return {
-        success: true,
-        records: results,
-        fields: outputFields,
-        totalCount: results.length
-      };
-    }
-
-    return {
-      success: true,
-      records: results,
-      fields: outputFields
-    };
-  }
-
   _executeMerge() {
-    // Validate configuration before creating virtual set
     const validConditions = this.config.joinConditions.filter(c => c.leftField && c.rightField);
     if (validConditions.length === 0) {
       alert('At least one complete join condition is required');
@@ -1918,12 +1170,9 @@ class RelationalMergeUI {
       return;
     }
 
-    // Create a VIRTUAL merged set - no records stored inline
-    // Records will be computed on-demand when the set is viewed
     const timestamp = new Date().toISOString();
     const setId = `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
 
-    // Build field definitions with source tracking
     const fields = this.config.outputFields.map((f, i) => ({
       id: `fld_${setId}_${i}`,
       name: f.rename || f.field,
@@ -1938,9 +1187,8 @@ class RelationalMergeUI {
       name: this.config.setName || 'Merged Set',
       icon: 'ph-git-merge',
       fields: fields,
-      // VIRTUAL SET: No records stored inline - computed on-demand
       records: [],
-      recordCount: null, // Will be computed on first access
+      recordCount: null,
       isVirtual: true,
       views: [{
         id: `view_${Date.now().toString(36)}`,
@@ -1957,6 +1205,13 @@ class RelationalMergeUI {
           { type: 'source', id: this.config.leftSource?.id, name: this.config.leftSource?.name },
           { type: 'source', id: this.config.rightSource?.id, name: this.config.rightSource?.name }
         ],
+        // Store the 3 questions answers
+        threeQuestions: {
+          recognition: this.config.recognition,
+          boundary: this.config.boundary,
+          resolution: this.config.resolution,
+          direction: this.config.recognitionDirection
+        },
         relationalPosition: this.config.toJSON(),
         joinConfig: {
           type: this.config.getJoinType(),
@@ -1975,19 +1230,22 @@ class RelationalMergeUI {
       }
     };
 
-    // Call completion handler with the virtual set
     this.hide();
     this._onComplete?.({
       set: newSet,
       isVirtual: true,
       stats: {
-        resultRecords: 'pending', // Will be computed on-demand
+        resultRecords: 'pending',
         leftSource: this.config.leftSource?.name,
         rightSource: this.config.rightSource?.name,
-        leftRecordCount: this.config.leftSource?.recordCount || this.config.leftSource?.records?.length || 0,
-        rightRecordCount: this.config.rightSource?.recordCount || this.config.rightSource?.records?.length || 0,
+        leftRecordCount: this.config.leftSource?.recordCount || 0,
+        rightRecordCount: this.config.rightSource?.recordCount || 0,
         joinType: this.config.getJoinType(),
-        relationalPosition: this.config.getConfigKey()
+        threeQuestions: {
+          recognition: this.config.recognition,
+          boundary: this.config.boundary,
+          resolution: this.config.resolution
+        }
       }
     });
   }
@@ -2015,43 +1273,26 @@ class RelationalMergeUI {
   }
 }
 
-
 // ============================================================================
 // Export
 // ============================================================================
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    // Core classes
     RelationalMergeConfig,
     RelationalMergeUI,
-    // Merge-local axis options
     RECOGNITION_OPTIONS,
     BOUNDARY_OPTIONS,
-    DECISION_OPTIONS,
-    // Merge modes and configuration
-    MERGE_AXES,
-    MERGE_MODES,
-    CONFIGURATION_MAP,
-    // Helper functions
-    getMergeModeFromCoords,
-    deriveJoinBehavior
+    RESOLUTION_OPTIONS,
+    DECISION_OPTIONS
   };
 }
 
 if (typeof window !== 'undefined') {
-  // Core classes
   window.RelationalMergeConfig = RelationalMergeConfig;
   window.RelationalMergeUI = RelationalMergeUI;
-  // Merge-local axis options
   window.RECOGNITION_OPTIONS = RECOGNITION_OPTIONS;
   window.BOUNDARY_OPTIONS = BOUNDARY_OPTIONS;
+  window.RESOLUTION_OPTIONS = RESOLUTION_OPTIONS;
   window.DECISION_OPTIONS = DECISION_OPTIONS;
-  // Merge modes and configuration
-  window.MERGE_AXES = MERGE_AXES;
-  window.MERGE_MODES = MERGE_MODES;
-  window.CONFIGURATION_MAP = CONFIGURATION_MAP;
-  // Helper functions
-  window.getMergeModeFromCoords = getMergeModeFromCoords;
-  window.deriveJoinBehavior = deriveJoinBehavior;
 }

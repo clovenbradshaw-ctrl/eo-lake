@@ -1,21 +1,37 @@
 /**
  * EO Merge Engine - Lazy evaluation merge computation
  *
+ * Refactored to use the 3 Questions model from eo_merge_questions.js.
+ *
  * This engine computes merge results on-demand instead of storing them inline.
- * Merged sets store only their derivation specification, and results are
- * computed when needed and cached in IndexedDB.
+ * Merged sets store only their derivation specification (the 3 questions + conditions),
+ * and results are computed when needed and cached in IndexedDB.
  *
  * Key concepts:
  * - Virtual Sets: Sets with a derivation spec but no inline records
- * - Lazy Evaluation: Results computed on first access
+ * - Lazy Evaluation: Results computed on first access via MergeExecutor
  * - Caching: Computed results stored in IndexedDB for reuse
  * - Invalidation: Cache invalidated when source data changes
  */
 
+// Import or reference the Questions model
+const QuestionsModel = (typeof require !== 'undefined')
+  ? require('./eo_merge_questions.js')
+  : {
+      MergePosition: window.MergePosition,
+      MergeExecutor: window.MergeExecutor,
+      createMerge: window.createMerge,
+      Presets: window.Presets
+    };
+
+/**
+ * MergeEngine - Manages lazy computation and caching of merge results
+ */
 class MergeEngine {
   constructor(storage) {
     this.storage = storage || (typeof eoStorage !== 'undefined' ? eoStorage : null);
-    this._computeCallbacks = new Map(); // For progress reporting
+    this._executor = new QuestionsModel.MergeExecutor();
+    this._computeCallbacks = new Map();
   }
 
   /**
@@ -46,7 +62,7 @@ class MergeEngine {
       }
     }
 
-    // Compute the merge
+    // Compute the merge using the 3 Questions model
     const result = await this.computeMerge(set, getSourceRecords, options);
 
     // Cache the result
@@ -59,6 +75,7 @@ class MergeEngine {
 
   /**
    * Compute a merge based on the set's derivation specification
+   * Uses the MergeExecutor from the 3 Questions model
    */
   async computeMerge(set, getSourceRecords, options = {}) {
     const derivation = set.derivation;
@@ -66,12 +83,12 @@ class MergeEngine {
       return { success: false, error: 'Not a merge derivation' };
     }
 
+    // Get source IDs
     const sourceItems = derivation.sourceItems || [];
     if (sourceItems.length < 2) {
       return { success: false, error: 'Merge requires at least two sources' };
     }
 
-    // Get source records
     const leftSourceId = sourceItems[0]?.id;
     const rightSourceId = sourceItems[1]?.id;
 
@@ -79,6 +96,7 @@ class MergeEngine {
       return { success: false, error: 'Missing source IDs in derivation' };
     }
 
+    // Get source records
     let leftRecords, rightRecords;
     try {
       leftRecords = await getSourceRecords(leftSourceId);
@@ -91,168 +109,44 @@ class MergeEngine {
       return { success: false, error: 'Source records not found' };
     }
 
-    // Extract join configuration
+    // Reconstruct the MergePosition from the stored 3 questions
+    const threeQuestions = derivation.threeQuestions || derivation.relationalPosition || {};
+    const position = new QuestionsModel.MergePosition(
+      threeQuestions.recognition,
+      threeQuestions.boundary,
+      threeQuestions.resolution || threeQuestions.decision,
+      threeQuestions.direction || threeQuestions.recognitionDirection
+    );
+
+    if (!position.isComplete()) {
+      return { success: false, error: 'Incomplete merge position - 3 questions not fully answered' };
+    }
+
+    // Get join configuration
     const joinConfig = derivation.joinConfig || {};
     const conditions = joinConfig.conditions || [];
-    const joinType = joinConfig.type || 'INNER';
 
     if (conditions.length === 0) {
       return { success: false, error: 'No join conditions defined' };
     }
 
     // Get output fields from set schema
-    const outputFields = set.fields || [];
+    const outputFields = (set.fields || []).map(f => ({
+      name: f.name,
+      source: f.source,
+      originalField: f.originalField || f.name,
+      type: f.type
+    }));
 
-    // Execute the join
-    return this._executeJoin({
+    // Execute using the MergeExecutor
+    return this._executor.execute(
+      position,
       leftRecords,
       rightRecords,
       conditions,
-      joinType,
       outputFields,
-      onProgress: options.onProgress
-    });
-  }
-
-  /**
-   * Execute a join operation
-   */
-  _executeJoin({ leftRecords, rightRecords, conditions, joinType, outputFields, onProgress }) {
-    const results = [];
-    const leftMatched = new Set();
-    const rightMatched = new Set();
-
-    const totalOperations = leftRecords.length * rightRecords.length;
-    let completedOperations = 0;
-    const progressInterval = Math.max(1, Math.floor(totalOperations / 100));
-
-    // Build field mapping for efficient lookup
-    const fieldsBySource = {
-      left: outputFields.filter(f => f.source === 'left'),
-      right: outputFields.filter(f => f.source === 'right')
-    };
-
-    // Match records
-    for (let li = 0; li < leftRecords.length; li++) {
-      const leftRec = leftRecords[li];
-
-      for (let ri = 0; ri < rightRecords.length; ri++) {
-        const rightRec = rightRecords[ri];
-
-        // Check all conditions
-        const matches = conditions.every(cond => {
-          const leftVal = this._getRecordValue(leftRec, cond.leftField);
-          const rightVal = this._getRecordValue(rightRec, cond.rightField);
-          return this._evaluateCondition(leftVal, rightVal, cond.operator);
-        });
-
-        if (matches) {
-          leftMatched.add(li);
-          rightMatched.add(ri);
-          results.push(this._mergeRecords(leftRec, rightRec, outputFields));
-        }
-
-        // Progress reporting
-        completedOperations++;
-        if (onProgress && completedOperations % progressInterval === 0) {
-          onProgress(completedOperations / totalOperations);
-        }
-      }
-    }
-
-    // Handle unmatched records based on join type
-    if (joinType === 'LEFT' || joinType === 'FULL') {
-      for (let li = 0; li < leftRecords.length; li++) {
-        if (!leftMatched.has(li)) {
-          results.push(this._mergeRecords(leftRecords[li], null, outputFields));
-        }
-      }
-    }
-
-    if (joinType === 'RIGHT' || joinType === 'FULL') {
-      for (let ri = 0; ri < rightRecords.length; ri++) {
-        if (!rightMatched.has(ri)) {
-          results.push(this._mergeRecords(null, rightRecords[ri], outputFields));
-        }
-      }
-    }
-
-    if (onProgress) onProgress(1);
-
-    return {
-      success: true,
-      records: results,
-      fields: outputFields,
-      totalCount: results.length,
-      stats: {
-        leftTotal: leftRecords.length,
-        rightTotal: rightRecords.length,
-        leftMatched: leftMatched.size,
-        rightMatched: rightMatched.size,
-        joinType
-      }
-    };
-  }
-
-  /**
-   * Get a value from a record (handles both flat and values-wrapped records)
-   */
-  _getRecordValue(record, fieldName) {
-    if (!record) return null;
-    // Check if record has a 'values' wrapper
-    if (record.values && typeof record.values === 'object') {
-      return record.values[fieldName];
-    }
-    return record[fieldName];
-  }
-
-  /**
-   * Evaluate a join condition
-   */
-  _evaluateCondition(leftVal, rightVal, operator) {
-    if (leftVal == null || rightVal == null) return false;
-
-    const left = String(leftVal).toLowerCase();
-    const right = String(rightVal).toLowerCase();
-
-    switch (operator) {
-      case 'eq':
-      case '=':
-      case '==':
-        return left === right;
-      case 'contains':
-        return left.includes(right) || right.includes(left);
-      case 'starts':
-        return left.startsWith(right);
-      case 'ends':
-        return left.endsWith(right);
-      case 'neq':
-      case '!=':
-        return left !== right;
-      default:
-        return left === right;
-    }
-  }
-
-  /**
-   * Merge two records based on output field mapping
-   */
-  _mergeRecords(leftRec, rightRec, outputFields) {
-    const merged = {};
-
-    for (const field of outputFields) {
-      const sourceRec = field.source === 'left' ? leftRec : rightRec;
-      const fieldName = field.originalField || field.name;
-      const outputName = field.name;
-
-      if (sourceRec) {
-        merged[outputName] = this._getRecordValue(sourceRec, fieldName);
-      } else {
-        merged[outputName] = null;
-      }
-    }
-
-    return { values: merged };
+      { onProgress: options.onProgress }
+    );
   }
 
   /**
@@ -266,6 +160,7 @@ class MergeEngine {
 
   /**
    * Create a virtual merged set (stores spec only, no records)
+   * Uses the 3 Questions model for configuration
    */
   createVirtualSet(config) {
     const {
@@ -273,11 +168,22 @@ class MergeEngine {
       rightSource,
       joinConditions,
       outputFields,
-      joinType,
-      relationalPosition,
+      position,  // MergePosition instance or raw questions
       name
     } = config;
 
+    // Normalize position
+    let mergePosition = position;
+    if (!(position instanceof QuestionsModel.MergePosition)) {
+      mergePosition = new QuestionsModel.MergePosition(
+        position.recognition,
+        position.boundary,
+        position.resolution || position.decision,
+        position.direction
+      );
+    }
+
+    const behavior = mergePosition.deriveBehavior();
     const timestamp = new Date().toISOString();
     const setId = `set_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
 
@@ -298,8 +204,8 @@ class MergeEngine {
       fields: fields,
       // NO records stored inline - this is a virtual set
       records: [],
-      recordCount: 0, // Will be computed on first access
-      isVirtual: true, // Flag indicating this is a virtual set
+      recordCount: 0,
+      isVirtual: true,
       views: [{
         id: `view_${Date.now().toString(36)}`,
         name: 'All Records',
@@ -315,9 +221,11 @@ class MergeEngine {
           { type: 'source', id: leftSource.id, name: leftSource.name },
           { type: 'source', id: rightSource.id, name: rightSource.name }
         ],
-        relationalPosition: relationalPosition,
+        // Store the 3 questions answers
+        threeQuestions: mergePosition.toJSON(),
+        // Derived join type for quick reference
         joinConfig: {
-          type: joinType,
+          type: behavior.joinType,
           conditions: joinConditions.map(c => ({
             leftField: c.leftField,
             rightField: c.rightField,
@@ -351,8 +259,58 @@ class MergeEngine {
       recordCount: result.totalCount,
       isVirtual: false,
       _materialized: true,
-      materializedAt: new Date().toISOString()
+      materializedAt: new Date().toISOString(),
+      materializationStats: result.stats
     };
+  }
+
+  /**
+   * Preview a merge without creating a set
+   * Useful for testing different 3 Questions combinations
+   */
+  preview(config, options = {}) {
+    const {
+      leftRecords,
+      rightRecords,
+      conditions,
+      outputFields,
+      position
+    } = config;
+
+    let mergePosition = position;
+    if (!(position instanceof QuestionsModel.MergePosition)) {
+      mergePosition = new QuestionsModel.MergePosition(
+        position.recognition,
+        position.boundary,
+        position.resolution,
+        position.direction
+      );
+    }
+
+    return this._executor.execute(
+      mergePosition,
+      leftRecords,
+      rightRecords,
+      conditions,
+      outputFields,
+      options
+    );
+  }
+
+  /**
+   * Get a preset merge position
+   */
+  getPreset(presetName) {
+    const presets = QuestionsModel.Presets;
+    const preset = presets[presetName];
+    return preset ? preset() : null;
+  }
+
+  /**
+   * List available presets
+   */
+  listPresets() {
+    return Object.keys(QuestionsModel.Presets);
   }
 }
 
