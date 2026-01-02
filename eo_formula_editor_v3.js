@@ -954,27 +954,61 @@ class EOFormulaEditorV3 {
     const returnType = this.parsedFormula?.returnType || 'text';
     const resultTypeInfo = RESULT_TYPES[returnType] || RESULT_TYPES.text;
 
-    // Generate a sample result based on formula pattern
+    // Evaluate against sample data from the workbench
     let sampleResult = '—';
     let resultLabel = 'Computed value';
+    let sampleResults = [];
 
-    if (/\bIF\s*\(/i.test(formula)) {
-      if (formula.includes('⚠️') || formula.includes('warning')) {
-        sampleResult = '⚠️';
-        resultLabel = 'Conditional signal';
-      } else {
-        sampleResult = '"..."';
-        resultLabel = 'Conditional result';
+    const set = this.workbench?.getCurrentSet?.();
+    const records = set?.records || [];
+    const sampleRecords = records.slice(0, 3);
+
+    if (sampleRecords.length > 0 && this.workbench?._evaluateFormula) {
+      // Evaluate formula against sample records
+      for (const record of sampleRecords) {
+        try {
+          const result = this.workbench._evaluateFormula(formula, record);
+          sampleResults.push(result);
+        } catch (e) {
+          sampleResults.push('#ERROR');
+        }
       }
-    } else if (/\b(SUM|COUNT|AVG|AVERAGE|MIN|MAX)\s*\(/i.test(formula)) {
-      sampleResult = '123';
-      resultLabel = 'Aggregated value';
-    } else if (/\bNOW\s*\(\)/i.test(formula) || /\bTODAY\s*\(\)/i.test(formula)) {
-      sampleResult = new Date().toLocaleDateString();
-      resultLabel = 'Current time';
-    } else if (/\bCONCATENATE\s*\(/i.test(formula) || /&/.test(formula)) {
-      sampleResult = '"text..."';
-      resultLabel = 'Combined text';
+
+      // Display results
+      if (sampleResults.length === 1) {
+        sampleResult = this._escapeHtml(String(sampleResults[0]));
+        resultLabel = 'Sample result (row 1)';
+      } else if (sampleResults.length > 1) {
+        // Show multiple sample results
+        const uniqueResults = [...new Set(sampleResults.map(r => String(r)))];
+        if (uniqueResults.length === 1) {
+          sampleResult = this._escapeHtml(uniqueResults[0]);
+          resultLabel = `Consistent across ${sampleResults.length} rows`;
+        } else {
+          sampleResult = sampleResults.map(r => this._escapeHtml(String(r))).join(', ');
+          resultLabel = `Sample results (rows 1-${sampleResults.length})`;
+        }
+      }
+    } else {
+      // Fallback: Generate a sample result based on formula pattern when no data available
+      if (/\bIF\s*\(/i.test(formula)) {
+        if (formula.includes('⚠️') || formula.includes('warning')) {
+          sampleResult = '⚠️';
+          resultLabel = 'Conditional signal';
+        } else {
+          sampleResult = '"..."';
+          resultLabel = 'Conditional result (no sample data)';
+        }
+      } else if (/\b(SUM|COUNT|AVG|AVERAGE|MIN|MAX)\s*\(/i.test(formula)) {
+        sampleResult = '123';
+        resultLabel = 'Aggregated value';
+      } else if (/\bNOW\s*\(\)/i.test(formula) || /\bTODAY\s*\(\)/i.test(formula)) {
+        sampleResult = new Date().toLocaleDateString();
+        resultLabel = 'Current time';
+      } else if (/\bCONCATENATE\s*\(/i.test(formula) || /&/.test(formula)) {
+        sampleResult = '"text..."';
+        resultLabel = 'Combined text';
+      }
     }
 
     // Determine confidence based on completeness
