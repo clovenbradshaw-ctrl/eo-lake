@@ -26086,11 +26086,6 @@ class EODataWorkbench {
         <button class="view-tabs-add" id="view-tabs-add-btn" title="Add view">
           <i class="ph ph-plus"></i>
         </button>
-        <div class="view-tabs-divider"></div>
-        <button class="view-tabs-add-field" id="view-tabs-add-field-btn" title="Add field">
-          <i class="ph ph-plus-circle"></i>
-          <span>Field</span>
-        </button>
         <div class="view-search-container">
           <i class="ph ph-magnifying-glass view-search-icon"></i>
           <input type="text"
@@ -26170,13 +26165,6 @@ class EODataWorkbench {
     addBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
       this._showCreateViewModal();
-    });
-
-    // Add field button
-    const addFieldBtn = header.querySelector('#view-tabs-add-field-btn');
-    addFieldBtn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._showAddFieldMenu(e.target.closest('button'));
     });
 
     // Search input
@@ -30785,7 +30773,12 @@ class EODataWorkbench {
 
     const field = createField(name, type, options);
 
-    set.fields.push(field);
+    // Support inserting at a specific index
+    if (typeof options.insertAtIndex === 'number' && options.insertAtIndex >= 0) {
+      set.fields.splice(options.insertAtIndex, 0, field);
+    } else {
+      set.fields.push(field);
+    }
 
     // Dual-write field to backing source if set has a manual origin source
     this._dualWriteFieldToSource(set, field);
@@ -31298,6 +31291,9 @@ class EODataWorkbench {
     const field = set?.fields.find(f => f.id === fieldId);
     if (!field) return;
 
+    // Get the field index for insert operations
+    const fieldIndex = set.fields.findIndex(f => f.id === fieldId);
+
     // Get friendly type name for display
     const typeNames = {
       'text': 'Text',
@@ -31341,6 +31337,15 @@ class EODataWorkbench {
     }
 
     menu.innerHTML = `
+      <div class="context-menu-item" data-action="insert-left" data-field-index="${fieldIndex}">
+        <i class="ph ph-arrow-line-left"></i>
+        <span>Insert field left</span>
+      </div>
+      <div class="context-menu-item" data-action="insert-right" data-field-index="${fieldIndex}">
+        <i class="ph ph-arrow-line-right"></i>
+        <span>Insert field right</span>
+      </div>
+      <div class="context-menu-divider"></div>
       <div class="context-menu-item" data-action="rename">
         <i class="ph ph-pencil"></i>
         <span>Rename field</span>
@@ -31365,7 +31370,7 @@ class EODataWorkbench {
 
     // Calculate position with viewport boundary checking
     const menuWidth = 200; // approximate width based on min-width: 180px + padding
-    const menuHeight = field.isPrimary ? 120 : 160; // approximate height
+    const menuHeight = field.isPrimary ? 200 : 240; // approximate height (includes insert options)
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
 
@@ -31402,6 +31407,18 @@ class EODataWorkbench {
         const action = item.dataset.action;
 
         switch (action) {
+          case 'insert-left':
+            this._showFieldTypePicker(clickEvent, (newType, typeOptions = {}) => {
+              const insertIndex = parseInt(item.dataset.fieldIndex, 10);
+              this._addField(newType, 'New Field', { ...typeOptions, insertAtIndex: insertIndex });
+            }, menuPosition);
+            break;
+          case 'insert-right':
+            this._showFieldTypePicker(clickEvent, (newType, typeOptions = {}) => {
+              const insertIndex = parseInt(item.dataset.fieldIndex, 10) + 1;
+              this._addField(newType, 'New Field', { ...typeOptions, insertAtIndex: insertIndex });
+            }, menuPosition);
+            break;
           case 'rename':
             this._showRenameFieldModal(fieldId);
             break;
