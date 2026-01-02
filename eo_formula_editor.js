@@ -244,118 +244,102 @@ class EOFormulaEditor {
     const resultType = this.field?.options?.resultType || 'text';
 
     return `
-      <div class="formula-editor">
-        <!-- Left Panel: Editor -->
-        <div class="formula-editor-main">
-          <!-- Field Name -->
-          <div class="formula-editor-section">
-            <label class="formula-editor-label" for="formula-field-name">
-              Field Name
-            </label>
+      <div class="formula-editor-v2">
+        <!-- Top: Field Name & Result Type in one row -->
+        <div class="formula-editor-header">
+          <div class="formula-editor-name-group">
+            <label class="formula-editor-label" for="formula-field-name">Field Name</label>
             <input
               type="text"
               id="formula-field-name"
               class="formula-editor-input"
-              placeholder="Enter field name..."
+              placeholder="e.g., Total Price, Status Label..."
               value="${this._escapeHtml(fieldName)}"
               autocomplete="off"
             >
           </div>
-
-          <!-- Formula Input -->
-          <div class="formula-editor-section formula-editor-section-grow">
-            <label class="formula-editor-label" for="formula-input">
-              Formula
-              <span class="formula-editor-hint">Use field names in {curly braces} to reference fields</span>
-            </label>
-            <div class="formula-input-wrapper">
-              <textarea
-                id="formula-input"
-                class="formula-editor-textarea"
-                placeholder="Enter your formula... e.g., IF({Status} = 'Done', 'Complete', 'In Progress')"
-                spellcheck="false"
-              >${this._escapeHtml(formula)}</textarea>
+          <div class="formula-editor-type-group">
+            <label class="formula-editor-label">Returns</label>
+            <div class="formula-result-type-pills">
+              <button type="button" class="formula-type-pill ${resultType === 'text' ? 'selected' : ''}" data-type="text">
+                <i class="ph ph-text-aa"></i> Text
+              </button>
+              <button type="button" class="formula-type-pill ${resultType === 'number' ? 'selected' : ''}" data-type="number">
+                <i class="ph ph-hash"></i> Number
+              </button>
+              <button type="button" class="formula-type-pill ${resultType === 'date' ? 'selected' : ''}" data-type="date">
+                <i class="ph ph-calendar"></i> Date
+              </button>
+              <button type="button" class="formula-type-pill ${resultType === 'checkbox' ? 'selected' : ''}" data-type="checkbox">
+                <i class="ph ph-check-square"></i> Boolean
+              </button>
             </div>
-            <div class="formula-editor-toolbar">
-              ${this.operators.map(op => `
-                <button type="button" class="formula-op-btn" data-insert="${op.symbol}" title="${op.name}: ${op.example}">
-                  ${op.symbol}
-                </button>
-              `).join('')}
-            </div>
-          </div>
-
-          <!-- Result Type -->
-          <div class="formula-editor-section">
-            <label class="formula-editor-label">
-              Result Type
-            </label>
-            <div class="formula-result-types">
-              <label class="formula-result-type ${resultType === 'text' ? 'selected' : ''}">
-                <input type="radio" name="resultType" value="text" ${resultType === 'text' ? 'checked' : ''}>
-                <i class="ph ph-text-aa"></i>
-                <span>Text</span>
-              </label>
-              <label class="formula-result-type ${resultType === 'number' ? 'selected' : ''}">
-                <input type="radio" name="resultType" value="number" ${resultType === 'number' ? 'checked' : ''}>
-                <i class="ph ph-hash"></i>
-                <span>Number</span>
-              </label>
-              <label class="formula-result-type ${resultType === 'date' ? 'selected' : ''}">
-                <input type="radio" name="resultType" value="date" ${resultType === 'date' ? 'checked' : ''}>
-                <i class="ph ph-calendar"></i>
-                <span>Date</span>
-              </label>
-              <label class="formula-result-type ${resultType === 'checkbox' ? 'selected' : ''}">
-                <input type="radio" name="resultType" value="checkbox" ${resultType === 'checkbox' ? 'checked' : ''}>
-                <i class="ph ph-check-square"></i>
-                <span>Checkbox</span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Preview (optional enhancement) -->
-          <div class="formula-editor-section">
-            <label class="formula-editor-label">
-              Preview
-            </label>
-            <div class="formula-preview" id="formula-preview">
-              <span class="formula-preview-placeholder">Enter a formula to see a preview</span>
-            </div>
+            <input type="hidden" name="resultType" value="${resultType}">
           </div>
         </div>
 
-        <!-- Right Panel: Reference -->
-        <div class="formula-editor-sidebar">
-          <!-- Field References -->
-          <div class="formula-sidebar-section">
-            <div class="formula-sidebar-header">
-              <i class="ph ph-columns"></i>
-              Fields
-            </div>
-            <div class="formula-field-list" id="formula-field-list">
-              ${this._renderFieldList(fields)}
+        <!-- Main Content: Editor + Reference Panel -->
+        <div class="formula-editor-body">
+          <!-- Left: Formula Editor -->
+          <div class="formula-editor-main">
+            <div class="formula-editor-input-area">
+              <!-- Operator Toolbar -->
+              <div class="formula-operator-bar">
+                ${this.operators.map(op => `
+                  <button type="button" class="formula-op-btn" data-insert="${op.symbol}" title="${op.name}">
+                    ${op.symbol}
+                  </button>
+                `).join('')}
+              </div>
+              <!-- Formula Textarea -->
+              <textarea
+                id="formula-input"
+                class="formula-editor-textarea"
+                placeholder="IF({Status} = 'Done', 'Complete', 'In Progress')"
+                spellcheck="false"
+              >${this._escapeHtml(formula)}</textarea>
+              <!-- Inline Validation -->
+              <div class="formula-validation" id="formula-preview">
+                <span class="formula-validation-idle"><i class="ph ph-info"></i> Use {Field Name} to reference fields</span>
+              </div>
             </div>
           </div>
 
-          <!-- Function Browser -->
-          <div class="formula-sidebar-section formula-sidebar-section-grow">
-            <div class="formula-sidebar-header">
-              <i class="ph ph-function"></i>
-              Functions
+          <!-- Right: Reference Panel with Tabs -->
+          <div class="formula-reference-panel">
+            <div class="formula-reference-tabs">
+              <button type="button" class="formula-ref-tab active" data-tab="fields">
+                <i class="ph ph-columns"></i> Fields
+              </button>
+              <button type="button" class="formula-ref-tab" data-tab="functions">
+                <i class="ph ph-function"></i> Functions
+              </button>
             </div>
-            <div class="formula-search-wrapper">
-              <i class="ph ph-magnifying-glass"></i>
-              <input
-                type="text"
-                id="formula-function-search"
-                class="formula-search-input"
-                placeholder="Search functions..."
-                autocomplete="off"
-              >
+
+            <!-- Fields Tab -->
+            <div class="formula-tab-content active" data-tab-content="fields">
+              <div class="formula-field-chips" id="formula-field-list">
+                ${this._renderFieldChips(fields)}
+              </div>
             </div>
-            <div class="formula-function-categories" id="formula-function-categories">
-              ${this._renderFunctionCategories()}
+
+            <!-- Functions Tab -->
+            <div class="formula-tab-content" data-tab-content="functions">
+              <div class="formula-fn-search">
+                <i class="ph ph-magnifying-glass"></i>
+                <input
+                  type="text"
+                  id="formula-function-search"
+                  placeholder="Search functions..."
+                  autocomplete="off"
+                >
+              </div>
+              <div class="formula-fn-categories">
+                ${this._renderCategoryFilters()}
+              </div>
+              <div class="formula-fn-list" id="formula-function-list">
+                ${this._renderFunctionList()}
+              </div>
             </div>
           </div>
         </div>
@@ -364,11 +348,11 @@ class EOFormulaEditor {
   }
 
   /**
-   * Render the list of available fields
+   * Render field chips (new design)
    */
-  _renderFieldList(fields) {
+  _renderFieldChips(fields) {
     if (fields.length === 0) {
-      return '<div class="formula-empty-state">No fields available</div>';
+      return '<div class="formula-empty-state"><i class="ph ph-info"></i> No fields available to reference</div>';
     }
 
     const fieldTypeIcons = {
@@ -394,7 +378,7 @@ class EOFormulaEditor {
     return fields.map(field => {
       const icon = fieldTypeIcons[field.type] || 'ph-circle';
       return `
-        <button type="button" class="formula-field-item" data-field-name="${this._escapeHtml(field.name)}">
+        <button type="button" class="formula-field-chip" data-field-name="${this._escapeHtml(field.name)}" title="Click to insert {${this._escapeHtml(field.name)}}">
           <i class="ph ${icon}"></i>
           <span>${this._escapeHtml(field.name)}</span>
         </button>
@@ -403,8 +387,60 @@ class EOFormulaEditor {
   }
 
   /**
-   * Render function categories
+   * Render category filter chips
    */
+  _renderCategoryFilters() {
+    return `
+      <button type="button" class="formula-cat-chip active" data-category="all">All</button>
+      ${Object.entries(this.functionCategories).map(([key, category]) => `
+        <button type="button" class="formula-cat-chip" data-category="${key}">
+          <i class="ph ${category.icon}"></i> ${category.name}
+        </button>
+      `).join('')}
+    `;
+  }
+
+  /**
+   * Render flat function list (new design)
+   */
+  _renderFunctionList(filterCategory = 'all') {
+    const functions = [];
+
+    Object.entries(this.functionCategories).forEach(([key, category]) => {
+      if (filterCategory === 'all' || filterCategory === key) {
+        category.functions.forEach(fn => {
+          functions.push({
+            ...fn,
+            category: key,
+            categoryName: category.name,
+            categoryIcon: category.icon
+          });
+        });
+      }
+    });
+
+    if (functions.length === 0) {
+      return '<div class="formula-empty-state">No functions match your search</div>';
+    }
+
+    return functions.map(fn => `
+      <button type="button" class="formula-fn-item" data-syntax="${this._escapeHtml(fn.syntax)}" data-category="${fn.category}">
+        <div class="formula-fn-header">
+          <span class="formula-fn-name">${fn.name}</span>
+          <span class="formula-fn-category"><i class="ph ${fn.categoryIcon}"></i></span>
+        </div>
+        <div class="formula-fn-syntax">${this._escapeHtml(fn.syntax)}</div>
+        <div class="formula-fn-desc">${fn.description}</div>
+      </button>
+    `).join('');
+  }
+
+  // Keep old method for backwards compatibility
+  _renderFieldList(fields) {
+    return this._renderFieldChips(fields);
+  }
+
+  // Keep old method for backwards compatibility
   _renderFunctionCategories() {
     return Object.entries(this.functionCategories).map(([key, category]) => `
       <div class="formula-category" data-category="${key}">
@@ -433,31 +469,80 @@ class EOFormulaEditor {
     const modalEl = this.modal.element;
     if (!modalEl) return;
 
-    // Field reference clicks
+    // Field chip clicks (new design)
     const fieldList = modalEl.querySelector('#formula-field-list');
     if (fieldList) {
       fieldList.addEventListener('click', (e) => {
-        const fieldItem = e.target.closest('.formula-field-item');
-        if (fieldItem) {
-          const fieldName = fieldItem.dataset.fieldName;
+        const fieldChip = e.target.closest('.formula-field-chip') || e.target.closest('.formula-field-item');
+        if (fieldChip) {
+          const fieldName = fieldChip.dataset.fieldName;
           this._insertAtCursor(`{${fieldName}}`);
         }
       });
     }
 
-    // Function clicks
+    // Tab switching (new design)
+    const tabContainer = modalEl.querySelector('.formula-reference-tabs');
+    if (tabContainer) {
+      tabContainer.addEventListener('click', (e) => {
+        const tab = e.target.closest('.formula-ref-tab');
+        if (tab) {
+          const tabName = tab.dataset.tab;
+          // Update active tab
+          modalEl.querySelectorAll('.formula-ref-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          // Show corresponding content
+          modalEl.querySelectorAll('.formula-tab-content').forEach(c => c.classList.remove('active'));
+          const content = modalEl.querySelector(`[data-tab-content="${tabName}"]`);
+          if (content) content.classList.add('active');
+        }
+      });
+    }
+
+    // Category filter chips (new design)
+    const categoryChips = modalEl.querySelector('.formula-fn-categories');
+    if (categoryChips) {
+      categoryChips.addEventListener('click', (e) => {
+        const chip = e.target.closest('.formula-cat-chip');
+        if (chip) {
+          const category = chip.dataset.category;
+          // Update active chip
+          modalEl.querySelectorAll('.formula-cat-chip').forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+          // Re-render function list
+          const fnList = modalEl.querySelector('#formula-function-list');
+          if (fnList) {
+            fnList.innerHTML = this._renderFunctionList(category);
+          }
+          // Clear search
+          const searchInput = modalEl.querySelector('#formula-function-search');
+          if (searchInput) searchInput.value = '';
+        }
+      });
+    }
+
+    // Function list clicks (new design)
+    const fnList = modalEl.querySelector('#formula-function-list');
+    if (fnList) {
+      fnList.addEventListener('click', (e) => {
+        const fnItem = e.target.closest('.formula-fn-item');
+        if (fnItem) {
+          const syntax = fnItem.dataset.syntax;
+          this._insertAtCursor(syntax);
+        }
+      });
+    }
+
+    // Function clicks (old design fallback)
     const functionCategories = modalEl.querySelector('#formula-function-categories');
     if (functionCategories) {
       functionCategories.addEventListener('click', (e) => {
-        // Category toggle
         const categoryHeader = e.target.closest('.formula-category-header');
         if (categoryHeader) {
           const category = categoryHeader.closest('.formula-category');
           category.classList.toggle('expanded');
           return;
         }
-
-        // Function insert
         const functionItem = e.target.closest('.formula-function-item');
         if (functionItem) {
           const syntax = functionItem.dataset.syntax;
@@ -466,27 +551,41 @@ class EOFormulaEditor {
       });
     }
 
-    // Operator buttons
-    const toolbar = modalEl.querySelector('.formula-editor-toolbar');
-    if (toolbar) {
-      toolbar.addEventListener('click', (e) => {
-        const opBtn = e.target.closest('.formula-op-btn');
-        if (opBtn) {
-          const insertText = opBtn.dataset.insert;
-          this._insertAtCursor(` ${insertText} `);
-        }
-      });
-    }
+    // Operator buttons (works for both designs)
+    modalEl.addEventListener('click', (e) => {
+      const opBtn = e.target.closest('.formula-op-btn');
+      if (opBtn) {
+        const insertText = opBtn.dataset.insert;
+        this._insertAtCursor(` ${insertText} `);
+      }
+    });
 
     // Function search
     const searchInput = modalEl.querySelector('#formula-function-search');
     if (searchInput) {
       searchInput.addEventListener('input', (e) => {
-        this._filterFunctions(e.target.value);
+        this._filterFunctionsV2(e.target.value);
       });
     }
 
-    // Result type selection
+    // Result type pills (new design)
+    const typePills = modalEl.querySelector('.formula-result-type-pills');
+    if (typePills) {
+      typePills.addEventListener('click', (e) => {
+        const pill = e.target.closest('.formula-type-pill');
+        if (pill) {
+          const type = pill.dataset.type;
+          // Update active pill
+          modalEl.querySelectorAll('.formula-type-pill').forEach(p => p.classList.remove('selected'));
+          pill.classList.add('selected');
+          // Update hidden input
+          const hiddenInput = modalEl.querySelector('input[name="resultType"]');
+          if (hiddenInput) hiddenInput.value = type;
+        }
+      });
+    }
+
+    // Result type selection (old design fallback)
     const resultTypes = modalEl.querySelectorAll('.formula-result-type input');
     resultTypes.forEach(input => {
       input.addEventListener('change', () => {
@@ -534,7 +633,35 @@ class EOFormulaEditor {
   }
 
   /**
-   * Filter functions based on search query
+   * Filter functions based on search query (V2 design)
+   */
+  _filterFunctionsV2(query) {
+    const modalEl = this.modal.element;
+    const fnItems = modalEl.querySelectorAll('.formula-fn-item');
+    const normalizedQuery = query.toLowerCase().trim();
+
+    // Reset category filter to "All" when searching
+    if (normalizedQuery !== '') {
+      modalEl.querySelectorAll('.formula-cat-chip').forEach(c => c.classList.remove('active'));
+      const allChip = modalEl.querySelector('.formula-cat-chip[data-category="all"]');
+      if (allChip) allChip.classList.add('active');
+    }
+
+    fnItems.forEach(fn => {
+      const name = fn.querySelector('.formula-fn-name')?.textContent.toLowerCase() || '';
+      const syntax = fn.querySelector('.formula-fn-syntax')?.textContent.toLowerCase() || '';
+      const desc = fn.querySelector('.formula-fn-desc')?.textContent.toLowerCase() || '';
+      const matches = normalizedQuery === '' ||
+        name.includes(normalizedQuery) ||
+        syntax.includes(normalizedQuery) ||
+        desc.includes(normalizedQuery);
+
+      fn.style.display = matches ? '' : 'none';
+    });
+  }
+
+  /**
+   * Filter functions based on search query (old design fallback)
    */
   _filterFunctions(query) {
     const modalEl = this.modal.element;
@@ -554,7 +681,6 @@ class EOFormulaEditor {
         if (matches) hasMatch = true;
       });
 
-      // Expand categories with matches, collapse others when searching
       if (normalizedQuery !== '') {
         category.classList.toggle('expanded', hasMatch);
       }
@@ -573,7 +699,8 @@ class EOFormulaEditor {
     const formula = formulaInput.value.trim();
 
     if (!formula) {
-      preview.innerHTML = '<span class="formula-preview-placeholder">Enter a formula to see a preview</span>';
+      preview.innerHTML = '<span class="formula-validation-idle"><i class="ph ph-info"></i> Use {Field Name} to reference fields</span>';
+      preview.className = 'formula-validation';
       return;
     }
 
@@ -585,12 +712,14 @@ class EOFormulaEditor {
     const closeBraces = (formula.match(/\}/g) || []).length;
 
     if (openParens !== closeParens) {
-      preview.innerHTML = `<span class="formula-preview-error"><i class="ph ph-warning"></i> Unbalanced parentheses</span>`;
+      preview.innerHTML = `<span class="formula-validation-error"><i class="ph ph-warning-circle"></i> Unbalanced parentheses</span>`;
+      preview.className = 'formula-validation error';
       return;
     }
 
     if (openBraces !== closeBraces) {
-      preview.innerHTML = `<span class="formula-preview-error"><i class="ph ph-warning"></i> Unbalanced braces in field reference</span>`;
+      preview.innerHTML = `<span class="formula-validation-error"><i class="ph ph-warning-circle"></i> Unbalanced braces in field reference</span>`;
+      preview.className = 'formula-validation error';
       return;
     }
 
@@ -604,12 +733,14 @@ class EOFormulaEditor {
       .filter(name => !fieldNames.has(name));
 
     if (invalidRefs.length > 0) {
-      preview.innerHTML = `<span class="formula-preview-warning"><i class="ph ph-info"></i> Unknown field(s): ${invalidRefs.join(', ')}</span>`;
+      preview.innerHTML = `<span class="formula-validation-warning"><i class="ph ph-warning"></i> Unknown field: ${invalidRefs.join(', ')}</span>`;
+      preview.className = 'formula-validation warning';
       return;
     }
 
     // Show formula structure
-    preview.innerHTML = `<span class="formula-preview-valid"><i class="ph ph-check"></i> Formula syntax looks valid</span>`;
+    preview.innerHTML = `<span class="formula-validation-valid"><i class="ph ph-check-circle"></i> Valid syntax</span>`;
+    preview.className = 'formula-validation valid';
   }
 
   /**
@@ -618,11 +749,13 @@ class EOFormulaEditor {
   _handleSave(modal) {
     const nameInput = document.getElementById('formula-field-name');
     const formulaInput = document.getElementById('formula-input');
-    const resultTypeInput = document.querySelector('input[name="resultType"]:checked');
+    // Support both new design (hidden input) and old design (radio buttons)
+    const hiddenResultType = document.querySelector('input[name="resultType"][type="hidden"]');
+    const checkedResultType = document.querySelector('input[name="resultType"]:checked');
 
     const name = nameInput?.value?.trim() || '';
     const formula = formulaInput?.value?.trim() || '';
-    const resultType = resultTypeInput?.value || 'text';
+    const resultType = hiddenResultType?.value || checkedResultType?.value || 'text';
 
     // Validation
     if (!name) {
