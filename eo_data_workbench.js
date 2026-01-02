@@ -23241,7 +23241,7 @@ class EODataWorkbench {
       });
     }
 
-    // Multiple source IDs
+    // Multiple source IDs (from derivation)
     if (derivation.sourceIds?.length > 0) {
       derivation.sourceIds.forEach(sourceId => {
         const source = this.sources?.find(s => s.id === sourceId);
@@ -23252,6 +23252,54 @@ class EODataWorkbench {
             icon: 'ph-file-csv',
             meta: 'Source file',
             canView: true
+          });
+        }
+      });
+    }
+
+    // Multiple source IDs (from provenance - for multi-source sets)
+    if (prov.sourceIds?.length > 0) {
+      prov.sourceIds.forEach(sourceId => {
+        const source = this.sources?.find(s => s.id === sourceId);
+        if (source && !sources.find(s => s.id === sourceId)) {
+          sources.push({
+            id: sourceId,
+            name: source.name,
+            icon: 'ph-file-csv',
+            meta: 'Source file',
+            canView: true
+          });
+        }
+      });
+    }
+
+    // Joined sources (from join operations)
+    if (prov.joinedFrom?.length > 0) {
+      prov.joinedFrom.forEach(joined => {
+        const source = this.sources?.find(s => s.id === joined.sourceId);
+        if (!sources.find(s => s.id === joined.sourceId)) {
+          sources.push({
+            id: joined.sourceId,
+            name: source?.name || joined.name || 'Joined source',
+            icon: 'ph-file-csv',
+            meta: 'Joined source',
+            canView: !!source
+          });
+        }
+      });
+    }
+
+    // Chain operation sources
+    if (prov.sources?.length > 0) {
+      prov.sources.forEach(src => {
+        const source = this.sources?.find(s => s.id === src.id);
+        if (!sources.find(s => s.id === src.id)) {
+          sources.push({
+            id: src.id,
+            name: source?.name || src.name || src.originalFilename || 'Source',
+            icon: 'ph-file-csv',
+            meta: 'Chain source',
+            canView: !!source
           });
         }
       });
