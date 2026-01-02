@@ -2672,6 +2672,38 @@ window.EOFormulaFunctions = (function() {
 
 })();
 
+// ============================================================================
+// Register Semantic Functions (AV-Inspired)
+// ============================================================================
+
+// Register semantic functions if available
+// These are loaded from eo_formula_semantic.js
+(function registerSemanticFunctions() {
+  if (typeof window !== 'undefined' && window.EOSemanticFormulas) {
+    const semantic = window.EOSemanticFormulas;
+
+    // Register each semantic function definition
+    if (semantic.definitions && Array.isArray(semantic.definitions)) {
+      semantic.definitions.forEach(def => {
+        if (def.name && def.implementation) {
+          window.EOFormulaFunctions.register(def.name, {
+            category: def.category || 'Semantic',
+            description: def.description || '',
+            args: def.args || [],
+            returns: def.returns || 'any',
+            eoDecomposition: def.eoDecomposition || [],
+            eoExplanation: def.eoExplanation || '',
+            avOrigin: def.avOrigin,
+            examples: def.examples || [],
+            implementation: def.implementation,
+          });
+        }
+      });
+      console.log(`Registered ${semantic.definitions.length} semantic functions`);
+    }
+  }
+})();
+
 // Export for module systems
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = window.EOFormulaFunctions;
