@@ -9747,7 +9747,7 @@ class AddSourceToSetUI {
     // State
     this._targetSet = null;
     this._selectedSourceId = null;
-    this._mergeMode = 'append';
+    this._mergeMode = 'append'; // Derived from 3 questions
     this._fieldMapping = [];
     this._joinConfig = {
       type: 'left',
@@ -9755,6 +9755,11 @@ class AddSourceToSetUI {
     };
     this._previewData = null;
     this._step = 1; // 1: Select Source, 2: Map Fields, 3: Configure Join (optional), 4: Preview
+
+    // Three Questions state (replaces direct merge mode selection)
+    this._recognition = null;  // 'match_only' | 'keep_primary' | 'keep_all'
+    this._boundary = null;     // 'drop' | 'keep_blank' | 'show_gaps'
+    this._resolution = null;   // 'collapse' | 'keep_all' | 'show_candidates'
   }
 
   /**
@@ -9777,6 +9782,11 @@ class AddSourceToSetUI {
     this._previewData = null;
     this._step = 1;
 
+    // Reset three questions
+    this._recognition = null;
+    this._boundary = null;
+    this._resolution = null;
+
     this._render();
     this._attachEventListeners();
   }
@@ -9798,7 +9808,7 @@ class AddSourceToSetUI {
       <div class="asts-overlay">
         <div class="asts-modal">
           <div class="asts-header">
-            <h2><i class="ph ph-plus-circle"></i> Add Source to "${this._escapeHtml(this._targetSet.name)}"</h2>
+            <h2><i class="ph ph-link"></i> Connect Source to "${this._escapeHtml(this._targetSet.name)}"</h2>
             <button class="asts-close-btn" id="asts-close-btn">
               <i class="ph ph-x"></i>
             </button>
@@ -9826,7 +9836,7 @@ class AddSourceToSetUI {
 
   _renderStepIndicators() {
     const steps = [
-      { num: 1, label: 'Select Source', icon: 'ph-file' },
+      { num: 1, label: 'Select & Connect', icon: 'ph-link' },
       { num: 2, label: 'Map Fields', icon: 'ph-arrows-left-right' },
       { num: 3, label: 'Configure', icon: 'ph-gear' },
       { num: 4, label: 'Preview', icon: 'ph-eye' }
@@ -9863,29 +9873,116 @@ class AddSourceToSetUI {
       <div class="asts-select-source-step">
         <div class="asts-section-header">
           <h3><i class="ph ph-database"></i> Select a Source</h3>
-          <p class="asts-hint">Choose which imported data to merge into this set</p>
+          <p class="asts-hint">Choose which imported data to connect to this set</p>
         </div>
 
-        <div class="asts-merge-mode-section">
-          <label>Merge Mode</label>
-          <div class="asts-merge-modes">
-            <button class="asts-mode-btn ${this._mergeMode === 'append' ? 'active' : ''}" data-mode="append">
-              <i class="ph ph-arrow-down"></i>
-              <span class="asts-mode-label">Append</span>
-              <span class="asts-mode-desc">Add records to the end</span>
-            </button>
-            <button class="asts-mode-btn ${this._mergeMode === 'union' ? 'active' : ''}" data-mode="union">
-              <i class="ph ph-stack"></i>
-              <span class="asts-mode-label">Union</span>
-              <span class="asts-mode-desc">Stack all records together</span>
-            </button>
-            <button class="asts-mode-btn ${this._mergeMode === 'join' ? 'active' : ''}" data-mode="join">
-              <i class="ph ph-intersect"></i>
-              <span class="asts-mode-label">Join</span>
-              <span class="asts-mode-desc">Match on key fields</span>
-            </button>
+        <!-- Three Questions (replaces Append/Union/Join tiles) -->
+        <div class="asts-three-questions">
+          <!-- Question 1: Recognition -->
+          <div class="asts-question-group">
+            <label class="asts-question-label">
+              <span class="asts-question-number">1</span>
+              Which records should be included?
+            </label>
+            <div class="asts-question-options">
+              <button class="asts-question-btn ${this._recognition === 'match_only' ? 'active' : ''}"
+                      data-question="recognition" data-value="match_only">
+                <i class="ph ph-intersect"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">Only matching records</span>
+                  <span class="asts-question-btn-desc">Include records only when both sources align</span>
+                </div>
+              </button>
+              <button class="asts-question-btn ${this._recognition === 'keep_primary' ? 'active' : ''}"
+                      data-question="recognition" data-value="keep_primary">
+                <i class="ph ph-crown-simple"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">All from target set</span>
+                  <span class="asts-question-btn-desc">Target set is primary; source fills in when it can</span>
+                </div>
+              </button>
+              <button class="asts-question-btn ${this._recognition === 'keep_all' ? 'active' : ''}"
+                      data-question="recognition" data-value="keep_all">
+                <i class="ph ph-users-three"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">All from both</span>
+                  <span class="asts-question-btn-desc">Show everything, even if nothing matches</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Question 2: Boundary Handling -->
+          <div class="asts-question-group">
+            <label class="asts-question-label">
+              <span class="asts-question-number">2</span>
+              What happens when records don't match?
+            </label>
+            <div class="asts-question-options">
+              <button class="asts-question-btn ${this._boundary === 'drop' ? 'active' : ''}"
+                      data-question="boundary" data-value="drop">
+                <i class="ph ph-prohibit"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">Drop them</span>
+                  <span class="asts-question-btn-desc">If it doesn't match, leave it out</span>
+                </div>
+              </button>
+              <button class="asts-question-btn ${this._boundary === 'keep_blank' ? 'active' : ''}"
+                      data-question="boundary" data-value="keep_blank">
+                <i class="ph ph-minus-circle"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">Keep with blanks</span>
+                  <span class="asts-question-btn-desc">Keep the record, mark missing values</span>
+                </div>
+              </button>
+              <button class="asts-question-btn ${this._boundary === 'show_gaps' ? 'active' : ''}"
+                      data-question="boundary" data-value="show_gaps">
+                <i class="ph ph-chart-bar"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">Show mismatch details</span>
+                  <span class="asts-question-btn-desc">Keep record and show why it didn't match</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Question 3: Resolution -->
+          <div class="asts-question-group">
+            <label class="asts-question-label">
+              <span class="asts-question-number">3</span>
+              What happens when there are multiple matches?
+            </label>
+            <div class="asts-question-options">
+              <button class="asts-question-btn ${this._resolution === 'collapse' ? 'active' : ''}"
+                      data-question="resolution" data-value="collapse">
+                <i class="ph ph-funnel"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">Collapse to one result</span>
+                  <span class="asts-question-btn-desc">Combine matches into a single record</span>
+                </div>
+              </button>
+              <button class="asts-question-btn ${this._resolution === 'keep_all' ? 'active' : ''}"
+                      data-question="resolution" data-value="keep_all">
+                <i class="ph ph-rows"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">Keep all matches</span>
+                  <span class="asts-question-btn-desc">One record per match</span>
+                </div>
+              </button>
+              <button class="asts-question-btn ${this._resolution === 'show_candidates' ? 'active' : ''}"
+                      data-question="resolution" data-value="show_candidates">
+                <i class="ph ph-list-magnifying-glass"></i>
+                <div class="asts-question-btn-content">
+                  <span class="asts-question-btn-title">Expose ambiguity</span>
+                  <span class="asts-question-btn-desc">Show all candidates without choosing</span>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
+
+        <!-- Derived behavior summary -->
+        ${this._renderDerivedBehaviorSummary()}
 
         <div class="asts-sources-list">
           ${sources.length === 0 ? `
@@ -9925,6 +10022,113 @@ class AddSourceToSetUI {
         </div>
       </div>
     `;
+  }
+
+  /**
+   * Render the derived behavior summary based on the three questions
+   */
+  _renderDerivedBehaviorSummary() {
+    const allAnswered = this._recognition && this._boundary && this._resolution;
+
+    if (!allAnswered) {
+      const answeredCount = [this._recognition, this._boundary, this._resolution].filter(Boolean).length;
+      return `
+        <div class="asts-derived-behavior asts-derived-incomplete">
+          <div class="asts-derived-label">
+            <i class="ph ph-compass"></i>
+            <span>Resulting behavior</span>
+          </div>
+          <p class="asts-derived-message">Answer all three questions to define how records connect. (${answeredCount}/3)</p>
+        </div>
+      `;
+    }
+
+    const derived = this._deriveMergeMode();
+
+    return `
+      <div class="asts-derived-behavior asts-derived-complete">
+        <div class="asts-derived-label">
+          <i class="ph ph-check-circle"></i>
+          <span>Resulting behavior</span>
+          <span class="asts-derived-mode-badge">${derived.modeName}</span>
+        </div>
+        <p class="asts-derived-description">${derived.description}</p>
+        ${derived.sqlEquivalent ? `<code class="asts-derived-sql">${derived.sqlEquivalent}</code>` : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * Derive the merge mode and behavior from the three questions
+   */
+  _deriveMergeMode() {
+    const { _recognition: recognition, _boundary: boundary, _resolution: resolution } = this;
+
+    // Derive SQL-equivalent join type from recognition
+    let sqlEquivalent = '';
+    let modeName = '';
+    let description = '';
+    let mergeMode = 'append'; // default
+
+    // Recognition determines join type
+    if (recognition === 'match_only') {
+      sqlEquivalent = 'INNER JOIN';
+      mergeMode = 'join';
+      this._joinConfig.type = 'inner';
+    } else if (recognition === 'keep_primary') {
+      sqlEquivalent = 'LEFT JOIN';
+      mergeMode = 'join';
+      this._joinConfig.type = 'left';
+    } else if (recognition === 'keep_all') {
+      sqlEquivalent = 'FULL OUTER JOIN';
+      mergeMode = 'union';
+      this._joinConfig.type = 'full';
+    }
+
+    // Boundary modifies behavior
+    if (boundary === 'drop') {
+      description = 'Unmatched records are excluded.';
+    } else if (boundary === 'keep_blank') {
+      description = 'Unmatched records kept with blank values.';
+      sqlEquivalent += ' (NULLs preserved)';
+    } else if (boundary === 'show_gaps') {
+      description = 'Unmatched records show diagnostic info.';
+      sqlEquivalent += ' + gap analysis';
+    }
+
+    // Resolution affects output format
+    if (resolution === 'collapse') {
+      description += ' Multiple matches combined into one.';
+      modeName = 'Connect (Collapsed)';
+    } else if (resolution === 'keep_all') {
+      description += ' Each match produces a record.';
+      modeName = 'Connect (Expanded)';
+    } else if (resolution === 'show_candidates') {
+      description += ' All candidates visible for review.';
+      modeName = 'Connect (Review)';
+    }
+
+    // Set the derived merge mode
+    this._mergeMode = mergeMode;
+
+    // Generate human-readable mode name if not set
+    if (!modeName) {
+      if (recognition === 'match_only') {
+        modeName = 'Connect (Matches Only)';
+      } else if (recognition === 'keep_primary') {
+        modeName = 'Connect (Primary + Matches)';
+      } else if (recognition === 'keep_all') {
+        modeName = 'Connect (All Records)';
+      }
+    }
+
+    return {
+      mergeMode,
+      modeName,
+      description,
+      sqlEquivalent,
+      joinType: this._joinConfig.type
+    };
   }
 
   _renderMapFieldsStep() {
@@ -10339,10 +10543,25 @@ class AddSourceToSetUI {
           });
         });
 
-        // Merge mode selection
-        modal.querySelectorAll('.asts-mode-btn').forEach(btn => {
+        // Three Questions selection (replaces Merge mode selection)
+        modal.querySelectorAll('.asts-question-btn').forEach(btn => {
           btn.addEventListener('click', () => {
-            this._mergeMode = btn.dataset.mode;
+            const question = btn.dataset.question;
+            const value = btn.dataset.value;
+
+            if (question === 'recognition') {
+              this._recognition = value;
+            } else if (question === 'boundary') {
+              this._boundary = value;
+            } else if (question === 'resolution') {
+              this._resolution = value;
+            }
+
+            // Derive merge mode from answers
+            if (this._recognition && this._boundary && this._resolution) {
+              this._deriveMergeMode();
+            }
+
             this._render();
             this._attachEventListeners();
           });
@@ -10780,6 +10999,165 @@ class AddSourceToSetUI {
 
       .asts-mode-desc {
         font-size: 11px;
+        color: var(--text-secondary, #888);
+      }
+
+      /* Three Questions UI Styles */
+      .asts-three-questions {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        margin-bottom: 20px;
+      }
+
+      .asts-question-group {
+        background: var(--bg-secondary, #252542);
+        border-radius: 8px;
+        padding: 16px;
+      }
+
+      .asts-question-label {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary, #fff);
+        margin-bottom: 12px;
+      }
+
+      .asts-question-number {
+        width: 22px;
+        height: 22px;
+        background: var(--accent, #6c5ce7);
+        color: white;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .asts-question-options {
+        display: flex;
+        gap: 8px;
+      }
+
+      .asts-question-btn {
+        flex: 1;
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 12px;
+        background: var(--bg-primary, #1a1a2e);
+        border: 2px solid var(--border-color, #2a2a4a);
+        border-radius: 6px;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: var(--text-primary, #fff);
+        text-align: left;
+      }
+
+      .asts-question-btn:hover {
+        border-color: var(--accent, #6c5ce7);
+      }
+
+      .asts-question-btn.active {
+        background: rgba(108, 92, 231, 0.1);
+        border-color: var(--accent, #6c5ce7);
+      }
+
+      .asts-question-btn i {
+        font-size: 18px;
+        color: var(--accent, #6c5ce7);
+        margin-top: 2px;
+      }
+
+      .asts-question-btn-content {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .asts-question-btn-title {
+        font-weight: 500;
+        font-size: 13px;
+      }
+
+      .asts-question-btn-desc {
+        font-size: 11px;
+        color: var(--text-secondary, #888);
+        line-height: 1.3;
+      }
+
+      /* Derived behavior summary */
+      .asts-derived-behavior {
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+
+      .asts-derived-incomplete {
+        background: var(--bg-secondary, #252542);
+        border: 1px dashed var(--border-color, #2a2a4a);
+      }
+
+      .asts-derived-complete {
+        background: rgba(108, 92, 231, 0.1);
+        border: 1px solid var(--accent, #6c5ce7);
+      }
+
+      .asts-derived-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        font-size: 13px;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-derived-label i {
+        font-size: 16px;
+      }
+
+      .asts-derived-complete .asts-derived-label {
+        color: var(--accent, #6c5ce7);
+      }
+
+      .asts-derived-complete .asts-derived-label i {
+        color: var(--success, #00b894);
+      }
+
+      .asts-derived-mode-badge {
+        padding: 2px 8px;
+        background: var(--accent, #6c5ce7);
+        color: white;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: auto;
+      }
+
+      .asts-derived-message {
+        margin: 0;
+        font-size: 13px;
+        color: var(--text-secondary, #888);
+      }
+
+      .asts-derived-description {
+        margin: 0 0 8px 0;
+        font-size: 13px;
+        color: var(--text-primary, #fff);
+      }
+
+      .asts-derived-sql {
+        display: inline-block;
+        padding: 4px 8px;
+        background: var(--bg-primary, #1a1a2e);
+        border-radius: 4px;
+        font-size: 11px;
+        font-family: monospace;
         color: var(--text-secondary, #888);
       }
 
