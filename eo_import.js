@@ -3737,6 +3737,17 @@ function initImportHandlers() {
 
   // Helper function to extract feed channel metadata for provenance self-answer
   function extractFeedMetadata(xmlDoc, isAtom) {
+    // Helper to get iTunes namespace elements at channel level
+    const getItunesChannelElement = (parent, name) => {
+      const prefixes = ['itunes', 'itunes\\:'];
+      for (const prefix of prefixes) {
+        const el = parent.querySelector(`:scope > ${prefix}${name}`);
+        if (el) return el;
+      }
+      const el = parent.getElementsByTagNameNS('http://www.itunes.com/dtds/podcast-1.0.dtd', name);
+      return el.length > 0 ? el[0] : null;
+    };
+
     const metadata = {
       title: null,
       description: null,
@@ -3747,7 +3758,12 @@ function initImportHandlers() {
       lastBuildDate: null,
       generator: null,
       copyright: null,
-      format: isAtom ? 'Atom' : 'RSS 2.0'
+      format: isAtom ? 'Atom' : 'RSS 2.0',
+      // Podcast-specific metadata
+      podcastImage: null,
+      podcastOwner: null,
+      podcastType: null,
+      podcastExplicit: null
     };
 
     if (isAtom) {
@@ -3767,6 +3783,13 @@ function initImportHandlers() {
         metadata.categories = Array.from(categories)
           .map(c => c.getAttribute('term') || c.textContent?.trim())
           .filter(Boolean);
+
+        // Podcast metadata for Atom feeds
+        metadata.podcastImage = getItunesChannelElement(feed, 'image')?.getAttribute('href') || null;
+        metadata.podcastOwner = getItunesChannelElement(feed, 'author')?.textContent?.trim() ||
+                                 getItunesChannelElement(feed, 'owner name')?.textContent?.trim() || null;
+        metadata.podcastType = getItunesChannelElement(feed, 'type')?.textContent?.trim() || null;
+        metadata.podcastExplicit = getItunesChannelElement(feed, 'explicit')?.textContent?.trim() || null;
       }
     } else {
       // RSS 2.0 format
@@ -3777,7 +3800,8 @@ function initImportHandlers() {
         metadata.link = channel.querySelector(':scope > link')?.textContent?.trim() || null;
         metadata.author = channel.querySelector(':scope > managingEditor')?.textContent?.trim() ||
                           channel.querySelector(':scope > webMaster')?.textContent?.trim() ||
-                          channel.querySelector(':scope > dc\\:creator')?.textContent?.trim() || null;
+                          channel.querySelector(':scope > dc\\:creator')?.textContent?.trim() ||
+                          getItunesChannelElement(channel, 'author')?.textContent?.trim() || null;
         metadata.language = channel.querySelector(':scope > language')?.textContent?.trim() || null;
         metadata.lastBuildDate = channel.querySelector(':scope > lastBuildDate')?.textContent?.trim() ||
                                   channel.querySelector(':scope > pubDate')?.textContent?.trim() || null;
@@ -3788,6 +3812,23 @@ function initImportHandlers() {
         metadata.categories = Array.from(categories)
           .map(c => c.textContent?.trim())
           .filter(Boolean);
+
+        // Podcast metadata for RSS feeds
+        metadata.podcastImage = getItunesChannelElement(channel, 'image')?.getAttribute('href') ||
+                                 channel.querySelector(':scope > image url')?.textContent?.trim() || null;
+        metadata.podcastOwner = getItunesChannelElement(channel, 'author')?.textContent?.trim() ||
+                                 getItunesChannelElement(channel, 'owner name')?.textContent?.trim() || null;
+        metadata.podcastType = getItunesChannelElement(channel, 'type')?.textContent?.trim() || null;
+        metadata.podcastExplicit = getItunesChannelElement(channel, 'explicit')?.textContent?.trim() || null;
+
+        // Get iTunes categories
+        const itunesCategories = channel.querySelectorAll('itunes\\:category, [itunes\\:category]');
+        if (itunesCategories.length > 0) {
+          const itunesCats = Array.from(itunesCategories)
+            .map(c => c.getAttribute('text'))
+            .filter(Boolean);
+          metadata.categories = [...metadata.categories, ...itunesCats];
+        }
       }
     }
 
@@ -3842,10 +3883,29 @@ function initImportHandlers() {
       const maxItems = parseInt(document.getElementById('rss-max-items')?.value) || 50;
 
       // Fetch the RSS feed via CORS proxy to avoid browser CORS restrictions
-      const corsProxy = 'https://api.allorigins.win/raw?url=';
-      const response = await fetch(corsProxy + encodeURIComponent(url));
-      if (!response.ok) {
-        throw new Error(`Failed to fetch feed: ${response.status}`);
+      // Use multiple proxies as fallbacks
+      const corsProxies = [
+        'https://api.allorigins.win/raw?url=',
+        'https://corsproxy.io/?'
+      ];
+
+      let response = null;
+      let lastError = null;
+
+      for (const corsProxy of corsProxies) {
+        try {
+          response = await fetch(corsProxy + encodeURIComponent(url));
+          if (response.ok) break;
+          lastError = new Error(`HTTP ${response.status}`);
+          response = null;
+        } catch (e) {
+          lastError = e;
+          response = null;
+        }
+      }
+
+      if (!response) {
+        throw new Error(`Failed to fetch feed: ${lastError?.message || 'All proxies failed'}`);
       }
 
       const xmlText = await response.text();
@@ -3869,19 +3929,63 @@ function initImportHandlers() {
       // Extract feed channel metadata for provenance self-answer
       const feedMetadata = extractFeedMetadata(xmlDoc, isAtom);
 
+      // Helper to get iTunes namespace elements (handles various namespace prefixes)
+      const getItunesElement = (item, name) => {
+        // Try common prefixes for iTunes namespace
+        const prefixes = ['itunes', 'itunes\\:'];
+        for (const prefix of prefixes) {
+          const el = item.querySelector(`${prefix}${name}`);
+          if (el) return el;
+        }
+        // Also try with getElementsByTagNameNS
+        const el = item.getElementsByTagNameNS('http://www.itunes.com/dtds/podcast-1.0.dtd', name);
+        return el.length > 0 ? el[0] : null;
+      };
+
       let count = 0;
       for (const item of feedItems) {
         if (count >= maxItems) break;
 
+        // Get enclosure (audio/video attachment) - common in podcasts
+        const enclosure = item.querySelector('enclosure');
+        const enclosureData = enclosure ? {
+          url: enclosure.getAttribute('url') || '',
+          type: enclosure.getAttribute('type') || '',
+          length: enclosure.getAttribute('length') || ''
+        } : null;
+
+        // Get iTunes podcast metadata
+        const itunesDuration = getItunesElement(item, 'duration')?.textContent || '';
+        const itunesImage = getItunesElement(item, 'image')?.getAttribute('href') || '';
+        const itunesEpisode = getItunesElement(item, 'episode')?.textContent || '';
+        const itunesSeason = getItunesElement(item, 'season')?.textContent || '';
+        const itunesSubtitle = getItunesElement(item, 'subtitle')?.textContent || '';
+        const itunesExplicit = getItunesElement(item, 'explicit')?.textContent || '';
+
         if (isAtom) {
           // Atom format
+          const atomEnclosure = item.querySelector('link[rel="enclosure"]');
           items.push({
             title: item.querySelector('title')?.textContent || '',
-            link: item.querySelector('link')?.getAttribute('href') || item.querySelector('link')?.textContent || '',
+            link: item.querySelector('link[rel="alternate"]')?.getAttribute('href') ||
+                  item.querySelector('link:not([rel])')?.getAttribute('href') ||
+                  item.querySelector('link')?.textContent || '',
             description: item.querySelector('summary')?.textContent || item.querySelector('content')?.textContent || '',
             pubDate: item.querySelector('published')?.textContent || item.querySelector('updated')?.textContent || '',
             author: item.querySelector('author name')?.textContent || '',
-            id: item.querySelector('id')?.textContent || ''
+            id: item.querySelector('id')?.textContent || '',
+            // Podcast-specific fields
+            enclosure: atomEnclosure ? {
+              url: atomEnclosure.getAttribute('href') || '',
+              type: atomEnclosure.getAttribute('type') || '',
+              length: atomEnclosure.getAttribute('length') || ''
+            } : enclosureData,
+            duration: itunesDuration,
+            image: itunesImage,
+            episode: itunesEpisode,
+            season: itunesSeason,
+            subtitle: itunesSubtitle,
+            explicit: itunesExplicit
           });
         } else {
           // RSS 2.0 format
@@ -3891,7 +3995,15 @@ function initImportHandlers() {
             description: item.querySelector('description')?.textContent || '',
             pubDate: item.querySelector('pubDate')?.textContent || '',
             author: item.querySelector('author')?.textContent || item.querySelector('dc\\:creator')?.textContent || '',
-            guid: item.querySelector('guid')?.textContent || ''
+            guid: item.querySelector('guid')?.textContent || '',
+            // Podcast-specific fields
+            enclosure: enclosureData,
+            duration: itunesDuration,
+            image: itunesImage,
+            episode: itunesEpisode,
+            season: itunesSeason,
+            subtitle: itunesSubtitle,
+            explicit: itunesExplicit
           });
         }
         count++;
