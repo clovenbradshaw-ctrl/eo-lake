@@ -510,6 +510,7 @@ function createField(name, type, options = {}) {
     case FieldTypes.LINK:
       field.options.linkedSetId = options.linkedSetId || null;
       field.options.linkedViewId = options.linkedViewId || null; // Optional: link to a specific view within the set
+      field.options.linkedFieldId = options.linkedFieldId || null; // Which field in target set to use for linking (null = primary field)
       field.options.allowMultiple = options.allowMultiple || false;
       // Edge data fields - allows storing data on the relationship itself
       // edgeFields is an array of field definitions: [{id, name, type, options}]
@@ -4223,10 +4224,13 @@ class EODataWorkbench {
           if (Array.isArray(value)) {
             const linkedSet = this.sets.find(s => s.id === field.options?.linkedSetId);
             if (linkedSet) {
-              const primaryField = linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0];
+              // Use linkedFieldId if set, otherwise fall back to primary field
+              const displayField = field.options?.linkedFieldId
+                ? linkedSet.fields.find(f => f.id === field.options.linkedFieldId)
+                : (linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0]);
               stringValue = value.map(id => {
                 const linkedRecord = linkedSet.records.find(r => r.id === id);
-                return linkedRecord?.values[primaryField?.id] || '';
+                return linkedRecord?.values[displayField?.id] || '';
               }).join(' ');
             }
           }
@@ -28040,12 +28044,15 @@ class EODataWorkbench {
         const normalizedLinks = this._normalizeLinkValue(value);
         if (normalizedLinks.length > 0) {
           const linkedSet = this.sets.find(s => s.id === field.options?.linkedSetId);
-          const primaryField = linkedSet?.fields.find(f => f.isPrimary);
+          // Use linkedFieldId if set, otherwise fall back to primary field
+          const displayField = field.options?.linkedFieldId
+            ? linkedSet?.fields.find(f => f.id === field.options.linkedFieldId)
+            : (linkedSet?.fields.find(f => f.isPrimary) || linkedSet?.fields?.[0]);
           const hasEdgeFields = field.options?.enableEdgeData && field.options?.edgeFields?.length > 0;
           content = '<div class="cell-link">';
           normalizedLinks.forEach(link => {
             const linkedRecord = linkedSet?.records.find(r => r.id === link.recordId);
-            const name = linkedRecord?.values[primaryField?.id] || link.recordId;
+            const name = linkedRecord?.values[displayField?.id] || link.recordId;
             const hasEdgeData = hasEdgeFields && link.edgeData && Object.keys(link.edgeData).length > 0;
             const edgeIndicator = hasEdgeData ? '<i class="ph ph-arrows-horizontal edge-indicator" title="Has edge data"></i>' : '';
             content += `<span class="link-chip${hasEdgeData ? ' has-edge-data' : ''}" data-linked-id="${link.recordId}"><i class="ph ph-link"></i>${this._highlightText(name, searchTerm)}${edgeIndicator}</span>`;
@@ -28816,7 +28823,10 @@ class EODataWorkbench {
       return;
     }
 
-    const primaryField = linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0];
+    // Use linkedFieldId if set, otherwise fall back to primary field
+    const displayField = field.options?.linkedFieldId
+      ? linkedSet.fields.find(f => f.id === field.options.linkedFieldId)
+      : (linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0]);
 
     // Use normalized format for current links (handles both old and new formats)
     const normalizedLinks = this._normalizeLinkValue(currentValue);
@@ -28850,7 +28860,7 @@ class EODataWorkbench {
     html += '<div class="link-dropdown-options">';
 
     availableRecords.forEach(record => {
-      const recordName = record.values?.[primaryField?.id] || 'Untitled';
+      const recordName = record.values?.[displayField?.id] || 'Untitled';
       const isLinked = currentLinkIds.includes(record.id);
       const linkData = normalizedLinks.find(l => l.recordId === record.id);
       const hasEdgeData = hasEdgeFields && linkData?.edgeData && Object.keys(linkData.edgeData).length > 0;
@@ -32425,7 +32435,10 @@ class EODataWorkbench {
         // Use provided options or defaults
         field.options.linkedSetId = options.linkedSetId || null;
         field.options.linkedViewId = options.linkedViewId || null;
+        field.options.linkedFieldId = options.linkedFieldId || null;
         field.options.allowMultiple = options.allowMultiple || false;
+        field.options.enableEdgeData = options.enableEdgeData || false;
+        field.options.edgeFields = options.edgeFields || [];
         break;
       case FieldTypes.ATTACHMENT:
         field.options.maxFiles = null;
@@ -32453,6 +32466,11 @@ class EODataWorkbench {
       case FieldTypes.JSON:
         field.options.displayMode = 'keyValue';
         break;
+    }
+
+    // Handle auto-linking when converting to LINK type with convertFromFieldId
+    if (newType === FieldTypes.LINK && options.convertFromFieldId && options.linkedSetId) {
+      this._performAutoLinking(fieldId, options.convertFromFieldId, options.linkedSetId, options.linkedFieldId, options.allowMultiple);
     }
 
     this._saveData();
@@ -32741,6 +32759,13 @@ class EODataWorkbench {
             linkTarget += ` › ${linkedView.name}`;
           }
         }
+        // Show linked field if not using primary
+        if (field.options.linkedFieldId) {
+          const linkedField = linkedSet.fields?.find(f => f.id === field.options.linkedFieldId);
+          if (linkedField) {
+            linkTarget += ` (${linkedField.name})`;
+          }
+        }
         linkInfo = `
           <div class="context-menu-item" data-action="configure-link" style="opacity: 0.8;">
             <i class="ph ph-arrow-bend-up-right"></i>
@@ -32856,7 +32881,16 @@ class EODataWorkbench {
             this._showLinkedSetSelectionModal((options) => {
               field.options.linkedSetId = options.linkedSetId;
               field.options.linkedViewId = options.linkedViewId;
+              field.options.linkedFieldId = options.linkedFieldId;
               field.options.allowMultiple = options.allowMultiple;
+              field.options.enableEdgeData = options.enableEdgeData;
+              field.options.edgeFields = options.edgeFields;
+
+              // Handle auto-linking if conversion was requested
+              if (options.convertFromFieldId && options.linkedFieldId) {
+                this._performAutoLinking(field.id, options.convertFromFieldId, options.linkedSetId, options.linkedFieldId, options.allowMultiple);
+              }
+
               this._renderView();
               this._saveData();
               this._showToast('Link configuration updated', 'success');
@@ -33121,14 +33155,23 @@ class EODataWorkbench {
 
       // For LINK type, show a modal to select the target set/view
       if (type === FieldTypes.LINK) {
-        this._showLinkedSetSelectionModal(({ linkedSetId, linkedViewId, allowMultiple }) => {
+        this._showLinkedSetSelectionModal((options) => {
+          const { linkedSetId, linkedViewId, linkedFieldId, allowMultiple, convertFromFieldId, enableEdgeData, edgeFields } = options;
+
           if (callback) {
-            // When changing type, pass the options through callback
-            callback(type, { linkedSetId, linkedViewId, allowMultiple });
+            // When changing type, pass the options through callback (including convertFromFieldId for auto-linking)
+            callback(type, { linkedSetId, linkedViewId, linkedFieldId, allowMultiple, convertFromFieldId, enableEdgeData, edgeFields });
           } else {
             // When adding new field, pass options directly with auto-generated name
             const autoName = this._generateFieldName(type);
-            this._addField(type, autoName, { linkedSetId, linkedViewId, allowMultiple });
+            const newField = this._addField(type, autoName, { linkedSetId, linkedViewId, linkedFieldId, allowMultiple, enableEdgeData, edgeFields });
+
+            // Perform auto-linking if requested
+            if (newField && convertFromFieldId) {
+              this._performAutoLinking(newField.id, convertFromFieldId, linkedSetId, linkedFieldId, allowMultiple);
+              this._saveData();
+              this._renderView();
+            }
           }
         });
       } else if (type === FieldTypes.FORMULA) {
@@ -35169,7 +35212,7 @@ class EODataWorkbench {
 
   /**
    * Show modal to select which set or view to link to when creating/changing to a LINK field
-   * @param {Function} callback - Called with { linkedSetId, linkedViewId, allowMultiple } when confirmed
+   * @param {Function} callback - Called with { linkedSetId, linkedViewId, linkedFieldId, allowMultiple, convertFromFieldId } when confirmed
    * @param {Object} existingOptions - Optional existing options to pre-populate
    */
   _showLinkedSetSelectionModal(callback, existingOptions = {}) {
@@ -35196,16 +35239,46 @@ class EODataWorkbench {
 
     // Build initial view options for the pre-selected set
     let initialViewOptions = '<option value="">All records (no view filter)</option>';
-    if (defaultSetId) {
-      const preSelectedSet = availableSets.find(s => s.id === defaultSetId);
-      if (preSelectedSet?.views?.length > 0) {
-        initialViewOptions += preSelectedSet.views.map(v => {
-          const selected = existingOptions.linkedViewId === v.id ? 'selected' : '';
-          const hasFilters = v.config?.filters?.length > 0 ? ' (filtered)' : '';
-          return `<option value="${v.id}" ${selected}>${this._escapeHtml(v.name)}${hasFilters}</option>`;
-        }).join('');
-      }
+    const preSelectedSet = availableSets.find(s => s.id === defaultSetId);
+    if (preSelectedSet?.views?.length > 0) {
+      initialViewOptions += preSelectedSet.views.map(v => {
+        const selected = existingOptions.linkedViewId === v.id ? 'selected' : '';
+        const hasFilters = v.config?.filters?.length > 0 ? ' (filtered)' : '';
+        return `<option value="${v.id}" ${selected}>${this._escapeHtml(v.name)}${hasFilters}</option>`;
+      }).join('');
     }
+
+    // Build initial linked field options for the pre-selected set
+    const buildLinkedFieldOptions = (set, selectedFieldId) => {
+      if (!set?.fields?.length) return '<option value="">(primary field)</option>';
+
+      const primaryField = set.fields.find(f => f.isPrimary) || set.fields[0];
+      let options = `<option value="">(primary field: ${this._escapeHtml(primaryField?.name || 'Name')})</option>`;
+
+      set.fields.forEach(f => {
+        const selected = f.id === selectedFieldId ? 'selected' : '';
+        const isPrimaryLabel = f.isPrimary ? ' (primary)' : '';
+        options += `<option value="${f.id}" ${selected}>${this._escapeHtml(f.name)}${isPrimaryLabel}</option>`;
+      });
+
+      return options;
+    };
+
+    let initialLinkedFieldOptions = buildLinkedFieldOptions(preSelectedSet, existingOptions.linkedFieldId);
+
+    // Build source field options for converting existing field values to links
+    const buildSourceFieldOptions = () => {
+      if (!currentSet?.fields?.length) return '<option value="">No conversion</option>';
+
+      let options = '<option value="">No conversion</option>';
+      currentSet.fields.forEach(f => {
+        // Only show text-like fields that can have values to match
+        if ([FieldTypes.TEXT, FieldTypes.LONG_TEXT, FieldTypes.SELECT, FieldTypes.NUMBER].includes(f.type)) {
+          options += `<option value="${f.id}">${this._escapeHtml(f.name)}</option>`;
+        }
+      });
+      return options;
+    };
 
     // Build edge fields list if existing
     const existingEdgeFields = existingOptions.edgeFields || [];
@@ -35248,12 +35321,31 @@ class EODataWorkbench {
         </div>
       </div>
       <div class="form-group">
+        <label class="form-label">Match on which field?</label>
+        <select class="form-select" id="linked-field-select">
+          ${initialLinkedFieldOptions}
+        </select>
+        <div class="form-hint" style="margin-top: 6px; font-size: 11px; color: var(--text-tertiary);">
+          Which field in the target set to use for matching and display
+        </div>
+      </div>
+      <div class="form-group">
         <label class="form-checkbox" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
           <input type="checkbox" id="allow-multiple-check" ${allowMultipleChecked}>
           <span>Allow linking to multiple records</span>
         </label>
         <div class="form-hint" style="margin-top: 6px; font-size: 11px; color: var(--text-tertiary);">
           When enabled, each cell can link to multiple records from the selected set
+        </div>
+      </div>
+      <div class="form-divider" style="margin: 16px 0; border-top: 1px solid var(--border-color);"></div>
+      <div class="form-group">
+        <label class="form-label"><i class="ph ph-magic-wand" style="margin-right: 4px;"></i>Auto-link from existing field <span style="font-weight: normal; color: var(--text-muted);">(optional)</span></label>
+        <select class="form-select" id="convert-from-field-select">
+          ${buildSourceFieldOptions()}
+        </select>
+        <div class="form-hint" style="margin-top: 6px; font-size: 11px; color: var(--text-tertiary);">
+          Convert values from this field to links by matching against the target field. If multiple records match, all will be linked.
         </div>
       </div>
       <div class="form-divider" style="margin: 16px 0; border-top: 1px solid var(--border-color);"></div>
@@ -35283,7 +35375,9 @@ class EODataWorkbench {
     `, () => {
       const linkedSetId = document.getElementById('linked-set-select')?.value;
       const linkedViewId = document.getElementById('linked-view-select')?.value || null;
+      const linkedFieldId = document.getElementById('linked-field-select')?.value || null;
       const allowMultiple = document.getElementById('allow-multiple-check')?.checked || false;
+      const convertFromFieldId = document.getElementById('convert-from-field-select')?.value || null;
       const enableEdgeData = document.getElementById('enable-edge-data-check')?.checked || false;
 
       // Collect edge fields
@@ -35307,18 +35401,20 @@ class EODataWorkbench {
       }
 
       if (callback) {
-        callback({ linkedSetId, linkedViewId, allowMultiple, enableEdgeData, edgeFields });
+        callback({ linkedSetId, linkedViewId, linkedFieldId, allowMultiple, convertFromFieldId, enableEdgeData, edgeFields });
       }
     });
 
-    // Update view dropdown when set selection changes
+    // Update view and field dropdowns when set selection changes
     const setSelect = document.getElementById('linked-set-select');
     const viewSelect = document.getElementById('linked-view-select');
+    const fieldSelect = document.getElementById('linked-field-select');
 
     setSelect?.addEventListener('change', () => {
       const selectedSetId = setSelect.value;
       const selectedSet = availableSets.find(s => s.id === selectedSetId);
 
+      // Update view options
       let viewOptions = '<option value="">All records (no view filter)</option>';
       if (selectedSet?.views?.length > 0) {
         viewOptions += selectedSet.views.map(v => {
@@ -35329,6 +35425,11 @@ class EODataWorkbench {
 
       if (viewSelect) {
         viewSelect.innerHTML = viewOptions;
+      }
+
+      // Update linked field options
+      if (fieldSelect) {
+        fieldSelect.innerHTML = buildLinkedFieldOptions(selectedSet, null);
       }
     });
 
@@ -35385,6 +35486,106 @@ class EODataWorkbench {
     setTimeout(() => {
       document.getElementById('linked-set-select')?.focus();
     }, 100);
+  }
+
+  /**
+   * Perform auto-linking by matching source field values to target field values
+   * Finds all records in the target set where the target field matches the source field value
+   * If multiple matches, all are linked.
+   * @param {string} linkFieldId - The LINK field in the current set
+   * @param {string} sourceFieldId - The source field whose values to match
+   * @param {string} targetSetId - The target set to link to
+   * @param {string} targetFieldId - The field in the target set to match against (null = primary field)
+   * @param {boolean} allowMultiple - Whether to allow multiple links per record
+   */
+  _performAutoLinking(linkFieldId, sourceFieldId, targetSetId, targetFieldId, allowMultiple) {
+    const currentSet = this.getCurrentSet();
+    if (!currentSet) return;
+
+    const targetSet = this.sets.find(s => s.id === targetSetId);
+    if (!targetSet) return;
+
+    // Determine which field to match against in the target set
+    let matchField;
+    if (targetFieldId) {
+      matchField = targetSet.fields.find(f => f.id === targetFieldId);
+    } else {
+      // Use primary field
+      matchField = targetSet.fields.find(f => f.isPrimary) || targetSet.fields[0];
+    }
+
+    if (!matchField) return;
+
+    // Build an index of target field values to record IDs for efficient lookup
+    // Handle case-insensitive matching and trim whitespace
+    const targetIndex = new Map();
+    targetSet.records.forEach(record => {
+      let value = record.values?.[matchField.id];
+
+      // Normalize the value for matching
+      if (value !== null && value !== undefined) {
+        const normalizedValue = String(value).trim().toLowerCase();
+        if (normalizedValue) {
+          if (!targetIndex.has(normalizedValue)) {
+            targetIndex.set(normalizedValue, []);
+          }
+          targetIndex.get(normalizedValue).push(record.id);
+        }
+      }
+    });
+
+    // Track how many records were linked
+    let linkedCount = 0;
+    let totalLinks = 0;
+
+    // For each record in the current set, match its source field value
+    currentSet.records.forEach(record => {
+      let sourceValue = record.values?.[sourceFieldId];
+
+      if (sourceValue === null || sourceValue === undefined) return;
+
+      // Normalize the source value
+      const normalizedSourceValue = String(sourceValue).trim().toLowerCase();
+      if (!normalizedSourceValue) return;
+
+      // Find matching records in the target set
+      const matchingRecordIds = targetIndex.get(normalizedSourceValue) || [];
+
+      if (matchingRecordIds.length === 0) return;
+
+      // Get current links (if any)
+      let currentLinks = record.values?.[linkFieldId] || [];
+      if (!Array.isArray(currentLinks)) {
+        currentLinks = currentLinks ? [currentLinks] : [];
+      }
+
+      // Merge new matches with existing links
+      let newLinks;
+      if (allowMultiple) {
+        // Add all matching record IDs, avoiding duplicates
+        const linkSet = new Set(currentLinks);
+        matchingRecordIds.forEach(id => linkSet.add(id));
+        newLinks = Array.from(linkSet);
+      } else {
+        // Only keep the first match
+        newLinks = [matchingRecordIds[0]];
+      }
+
+      // Update the record
+      if (!record.values) record.values = {};
+      record.values[linkFieldId] = newLinks;
+
+      linkedCount++;
+      totalLinks += newLinks.length;
+    });
+
+    // Show feedback to user
+    if (linkedCount > 0) {
+      const matchText = allowMultiple ? `${totalLinks} total links` : `${linkedCount} links`;
+      this._showToast(`Auto-linked ${linkedCount} records (${matchText})`, 'success');
+    } else {
+      this._showToast('No matching records found for auto-linking', 'info');
+    }
   }
 
   /**
@@ -35725,10 +35926,13 @@ class EODataWorkbench {
     const targetRecord = linkedSet?.records.find(r => r.id === targetRecordId);
 
     const primaryField = set?.fields.find(f => f.isPrimary) || set?.fields?.[0];
-    const linkedPrimaryField = linkedSet?.fields?.find(f => f.isPrimary) || linkedSet?.fields?.[0];
+    // Use linkedFieldId if set, otherwise fall back to primary field for the target record
+    const linkedDisplayField = field.options?.linkedFieldId
+      ? linkedSet?.fields?.find(f => f.id === field.options.linkedFieldId)
+      : (linkedSet?.fields?.find(f => f.isPrimary) || linkedSet?.fields?.[0]);
 
     const sourceName = sourceRecord?.values?.[primaryField?.id] || sourceRecordId;
-    const targetName = targetRecord?.values?.[linkedPrimaryField?.id] || targetRecordId;
+    const targetName = targetRecord?.values?.[linkedDisplayField?.id] || targetRecordId;
 
     const edgeFields = field.options?.edgeFields || [];
     const currentValue = sourceRecord.values[fieldId];
@@ -36320,11 +36524,14 @@ class EODataWorkbench {
         if (detailLinks.length > 0) {
           const linkedSetId = field.options?.linkedSetId;
           const linkedSet = linkedSetId ? this.sets?.find(s => s.id === linkedSetId) : this.getCurrentSet?.();
-          const primaryField = linkedSet?.fields?.find(f => f.isPrimary) || linkedSet?.fields?.[0];
+          // Use linkedFieldId if set, otherwise fall back to primary field
+          const displayField = field.options?.linkedFieldId
+            ? linkedSet?.fields?.find(f => f.id === field.options.linkedFieldId)
+            : (linkedSet?.fields?.find(f => f.isPrimary) || linkedSet?.fields?.[0]);
           const hasEdgeFields = field.options?.enableEdgeData && field.options?.edgeFields?.length > 0;
           return detailLinks.map(link => {
             const linkedRecord = linkedSet?.records?.find(r => r.id === link.recordId);
-            const name = linkedRecord?.values?.[primaryField?.id] || 'Unknown';
+            const name = linkedRecord?.values?.[displayField?.id] || 'Unknown';
             const hasEdgeData = hasEdgeFields && link.edgeData && Object.keys(link.edgeData).length > 0;
             const edgeIndicator = hasEdgeData ? '<i class="ph ph-arrows-horizontal edge-indicator" title="Has edge data"></i>' : '';
             return `<span class="link-chip${hasEdgeData ? ' has-edge-data' : ''}" data-linked-id="${link.recordId}">${this._escapeHtml(name)}${edgeIndicator}</span>`;
