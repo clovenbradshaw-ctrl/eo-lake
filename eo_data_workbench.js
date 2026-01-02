@@ -3354,6 +3354,10 @@ class EODataWorkbench {
           this._loadSetRecords(this.currentSetId);
         }
 
+        // CRITICAL: Load records from IndexedDB for current set/sources that have _recordsInIndexedDB flag
+        // This ensures data persists across page refresh
+        this._loadRecordsFromIndexedDBOnStartup();
+
         // Migration: Validate all fields to ensure proper rendering (TABLE RULES 1, 3 & 5)
         // This fixes any legacy data that might have missing width, type, or other properties
         this.sets.forEach(set => {
@@ -3384,14 +3388,83 @@ class EODataWorkbench {
    * Performance: Defers record loading until set is accessed
    */
   _loadSetRecords(setId) {
+    // First check for IndexedDB storage (takes priority over legacy lazy loading)
+    const set = this.sets.find(s => s.id === setId);
+    if (set && set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+      // Load from IndexedDB asynchronously and re-render when done
+      this._ensureSetRecords(set).then(() => {
+        this._renderView();
+      });
+      return;
+    }
+
+    // Legacy lazy loading from _fullSetData
     if (!this._fullSetData) return;
 
-    const set = this.sets.find(s => s.id === setId);
     const fullSet = this._fullSetData.find(s => s.id === setId);
 
     if (set && fullSet && !set._recordsLoaded) {
       set.records = fullSet.records || [];
       set._recordsLoaded = true;
+    }
+  }
+
+  /**
+   * CRITICAL: Load records from IndexedDB on startup for all sets/sources with _recordsInIndexedDB flag
+   * This prevents data loss on page refresh by ensuring IndexedDB data is loaded before rendering
+   */
+  async _loadRecordsFromIndexedDBOnStartup() {
+    const storage = typeof eoStorage !== 'undefined' ? eoStorage : null;
+    if (!storage) return;
+
+    // Track loading promises for current set (priority) and all other items
+    const loadingPromises = [];
+
+    // Priority 1: Load current set records first (user sees this immediately)
+    if (this.currentSetId) {
+      const currentSet = this.sets.find(s => s.id === this.currentSetId);
+      if (currentSet && currentSet._recordsInIndexedDB && (!currentSet.records || currentSet.records.length === 0)) {
+        console.log(`[IndexedDB] Loading current set records: ${currentSet.name}`);
+        loadingPromises.push(
+          this._ensureSetRecords(currentSet).then(() => {
+            console.log(`[IndexedDB] Loaded ${currentSet.records?.length || 0} records for current set`);
+            // Re-render immediately after current set loads
+            this._renderView();
+          })
+        );
+      }
+    }
+
+    // Priority 2: Load all other sets with _recordsInIndexedDB flag (background)
+    for (const set of this.sets) {
+      if (set.id !== this.currentSetId && set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+        loadingPromises.push(
+          this._ensureSetRecords(set).then(() => {
+            console.log(`[IndexedDB] Background loaded ${set.records?.length || 0} records for set: ${set.name}`);
+          })
+        );
+      }
+    }
+
+    // Priority 3: Load all sources with _recordsInIndexedDB flag
+    for (const source of (this.sources || [])) {
+      if (source._recordsInIndexedDB && (!source.records || source.records.length === 0)) {
+        loadingPromises.push(
+          this._ensureSourceRecords(source).then(() => {
+            console.log(`[IndexedDB] Loaded ${source.records?.length || 0} records for source: ${source.name}`);
+          })
+        );
+      }
+    }
+
+    // Wait for all to complete
+    if (loadingPromises.length > 0) {
+      try {
+        await Promise.all(loadingPromises);
+        console.log(`[IndexedDB] Completed loading ${loadingPromises.length} items from IndexedDB`);
+      } catch (error) {
+        console.error('[IndexedDB] Error loading records on startup:', error);
+      }
     }
   }
 
@@ -3889,6 +3962,18 @@ class EODataWorkbench {
     const set = this.getCurrentSet();
     const view = this.getCurrentView();
     if (!set) return [];
+
+    // Safety check: If records are in IndexedDB but not loaded, trigger async load
+    // This should rarely happen if _loadRecordsFromIndexedDBOnStartup and _selectSet work correctly
+    if (set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+      console.warn('[DATA INTEGRITY] Records in IndexedDB not yet loaded - triggering background load');
+      this._ensureSetRecords(set).then(() => {
+        // Re-render once records are loaded
+        this._renderView();
+      });
+      // Return empty for now, will be populated after async load
+      return [];
+    }
 
     // For virtual sets, records may need to be computed asynchronously
     // Use cached records if available, otherwise return empty and trigger async load
@@ -22526,20 +22611,17 @@ class EODataWorkbench {
     }
   }
 
-  _selectSet(setId, panelMode = 'detail') {
+  async _selectSet(setId, panelMode = 'detail') {
     const set = this.sets.find(s => s.id === setId);
     if (!set) return;
 
     // Clear search when switching sets
     this.viewSearchTerm = '';
 
-    // Handle virtual sets (merged sets) and IndexedDB storage
-    // These need async record loading/computation
+    // CRITICAL: Ensure records are loaded BEFORE any UI updates or saves
+    // This prevents data loss from empty records being rendered/saved
     if (set.isVirtual || set._recordsInIndexedDB || set.derivation?.operator === 'relational_merge') {
-      this._ensureSetRecords(set).then(() => {
-        // Re-render after records are loaded
-        this._renderView();
-      });
+      await this._ensureSetRecords(set);
     } else if (this._useLazyLoading) {
       // Legacy lazy loading for other sets
       this._loadSetRecords(setId);
@@ -22562,7 +22644,7 @@ class EODataWorkbench {
       };
     }
 
-    // Open as a browser tab
+    // Open as a browser tab (records now guaranteed to be loaded)
     this.openTab('set', {
       contentId: setId,
       title: set.name,
@@ -29228,6 +29310,18 @@ class EODataWorkbench {
 
   _updateRecordValue(recordId, fieldId, value, skipUndo = false) {
     const set = this.getCurrentSet();
+
+    // Safety check: If records are in IndexedDB but not loaded, this is a bug
+    // The records should have been loaded by _loadRecordsFromIndexedDBOnStartup or _selectSet
+    if (set && set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+      console.error('[DATA LOSS PREVENTION] Attempted to update record but records not loaded from IndexedDB. Loading now...');
+      this._ensureSetRecords(set).then(() => {
+        // Retry the update after records are loaded
+        this._updateRecordValue(recordId, fieldId, value, skipUndo);
+      });
+      return;
+    }
+
     const record = set?.records.find(r => r.id === recordId);
     if (!record) return;
 
