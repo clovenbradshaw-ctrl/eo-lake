@@ -6551,61 +6551,21 @@ class EODataWorkbench {
   _renderNestedDefinitions(definitions, projectId, projectSets) {
     if (definitions.length === 0) return '';
 
-    const isExpanded = this.expandedProjectSections?.[`${projectId}-definitions`] ?? false;
+    // Check if definitions table view is currently active
+    const isActive = this.isViewingDefinitionsTable && this.currentProjectId === projectId;
 
-    const definitionsListHtml = definitions.map(def => {
-      const isActive = this.currentDefinitionId === def.id;
-      const termCount = def.terms?.length || def.properties?.length || 0;
-      const isLocal = !def.sourceUri;
-
-      // Find which fields in project sets use this definition
-      const linkedFields = this._getDefinitionLinkedFields(def, projectSets);
-      const linkedFieldsHtml = linkedFields.length > 0
-        ? `<div class="definition-linked-fields">
-             ${linkedFields.map(lf => `
-               <span class="linked-field-badge" title="${lf.setName}: ${lf.fieldName} → ${def.name}">
-                 ${this._escapeHtml(this._truncateName(lf.fieldName, 12))}
-               </span>
-             `).join('')}
-           </div>`
-        : '';
-
-      // Local-only indicator
-      const localWarningHtml = isLocal
-        ? `<span class="definition-local-badge" title="This definition has no URI. It works locally but won't carry meaning outside this project.">
-             <i class="ph ph-warning-circle"></i>
-           </span>`
-        : `<span class="definition-uri-badge" title="Linked to external URI">
-             <i class="ph ph-link"></i>
-           </span>`;
-
-      return `
-        <div class="nested-nav-item definition-nested-item ${isActive ? 'active' : ''} ${isLocal ? 'local-only' : ''}"
-             data-definition-id="${def.id}"
-             data-project-id="${projectId}"
-             title="${this._escapeHtml(def.name)}${isLocal ? ' (local only — no URI)' : ''}">
-          <i class="ph ph-book-open"></i>
-          <span class="nested-item-name">${this._escapeHtml(this._truncateName(def.name, 18))}</span>
-          ${localWarningHtml}
-          <span class="nested-item-count">${termCount}</span>
-          ${linkedFieldsHtml}
-        </div>
-      `;
-    }).join('');
-
+    // Definitions now shows as a single clickable item (like Sources) that opens a table view
     return `
-      <div class="project-section definitions-section ${isExpanded ? 'expanded' : ''}"
+      <div class="project-section definitions-section"
            data-section="definitions" data-project-id="${projectId}">
-        <div class="project-section-header" data-section="definitions" data-project-id="${projectId}"
-             title="Meaning: Vocabularies that define what your data means">
-          <i class="ph ph-caret-right section-expand-icon"></i>
-          <i class="ph ph-book-open section-icon"></i>
-          <span class="section-title">Meaning</span>
-          <span class="section-badge dictionary-badge">MEANT</span>
-          <span class="section-count">${definitions.length}</span>
-        </div>
-        <div class="project-section-content">
-          ${definitionsListHtml}
+        <div class="nested-nav-item definitions-table-item ${isActive ? 'active' : ''}"
+             data-project-id="${projectId}"
+             data-action="definitions-table"
+             title="View all definitions">
+          <i class="ph ph-book-open"></i>
+          <span class="nested-item-name">Definitions</span>
+          <span class="nested-item-count">${definitions.length}</span>
+          <span class="epistemic-mini-badge meant-mini">MEANT</span>
         </div>
       </div>
     `;
@@ -6859,18 +6819,18 @@ class EODataWorkbench {
       });
     });
 
-    // Definition items
-    container.querySelectorAll('.definition-nested-item').forEach(item => {
+    // Definitions table item (single entry that opens table view)
+    container.querySelectorAll('.definitions-table-item').forEach(item => {
       item.addEventListener('click', (e) => {
         e.stopPropagation();
-        const definitionId = item.dataset.definitionId;
-        this._selectDefinition(definitionId);
+        const projectId = item.dataset.projectId;
+        this._showDefinitionsTable(projectId);
       });
 
       item.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        this._showDefinitionContextMenu(e, item.dataset.definitionId);
+        // Could show context menu for definitions section if needed
       });
     });
 
@@ -8336,6 +8296,45 @@ class EODataWorkbench {
   }
 
   /**
+   * Show definitions table view for a project
+   * Displays all definitions in a table format
+   */
+  _showDefinitionsTable(projectId) {
+    // Get definitions for this project
+    const projectDefinitions = this.definitions?.filter(d => d.projectId === projectId) || [];
+
+    // Clear other selections
+    this.currentSourceId = null;
+    this.currentSetId = null;
+    this.currentViewId = null;
+    this.currentDefinitionId = null;
+    this.showingSetFields = false;
+    this.showingSetDetail = false;
+    this.isViewingDefinitions = false;
+
+    // Set definitions table view flag
+    this.isViewingDefinitionsTable = true;
+    this.currentProjectId = projectId;
+
+    // Update tab bar
+    this._renderTabBar();
+
+    // Update sidebar selection
+    document.querySelectorAll('.source-item, .set-item, .set-item-header, .set-view-item, .definition-nested-item').forEach(item => {
+      item.classList.remove('active');
+    });
+    document.querySelectorAll('.definitions-table-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.projectId === projectId);
+    });
+
+    // Render definitions table view
+    this._renderDefinitionsTableView(projectDefinitions, projectId);
+
+    // Update breadcrumb
+    this._updateBreadcrumb();
+  }
+
+  /**
    * Show definition detail view
    */
   _showDefinitionDetail(definitionId) {
@@ -8344,6 +8343,9 @@ class EODataWorkbench {
       this._showNotification('Definition not found', 'error');
       return;
     }
+
+    // Clear definitions table view flag
+    this.isViewingDefinitionsTable = false;
 
     // Set current definition
     this.currentDefinitionId = definitionId;
@@ -8600,6 +8602,180 @@ class EODataWorkbench {
     }
 
     return '';
+  }
+
+  /**
+   * Render definitions table view showing all definitions for a project
+   */
+  _renderDefinitionsTableView(definitions, projectId) {
+    const contentArea = this.elements.contentArea;
+    if (!contentArea) return;
+
+    const project = this.projects?.find(p => p.id === projectId);
+    const projectName = project?.name || 'Project';
+    const projectSets = this.sets?.filter(s => s.projectId === projectId) || [];
+
+    contentArea.innerHTML = `
+      <div class="definitions-table-view">
+        <div class="definitions-table-header">
+          <div class="definitions-table-title">
+            <i class="ph ph-book-open"></i>
+            <h2>Definitions</h2>
+            <span class="definitions-count">${definitions.length} definition${definitions.length !== 1 ? 's' : ''}</span>
+          </div>
+          <div class="definitions-table-actions">
+            <button class="btn btn-primary" id="btn-import-definition">
+              <i class="ph ph-download"></i> Import Definition
+            </button>
+          </div>
+        </div>
+
+        ${definitions.length === 0 ? `
+          <div class="definitions-empty-state">
+            <i class="ph ph-book-open"></i>
+            <h3>No definitions yet</h3>
+            <p>Import a definition schema to get started</p>
+            <button class="btn btn-primary" id="btn-import-definition-empty">
+              <i class="ph ph-download"></i> Import Definition
+            </button>
+          </div>
+        ` : `
+          <div class="definitions-table-container">
+            <table class="data-table definitions-data-table">
+              <thead>
+                <tr>
+                  <th class="col-name" style="width: 200px;">
+                    <div class="th-content">
+                      <span>Name</span>
+                    </div>
+                  </th>
+                  <th class="col-terms" style="width: 100px;">
+                    <div class="th-content">
+                      <span>Terms</span>
+                    </div>
+                  </th>
+                  <th class="col-source" style="width: 200px;">
+                    <div class="th-content">
+                      <span>Source</span>
+                    </div>
+                  </th>
+                  <th class="col-linked" style="width: 150px;">
+                    <div class="th-content">
+                      <span>Linked Fields</span>
+                    </div>
+                  </th>
+                  <th class="col-imported">
+                    <div class="th-content">
+                      <span>Imported</span>
+                    </div>
+                  </th>
+                  <th class="col-actions" style="width: 80px;"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${definitions.map(def => {
+                  const termCount = def.terms?.length || def.properties?.length || 0;
+                  const importDate = def.importedAt ? new Date(def.importedAt).toLocaleDateString() : '—';
+                  const sourceDisplay = def.sourceUri
+                    ? this._truncateName(def.sourceUri.replace(/^https?:\/\//, ''), 30)
+                    : 'Local';
+                  const linkedFields = this._getDefinitionLinkedFields(def, projectSets);
+
+                  return `
+                    <tr class="definition-table-row" data-definition-id="${def.id}">
+                      <td class="definition-name-cell">
+                        <div class="definition-name-content">
+                          <i class="ph ${this._getDefinitionIcon(def)}"></i>
+                          <span class="definition-name">${this._escapeHtml(def.name)}</span>
+                        </div>
+                      </td>
+                      <td class="definition-terms-cell">
+                        <span class="term-count-badge">${termCount}</span>
+                      </td>
+                      <td class="definition-source-cell">
+                        ${def.sourceUri ? `
+                          <a href="${this._escapeHtml(def.sourceUri)}" target="_blank" class="source-link" title="${this._escapeHtml(def.sourceUri)}">
+                            ${this._escapeHtml(sourceDisplay)}
+                            <i class="ph ph-arrow-square-out"></i>
+                          </a>
+                        ` : `<span class="source-local">Local</span>`}
+                      </td>
+                      <td class="definition-linked-cell">
+                        ${linkedFields.length > 0 ? `
+                          <div class="linked-fields-badges">
+                            ${linkedFields.slice(0, 3).map(lf => `
+                              <span class="linked-field-badge" title="${lf.setName}: ${lf.fieldName}">
+                                ${this._escapeHtml(this._truncateName(lf.fieldName, 10))}
+                              </span>
+                            `).join('')}
+                            ${linkedFields.length > 3 ? `<span class="linked-more">+${linkedFields.length - 3}</span>` : ''}
+                          </div>
+                        ` : '<span class="no-links">—</span>'}
+                      </td>
+                      <td class="definition-imported-cell">
+                        <span class="import-date">${importDate}</span>
+                      </td>
+                      <td class="definition-actions-cell">
+                        <button class="btn-icon btn-view-definition" data-definition-id="${def.id}" title="View details">
+                          <i class="ph ph-eye"></i>
+                        </button>
+                        <button class="btn-icon btn-delete-definition" data-definition-id="${def.id}" title="Delete">
+                          <i class="ph ph-trash"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        `}
+      </div>
+    `;
+
+    // Attach event handlers
+    this._attachDefinitionsTableHandlers(projectId);
+  }
+
+  /**
+   * Attach event handlers for definitions table view
+   */
+  _attachDefinitionsTableHandlers(projectId) {
+    // Import definition buttons
+    document.getElementById('btn-import-definition')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+    document.getElementById('btn-import-definition-empty')?.addEventListener('click', () => {
+      this._showImportDefinitionModal();
+    });
+
+    // Row click to view definition details
+    document.querySelectorAll('.definition-table-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        // Don't trigger if clicking on action buttons
+        if (e.target.closest('.btn-icon') || e.target.closest('a')) return;
+        const definitionId = row.dataset.definitionId;
+        this._showDefinitionDetail(definitionId);
+      });
+    });
+
+    // View definition button
+    document.querySelectorAll('.btn-view-definition').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const definitionId = btn.dataset.definitionId;
+        this._showDefinitionDetail(definitionId);
+      });
+    });
+
+    // Delete definition button
+    document.querySelectorAll('.btn-delete-definition').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const definitionId = btn.dataset.definitionId;
+        this._confirmDeleteDefinition(definitionId);
+      });
+    });
   }
 
   /**
