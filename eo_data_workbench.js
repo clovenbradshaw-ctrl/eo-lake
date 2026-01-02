@@ -27968,7 +27968,17 @@ class EODataWorkbench {
 
     switch (field.type) {
       case FieldTypes.TEXT:
-        content = value ? this._highlightText(value, searchTerm) : '<span class="cell-empty">Empty</span>';
+        if (value) {
+          const hasHtml = /<[a-z][\s\S]*>/i.test(value);
+          content = `<div class="cell-text-wrapper">
+            <span class="cell-text-content">${this._highlightText(value, searchTerm)}</span>
+            <button class="cell-expand-btn cell-html-preview-btn" data-field-id="${field.id}" data-has-html="${hasHtml}" title="${hasHtml ? 'Click to preview HTML' : 'Click to expand'}">
+              <i class="ph ${hasHtml ? 'ph-code' : 'ph-arrows-out-simple'}"></i>
+            </button>
+          </div>`;
+        } else {
+          content = '<span class="cell-empty">Empty</span>';
+        }
         break;
       case FieldTypes.LONG_TEXT:
         if (value) {
@@ -28367,8 +28377,21 @@ class EODataWorkbench {
         return;
       }
 
+      // HTML preview button click (for TEXT fields)
+      const htmlPreviewBtn = target.closest('.cell-html-preview-btn');
+      if (htmlPreviewBtn) {
+        e.stopPropagation(); // Prevent row click and cell edit
+        const td = htmlPreviewBtn.closest('td');
+        const recordId = td?.closest('tr')?.dataset.recordId;
+        const fieldId = td?.dataset.fieldId;
+        if (recordId && fieldId) {
+          this._showHtmlPreviewModal(recordId, fieldId);
+        }
+        return;
+      }
+
       // Long text expand button click
-      const expandBtn = target.closest('.cell-expand-btn');
+      const expandBtn = target.closest('.cell-expand-btn:not(.cell-html-preview-btn)');
       if (expandBtn) {
         e.stopPropagation(); // Prevent row click and cell edit
         const td = expandBtn.closest('td');
@@ -28711,6 +28734,87 @@ class EODataWorkbench {
     });
 
     modal.show();
+  }
+
+  /**
+   * Show modal with HTML preview - renders HTML content and allows switching between rendered and source views
+   */
+  _showHtmlPreviewModal(recordId, fieldId) {
+    const set = this.getCurrentSet();
+    const record = set?.records.find(r => r.id === recordId);
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!record || !field) return;
+
+    const value = record.values[fieldId] || '';
+    const fieldName = field.name || 'Content';
+    const hasHtml = /<[a-z][\s\S]*>/i.test(value);
+
+    // Create modal for displaying HTML content
+    const modal = new EOModal({
+      title: fieldName,
+      size: 'large',
+      content: `
+        <div class="html-preview-modal-content">
+          <div class="html-preview-tabs">
+            <button class="html-preview-tab active" data-tab="rendered">
+              <i class="ph ph-eye"></i> Rendered
+            </button>
+            <button class="html-preview-tab" data-tab="source">
+              <i class="ph ph-code"></i> Source
+            </button>
+          </div>
+          <div class="html-preview-pane active" data-pane="rendered">
+            <div class="html-preview-rendered">${value}</div>
+          </div>
+          <div class="html-preview-pane" data-pane="source">
+            <div class="html-preview-source">${this._escapeHtml(value)}</div>
+          </div>
+        </div>
+      `,
+      buttons: [
+        {
+          text: 'Edit',
+          icon: 'ph-pencil-simple',
+          variant: 'secondary',
+          action: () => {
+            modal.hide();
+            // Find the cell and start editing
+            const cell = this.container.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
+            if (cell) {
+              this._startCellEdit(cell);
+            }
+          }
+        },
+        {
+          text: 'Close',
+          variant: 'primary',
+          action: () => modal.hide()
+        }
+      ]
+    });
+
+    // Add tab switching functionality after showing modal
+    modal.show();
+
+    // Set up tab switching
+    const modalEl = modal.element;
+    const tabs = modalEl.querySelectorAll('.html-preview-tab');
+    const panes = modalEl.querySelectorAll('.html-preview-pane');
+
+    tabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetPane = tab.dataset.tab;
+
+        // Update active tab
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Update active pane
+        panes.forEach(p => {
+          p.classList.toggle('active', p.dataset.pane === targetPane);
+        });
+      });
+    });
   }
 
   _closeSelectEditor = (e) => {
