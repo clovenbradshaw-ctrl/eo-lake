@@ -572,6 +572,10 @@ class EODataWorkbench {
     // Browser-Style Tab Manager - Everything is a tab like Chrome
     this.browserTabs = []; // Array of all open tabs
     this.activeTabId = null; // Currently active tab
+
+    // Panel Tabs - For set detail view (overview, fields, source tabs)
+    this.panelTabs = [];
+    this.activePanelTabId = null;
     this.tabHistory = []; // Navigation history for back/forward
     this.recentlyClosedTabs = []; // For "Reopen closed tab" feature (max 10)
 
@@ -19014,6 +19018,14 @@ class EODataWorkbench {
   }
 
   /**
+   * Confirm and delete a set
+   * Wrapper method that calls _deleteSet
+   */
+  _confirmDeleteSet(setId) {
+    this._deleteSet(setId);
+  }
+
+  /**
    * Delete (toss) a set - removes from view but nothing is ever deleted
    * Tossed items can be picked back up from the tossed items list
    */
@@ -20118,6 +20130,26 @@ class EODataWorkbench {
       title: set.name,
       icon: set.icon || 'ph-table',
       viewState: viewState
+    });
+
+    this._renderSidebar();
+    this._updateBreadcrumb();
+    this._saveData();
+  }
+
+  /**
+   * Select and open a source by its ID
+   * Opens the source in a browser tab similar to _selectSet
+   */
+  _selectSource(sourceId) {
+    const source = this.sources?.find(s => s.id === sourceId);
+    if (!source) return;
+
+    // Open as a browser tab
+    this.openTab('source', {
+      contentId: sourceId,
+      title: source.name,
+      icon: 'ph-file-csv'
     });
 
     this._renderSidebar();
