@@ -19423,11 +19423,14 @@ class EODataWorkbench {
 
     // Sync all sources to sourceStore for merge compatibility
     // Ensure sources have status: 'active' so they appear in getByStatus('active')
+    // Use string keys consistently to avoid type mismatch issues with HTML select values
     for (const source of (this.sources || [])) {
-      if (!this.sourceStore.get(source.id)) {
+      const stringId = String(source.id);
+      if (!this.sourceStore.get(stringId) && !this.sourceStore.get(source.id)) {
         // Ensure the source has an active status for filtering
         const sourceWithStatus = source.status ? source : { ...source, status: 'active' };
-        this.sourceStore.sources.set(source.id, sourceWithStatus);
+        // Store with string key for consistent lookup from HTML select values
+        this.sourceStore.sources.set(stringId, sourceWithStatus);
       }
     }
 
