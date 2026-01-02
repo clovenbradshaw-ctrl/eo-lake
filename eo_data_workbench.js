@@ -9547,19 +9547,39 @@ class EODataWorkbench {
     // Render sources as a flat list
     let html = '';
     for (const source of sortedSources) {
-      const sourceIcon = this._getSourceIcon(source.name);
+      const sourceIcon = this._getSourceIcon(source);
       const provenanceInfo = this._formatSourceProvenance(source);
       const importDate = source.importedAt ? new Date(source.importedAt).toLocaleDateString() : '';
       const recordCount = source.recordCount || source.records?.length || 0;
 
+      // Check if this is a live source (API or RSS)
+      const isLiveSource = source.sourceType === 'api' || source.sourceType === 'rss';
+      const liveSourceClass = isLiveSource ? 'live-source' : '';
+      const syncStatus = source.liveSource?.syncStatus || 'fresh';
+
+      // Determine live indicator
+      let liveIndicator = '';
+      if (isLiveSource) {
+        const syncInfo = this._getLiveSyncInfo(source);
+        liveIndicator = `
+          <span class="live-source-indicator ${syncStatus}" title="${syncInfo.tooltip}">
+            <span class="live-dot"></span>
+            <span class="live-label">${syncInfo.label}</span>
+          </span>
+        `;
+      }
+
       html += `
-        <div class="nav-item source-item" data-source-id="${source.id}" title="${provenanceInfo}">
+        <div class="nav-item source-item ${liveSourceClass}" data-source-id="${source.id}" title="${provenanceInfo}">
           <i class="ph ${sourceIcon} source-icon"></i>
           <div class="source-info">
             <span class="source-name">${this._escapeHtml(this._truncateSourceName(source.name))}</span>
-            <span class="source-meta-inline">${importDate}</span>
+            ${isLiveSource ? liveIndicator : `<span class="source-meta-inline">${importDate}</span>`}
           </div>
-          <span class="source-provenance-badge" title="GIVEN: Immutable import">◉</span>
+          ${isLiveSource
+            ? `<span class="source-provenance-badge live" title="LIVE: Can refresh from ${source.sourceType.toUpperCase()}">↻</span>`
+            : `<span class="source-provenance-badge" title="GIVEN: Immutable import">◉</span>`
+          }
           <span class="nav-item-count" title="${recordCount} records imported">${recordCount}</span>
         </div>
       `;
@@ -21332,9 +21352,25 @@ class EODataWorkbench {
   }
 
   /**
-   * Get icon for source file type
+   * Get icon for source based on sourceType or file extension
+   * @param {string|Object} source - Filename string or source object
+   * @returns {string} Phosphor icon class
    */
-  _getSourceIcon(filename) {
+  _getSourceIcon(source) {
+    // If passed a source object, check sourceType first
+    if (typeof source === 'object' && source !== null) {
+      // Live source types get distinctive icons
+      if (source.sourceType === 'rss') return 'ph-rss';
+      if (source.sourceType === 'api') return 'ph-plugs-connected';
+      if (source.sourceType === 'scrape') return 'ph-globe';
+      if (source.sourceType === 'null') return 'ph-table';
+
+      // Fall through to file extension check
+      source = source.name || '';
+    }
+
+    // File extension based icons
+    const filename = typeof source === 'string' ? source : '';
     const ext = filename.split('.').pop()?.toLowerCase();
     switch (ext) {
       case 'csv': return 'ph-file-csv';
@@ -21354,6 +21390,60 @@ class EODataWorkbench {
       return name.slice(0, 17) + '...';
     }
     return name;
+  }
+
+  /**
+   * Get sync status info for live sources (API/RSS)
+   * @param {Object} source - Source object
+   * @returns {Object} { label, tooltip, status }
+   */
+  _getLiveSyncInfo(source) {
+    const liveSource = source.liveSource;
+    const sourceType = source.sourceType?.toUpperCase() || 'LIVE';
+
+    if (!liveSource?.lastSyncAt) {
+      return {
+        label: 'Never synced',
+        tooltip: `${sourceType}: Never synchronized`,
+        status: 'never'
+      };
+    }
+
+    const lastSync = new Date(liveSource.lastSyncAt);
+    const now = new Date();
+    const diffMs = now - lastSync;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    let timeAgo;
+    if (diffMins < 1) {
+      timeAgo = 'just now';
+    } else if (diffMins < 60) {
+      timeAgo = `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+      timeAgo = `${diffHours}h ago`;
+    } else {
+      timeAgo = `${diffDays}d ago`;
+    }
+
+    // Determine freshness status
+    let status = 'fresh';
+    if (diffMins > 30) {
+      status = 'stale';
+    }
+    if (diffMins > 60 * 24) { // More than a day
+      status = 'old';
+    }
+
+    const endpoint = liveSource.endpoint || 'unknown endpoint';
+    const truncatedEndpoint = endpoint.length > 50 ? endpoint.slice(0, 47) + '...' : endpoint;
+
+    return {
+      label: timeAgo,
+      tooltip: `${sourceType}: Synced ${timeAgo}\nEndpoint: ${truncatedEndpoint}\nClick to refresh`,
+      status: status
+    };
   }
 
   /**
@@ -36003,7 +36093,10 @@ class EODataWorkbench {
   }
 
   _renderDetailFieldValue(field, value) {
-    if (value === null || value === undefined || value === '') {
+    // Computed field types don't have stored values - they evaluate dynamically
+    const computedFieldTypes = [FieldTypes.FORMULA, FieldTypes.ROLLUP, FieldTypes.COUNT, FieldTypes.AUTONUMBER];
+
+    if (!computedFieldTypes.includes(field.type) && (value === null || value === undefined || value === '')) {
       return '<span class="cell-empty">Empty - click to add</span>';
     }
 

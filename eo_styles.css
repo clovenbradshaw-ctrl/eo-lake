@@ -15279,6 +15279,74 @@ body.has-picked-up .browser-tab:hover {
   margin-right: 4px;
 }
 
+/* Live source badge (for API/RSS sources) */
+.source-provenance-badge.live {
+  color: var(--primary-500, #60a5fa);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Live source styling */
+.source-item.live-source {
+  position: relative;
+}
+
+.source-item.live-source .source-icon {
+  color: var(--primary-500, #60a5fa);
+}
+
+/* Live source indicator (shows sync status) */
+.live-source-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.live-source-indicator .live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success-500, #22c55e);
+}
+
+.live-source-indicator.fresh .live-dot {
+  background: var(--success-500, #22c55e);
+  box-shadow: 0 0 4px var(--success-500, #22c55e);
+}
+
+.live-source-indicator.stale .live-dot {
+  background: var(--warning-500, #eab308);
+  box-shadow: 0 0 4px var(--warning-500, #eab308);
+}
+
+.live-source-indicator.old .live-dot {
+  background: var(--error-500, #ef4444);
+  box-shadow: none;
+}
+
+.live-source-indicator.never .live-dot {
+  background: var(--text-muted, #9ca3af);
+  box-shadow: none;
+}
+
+.live-source-indicator .live-label {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* Hover state for live sources - show refresh hint */
+.source-item.live-source:hover .source-provenance-badge.live {
+  color: var(--primary-600, #3b82f6);
+  transform: rotate(45deg);
+  transition: transform 0.2s ease;
+}
+
 /* Definition Item Styling */
 .definition-item {
   display: flex;

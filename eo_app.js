@@ -1232,7 +1232,26 @@ function getViewIcon(type) {
   return icons[type] || 'ph-table';
 }
 
-function getSourceIcon(filename) {
+/**
+ * Get icon for source based on sourceType or file extension
+ * @param {string|Object} source - Filename string or source object
+ * @returns {string} Phosphor icon class
+ */
+function getSourceIcon(source) {
+  // If passed a source object, check sourceType first
+  if (typeof source === 'object' && source !== null) {
+    // Live source types get distinctive icons
+    if (source.sourceType === 'rss') return 'ph-rss';
+    if (source.sourceType === 'api') return 'ph-plugs-connected';
+    if (source.sourceType === 'scrape') return 'ph-globe';
+    if (source.sourceType === 'null') return 'ph-table';
+
+    // Fall through to file extension check
+    source = source.name || '';
+  }
+
+  // File extension based icons
+  const filename = typeof source === 'string' ? source : '';
   const ext = filename.split('.').pop()?.toLowerCase();
   const icons = {
     csv: 'ph-file-csv',
