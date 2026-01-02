@@ -3437,8 +3437,11 @@ function initImportHandlers() {
         progressSection.style.display = 'none';
         successSection.style.display = 'flex';
 
-        document.getElementById('success-message').textContent =
-          `Successfully imported ${result.totalRecordCount} records into ${result.sources.length} Sources`;
+        const successMsg = document.getElementById('success-message');
+        if (successMsg) {
+          successMsg.textContent =
+            `Successfully imported ${result.totalRecordCount} records into ${result.sources.length} Sources`;
+        }
 
         // Show created sources info
         const sourcesList = result.sources.map(s =>
@@ -3446,7 +3449,9 @@ function initImportHandlers() {
             ${s.name} (${s.recordCount})
           </span>`
         ).join('');
-        document.getElementById('success-views-created').innerHTML = `
+        const successViews = document.getElementById('success-views-created');
+        if (successViews) {
+          successViews.innerHTML = `
           <div style="margin-top: 8px;"><i class="ph ph-git-branch"></i> Split by <strong>${result.typeField}</strong>:</div>
           <div style="margin-top: 6px;">${sourcesList}</div>
           <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
@@ -3456,6 +3461,7 @@ function initImportHandlers() {
             </p>
           </div>
         `;
+        }
 
         // Refresh workbench sidebar to show new sources
         if (workbench?._renderSidebar) {
@@ -3496,11 +3502,16 @@ function initImportHandlers() {
         progressSection.style.display = 'none';
         successSection.style.display = 'flex';
 
-        document.getElementById('success-message').textContent =
-          `Successfully imported ${result.recordCount} records as Source`;
+        const successMsgEl = document.getElementById('success-message');
+        if (successMsgEl) {
+          successMsgEl.textContent =
+            `Successfully imported ${result.recordCount} records as Source`;
+        }
 
         // Show next steps info
-        document.getElementById('success-views-created').innerHTML = `
+        const successViewsEl = document.getElementById('success-views-created');
+        if (successViewsEl) {
+          successViewsEl.innerHTML = `
           <div style="margin-top: 12px; padding: 12px; background: var(--bg-secondary); border-radius: 6px;">
             <p style="margin: 0 0 8px 0; font-weight: 500;">
               <i class="ph ph-info"></i> Next Steps
@@ -3512,6 +3523,7 @@ function initImportHandlers() {
             </p>
           </div>
         `;
+        }
 
         // Refresh workbench sidebar to show new source
         if (workbench?._renderSidebar) {
@@ -3615,47 +3627,57 @@ function initImportHandlers() {
       dropzone.style.display = 'none';
       previewSection.style.display = 'block';
 
-      // File info
-      document.getElementById('preview-filename').textContent = file.name;
-      document.getElementById('preview-filesize').textContent =
-        `(${formatFileSize(file.size)})`;
+      // File info (with null checks)
+      const previewFilename = document.getElementById('preview-filename');
+      const previewFilesize = document.getElementById('preview-filesize');
+      if (previewFilename) previewFilename.textContent = file.name;
+      if (previewFilesize) previewFilesize.textContent = `(${formatFileSize(file.size)})`;
 
       // Update file icon
       const fileIcon = document.getElementById('preview-file-icon');
       const fileNameLower = file.name.toLowerCase();
-      if (isSpreadsheet) {
-        fileIcon.className = 'ph ph-file-xls';
-      } else if (fileNameLower.endsWith('.ics')) {
-        fileIcon.className = 'ph ph-calendar-blank';
-      } else if (fileNameLower.endsWith('.json')) {
-        fileIcon.className = 'ph ph-file-js';
-      } else {
-        fileIcon.className = 'ph ph-file-csv';
+      if (fileIcon) {
+        if (isSpreadsheet) {
+          fileIcon.className = 'ph ph-file-xls';
+        } else if (fileNameLower.endsWith('.ics')) {
+          fileIcon.className = 'ph ph-calendar-blank';
+        } else if (fileNameLower.endsWith('.json')) {
+          fileIcon.className = 'ph ph-file-js';
+        } else {
+          fileIcon.className = 'ph ph-file-csv';
+        }
       }
 
-      // Stats
-      document.getElementById('preview-rows').textContent = previewData.rowCount;
-      document.getElementById('preview-fields').textContent = previewData.schema.fields.length;
+      // Stats (with null checks)
+      const previewRows = document.getElementById('preview-rows');
+      const previewFields = document.getElementById('preview-fields');
+      if (previewRows) previewRows.textContent = previewData.rowCount;
+      if (previewFields) previewFields.textContent = previewData.schema.fields.length;
 
       // Show type count if available
       const typesDisplay = document.getElementById('preview-types');
-      if (analysisData.graphInfo?.nodeTypes?.length > 0) {
-        typesDisplay.textContent = analysisData.graphInfo.nodeTypes.length;
-      } else if (analysisData.viewSplitCandidates.length > 0) {
-        typesDisplay.textContent = analysisData.viewSplitCandidates[0].uniqueCount;
-      } else {
-        typesDisplay.textContent = '-';
+      if (typesDisplay) {
+        if (analysisData.graphInfo?.nodeTypes?.length > 0) {
+          typesDisplay.textContent = analysisData.graphInfo.nodeTypes.length;
+        } else if (analysisData.viewSplitCandidates.length > 0) {
+          typesDisplay.textContent = analysisData.viewSplitCandidates[0].uniqueCount;
+        } else {
+          typesDisplay.textContent = '-';
+        }
       }
 
       // Show graph data detected banner
       const graphBanner = document.getElementById('import-graph-detected');
       if (analysisData.isGraphData && analysisData.graphInfo) {
-        graphBanner.style.display = 'flex';
+        if (graphBanner) graphBanner.style.display = 'flex';
         const graphInfo = analysisData.graphInfo;
-        document.getElementById('graph-detected-info').textContent =
-          `${graphInfo.nodeCount} nodes (${graphInfo.nodeTypes.join(', ')})` +
-          (graphInfo.edgeCount > 0 ? ` and ${graphInfo.edgeCount} edges` : '');
-      } else {
+        const graphDetectedInfo = document.getElementById('graph-detected-info');
+        if (graphDetectedInfo) {
+          graphDetectedInfo.textContent =
+            `${graphInfo.nodeCount} nodes (${graphInfo.nodeTypes.join(', ')})` +
+            (graphInfo.edgeCount > 0 ? ` and ${graphInfo.edgeCount} edges` : '');
+        }
+      } else if (graphBanner) {
         graphBanner.style.display = 'none';
       }
 
@@ -3663,37 +3685,44 @@ function initImportHandlers() {
       const splitBanner = document.getElementById('import-split-detected');
       const splitChips = document.getElementById('split-type-chips');
       if (analysisData.schemaDivergence?.shouldSplit && !analysisData.isGraphData) {
-        splitBanner.style.display = 'block';
+        if (splitBanner) splitBanner.style.display = 'block';
         const divergence = analysisData.schemaDivergence;
 
         // Update info text
-        document.getElementById('split-detected-info').textContent =
-          `${divergence.types.length} types with ${Math.round(divergence.divergenceScore * 100)}% field divergence`;
+        const splitDetectedInfo = document.getElementById('split-detected-info');
+        if (splitDetectedInfo) {
+          splitDetectedInfo.textContent =
+            `${divergence.types.length} types with ${Math.round(divergence.divergenceScore * 100)}% field divergence`;
+        }
 
         // Build type chips
-        splitChips.innerHTML = divergence.types.slice(0, 6).map(t => `
+        if (splitChips) {
+          splitChips.innerHTML = divergence.types.slice(0, 6).map(t => `
           <span class="split-type-chip">
             <span class="chip-name">${escapeHtml(t.type)}</span>
             <span class="chip-count">(${t.count})</span>
             ${t.specificFieldCount > 0 ? `<span class="chip-fields">+${t.specificFieldCount} fields</span>` : ''}
           </span>
         `).join('') + (divergence.types.length > 6 ? '<span class="split-type-chip">...</span>' : '');
-      } else {
+        }
+      } else if (splitBanner) {
         splitBanner.style.display = 'none';
       }
 
       // Show type distribution
       const typeDistSection = document.getElementById('import-type-distribution');
       const typeBars = document.getElementById('type-bars');
+      const importViewOptions = document.getElementById('import-view-options');
       const typeCandidate = analysisData.viewSplitCandidates.find(c => c.field === 'type') ||
                            analysisData.viewSplitCandidates[0];
 
       if (typeCandidate && typeCandidate.values.length > 0) {
-        typeDistSection.style.display = 'block';
+        if (typeDistSection) typeDistSection.style.display = 'block';
         const maxCount = Math.max(...typeCandidate.values.map(v => v.count));
-        typeBars.innerHTML = typeCandidate.values.slice(0, 10).map(v => {
-          const pct = (v.count / maxCount) * 100;
-          return `
+        if (typeBars) {
+          typeBars.innerHTML = typeCandidate.values.slice(0, 10).map(v => {
+            const pct = (v.count / maxCount) * 100;
+            return `
             <div class="type-bar-row">
               <span class="type-bar-label">${escapeHtml(String(v.value))}</span>
               <div class="type-bar-track">
@@ -3702,25 +3731,29 @@ function initImportHandlers() {
               <span class="type-bar-count">${v.count}</span>
             </div>
           `;
-        }).join('');
+          }).join('');
+        }
 
         // Show view options
-        document.getElementById('import-view-options').style.display = 'block';
+        if (importViewOptions) importViewOptions.style.display = 'block';
       } else {
-        typeDistSection.style.display = 'none';
-        document.getElementById('import-view-options').style.display = 'none';
+        if (typeDistSection) typeDistSection.style.display = 'none';
+        if (importViewOptions) importViewOptions.style.display = 'none';
       }
 
       // Show edges section for graph data
       const edgesSection = document.getElementById('import-edges-section');
+      const edgesInfo = document.getElementById('edges-info');
       if (analysisData.isGraphData && analysisData.graphInfo?.edgeCount > 0) {
-        edgesSection.style.display = 'block';
+        if (edgesSection) edgesSection.style.display = 'block';
         const edgeInfo = analysisData.graphInfo;
-        document.getElementById('edges-info').innerHTML = `
+        if (edgesInfo) {
+          edgesInfo.innerHTML = `
           <span class="edges-count">${edgeInfo.edgeCount} relationships</span>
           <span class="edges-types">${edgeInfo.edgeTypes.slice(0, 5).join(', ')}${edgeInfo.edgeTypes.length > 5 ? '...' : ''}</span>
         `;
-      } else {
+        }
+      } else if (edgesSection) {
         edgesSection.style.display = 'none';
       }
 
@@ -3908,6 +3941,11 @@ function initImportHandlers() {
     const progressBar = document.getElementById('progress-bar');
     const progressText = document.getElementById('progress-text');
     const progressDetail = document.getElementById('progress-detail');
+
+    // Guard against null elements (modal may have closed)
+    if (!progressBar || !progressText || !progressDetail) {
+      return;
+    }
 
     if (data.percentage !== undefined) {
       progressBar.style.width = data.percentage + '%';
