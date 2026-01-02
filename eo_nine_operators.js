@@ -51,7 +51,7 @@ const OperatorSymbols = Object.freeze({
   NUL: '∅'
 });
 
-const OperatorMetadata = Object.freeze({
+const NineOperatorMetadata = Object.freeze({
   INS: {
     symbol: '⊕',
     name: 'Insert',
@@ -1658,7 +1658,7 @@ function validateOperatorChain(chain) {
  * Format operator for display
  */
 function formatOperator(operator) {
-  const meta = OperatorMetadata[operator];
+  const meta = NineOperatorMetadata[operator];
   if (!meta) return operator;
   return `${meta.symbol} ${meta.name}`;
 }
@@ -1669,7 +1669,7 @@ function formatOperator(operator) {
 function formatOperatorChain(chain) {
   return chain.map(op => {
     const operator = typeof op === 'string' ? op : op.operator;
-    const meta = OperatorMetadata[operator];
+    const meta = NineOperatorMetadata[operator];
     return meta ? meta.symbol : operator;
   }).join(' → ');
 }
@@ -1678,7 +1678,7 @@ function formatOperatorChain(chain) {
  * Render operator badge HTML
  */
 function renderOperatorBadge(operator, options = {}) {
-  const meta = OperatorMetadata[operator];
+  const meta = NineOperatorMetadata[operator];
   if (!meta) {
     return `<span class="op-badge op-unknown">${operator}</span>`;
   }
@@ -1743,7 +1743,7 @@ if (typeof module !== 'undefined' && module.exports) {
     // The 9 canonical operators
     NINE_OPERATORS,
     OperatorSymbols,
-    OperatorMetadata,
+    NineOperatorMetadata,
 
     // Dictionaries (technical terms → canonical operators)
     TechnicalOperatorDictionary,
@@ -1780,7 +1780,7 @@ if (typeof window !== 'undefined') {
     // The 9 canonical operators (THE vocabulary)
     operators: NINE_OPERATORS,
     symbols: OperatorSymbols,
-    metadata: OperatorMetadata,
+    metadata: NineOperatorMetadata,
 
     // Dictionaries (citations → canonical)
     dictionary: {
