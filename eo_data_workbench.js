@@ -32353,6 +32353,12 @@ class EODataWorkbench {
         <i class="ph ph-pencil"></i>
         <span>Rename field</span>
       </div>
+      ${field.type === FieldTypes.FORMULA ? `
+        <div class="context-menu-item" data-action="edit-formula">
+          <i class="ph ph-function"></i>
+          <span>Edit formula</span>
+        </div>
+      ` : ''}
       <div class="context-menu-item" data-action="change-type">
         <i class="ph ${FieldTypeIcons[field.type]}"></i>
         <span>Change type (${typeNames[field.type] || field.type})</span>
@@ -32424,6 +32430,9 @@ class EODataWorkbench {
             break;
           case 'rename':
             this._showRenameFieldModal(fieldId);
+            break;
+          case 'edit-formula':
+            this._showFormulaEditor(field);
             break;
           case 'change-type':
             // Pass the stored menu position since the context menu is now hidden

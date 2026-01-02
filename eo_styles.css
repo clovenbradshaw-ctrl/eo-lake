@@ -6132,9 +6132,10 @@ mark.search-highlight {
   right: 0;
   top: 0;
   bottom: 0;
-  width: 4px;
+  width: 8px;
   cursor: col-resize;
   background: transparent;
+  z-index: 10;
 }
 
 .th-resize-handle:hover,
