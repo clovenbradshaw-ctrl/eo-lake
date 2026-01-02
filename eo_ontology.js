@@ -1,7 +1,7 @@
 /**
  * EO Ontology - Operator Efficiency Architecture
  *
- * Implements the 10 ontological fixes for EO Lake:
+ * Implements the 10 ontological fixes for Noema:
  *
  * NON-NEGOTIABLE FIXES:
  *   1. Hard separation of Sources (GIVEN) vs Sets (MEANT)
@@ -36,7 +36,7 @@ const OntologicalType = Object.freeze({
  * SourceConfig - Represents GIVEN data (Fix #1)
  *
  * Sources are IMMUTABLE by design:
- * - Cannot be created inside EO Lake (only imported)
+ * - Cannot be created inside Noema (only imported)
  * - Cannot be modified after import
  * - Represent external observations
  */

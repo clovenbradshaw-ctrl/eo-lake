@@ -1,7 +1,7 @@
 /**
  * EO Modal - Reusable Modal Component System
  *
- * Provides a clean, accessible modal system for the EO Lake application.
+ * Provides a clean, accessible modal system for the Noema application.
  * Supports single modals and multi-step wizards.
  */
 

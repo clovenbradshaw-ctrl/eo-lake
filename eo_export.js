@@ -1,5 +1,5 @@
 /**
- * EO Lake - Data Export Module
+ * Noema - Data Export Module
  *
  * Provides export functionality for:
  * - CSV (single file with all records)

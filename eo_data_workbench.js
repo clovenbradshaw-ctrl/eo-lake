@@ -1,5 +1,5 @@
 /**
- * EO Lake - Data Workbench
+ * Noema - Data Workbench
  * Airtable-style data management with EO sync principles
  *
  * Core Concepts (Nine Rules-Compliant Hierarchy):
@@ -1589,7 +1589,7 @@ class EODataWorkbench {
           <div class="settings-section">
             <h2>About</h2>
             <div class="settings-about">
-              <p><strong>EO Lake</strong></p>
+              <p><strong>Noema</strong></p>
               <p>Version 1.0.0</p>
               <p class="settings-about-desc">A data workbench for organizing and transforming your data.</p>
             </div>
