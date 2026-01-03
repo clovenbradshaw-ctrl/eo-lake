@@ -654,12 +654,17 @@ class SchemaInferrer {
   constructor() {
     // Regex patterns for type detection
     this.patterns = {
-      email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-      url: /^https?:\/\/.+/i,
-      phone: /^[\d\s\-\+\(\)]{7,}$/,
-      date: /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?/,
-      dateAlt: /^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}$/,
-      number: /^-?\d+\.?\d*$/,
+      // Email: require proper domain with at least 2 char TLD
+      email: /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/,
+      url: /^https?:\/\/.+$/i,
+      // Phone: require digit groups with separators, must have at least 7 digits
+      phone: /^[\+]?[\d]{1,4}?[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}$/,
+      // Date: ISO format with proper end anchor
+      date: /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(.\d{1,3})?(Z|[+-]\d{2}:\d{2})?)?$/,
+      // DateAlt: common date formats with valid month/day ranges
+      dateAlt: /^(0?[1-9]|1[0-2])[\/\-](0?[1-9]|[12]\d|3[01])[\/\-](\d{2}|\d{4})$/,
+      // Number: proper decimal handling (no trailing dot without decimals)
+      number: /^-?\d+(\.\d+)?$/,
       boolean: /^(true|false|yes|no|1|0)$/i
     };
   }
@@ -829,23 +834,7 @@ class SchemaInferrer {
 
     const threshold = 0.7;
 
-    // Check for SELECT (low cardinality)
-    if (uniqueCount <= 20 && uniqueCount < total * 0.5 && total > 5) {
-      const choices = Array.from(uniqueValues).map((name, i) => ({
-        id: 'choice_' + Math.random().toString(36).substr(2, 9),
-        name: String(name),
-        color: ['blue', 'green', 'yellow', 'red', 'purple', 'pink', 'orange', 'gray'][i % 8]
-      }));
-      return {
-        type: 'select',
-        confidence: 0.85,
-        options: { choices },
-        candidates,
-        uniqueCount
-      };
-    }
-
-    // Check other types by ratio
+    // Check specific types FIRST (before SELECT) to avoid misclassifying emails/dates as dropdowns
     if (typeCounts.email / total > threshold) {
       return { type: 'email', confidence: typeCounts.email / total, candidates, uniqueCount };
     }
@@ -873,6 +862,27 @@ class SchemaInferrer {
     }
     if (typeCounts.longText / total > 0.3) {
       return { type: 'longText', confidence: typeCounts.longText / total, candidates, uniqueCount };
+    }
+
+    // Check for SELECT (low cardinality) AFTER specific types
+    // Only treat as select if values are mostly plain text (not matching patterns)
+    if (uniqueCount <= 20 && uniqueCount < total * 0.5 && total > 5) {
+      // Only use SELECT if the dominant type is text (not a specific pattern type)
+      const textRatio = typeCounts.text / total;
+      if (textRatio > 0.5) {
+        const choices = Array.from(uniqueValues).map((name, i) => ({
+          id: 'choice_' + Math.random().toString(36).substr(2, 9),
+          name: String(name),
+          color: ['blue', 'green', 'yellow', 'red', 'purple', 'pink', 'orange', 'gray'][i % 8]
+        }));
+        return {
+          type: 'select',
+          confidence: 0.85,
+          options: { choices },
+          candidates,
+          uniqueCount
+        };
+      }
     }
 
     // Default to text
@@ -906,12 +916,30 @@ class SchemaInferrer {
         [day, month, year] = parts;
       }
 
-      // Handle 2-digit years
-      if (year.length === 2) {
-        year = parseInt(year) > 50 ? '19' + year : '20' + year;
+      // Parse values
+      month = parseInt(month, 10);
+      day = parseInt(day, 10);
+      year = parseInt(year, 10);
+
+      // Handle 2-digit years with better century handling
+      if (year < 100) {
+        // Use 30 as pivot: 00-29 -> 2000-2029, 30-99 -> 1930-1999
+        year = year < 30 ? 2000 + year : 1900 + year;
       }
 
-      return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+      // Validate month (1-12)
+      if (month < 1 || month > 12) return null;
+
+      // Validate day based on month
+      const daysInMonth = new Date(year, month, 0).getDate();
+      if (day < 1 || day > daysInMonth) return null;
+
+      const date = new Date(year, month - 1, day);
+
+      // Final validation - ensure the date is valid
+      if (isNaN(date.getTime())) return null;
+
+      return date;
     } catch {
       return null;
     }

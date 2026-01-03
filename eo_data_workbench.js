@@ -4592,7 +4592,10 @@ class EODataWorkbench {
    */
   _showCreateViewModal() {
     const set = this.getCurrentSet();
-    if (!set) return;
+    if (!set) {
+      this._showToast('Please select a set first to create a new view', 'warning');
+      return;
+    }
 
     const viewTypes = [
       { type: 'table', name: 'Table', icon: 'ph-table', desc: 'Spreadsheet-style rows and columns' },
@@ -4649,7 +4652,15 @@ class EODataWorkbench {
    */
   _createNewView(name, type) {
     const set = this.getCurrentSet();
-    if (!set) return;
+    if (!set) {
+      this._showToast('Please select a set first to create a new view', 'warning');
+      return;
+    }
+
+    // Ensure views array exists
+    if (!set.views) {
+      set.views = [];
+    }
 
     const newView = createView(name, type);
     set.views.push(newView);
@@ -28380,30 +28391,40 @@ class EODataWorkbench {
   _loadMoreRecords(loadAll = false) {
     const allRecords = this.getFilteredRecords();
     const totalRecords = allRecords.length;
+    // Maximum records to display at once for performance (prevent browser freeze)
+    const maxDisplayableRecords = 5000;
 
     if (loadAll) {
+      // Warn user about very large datasets and cap display
+      if (totalRecords > maxDisplayableRecords) {
+        this._showToast(`Displaying first ${maxDisplayableRecords.toLocaleString()} of ${totalRecords.toLocaleString()} records for performance. Use filters or search to narrow results.`, 'warning', 8000);
+        this.displayedRecordCount = maxDisplayableRecords;
+      } else {
+        this.displayedRecordCount = totalRecords;
+      }
+
       // Show loading indicator for large datasets
-      if (totalRecords - this.displayedRecordCount > 500) {
-        this._showLoadingOverlay('Loading all records...', {
+      if (this.displayedRecordCount > 500) {
+        this._showLoadingOverlay('Loading records...', {
           showProgress: true,
           progress: 0,
-          progressText: `Loading ${totalRecords.toLocaleString()} records...`
+          progressText: `Loading ${this.displayedRecordCount.toLocaleString()} records...`
         });
 
+        // Use multiple animation frames to not block UI
         requestAnimationFrame(() => {
-          this.displayedRecordCount = totalRecords;
           this._renderTableView();
           this._hideLoadingOverlay();
         });
       } else {
-        this.displayedRecordCount = totalRecords;
         this._renderTableView();
       }
     } else {
-      // Load next batch
+      // Load next batch (smaller batches for large datasets)
+      const batchSize = totalRecords > 10000 ? 100 : this.recordBatchSize;
       this.displayedRecordCount = Math.min(
-        this.displayedRecordCount + this.recordBatchSize,
-        totalRecords
+        this.displayedRecordCount + batchSize,
+        Math.min(totalRecords, maxDisplayableRecords)
       );
       this._renderTableView();
     }
@@ -28527,8 +28548,21 @@ class EODataWorkbench {
   _renderCell(record, field, searchTerm = '') {
     try {
       const value = record.values[field.id];
-      const historyCount = this._getFieldHistoryChangeCount(record.id, field.id);
-      const hasHistory = historyCount > 0;
+      // Optimization: skip expensive history lookup for large datasets (>1000 records)
+      // History indicators will be loaded on-demand when needed
+      const set = this.getCurrentSet();
+      const isLargeDataset = set?.records?.length > 1000;
+      let historyCount = 0;
+      let hasHistory = false;
+      if (!isLargeDataset) {
+        // Use cached history if available (set by batch pre-computation)
+        if (record._historyCache && record._historyCache[field.id] !== undefined) {
+          historyCount = record._historyCache[field.id];
+        } else {
+          historyCount = this._getFieldHistoryChangeCount(record.id, field.id);
+        }
+        hasHistory = historyCount > 0;
+      }
       const cellClass = `cell-${field.type} cell-editable${hasHistory ? ' has-history' : ''}`;
 
       let content = '';
@@ -28537,8 +28571,10 @@ class EODataWorkbench {
       case FieldTypes.TEXT:
         if (value) {
           const hasHtml = /<[a-z][\s\S]*>/i.test(value);
+          const escapedValue = this._escapeHtml(String(value));
+          const truncatedTitle = value.length > 50 ? escapedValue : ''; // Only show tooltip if content is long
           content = `<div class="cell-text-wrapper">
-            <span class="cell-text-content">${this._highlightText(value, searchTerm)}</span>
+            <span class="cell-text-content" ${truncatedTitle ? `title="${truncatedTitle}"` : ''}>${this._highlightText(value, searchTerm)}</span>
             <button class="cell-expand-btn cell-html-preview-btn" data-field-id="${field.id}" data-has-html="${hasHtml}" title="${hasHtml ? 'Click to preview HTML' : 'Click to expand'}">
               <i class="ph ${hasHtml ? 'ph-code' : 'ph-arrows-out-simple'}"></i>
             </button>
@@ -28549,8 +28585,10 @@ class EODataWorkbench {
         break;
       case FieldTypes.LONG_TEXT:
         if (value) {
+          const escapedLongText = this._escapeHtml(String(value));
+          const truncatedLongTitle = value.length > 100 ? escapedLongText.substring(0, 200) + '...' : ''; // Show preview in tooltip
           content = `<div class="cell-longtext-wrapper">
-            <span class="cell-longtext-content">${this._highlightText(value, searchTerm)}</span>
+            <span class="cell-longtext-content" ${truncatedLongTitle ? `title="${truncatedLongTitle}"` : ''}>${this._highlightText(value, searchTerm)}</span>
             <button class="cell-expand-btn" data-field-id="${field.id}" title="Click to expand">
               <i class="ph ph-arrows-out-simple"></i>
             </button>
@@ -28642,9 +28680,22 @@ class EODataWorkbench {
         break;
 
       case FieldTypes.AUTONUMBER:
-        const set = this.getCurrentSet();
-        const index = set?.records.findIndex(r => r.id === record.id) || 0;
-        content = `<span class="cell-number">${index + 1}</span>`;
+        // Use cached index if available, otherwise compute (much faster than findIndex every time)
+        let autoIndex = 0;
+        if (record._autoIndex !== undefined) {
+          autoIndex = record._autoIndex;
+        } else {
+          const currentSet = this.getCurrentSet();
+          if (currentSet?.records) {
+            // Build index map once if not exists
+            if (!currentSet._recordIndexMap) {
+              currentSet._recordIndexMap = new Map();
+              currentSet.records.forEach((r, i) => currentSet._recordIndexMap.set(r.id, i));
+            }
+            autoIndex = currentSet._recordIndexMap.get(record.id) ?? 0;
+          }
+        }
+        content = `<span class="cell-number">${autoIndex + 1}</span>`;
         break;
 
       case FieldTypes.JSON:
@@ -32857,7 +32908,10 @@ class EODataWorkbench {
 
   _addField(type, name = 'New Field', options = {}) {
     const set = this.getCurrentSet();
-    if (!set) return;
+    if (!set) {
+      this._showToast('Please select a set first to add a new field', 'warning');
+      return null;
+    }
 
     // For select fields, ensure default choices if not provided
     if ((type === FieldTypes.SELECT || type === FieldTypes.MULTI_SELECT) && !options.choices) {
@@ -33735,6 +33789,13 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _showAddFieldMenu(targetBtn) {
+    // Check if a set is selected first
+    const set = this.getCurrentSet();
+    if (!set) {
+      this._showToast('Please select a set first to add a new field', 'warning');
+      return;
+    }
+
     // Show field type picker positioned relative to the button
     if (targetBtn) {
       const rect = targetBtn.getBoundingClientRect();
@@ -34128,9 +34189,15 @@ class EODataWorkbench {
   _showImportModal() {
     // Call the global showImportModal function from eo_import.js
     if (typeof showImportModal === 'function') {
-      showImportModal();
+      try {
+        showImportModal();
+      } catch (error) {
+        console.error('Error opening import modal:', error);
+        this._showToast('Failed to open import dialog. Please try again.', 'error');
+      }
     } else {
       console.error('showImportModal function not available');
+      this._showToast('Import feature is not available. Please refresh the page.', 'error');
     }
   }
 
