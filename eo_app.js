@@ -1335,6 +1335,7 @@ function showSearchResults(results, prefix = '', query = '') {
         record: 'Records',
         view: 'Views',
         field_match: 'Field Matches',
+        field_definition: 'Fields',
         source: 'Sources'
       };
 
@@ -1378,6 +1379,7 @@ function groupResultsByType(results) {
     view: [],
     record: [],
     field_match: [],
+    field_definition: [],
     source: []
   };
 
@@ -1432,6 +1434,7 @@ function getTypeIcon(type) {
     record: '<i class="ph ph-file"></i>',
     view: '<i class="ph ph-eye"></i>',
     field_match: '<i class="ph ph-text-aa"></i>',
+    field_definition: '<i class="ph ph-text-columns"></i>',
     source: '<i class="ph ph-download-simple"></i>'
   };
   return icons[type] || '';
@@ -1452,6 +1455,12 @@ function handleSearchResultClick(item) {
       if (setId) {
         _dataWorkbench?._selectSet(setId);
         setTimeout(() => _dataWorkbench?._showRecordDetail(id), 100);
+      }
+      break;
+    case 'field_definition':
+      // Navigate to the set and optionally open the fields panel
+      if (setId) {
+        _dataWorkbench?._selectSet(setId, 'fields');
       }
       break;
     case 'view':
