@@ -1062,6 +1062,12 @@ class EODataWorkbench {
     const tab = this.browserTabs.find(t => t.id === tabId);
     if (!tab) return;
 
+    // CRITICAL: Commit any pending cell edits before switching tabs
+    // This prevents data loss when navigating between tabs
+    if (this.editingCell) {
+      this._endCellEdit();
+    }
+
     // Save current tab to history
     if (this.activeTabId && this.activeTabId !== tabId) {
       this.tabHistory.push(this.activeTabId);
@@ -3447,6 +3453,35 @@ class EODataWorkbench {
         this._closeTabContextMenu();
       }
     });
+
+    // CRITICAL: Ensure data is saved before page unload
+    // This prevents data loss during page refresh
+    window.addEventListener('beforeunload', (e) => {
+      // Commit any pending cell edits
+      if (this.editingCell) {
+        this._endCellEdit();
+      }
+
+      // Trigger a final synchronous save attempt
+      // Note: async saves may not complete, but localStorage save should work
+      try {
+        // Force synchronous save to localStorage at minimum
+        const quickSave = {
+          sets: this.sets?.map(s => ({ ...s })) || [],
+          currentSetId: this.currentSetId,
+          currentViewId: this.currentViewId,
+          browserTabs: this.browserTabs || [],
+          activeTabId: this.activeTabId,
+          _lastSave: new Date().toISOString()
+        };
+        // Only save if we have data to prevent overwriting with empty state
+        if (this.sets?.length > 0 || this.browserTabs?.length > 0) {
+          localStorage.setItem('eo_lake_backup', JSON.stringify(quickSave));
+        }
+      } catch (err) {
+        console.warn('Failed to create backup on unload:', err);
+      }
+    });
   }
 
   // --------------------------------------------------------------------------
@@ -3456,8 +3491,40 @@ class EODataWorkbench {
   _loadData() {
     try {
       const data = localStorage.getItem('eo_lake_data');
+
+      // Check for backup data - this helps recover from interrupted saves
+      const backupData = localStorage.getItem('eo_lake_backup');
+      if (backupData && !data) {
+        // Main data was lost but backup exists - try to recover
+        console.log('[Recovery] Main data missing, attempting recovery from backup...');
+        try {
+          const backup = JSON.parse(backupData);
+          if (backup.sets?.length > 0) {
+            this.sets = backup.sets || [];
+            this.currentSetId = backup.currentSetId;
+            this.currentViewId = backup.currentViewId;
+            this.browserTabs = backup.browserTabs || [];
+            this.activeTabId = backup.activeTabId;
+            console.log('[Recovery] Recovered data from backup:', {
+              sets: this.sets.length,
+              tabs: this.browserTabs.length
+            });
+            // Clear backup after successful recovery
+            localStorage.removeItem('eo_lake_backup');
+            return; // Skip normal loading since we recovered
+          }
+        } catch (backupErr) {
+          console.warn('[Recovery] Failed to parse backup:', backupErr);
+        }
+      }
+
       if (data) {
         const parsed = JSON.parse(data);
+
+        // Clear old backup if main data is intact
+        if (backupData) {
+          localStorage.removeItem('eo_lake_backup');
+        }
 
         // Load projects (super objects containing sources, sets, definitions, exports)
         this.projects = (parsed.projects || []).map(p => ({
@@ -28213,13 +28280,19 @@ class EODataWorkbench {
     const hasMoreRecords = displayCount < totalRecords;
     const remainingRecords = totalRecords - displayCount;
 
+    // Determine if all records are selected for the select-all checkbox
+    const allSelected = records.length > 0 && records.every(r => this.selectedRecords.has(r.id));
+    const someSelected = records.some(r => this.selectedRecords.has(r.id));
+
     let html = `
       <div class="data-table-container">
         <table class="data-table">
           <thead>
             <tr>
               <th class="col-row-number">
-                <input type="checkbox" class="row-checkbox" id="select-all">
+                <input type="checkbox" class="row-checkbox" id="select-all"
+                       ${allSelected ? 'checked' : ''}
+                       ${someSelected && !allSelected ? 'data-indeterminate="true"' : ''}>
               </th>
               ${showProvenance ? `
                 <th class="col-provenance col-source" title="Data source and provenance">
@@ -28347,6 +28420,12 @@ class EODataWorkbench {
     this._attachProvenanceClickHandlers();
     this._attachLoadMoreHandlers();
     this._attachAddRecordHandlers();
+
+    // Update select-all checkbox indeterminate state
+    const selectAllCheckbox = document.getElementById('select-all');
+    if (selectAllCheckbox && someSelected && !allSelected) {
+      selectAllCheckbox.indeterminate = true;
+    }
   }
 
   /**
@@ -29529,7 +29608,7 @@ class EODataWorkbench {
     }, 100);
   }
 
-  _renderLinkEditor(cell, field, currentValue) {
+  async _renderLinkEditor(cell, field, currentValue) {
     const linkedSetId = field.options?.linkedSetId;
     const linkedViewId = field.options?.linkedViewId;
     const allowMultiple = field.options?.allowMultiple !== false;
@@ -29539,6 +29618,13 @@ class EODataWorkbench {
     if (!linkedSet) {
       cell.innerHTML = '<div class="link-editor-error">No linked set configured</div>';
       return;
+    }
+
+    // CRITICAL: Ensure linked set records are loaded from IndexedDB before rendering
+    // This fixes the issue where linking across sets showed empty dropdown
+    if (linkedSet._recordsInIndexedDB && (!linkedSet.records || linkedSet.records.length === 0)) {
+      cell.innerHTML = '<div class="link-editor-loading"><i class="ph ph-spinner ph-spin"></i> Loading records...</div>';
+      await this._ensureSetRecords(linkedSet);
     }
 
     // Use linkedFieldId if set, otherwise fall back to primary field
@@ -29551,7 +29637,7 @@ class EODataWorkbench {
     const currentLinkIds = normalizedLinks.map(l => l.recordId);
 
     // Get records, optionally filtered by view
-    let availableRecords = [...linkedSet.records];
+    let availableRecords = [...(linkedSet.records || [])];
     let linkedView = null;
 
     if (linkedViewId) {
@@ -36169,7 +36255,7 @@ class EODataWorkbench {
     const previewContainer = document.getElementById('link-preview-container');
 
     // Function to update preview with sample records from selected set
-    const updatePreview = (set, viewId, fieldId) => {
+    const updatePreview = async (set, viewId, fieldId) => {
       if (!previewContainer) return;
 
       if (!set) {
@@ -36179,6 +36265,17 @@ class EODataWorkbench {
           </div>
         `;
         return;
+      }
+
+      // CRITICAL: Ensure records are loaded from IndexedDB before displaying preview
+      // This fixes the issue where linking to sets stored in IndexedDB showed no records
+      if (set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+        previewContainer.innerHTML = `
+          <div class="link-preview-loading" style="color: var(--text-muted); font-size: 12px;">
+            <i class="ph ph-spinner ph-spin" style="margin-right: 6px;"></i>Loading records...
+          </div>
+        `;
+        await this._ensureSetRecords(set);
       }
 
       // Get records (filtered by view if selected)

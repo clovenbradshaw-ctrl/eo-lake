@@ -126,6 +126,94 @@ After importing the `organizations-100000.csv` dataset (100,000 records), users 
 
 ---
 
+## Bug #7: Link Field Creation Across Sets
+
+**Status:** Fixed
+**Severity:** High
+**Component:** Fields / LINK Type
+
+**Description:**
+When creating a LINK field to connect records across different sets, the preview dropdown and link editor showed empty results for sets with records stored in IndexedDB. Users could not see or select records from other sets to link to.
+
+**Root Cause:**
+- `_showLinkedSetSelectionModal()` accessed `set.records` directly without checking if records needed to be loaded from IndexedDB
+- `_renderLinkEditor()` accessed `linkedSet.records` without ensuring IndexedDB data was loaded first
+- For large datasets stored in IndexedDB, records were not loaded until explicitly accessed
+
+**Fix Applied:**
+- Made `updatePreview()` function async and added loading indicator
+- Added call to `_ensureSetRecords()` before accessing records in preview
+- Made `_renderLinkEditor()` async with IndexedDB loading support
+- Added loading state UI while records are being fetched from IndexedDB
+
+---
+
+## Bug #8: Clearing Multiple Record Selections
+
+**Status:** Fixed
+**Severity:** Medium
+**Component:** Table View / Selection
+
+**Description:**
+After selecting multiple records in the table view, the "select all" checkbox in the header did not properly reflect the selection state. Clearing the selection via the close button sometimes left the header checkbox in an incorrect state.
+
+**Root Cause:**
+- The "select-all" checkbox was rendered without checking current selection state
+- No support for indeterminate state when some (but not all) records were selected
+- Selection state wasn't properly synchronized during table re-renders
+
+**Fix Applied:**
+- Added `allSelected` and `someSelected` state calculations in `_renderTableView()`
+- Select-all checkbox now renders with proper `checked` attribute based on selection
+- Added indeterminate state support via `data-indeterminate` attribute and JavaScript property
+- Selection state properly updates when records are selected/deselected
+
+---
+
+## Bug #9: Tab Navigation Data Loss
+
+**Status:** Fixed
+**Severity:** High
+**Component:** Browser Tabs / Cell Editing
+
+**Description:**
+When editing a cell and switching to another tab before committing the change, the edit would be lost. The data entered in the cell would disappear without being saved.
+
+**Root Cause:**
+- `activateTab()` function switched tabs without checking for pending cell edits
+- The `_syncStateFromTab()` and `_renderTabContent()` calls would overwrite the editing cell
+- No mechanism to commit edits before tab navigation
+
+**Fix Applied:**
+- Added check for `this.editingCell` at the start of `activateTab()`
+- Now calls `_endCellEdit()` to commit pending changes before tab switch
+- Cell data is now saved even when navigating away via tab switching
+
+---
+
+## Bug #10: Missing Persistence After Page Refresh
+
+**Status:** Fixed
+**Severity:** Critical
+**Component:** Data Persistence / Storage
+
+**Description:**
+After editing data and refreshing the page, changes were sometimes lost. This was particularly problematic for users who expected their data to persist reliably.
+
+**Root Cause:**
+- `_saveData()` calls async `_saveDataHybrid()` without awaiting completion
+- Page could unload before IndexedDB operations completed
+- No backup mechanism for interrupted saves
+- No recovery mechanism for lost data
+
+**Fix Applied:**
+- Added `beforeunload` event handler to commit pending cell edits before page unload
+- Created backup save mechanism that stores critical data in `eo_lake_backup` localStorage key
+- Added recovery logic in `_loadData()` to restore from backup if main data is missing
+- Backup is automatically cleared after successful recovery or when main data is intact
+
+---
+
 ## Summary
 
 | Bug # | Title | Severity | Status |
@@ -136,13 +224,17 @@ After importing the `organizations-100000.csv` dataset (100,000 records), users 
 | 4 | Unresponsive "Add Source" Area | High | Fixed |
 | 5 | Non-Functional "New Field" Command | High | Fixed |
 | 6 | Cannot View Records of Large Dataset | Critical | Fixed |
+| 7 | Link Field Creation Across Sets | High | Fixed |
+| 8 | Clearing Multiple Record Selections | Medium | Fixed |
+| 9 | Tab Navigation Data Loss | High | Fixed |
+| 10 | Missing Persistence After Page Refresh | Critical | Fixed |
 
 ---
 
 ## Files Modified
 
 - `eo_import.js` - Schema inference regex patterns and type detection logic
-- `eo_data_workbench.js` - View creation, field creation, cell rendering, large dataset handling
+- `eo_data_workbench.js` - View creation, field creation, cell rendering, large dataset handling, link field IndexedDB loading, tab navigation edit commit, selection state management, beforeunload backup, data recovery
 - `eo_styles.css` - Modal responsiveness, expand button visibility
 
 ---
