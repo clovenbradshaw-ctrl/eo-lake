@@ -330,7 +330,7 @@ class EOLensInspector {
       timeline: 'ph-chart-line',
       graph: 'ph-graph'
     };
-    return icons[type] || 'ph-eye';
+    return icons[type] || 'ph-table';
   }
 
   _getLensTypeName(type) {

@@ -4719,6 +4719,7 @@ class EODataWorkbench {
 
     // View type icons mapping
     const viewTypeIcons = {
+      'grid': 'ph-table',
       'table': 'ph-table',
       'cards': 'ph-cards',
       'kanban': 'ph-kanban',
@@ -4752,7 +4753,7 @@ class EODataWorkbench {
         // For record type views, use a distinct icon; otherwise use view type icon
         const viewIcon = isRecordTypeView
           ? 'ph-stack'
-          : (view.metadata?.icon || viewTypeIcons[view.type] || 'ph-eye');
+          : (view.metadata?.icon || viewTypeIcons[view.type] || 'ph-table');
         // Show record count for views with metadata (e.g., type-filtered views)
         const viewCount = view.metadata?.recordCount;
         const countHtml = viewCount !== undefined ? `<span class="view-item-count">${viewCount}</span>` : '';
@@ -4791,7 +4792,7 @@ class EODataWorkbench {
         // Render views within this lens
         const lensViewsHtml = (lens.views || []).map(view => {
           const isActiveView = view.id === this.currentViewId && isActiveLens;
-          const viewIcon = viewTypeIcons[view.type] || 'ph-eye';
+          const viewIcon = viewTypeIcons[view.type] || 'ph-table';
           return `
             <div class="set-view-item lens-view-item ${isActiveView ? 'active' : ''}"
                  data-view-id="${view.id}"
@@ -7235,6 +7236,7 @@ class EODataWorkbench {
 
     // View type icons mapping
     const viewTypeIcons = {
+      'grid': 'ph-table',
       'table': 'ph-table',
       'cards': 'ph-cards',
       'kanban': 'ph-kanban',
@@ -7492,7 +7494,7 @@ class EODataWorkbench {
       // Render views
       const viewsHtml = views.map(view => {
         const isActiveView = view.id === this.currentViewId && isActiveSet;
-        const viewIcon = viewTypeIcons[view.type] || 'ph-eye';
+        const viewIcon = viewTypeIcons[view.type] || 'ph-table';
         const viewCount = view.metadata?.recordCount;
         const countHtml = viewCount !== undefined ? `<span class="view-item-count">${viewCount}</span>` : '';
 
@@ -7519,7 +7521,7 @@ class EODataWorkbench {
 
         const lensViewsHtml = (lens.views || []).map(view => {
           const isActiveView = view.id === this.currentViewId && isActiveLens;
-          const viewIcon = viewTypeIcons[view.type] || 'ph-eye';
+          const viewIcon = viewTypeIcons[view.type] || 'ph-table';
           return `
             <div class="set-view-item lens-view-item ${isActiveView ? 'active' : ''}"
                  data-view-id="${view.id}"
@@ -28015,6 +28017,7 @@ class EODataWorkbench {
     const currentViewId = this.currentViewId;
 
     const viewTypeIcons = {
+      'grid': 'ph-table',
       'table': 'ph-table',
       'cards': 'ph-cards',
       'kanban': 'ph-kanban',
