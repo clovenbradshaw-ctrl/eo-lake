@@ -221,6 +221,18 @@ const DefinitionSourceSchema = Object.freeze({
           "source": { "type": "string", "description": "API source (wikidata, ecfr, etc.)" },
           "uri": { "type": "string", "description": "URI of the matched entity" },
           "confidence": { "type": "number", "description": "Match confidence 0-1" },
+          "qualityLabel": { "type": "string", "description": "Match quality label (Excellent, Good, Fair, Partial, Weak)" },
+          "qualityColor": { "type": "string", "description": "Color for quality indicator" },
+          "fieldCoverage": {
+            "type": "object",
+            "description": "How many of the 9 definition fields this source can populate",
+            "properties": {
+              "count": { "type": "number", "description": "Number of field groups covered" },
+              "total": { "type": "number", "description": "Total field groups (9)" },
+              "percentage": { "type": "number", "description": "Coverage percentage (0-1)" },
+              "groups": { "type": "array", "items": { "type": "string" }, "description": "Which field groups are covered" }
+            }
+          },
           "authority": { "type": "object", "description": "Suggested authority info" },
           "validity": { "type": "object", "description": "Suggested validity info" },
           "jurisdiction": { "type": "object", "description": "Suggested jurisdiction info" },
@@ -228,6 +240,29 @@ const DefinitionSourceSchema = Object.freeze({
           "citation": { "type": "string", "description": "Citation if available" }
         }
       }
+    },
+    "uriSource": {
+      "type": "object",
+      "description": "Tracks the original URI source used to populate this definition, for modification detection",
+      "properties": {
+        "uri": { "type": "string", "description": "The URI that was selected" },
+        "source": { "type": "string", "description": "Source type (wikidata, ecfr, etc.)" },
+        "label": { "type": "string", "description": "Display label from the source" },
+        "populatedAt": { "type": "string", "format": "date-time", "description": "When the definition was populated from this URI" },
+        "score": { "type": "number", "description": "Match quality score (0-1) at time of selection" },
+        "qualityLabel": { "type": "string", "description": "Match quality label at time of selection" },
+        "fieldCoverage": { "type": "object", "description": "Field coverage at time of selection" },
+        "originalValues": {
+          "type": "object",
+          "description": "Snapshot of original values from URI for modification detection",
+          "additionalProperties": true
+        }
+      }
+    },
+    "modifiedFromSource": {
+      "type": "boolean",
+      "description": "True if definition has been modified from its original URI source values",
+      "default": false
     }
   }
 });
@@ -330,6 +365,22 @@ class DefinitionSource {
 
     // NEW: API suggestions for user selection
     this.apiSuggestions = Array.isArray(data.apiSuggestions) ? [...data.apiSuggestions] : [];
+
+    // NEW: URI source tracking for modification detection
+    // Stores the original URI source that was used to populate this definition
+    this.uriSource = data.uriSource ? {
+      uri: data.uriSource.uri || null,
+      source: data.uriSource.source || null,
+      label: data.uriSource.label || null,
+      populatedAt: data.uriSource.populatedAt || null,
+      score: data.uriSource.score ?? null,
+      qualityLabel: data.uriSource.qualityLabel || null,
+      fieldCoverage: data.uriSource.fieldCoverage ? { ...data.uriSource.fieldCoverage } : null,
+      originalValues: data.uriSource.originalValues ? JSON.parse(JSON.stringify(data.uriSource.originalValues)) : null
+    } : null;
+
+    // NEW: Track if definition has been modified from its URI source
+    this.modifiedFromSource = data.modifiedFromSource || false;
 
     // Term (required - even for stubs)
     this.term = {
@@ -506,30 +557,56 @@ class DefinitionSource {
   }
 
   /**
-   * Populate this definition from an API suggestion
-   * @param {Object} suggestion - The suggestion to use
-   * @returns {DefinitionSource} - New definition with populated fields
+   * Populate this definition from an API suggestion (with URI source tracking)
+   * @param {Object} suggestion - The suggestion to use (can be URIMatchResult or plain object)
+   * @returns {DefinitionSource} - New definition with populated fields and URI tracking
    */
   populateFromSuggestion(suggestion) {
     const data = this.toJSON();
 
-    // Merge suggestion data
-    if (suggestion.authority) {
-      data.authority = { ...data.authority, ...suggestion.authority };
+    // Get populatable fields - handle both URIMatchResult and plain objects
+    const populatableFields = suggestion.populatableFields || {};
+
+    // Merge suggestion data with priority to populatableFields
+    if (populatableFields.authority || suggestion.authority) {
+      data.authority = { ...data.authority, ...(populatableFields.authority || suggestion.authority) };
     }
-    if (suggestion.validity) {
-      data.validity = { ...data.validity, ...suggestion.validity };
+    if (populatableFields.validity || suggestion.validity) {
+      data.validity = { ...data.validity, ...(populatableFields.validity || suggestion.validity) };
     }
-    if (suggestion.jurisdiction) {
-      data.jurisdiction = { ...data.jurisdiction, ...suggestion.jurisdiction };
+    if (populatableFields.jurisdiction || suggestion.jurisdiction) {
+      data.jurisdiction = { ...data.jurisdiction, ...(populatableFields.jurisdiction || suggestion.jurisdiction) };
     }
-    if (suggestion.definitionText) {
-      data.term = { ...data.term, definitionText: suggestion.definitionText };
-    }
-    if (suggestion.citation) {
+    if (populatableFields.source || suggestion.citation) {
       data.source = data.source || {};
-      data.source.citation = suggestion.citation;
+      if (populatableFields.source) {
+        data.source = { ...data.source, ...populatableFields.source };
+      }
+      if (suggestion.citation) {
+        data.source.citation = suggestion.citation;
+      }
     }
+    if (populatableFields.version) {
+      data.version = { ...data.version, ...populatableFields.version };
+    }
+    if (populatableFields.term?.definitionText || suggestion.definitionText) {
+      data.term = { ...data.term, definitionText: populatableFields.term?.definitionText || suggestion.definitionText };
+    }
+
+    // Track the URI source for modification detection
+    data.uriSource = {
+      uri: suggestion.uri || null,
+      source: suggestion.source || null,
+      label: suggestion.label || suggestion.title || null,
+      populatedAt: new Date().toISOString(),
+      score: suggestion.score ?? suggestion.confidence ?? null,
+      qualityLabel: suggestion.qualityLabel || null,
+      fieldCoverage: suggestion.fieldCoverage || null,
+      originalValues: JSON.parse(JSON.stringify(populatableFields))
+    };
+
+    // Mark as not modified (freshly populated from source)
+    data.modifiedFromSource = false;
 
     // Update status and method
     data.status = this._calculateStatus(data);
@@ -537,6 +614,139 @@ class DefinitionSource {
     data.updatedAt = new Date().toISOString();
 
     return new DefinitionSource(data, { allowStub: true });
+  }
+
+  /**
+   * Check if this definition has a linked URI source
+   * @returns {boolean}
+   */
+  hasURISource() {
+    return this.uriSource && this.uriSource.uri;
+  }
+
+  /**
+   * Get the URI source info
+   * @returns {Object|null}
+   */
+  getURISourceInfo() {
+    if (!this.hasURISource()) return null;
+    return {
+      uri: this.uriSource.uri,
+      source: this.uriSource.source,
+      label: this.uriSource.label,
+      populatedAt: this.uriSource.populatedAt,
+      score: this.uriSource.score,
+      qualityLabel: this.uriSource.qualityLabel,
+      fieldCoverage: this.uriSource.fieldCoverage
+    };
+  }
+
+  /**
+   * Check if definition has been modified from its URI source
+   * Compares current values against original snapshot
+   * @returns {Object} - { modified, modifications[], source }
+   */
+  checkModifications() {
+    if (!this.hasURISource() || !this.uriSource.originalValues) {
+      return { modified: false, modifications: [], source: null };
+    }
+
+    const modifications = [];
+    const original = this.uriSource.originalValues;
+
+    // Check each field group
+    for (const [group, originalValue] of Object.entries(original)) {
+      const currentValue = this[group];
+      if (!currentValue || !originalValue) continue;
+
+      const changes = this._compareFieldGroup(originalValue, currentValue);
+      if (changes.length > 0) {
+        modifications.push({
+          group,
+          changes,
+          original: originalValue,
+          current: currentValue
+        });
+      }
+    }
+
+    return {
+      modified: modifications.length > 0,
+      modifications,
+      source: this.getURISourceInfo()
+    };
+  }
+
+  /**
+   * Compare a field group's values
+   * @private
+   */
+  _compareFieldGroup(original, current) {
+    const changes = [];
+    for (const [field, origValue] of Object.entries(original)) {
+      if (origValue === null || origValue === undefined) continue;
+      const currValue = current[field];
+
+      if (Array.isArray(origValue) && Array.isArray(currValue)) {
+        if (JSON.stringify(origValue) !== JSON.stringify(currValue)) {
+          changes.push({ field, original: origValue, current: currValue, type: 'modified' });
+        }
+      } else if (currValue !== origValue) {
+        changes.push({
+          field,
+          original: origValue,
+          current: currValue,
+          type: currValue === null ? 'removed' : 'modified'
+        });
+      }
+    }
+    return changes;
+  }
+
+  /**
+   * Get modification status for display
+   * @returns {Object} - { status, message, icon, color, details }
+   */
+  getModificationStatus() {
+    if (!this.hasURISource()) {
+      return {
+        status: 'no_source',
+        message: 'No URI source linked',
+        icon: 'ph-question',
+        color: '#9ca3af'
+      };
+    }
+
+    const check = this.checkModifications();
+    if (!check.modified) {
+      return {
+        status: 'unchanged',
+        message: `Matches ${this.uriSource.source} source`,
+        icon: 'ph-check-circle',
+        color: '#059669',
+        details: `Populated from ${this.uriSource.uri}`,
+        qualityLabel: this.uriSource.qualityLabel
+      };
+    }
+
+    const modCount = check.modifications.reduce((sum, m) => sum + m.changes.length, 0);
+    return {
+      status: 'modified',
+      message: `Modified from ${this.uriSource.source} source`,
+      icon: 'ph-pencil-simple',
+      color: '#f59e0b',
+      details: `${modCount} field${modCount > 1 ? 's' : ''} changed from original`,
+      modifications: check.modifications,
+      originalSource: this.getURISourceInfo()
+    };
+  }
+
+  /**
+   * Mark the definition as modified and update the flag
+   */
+  markAsModified() {
+    this.modifiedFromSource = true;
+    this.updatedAt = new Date().toISOString();
   }
 
   /**
@@ -631,6 +841,17 @@ class DefinitionSource {
     if (this.jurisdiction) obj.jurisdiction = { ...this.jurisdiction };
     if (this.discoveredFrom) obj.discoveredFrom = { ...this.discoveredFrom };
     if (this.apiSuggestions?.length > 0) obj.apiSuggestions = [...this.apiSuggestions];
+
+    // URI source tracking for modification detection
+    if (this.uriSource) {
+      obj.uriSource = {
+        ...this.uriSource,
+        originalValues: this.uriSource.originalValues
+          ? JSON.parse(JSON.stringify(this.uriSource.originalValues))
+          : null
+      };
+    }
+    if (this.modifiedFromSource) obj.modifiedFromSource = this.modifiedFromSource;
 
     // Remove null values for cleaner output
     const clean = (o) => {
@@ -1114,6 +1335,23 @@ function getDefinitionSourceLabel(definition) {
  */
 function getDefinitionTableSummary(definition) {
   const df = definition.discoveredFrom || {};
+
+  // Get URI source info if available
+  let uriSourceInfo = null;
+  if (definition.uriSource?.uri) {
+    const modStatus = definition.getModificationStatus ? definition.getModificationStatus() : null;
+    uriSourceInfo = {
+      uri: definition.uriSource.uri,
+      source: definition.uriSource.source,
+      label: definition.uriSource.label,
+      score: definition.uriSource.score,
+      qualityLabel: definition.uriSource.qualityLabel,
+      fieldCoverage: definition.uriSource.fieldCoverage,
+      populatedAt: definition.uriSource.populatedAt,
+      modificationStatus: modStatus
+    };
+  }
+
   return {
     id: definition.id,
     term: definition.term?.term || df.fieldName || 'Unknown',
@@ -1130,7 +1368,50 @@ function getDefinitionTableSummary(definition) {
     confidence: df.fieldConfidence,
     status: definition.status || 'stub',
     populationMethod: definition.populationMethod || 'pending',
-    hasApiSuggestions: definition.apiSuggestions?.length > 0
+    hasApiSuggestions: definition.apiSuggestions?.length > 0,
+    // URI source tracking
+    hasURISource: !!definition.uriSource?.uri,
+    uriSource: uriSourceInfo,
+    modifiedFromSource: definition.modifiedFromSource || false
+  };
+}
+
+/**
+ * Get a human-readable URI match quality summary
+ * @param {Object} uriSourceInfo - URI source info from getDefinitionTableSummary
+ * @returns {Object} - { text, icon, color, details }
+ */
+function getURIMatchQualitySummary(uriSourceInfo) {
+  if (!uriSourceInfo) {
+    return {
+      text: 'No URI linked',
+      icon: 'ph-question',
+      color: '#9ca3af',
+      details: null
+    };
+  }
+
+  const coverage = uriSourceInfo.fieldCoverage;
+  const coverageText = coverage
+    ? `${coverage.count}/${coverage.total} fields (${Math.round(coverage.percentage * 100)}%)`
+    : 'Unknown coverage';
+
+  const modStatus = uriSourceInfo.modificationStatus;
+
+  return {
+    text: uriSourceInfo.qualityLabel || 'Linked',
+    icon: modStatus?.status === 'modified' ? 'ph-pencil-simple' : 'ph-check-circle',
+    color: modStatus?.color || '#059669',
+    details: {
+      source: uriSourceInfo.source,
+      label: uriSourceInfo.label,
+      uri: uriSourceInfo.uri,
+      score: uriSourceInfo.score ? `${Math.round(uriSourceInfo.score * 100)}%` : null,
+      coverage: coverageText,
+      coveredGroups: coverage?.groups || [],
+      modified: modStatus?.status === 'modified',
+      modificationDetails: modStatus?.details
+    }
   };
 }
 
@@ -1172,6 +1453,7 @@ if (typeof window !== 'undefined') {
   window.EO.syncDefinitionsFromSource = syncDefinitionsFromSource;
   window.EO.getDefinitionSourceLabel = getDefinitionSourceLabel;
   window.EO.getDefinitionTableSummary = getDefinitionTableSummary;
+  window.EO.getURIMatchQualitySummary = getURIMatchQualitySummary;
 }
 
 // Export for Node.js/ES modules
@@ -1201,6 +1483,7 @@ if (typeof module !== 'undefined' && module.exports) {
     countDefinitionsByStatus,
     syncDefinitionsFromSource,
     getDefinitionSourceLabel,
-    getDefinitionTableSummary
+    getDefinitionTableSummary,
+    getURIMatchQualitySummary
   };
 }

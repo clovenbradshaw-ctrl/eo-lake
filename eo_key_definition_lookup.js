@@ -418,6 +418,11 @@ class KeyDefinitionLookup {
     this.cache = new Map();
     this.pendingLookups = new Map();
     this.eventTarget = typeof EventTarget !== 'undefined' ? new EventTarget() : null;
+
+    // URI Matching service for scored matches
+    this.uriMatchingService = typeof window !== 'undefined' && window.EO?.getURIMatchingService?.()
+      ? window.EO.getURIMatchingService()
+      : null;
   }
 
   /**
@@ -426,6 +431,18 @@ class KeyDefinitionLookup {
    */
   setAPI(api) {
     this.api = api;
+    // Also update URI matching service's API
+    if (this.uriMatchingService) {
+      this.uriMatchingService.setAPI(api);
+    }
+  }
+
+  /**
+   * Set the URI Matching service
+   * @param {URIMatchingService} service
+   */
+  setURIMatchingService(service) {
+    this.uriMatchingService = service;
   }
 
   /**
@@ -460,7 +477,13 @@ class KeyDefinitionLookup {
         keysWithMatches: 0,
         keysWithAuthority: 0,
         keysWithRegulatory: 0,
-        autoFillableFields: 0
+        autoFillableFields: 0,
+        // NEW: URI match statistics
+        keysWithURIMatches: 0,
+        totalURIMatches: 0,
+        excellentMatches: 0,
+        goodMatches: 0,
+        averageFieldCoverage: 0
       }
     };
 
@@ -483,7 +506,10 @@ class KeyDefinitionLookup {
       });
     }
 
-    // Calculate summary
+    // Calculate summary including URI match statistics
+    let totalFieldCoverage = 0;
+    let keysWithCoverage = 0;
+
     results.keys.forEach(keyResult => {
       if (keyResult.matches.length > 0) {
         results.summary.keysWithMatches++;
@@ -497,7 +523,33 @@ class KeyDefinitionLookup {
       if (keyResult.autoFillable) {
         results.summary.autoFillableFields += Object.keys(keyResult.autoFillable).length;
       }
+
+      // URI match statistics
+      if (keyResult.uriMatches?.length > 0) {
+        results.summary.keysWithURIMatches++;
+        results.summary.totalURIMatches += keyResult.uriMatches.length;
+
+        // Count quality levels
+        keyResult.uriMatches.forEach(match => {
+          if (match.qualityLabel === 'Excellent') {
+            results.summary.excellentMatches++;
+          } else if (match.qualityLabel === 'Good') {
+            results.summary.goodMatches++;
+          }
+
+          // Accumulate field coverage
+          if (match.fieldCoverage?.percentage) {
+            totalFieldCoverage += match.fieldCoverage.percentage;
+            keysWithCoverage++;
+          }
+        });
+      }
     });
+
+    // Calculate average field coverage
+    results.summary.averageFieldCoverage = keysWithCoverage > 0
+      ? Math.round((totalFieldCoverage / keysWithCoverage) * 100)
+      : 0;
 
     results.lookupTime = Date.now() - startTime;
 
@@ -538,6 +590,8 @@ class KeyDefinitionLookup {
       domainHints,
       matches: [],
       regulatoryMatches: [],
+      // NEW: Scored URI matches with quality and field coverage
+      uriMatches: [],
       suggestedDefinition: null,
       autoFillable: {},
       confidence: 0,
@@ -554,6 +608,9 @@ class KeyDefinitionLookup {
       keyResult.matches = conceptResults;
       keyResult.regulatoryMatches = regulatoryResults;
       keyResult.lookupSources = this._getUsedSources(conceptResults, regulatoryResults);
+
+      // NEW: Get scored URI matches with quality and field coverage
+      keyResult.uriMatches = await this._getScoredURIMatches(searchTerm, domainHints);
 
       // Build suggested definition from best matches
       keyResult.suggestedDefinition = await this._buildSuggestedDefinition(
@@ -621,6 +678,114 @@ class KeyDefinitionLookup {
       return results;
     } catch (error) {
       console.warn('Regulatory search failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get scored URI matches with quality and field coverage
+   * Uses URIMatchingService for comprehensive scoring
+   * @private
+   * @param {string} searchTerm - The search term
+   * @param {Object} domainHints - Domain hints for filtering
+   * @returns {Promise<Array>} - Array of scored URI matches
+   */
+  async _getScoredURIMatches(searchTerm, domainHints) {
+    if (!searchTerm) return [];
+
+    // Use URIMatchingService if available
+    if (this.uriMatchingService) {
+      try {
+        const matches = await this.uriMatchingService.searchMatches(searchTerm, {
+          limit: 5,
+          domainHints
+        });
+
+        // Convert to serializable format with quality info
+        return matches.map(match => ({
+          uri: match.uri,
+          source: match.source,
+          label: match.label,
+          description: match.description,
+          // Quality scoring
+          score: match.score,
+          qualityLabel: match.qualityLabel,
+          qualityColor: match.qualityColor,
+          scoreBreakdown: match.scoreBreakdown,
+          // Field coverage (how many of 9 definition fields can be populated)
+          fieldCoverage: {
+            count: match.fieldCoverage?.count || 0,
+            total: match.fieldCoverage?.total || 9,
+            percentage: match.fieldCoverage?.percentage || 0,
+            groups: match.fieldCoverage?.groups || []
+          },
+          // Populatable fields from this source
+          populatableFields: match.populatableFields || {},
+          // Metadata
+          searchedAt: match.searchedAt
+        }));
+      } catch (error) {
+        console.warn('URIMatchingService search failed:', error);
+      }
+    }
+
+    // Fallback: create basic scored matches from concept/regulatory results
+    return this._createFallbackScoredMatches(searchTerm, domainHints);
+  }
+
+  /**
+   * Create fallback scored matches when URIMatchingService is not available
+   * @private
+   */
+  async _createFallbackScoredMatches(searchTerm, domainHints) {
+    try {
+      const [conceptResults, regulatoryResults] = await Promise.all([
+        this._searchConcepts(searchTerm, domainHints),
+        this._searchRegulatory(searchTerm, domainHints)
+      ]);
+
+      const allResults = [...regulatoryResults, ...conceptResults];
+
+      return allResults.slice(0, 5).map((result, index) => {
+        // Basic scoring based on position and source type
+        const isRegulatory = result.source?.toLowerCase() === 'ecfr' ||
+                             result.source?.toLowerCase() === 'federal register';
+        const baseScore = isRegulatory ? 0.7 : 0.5;
+        const positionBonus = (5 - index) * 0.05;
+        const score = Math.min(1, baseScore + positionBonus);
+
+        // Estimate field coverage based on source
+        const fieldCoverageEstimates = {
+          'ecfr': { count: 7, groups: ['term', 'authority', 'source', 'validity', 'jurisdiction', 'version', 'status'] },
+          'federal register': { count: 6, groups: ['term', 'authority', 'source', 'validity', 'jurisdiction', 'version'] },
+          'wikidata': { count: 4, groups: ['term', 'authority', 'validity', 'jurisdiction'] },
+          'schema.org': { count: 2, groups: ['term', 'authority'] }
+        };
+
+        const sourceLower = (result.source || '').toLowerCase();
+        const coverage = fieldCoverageEstimates[sourceLower] || { count: 2, groups: ['term'] };
+
+        return {
+          uri: result.uri || result.url || null,
+          source: result.source || 'unknown',
+          label: result.label || result.title || 'Untitled',
+          description: result.description || result.desc || result.snippet || '',
+          score,
+          qualityLabel: score >= 0.7 ? 'Good' : score >= 0.5 ? 'Fair' : 'Partial',
+          qualityColor: score >= 0.7 ? '#10b981' : score >= 0.5 ? '#f59e0b' : '#f97316',
+          scoreBreakdown: null,
+          fieldCoverage: {
+            count: coverage.count,
+            total: 9,
+            percentage: coverage.count / 9,
+            groups: coverage.groups
+          },
+          populatableFields: {},
+          searchedAt: new Date().toISOString()
+        };
+      });
+    } catch (error) {
+      console.warn('Fallback scored matches failed:', error);
       return [];
     }
   }
@@ -1015,15 +1180,33 @@ class ImportDefinitionEnricher {
       status: 'completed'
     };
 
-    // Enrich schema fields with suggestions
+    // Enrich schema fields with suggestions including URI matches with quality scores
     source.schema.fields = source.schema.fields.map(field => {
       const keyResult = lookupResults.keys.find(k => k.key === field.name);
       if (keyResult) {
+        // Get the best URI match (highest score)
+        const bestURIMatch = keyResult.uriMatches?.length > 0
+          ? keyResult.uriMatches.reduce((best, curr) =>
+              (curr.score || 0) > (best.score || 0) ? curr : best
+            )
+          : null;
+
         field.definitionSuggestion = {
           suggestedDefinition: keyResult.suggestedDefinition,
           autoFillable: keyResult.autoFillable,
           confidence: keyResult.confidence,
-          matchCount: keyResult.matches.length + keyResult.regulatoryMatches.length
+          matchCount: keyResult.matches.length + keyResult.regulatoryMatches.length,
+          // NEW: URI matches with quality scoring and field coverage
+          uriMatches: keyResult.uriMatches || [],
+          uriMatchCount: keyResult.uriMatches?.length || 0,
+          bestURIMatch: bestURIMatch ? {
+            uri: bestURIMatch.uri,
+            source: bestURIMatch.source,
+            label: bestURIMatch.label,
+            score: bestURIMatch.score,
+            qualityLabel: bestURIMatch.qualityLabel,
+            fieldCoverage: bestURIMatch.fieldCoverage
+          } : null
         };
       }
       return field;
