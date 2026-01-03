@@ -36376,18 +36376,13 @@ class EODataWorkbench {
 
   /**
    * Show the formula editor modal for creating or editing formula fields
-   * Uses the EO-native V3 editor with vertical epistemic flow
    * @param {Object|null} field - Existing field to edit, or null for creating new
    * @param {Function|null} callback - Callback when changing an existing field's type
    */
   _showFormulaEditor(field, callback = null) {
-    // Use V3 EO-native editor if available, fallback to V2
+    // Use the original formula editor
     if (!this.formulaEditor) {
-      if (window.EOFormulaEditorV3) {
-        this.formulaEditor = new EOFormulaEditorV3(this);
-      } else {
-        this.formulaEditor = new EOFormulaEditor(this);
-      }
+      this.formulaEditor = new EOFormulaEditor(this);
     }
 
     if (field) {
