@@ -336,6 +336,7 @@ class RelationalMergeUI {
     this._onCancel = null;
     this._currentStep = 'sources';
     this._purposeShown = false;
+    this._containerListenerAttached = false;
   }
 
   show(options = {}) {
@@ -965,13 +966,18 @@ class RelationalMergeUI {
       this._render();
     });
 
-    // Question answers - using event delegation for reliability
-    // This fixes issues where buttons in later panels might not respond
-    const panelsContainer = this.container.querySelector('.rm-panels');
-    if (panelsContainer) {
-      panelsContainer.addEventListener('click', (e) => {
+    // Question answers - using event delegation on container for reliability
+    // Attach to this.container (not .rm-panels) since inner HTML gets replaced on re-render
+    // Only attach once to avoid duplicate handlers
+    if (!this._containerListenerAttached) {
+      this._containerListenerAttached = true;
+      this.container.addEventListener('click', (e) => {
         const btn = e.target.closest('.rm-option');
         if (!btn) return;
+
+        // Ensure we're clicking within the panels container
+        const panelsContainer = btn.closest('.rm-panels');
+        if (!panelsContainer) return;
 
         e.preventDefault();
         e.stopPropagation();
