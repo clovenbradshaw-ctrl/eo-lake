@@ -29,7 +29,7 @@ const AgentType = Object.freeze({
   TEAM: 'team',               // Group of humans acting collectively
 
   // System agents
-  SYSTEM: 'system',           // The Noema system itself
+  SYSTEM: 'system',           // The Lakṣaṇa system itself
   IMPORT: 'import',           // Import subsystem (for automated ingestion)
   SYNC: 'sync',               // Sync engine (for remote operations)
 
@@ -461,7 +461,7 @@ class AgentSessionManager {
       this._systemSession = new AgentSession({
         agentId: 'system',
         agentType: AgentType.SYSTEM,
-        agentName: 'Noema System',
+        agentName: 'Lakṣaṇa System',
         sessionId: 'system'
       });
     }

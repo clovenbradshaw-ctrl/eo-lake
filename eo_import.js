@@ -1925,7 +1925,7 @@ class ImportOrchestrator {
     } else if (data.records && Array.isArray(data.records)) {
       records = data.records;
     } else if (data.sets && Array.isArray(data.sets)) {
-      // Noema export format - use first set's records
+      // Lakṣaṇa export format - use first set's records
       if (data.sets.length > 0 && data.sets[0].records) {
         return this._convertEOLakeExport(data.sets[0]);
       }
@@ -1990,7 +1990,7 @@ class ImportOrchestrator {
   }
 
   /**
-   * Convert Noema export format
+   * Convert Lakṣaṇa export format
    */
   _convertEOLakeExport(set) {
     const headers = set.fields.map(f => f.name);
