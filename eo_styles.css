@@ -34680,6 +34680,301 @@ td.cell-editable.has-history:hover .cell-history-indicator {
   color: var(--success-500);
 }
 
+/* ===== Find Similar Concepts Modal ===== */
+.find-similar-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.find-similar-modal .search-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.find-similar-modal .search-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.find-similar-modal .search-input-row input {
+  flex: 1;
+}
+
+.find-similar-modal .source-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.find-similar-modal .checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.find-similar-modal .checkbox-label input {
+  accent-color: var(--primary-500);
+}
+
+.find-similar-modal .results-section {
+  min-height: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.find-similar-modal .search-results-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.find-similar-modal .search-result-item {
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.find-similar-modal .search-result-item:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-400);
+}
+
+.find-similar-modal .search-result-item.selected {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--primary-500);
+}
+
+.find-similar-modal .result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.find-similar-modal .result-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.find-similar-modal .result-source {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  color: var(--text-muted);
+}
+
+.find-similar-modal .result-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.find-similar-modal .result-uri {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.find-similar-modal .selected-item-preview {
+  padding: 12px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius);
+}
+
+.find-similar-modal .selected-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success-600);
+  margin-bottom: 4px;
+}
+
+.find-similar-modal .selected-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.find-similar-modal .selected-uri {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ===== Import from Vocabulary Modal ===== */
+.import-vocabulary-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.import-vocabulary-modal .vocab-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.import-vocabulary-modal .vocab-tab {
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.import-vocabulary-modal .vocab-tab:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.import-vocabulary-modal .vocab-tab.active {
+  background: var(--primary-100);
+  color: var(--primary-600);
+}
+
+.import-vocabulary-modal .vocab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.import-vocabulary-modal .vocab-search input {
+  width: 100%;
+}
+
+.import-vocabulary-modal .vocab-results {
+  min-height: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.import-vocabulary-modal .vocab-term-item {
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.import-vocabulary-modal .vocab-term-item:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-400);
+}
+
+.import-vocabulary-modal .vocab-term-item.selected {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: var(--primary-500);
+}
+
+.import-vocabulary-modal .term-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.import-vocabulary-modal .term-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+
+.import-vocabulary-modal .term-uri {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.import-vocabulary-modal .selected-term-preview {
+  padding: 12px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--radius);
+}
+
+.import-vocabulary-modal .selected-term-preview .selected-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--success-600);
+  margin-bottom: 4px;
+}
+
+.import-vocabulary-modal .selected-term-preview .selected-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.import-vocabulary-modal .selected-term-preview .selected-uri {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* Shared loading/empty/error states for vocabulary modals */
+.find-similar-modal .loading-state,
+.find-similar-modal .empty-state,
+.find-similar-modal .error-state,
+.import-vocabulary-modal .loading-state,
+.import-vocabulary-modal .empty-state,
+.import-vocabulary-modal .error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.find-similar-modal .loading-state i,
+.find-similar-modal .empty-state i,
+.find-similar-modal .error-state i,
+.import-vocabulary-modal .loading-state i,
+.import-vocabulary-modal .empty-state i,
+.import-vocabulary-modal .error-state i {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.find-similar-modal .error-state,
+.import-vocabulary-modal .error-state {
+  color: var(--error-500);
+}
+
+.find-similar-modal .empty-state .hint,
+.import-vocabulary-modal .empty-state .hint {
+  font-size: 12px;
+  margin-top: 4px;
+}
+
 /* ===== Definition Comparison Modal ===== */
 .definition-comparison {
   text-align: center;

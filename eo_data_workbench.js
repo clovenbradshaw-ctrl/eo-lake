@@ -11378,7 +11378,7 @@ class EODataWorkbench {
     const applyBtnEmpty = this.elements.contentArea.querySelector('#btn-apply-to-fields-empty');
     [applyBtn, applyBtnEmpty].forEach(btn => {
       if (btn) {
-        btn.addEventListener('click', () => this._openApplyDefinitionModal(definition));
+        btn.addEventListener('click', () => this._showApplyToFieldsModal(definition.id));
       }
     });
 
@@ -13984,6 +13984,358 @@ class EODataWorkbench {
     this._closeModal();
     this._showDefinitionDetail(definitionId);
     this._showNotification(`Applied "${definition.name}" to ${linkedCount} field${linkedCount !== 1 ? 's' : ''}`, 'success');
+  }
+
+  /**
+   * Search for similar definitions in external vocabularies
+   * Uses the Definition API to find matching concepts from Wikidata, Schema.org, etc.
+   */
+  async _searchSimilarDefinitions(definition) {
+    if (!definition) return;
+
+    const searchTerm = definition.name || '';
+    if (!searchTerm) {
+      this._showNotification('Definition needs a name to search for similar concepts', 'warning');
+      return;
+    }
+
+    const html = `
+      <div class="find-similar-modal">
+        <div class="search-section">
+          <div class="form-group">
+            <label class="form-label">Search Term</label>
+            <div class="search-input-row">
+              <input type="text" id="similar-search-input" class="form-input"
+                     value="${this._escapeHtml(searchTerm)}" placeholder="Enter search term...">
+              <button class="btn btn-primary" id="btn-run-similar-search">
+                <i class="ph ph-magnifying-glass"></i> Search
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Search In</label>
+            <div class="source-checkboxes">
+              <label class="checkbox-label">
+                <input type="checkbox" name="similar-source" value="wikidata" checked> Wikidata
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="similar-source" value="schemaOrg" checked> Schema.org
+              </label>
+              <label class="checkbox-label">
+                <input type="checkbox" name="similar-source" value="dbpedia"> DBpedia
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="results-section">
+          <div id="similar-search-results" class="search-results-container">
+            <div class="empty-state">
+              <i class="ph ph-magnifying-glass"></i>
+              <p>Click Search to find similar concepts</p>
+            </div>
+          </div>
+        </div>
+        <div id="similar-selected-item" class="selected-item-preview" style="display: none;"></div>
+      </div>
+    `;
+
+    let selectedResult = null;
+
+    this._showModal('Find Similar Concepts', html, () => {
+      if (!selectedResult) {
+        this._showNotification('Please select a concept first', 'warning');
+        return;
+      }
+
+      // Update the definition with the selected URI
+      definition.sourceUri = selectedResult.uri;
+      definition.externalId = selectedResult.id;
+      definition.externalSource = selectedResult.source;
+      if (selectedResult.description && !definition.description) {
+        definition.description = selectedResult.description;
+      }
+
+      // Update status from stub to partial/complete
+      if (definition.status === 'stub') {
+        definition.status = 'partial';
+      }
+      definition.populationMethod = 'api_lookup';
+      definition.linkedAt = new Date().toISOString();
+
+      this._saveData();
+      this._renderDefinitionsNav();
+      this._showDefinitionDetail(definition.id);
+      this._showNotification(`Linked to ${selectedResult.source}: ${selectedResult.label}`, 'success');
+    }, { confirmText: 'Link Selected', cancelText: 'Cancel' });
+
+    // Attach search handler
+    const searchBtn = document.getElementById('btn-run-similar-search');
+    const searchInput = document.getElementById('similar-search-input');
+    const resultsDiv = document.getElementById('similar-search-results');
+
+    const runSearch = async () => {
+      const query = searchInput?.value?.trim();
+      if (!query) {
+        this._showNotification('Please enter a search term', 'warning');
+        return;
+      }
+
+      const checkedSources = Array.from(document.querySelectorAll('input[name="similar-source"]:checked'))
+        .map(cb => cb.value);
+
+      if (checkedSources.length === 0) {
+        this._showNotification('Please select at least one source', 'warning');
+        return;
+      }
+
+      resultsDiv.innerHTML = '<div class="loading-state"><i class="ph ph-spinner ph-spin"></i> Searching...</div>';
+
+      try {
+        const api = window.EO?.getDefinitionAPI?.();
+        if (!api) {
+          throw new Error('Definition API not available');
+        }
+
+        const results = await api.searchConcepts(query, { sources: checkedSources, limit: 15 });
+
+        if (results.length === 0) {
+          resultsDiv.innerHTML = `
+            <div class="empty-state">
+              <i class="ph ph-magnifying-glass"></i>
+              <p>No results found for "${this._escapeHtml(query)}"</p>
+              <span class="hint">Try different keywords or enable more sources</span>
+            </div>
+          `;
+          return;
+        }
+
+        resultsDiv.innerHTML = results.map((r, i) => `
+          <div class="search-result-item" data-index="${i}">
+            <div class="result-header">
+              <span class="result-label">${this._escapeHtml(r.label)}</span>
+              <span class="result-source">${this._escapeHtml(r.source)}</span>
+            </div>
+            <div class="result-description">${this._escapeHtml(r.description || 'No description')}</div>
+            <div class="result-uri">${this._escapeHtml(r.uri)}</div>
+          </div>
+        `).join('');
+
+        // Store results for selection
+        resultsDiv._results = results;
+
+        // Attach click handlers
+        resultsDiv.querySelectorAll('.search-result-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const index = parseInt(item.dataset.index, 10);
+            const result = resultsDiv._results[index];
+
+            // Update selection UI
+            resultsDiv.querySelectorAll('.search-result-item').forEach(el => el.classList.remove('selected'));
+            item.classList.add('selected');
+
+            selectedResult = result;
+
+            // Show selected preview
+            const previewDiv = document.getElementById('similar-selected-item');
+            if (previewDiv) {
+              previewDiv.style.display = 'block';
+              previewDiv.innerHTML = `
+                <div class="selected-badge"><i class="ph ph-check-circle"></i> Selected</div>
+                <div class="selected-label">${this._escapeHtml(result.label)}</div>
+                <div class="selected-uri">${this._escapeHtml(result.uri)}</div>
+              `;
+            }
+          });
+        });
+
+      } catch (error) {
+        console.error('Similar search error:', error);
+        resultsDiv.innerHTML = `
+          <div class="error-state">
+            <i class="ph ph-warning-circle"></i>
+            <p>Search failed: ${this._escapeHtml(error.message)}</p>
+          </div>
+        `;
+      }
+    };
+
+    searchBtn?.addEventListener('click', runSearch);
+    searchInput?.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') runSearch();
+    });
+
+    // Auto-run search on open
+    setTimeout(runSearch, 100);
+  }
+
+  /**
+   * Open modal to import/browse vocabulary terms
+   * Allows browsing standard vocabularies and selecting terms to link
+   */
+  async _openImportVocabularyModal(definition) {
+    if (!definition) return;
+
+    const html = `
+      <div class="import-vocabulary-modal">
+        <div class="vocab-tabs">
+          <button class="vocab-tab active" data-vocab="schemaOrg">Schema.org</button>
+          <button class="vocab-tab" data-vocab="wikidata">Wikidata</button>
+          <button class="vocab-tab" data-vocab="skos">SKOS Concepts</button>
+        </div>
+
+        <div class="vocab-content">
+          <div class="vocab-search">
+            <input type="text" id="vocab-search-input" class="form-input"
+                   placeholder="Search vocabulary...">
+          </div>
+
+          <div id="vocab-browse-results" class="vocab-results">
+            <div class="loading-state">
+              <i class="ph ph-spinner ph-spin"></i> Loading vocabulary...
+            </div>
+          </div>
+        </div>
+
+        <div id="vocab-selected-term" class="selected-term-preview" style="display: none;"></div>
+      </div>
+    `;
+
+    let selectedTerm = null;
+    let currentVocab = 'schemaOrg';
+
+    this._showModal('Import from Vocabulary', html, () => {
+      if (!selectedTerm) {
+        this._showNotification('Please select a term first', 'warning');
+        return;
+      }
+
+      // Update the definition with selected term
+      definition.sourceUri = selectedTerm.uri;
+      definition.externalId = selectedTerm.id;
+      definition.externalSource = selectedTerm.source;
+      if (selectedTerm.description && !definition.description) {
+        definition.description = selectedTerm.description;
+      }
+      if (selectedTerm.label && definition.name === definition.id) {
+        definition.name = selectedTerm.label;
+      }
+
+      // Update status
+      if (definition.status === 'stub') {
+        definition.status = 'partial';
+      }
+      definition.populationMethod = 'imported';
+      definition.importedFrom = selectedTerm.source;
+      definition.linkedAt = new Date().toISOString();
+
+      this._saveData();
+      this._renderDefinitionsNav();
+      this._showDefinitionDetail(definition.id);
+      this._showNotification(`Imported from ${selectedTerm.source}: ${selectedTerm.label}`, 'success');
+    }, { confirmText: 'Import Selected', cancelText: 'Cancel' });
+
+    const resultsDiv = document.getElementById('vocab-browse-results');
+    const searchInput = document.getElementById('vocab-search-input');
+
+    const loadVocabulary = async (vocab, searchTerm = '') => {
+      resultsDiv.innerHTML = '<div class="loading-state"><i class="ph ph-spinner ph-spin"></i> Loading...</div>';
+
+      try {
+        const api = window.EO?.getDefinitionAPI?.();
+        if (!api) {
+          throw new Error('Definition API not available');
+        }
+
+        let results = [];
+        const query = searchTerm || definition.name || 'type';
+
+        if (vocab === 'schemaOrg') {
+          results = await api.searchConcepts(query, { sources: ['schemaOrg'], limit: 20 });
+        } else if (vocab === 'wikidata') {
+          results = await api.searchConcepts(query, { sources: ['wikidata'], limit: 20 });
+        } else if (vocab === 'skos') {
+          // For SKOS, search in LOV or similar
+          results = await api.searchConcepts(query, { sources: ['lov'], limit: 20 });
+        }
+
+        if (results.length === 0) {
+          resultsDiv.innerHTML = `
+            <div class="empty-state">
+              <i class="ph ph-folder-open"></i>
+              <p>No terms found</p>
+              <span class="hint">Try a different search term</span>
+            </div>
+          `;
+          return;
+        }
+
+        resultsDiv.innerHTML = results.map((r, i) => `
+          <div class="vocab-term-item" data-index="${i}">
+            <div class="term-label">${this._escapeHtml(r.label)}</div>
+            <div class="term-description">${this._escapeHtml(r.description || '')}</div>
+            <div class="term-uri">${this._escapeHtml(r.uri)}</div>
+          </div>
+        `).join('');
+
+        resultsDiv._results = results;
+
+        // Click handlers
+        resultsDiv.querySelectorAll('.vocab-term-item').forEach(item => {
+          item.addEventListener('click', () => {
+            const index = parseInt(item.dataset.index, 10);
+            const term = resultsDiv._results[index];
+
+            resultsDiv.querySelectorAll('.vocab-term-item').forEach(el => el.classList.remove('selected'));
+            item.classList.add('selected');
+
+            selectedTerm = term;
+
+            const previewDiv = document.getElementById('vocab-selected-term');
+            if (previewDiv) {
+              previewDiv.style.display = 'block';
+              previewDiv.innerHTML = `
+                <div class="selected-badge"><i class="ph ph-check-circle"></i> Selected</div>
+                <div class="selected-label">${this._escapeHtml(term.label)}</div>
+                <div class="selected-uri">${this._escapeHtml(term.uri)}</div>
+              `;
+            }
+          });
+        });
+
+      } catch (error) {
+        console.error('Vocabulary load error:', error);
+        resultsDiv.innerHTML = `
+          <div class="error-state">
+            <i class="ph ph-warning-circle"></i>
+            <p>Failed to load: ${this._escapeHtml(error.message)}</p>
+          </div>
+        `;
+      }
+    };
+
+    // Tab switching
+    document.querySelectorAll('.vocab-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.vocab-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentVocab = tab.dataset.vocab;
+        selectedTerm = null;
+        document.getElementById('vocab-selected-term').style.display = 'none';
+        loadVocabulary(currentVocab, searchInput?.value?.trim());
+      });
+    });
+
+    // Search handler
+    let searchTimeout;
+    searchInput?.addEventListener('input', () => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        loadVocabulary(currentVocab, searchInput.value.trim());
+      }, 300);
+    });
+
+    // Initial load
+    setTimeout(() => loadVocabulary(currentVocab), 100);
   }
 
   /**
