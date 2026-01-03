@@ -19525,6 +19525,463 @@ body.has-picked-up .browser-tab:hover {
   font-size: 14px;
 }
 
+/* ============================================
+   Definitions Redesign - Stats Bar & Table
+   ============================================ */
+
+.definitions-redesign .definitions-stats-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  gap: 24px;
+}
+
+.definitions-stats-progress {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  max-width: 400px;
+}
+
+.stats-progress-bar {
+  width: 120px;
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.stats-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #34d399);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.stats-progress-labels {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.stat-item .stat-value {
+  font-weight: 600;
+}
+
+.stat-item.complete .stat-value {
+  color: #10b981;
+}
+
+.stat-item.partial .stat-value {
+  color: #f59e0b;
+}
+
+.stat-item.stub .stat-value {
+  color: var(--text-muted);
+}
+
+.stat-divider {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.definitions-stats-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Table View */
+.definitions-table-wrapper {
+  overflow: auto;
+}
+
+.definitions-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.definitions-list-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.definitions-list-table th {
+  text-align: left;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 500;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.definitions-list-table th.col-definition {
+  width: 200px;
+}
+
+.definitions-list-table th.col-description {
+  /* flex */
+}
+
+.definitions-list-table th.col-status {
+  width: 100px;
+  text-align: center;
+}
+
+.definitions-list-table th.col-usage {
+  width: 70px;
+  text-align: center;
+}
+
+.def-list-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.def-list-row:hover {
+  background: var(--bg-hover);
+}
+
+.def-list-row td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: top;
+}
+
+.def-list-row.is-stub {
+  opacity: 0.85;
+}
+
+/* Definition Name Cell */
+.def-name-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.def-type-icon {
+  font-size: 16px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.def-name-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.def-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.def-type-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Description Cell */
+.def-desc-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.def-description {
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.def-description.placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.def-values-row,
+.def-samples-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.samples-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.def-value-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(99, 102, 241, 0.1);
+  color: rgb(99, 102, 241);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.def-sample-chip {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.def-values-more,
+.def-samples-more {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Status Column */
+.col-status {
+  text-align: center;
+}
+
+.def-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.def-status-icon.complete {
+  color: #10b981;
+  font-size: 18px;
+}
+
+.def-status-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.def-status-badge.stub {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.def-status-badge.partial {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.def-uri-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: rgb(59, 130, 246);
+  margin-left: 6px;
+}
+
+/* Usage Column */
+.def-usage-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.def-usage-count.has-usage {
+  background: rgba(99, 102, 241, 0.1);
+  color: rgb(99, 102, 241);
+}
+
+/* Cards View */
+.definitions-cards-wrapper {
+  padding: 0;
+}
+
+.definitions-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.def-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.def-card:hover {
+  border-color: var(--primary-400);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.def-card.is-stub {
+  opacity: 0.9;
+}
+
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-type-icon {
+  font-size: 16px;
+  color: var(--text-muted);
+}
+
+.card-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.card-status {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.card-status.complete {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.card-status.partial {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
+.card-status.stub {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.card-type-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: -4px;
+}
+
+.card-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 4px 0;
+  flex: 1;
+}
+
+.card-description.placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.card-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.card-value-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.card-values-more {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 3px 0;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+  font-size: 12px;
+}
+
+.card-uri {
+  color: rgb(59, 130, 246);
+  background: rgba(59, 130, 246, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.card-no-uri {
+  color: var(--text-muted);
+}
+
+.card-usage {
+  color: var(--text-muted);
+}
+
+.card-complete-btn {
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 16px;
+  background: rgba(59, 130, 246, 0.1);
+  color: rgb(59, 130, 246);
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.card-complete-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+}
+
 /* Apply Definition to Keys Modal */
 .apply-definition-form {
   min-width: 350px;

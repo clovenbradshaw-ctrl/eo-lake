@@ -16462,19 +16462,19 @@ class EODataWorkbench {
     // Get definitions for current project (filtered by project.definitionIds when a project is selected)
     const activeDefinitions = this._getProjectDefinitions();
 
-    // Group definitions by format type
-    const groupedByFormat = {};
-    activeDefinitions.forEach(def => {
-      const format = def.format || def.type || 'other';
-      const formatLabel = this._getDefinitionFormatLabel(format);
-      if (!groupedByFormat[formatLabel]) {
-        groupedByFormat[formatLabel] = [];
-      }
-      groupedByFormat[formatLabel].push(def);
-    });
-
-    // Sort groups and definitions within groups
-    const sortedGroups = Object.keys(groupedByFormat).sort();
+    // Count definitions by status for stats bar
+    const completeCount = activeDefinitions.filter(d =>
+      d.status === 'complete' || d.status === 'verified' || d.term?.definitionText
+    ).length;
+    const partialCount = activeDefinitions.filter(d =>
+      d.status === 'partial' && !d.term?.definitionText
+    ).length;
+    const stubCount = activeDefinitions.filter(d =>
+      (d.status === 'stub' || d.populationMethod === 'pending') && !d.term?.definitionText
+    ).length;
+    const progressPercent = activeDefinitions.length > 0
+      ? Math.round((completeCount / activeDefinitions.length) * 100)
+      : 0;
 
     // Update breadcrumb
     this._updateBreadcrumb({
@@ -16488,9 +16488,9 @@ class EODataWorkbench {
       item.classList.remove('active');
     });
 
-    // Build the file explorer HTML
+    // Build the redesigned view HTML
     contentArea.innerHTML = `
-      <div class="definitions-explorer-view">
+      <div class="definitions-explorer-view definitions-redesign">
         <!-- Header -->
         <div class="definitions-explorer-header">
           <div class="definitions-explorer-title">
@@ -16515,53 +16515,74 @@ class EODataWorkbench {
               <i class="ph ph-link"></i>
               <span>Import URI</span>
             </button>
-            <button class="source-action-btn" id="defs-table-new-btn" title="Create new definition">
+            <button class="source-action-btn primary" id="defs-table-new-btn" title="Create new definition">
               <i class="ph ph-plus"></i>
               <span>New</span>
             </button>
           </div>
         </div>
 
-        <!-- Toolbar -->
-        <div class="definitions-explorer-toolbar">
-          <div class="definitions-explorer-search">
-            <i class="ph ph-magnifying-glass"></i>
-            <input type="text" id="defs-explorer-search-input" placeholder="Search definitions...">
+        <!-- Stats Bar -->
+        <div class="definitions-stats-bar">
+          <div class="definitions-stats-progress">
+            <div class="stats-progress-bar">
+              <div class="stats-progress-fill" style="width: ${progressPercent}%"></div>
+            </div>
+            <div class="stats-progress-labels">
+              <span class="stat-item complete">
+                <span class="stat-value">${completeCount}</span> complete
+              </span>
+              <span class="stat-divider">·</span>
+              <span class="stat-item partial">
+                <span class="stat-value">${partialCount}</span> partial
+              </span>
+              <span class="stat-divider">·</span>
+              <span class="stat-item stub">
+                <span class="stat-value">${stubCount}</span> stubs
+              </span>
+            </div>
           </div>
-          <div class="definitions-explorer-view-toggle">
-            <button class="view-toggle-btn active" data-view="tree" title="Tree view">
-              <i class="ph ph-tree-structure"></i>
-            </button>
-            <button class="view-toggle-btn" data-view="grid" title="Grid view">
-              <i class="ph ph-grid-four"></i>
-            </button>
-          </div>
-          <div class="definitions-explorer-count">
-            ${activeDefinitions.length} definition${activeDefinitions.length !== 1 ? 's' : ''}
+          <div class="definitions-stats-actions">
+            <div class="definitions-explorer-search">
+              <i class="ph ph-magnifying-glass"></i>
+              <input type="text" id="defs-explorer-search-input" placeholder="Search definitions...">
+            </div>
+            <div class="definitions-explorer-view-toggle">
+              <button class="view-toggle-btn" data-view="cards" title="Cards view">
+                <i class="ph ph-squares-four"></i>
+              </button>
+              <button class="view-toggle-btn active" data-view="table" title="Table view">
+                <i class="ph ph-list"></i>
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- File Explorer Tree View -->
+        <!-- Main Content Area -->
         <div class="definitions-explorer-content">
           ${activeDefinitions.length > 0 ? `
-            <div class="definitions-tree" id="definitions-tree">
-              ${sortedGroups.map(formatLabel => {
-                const defs = groupedByFormat[formatLabel];
-                const formatIcon = this._getDefinitionFormatIcon(formatLabel);
-                return `
-                  <div class="def-tree-folder expanded" data-format="${formatLabel}">
-                    <div class="def-tree-folder-header">
-                      <i class="ph ph-caret-right folder-expand-icon"></i>
-                      <i class="ph ${formatIcon} folder-type-icon"></i>
-                      <span class="def-tree-folder-name">${formatLabel}</span>
-                      <span class="def-tree-folder-count">${defs.length}</span>
-                    </div>
-                    <div class="def-tree-folder-children">
-                      ${defs.map(def => this._renderDefinitionTreeItem(def)).join('')}
-                    </div>
-                  </div>
-                `;
-              }).join('')}
+            <!-- Table View (default) -->
+            <div class="definitions-table-wrapper" id="definitions-table-view">
+              <table class="definitions-list-table">
+                <thead>
+                  <tr>
+                    <th class="col-definition">Definition</th>
+                    <th class="col-description">Description / Values</th>
+                    <th class="col-status">Status</th>
+                    <th class="col-usage">Used</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${activeDefinitions.map(def => this._renderDefinitionListRow(def)).join('')}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Cards View (hidden by default) -->
+            <div class="definitions-cards-wrapper" id="definitions-cards-view" style="display: none;">
+              <div class="definitions-cards-grid">
+                ${activeDefinitions.map(def => this._renderDefinitionCard(def)).join('')}
+              </div>
             </div>
           ` : `
             <div class="definitions-explorer-empty">
@@ -16586,6 +16607,198 @@ class EODataWorkbench {
 
     // Attach event handlers
     this._attachDefinitionsExplorerHandlers(activeDefinitions);
+  }
+
+  /**
+   * Render a definition row in the new table format
+   * Two-line row: Name+Type on line 1, Description/Values on line 2
+   */
+  _renderDefinitionListRow(def) {
+    const discovered = def.discoveredFrom || {};
+    const isStub = def.status === 'stub' || def.populationMethod === 'pending';
+    const isPartial = def.status === 'partial' && !def.term?.definitionText;
+    const hasDefinitionText = def.term?.definitionText;
+
+    // Get type info
+    const fieldType = discovered.fieldType || def.term?.type || 'text';
+    const typeLabel = this._getTypeLabel(fieldType);
+    const typeIcon = this._getTypeIcon(fieldType);
+
+    // Count linked fields
+    let linkedFieldCount = 0;
+    this.sets.forEach(set => {
+      (set.fields || []).forEach(field => {
+        if (field.definitionRef?.definitionId === def.id ||
+            field.semanticBinding?.definitionId === def.id) {
+          linkedFieldCount++;
+        }
+      });
+    });
+
+    // Build description/values content
+    let descriptionContent = '';
+    let valuesContent = '';
+
+    if (hasDefinitionText) {
+      // Show definition text for complete definitions
+      const defText = def.term.definitionText;
+      const truncated = defText.length > 80 ? defText.slice(0, 77) + '…' : defText;
+      descriptionContent = `<span class="def-description">${this._escapeHtml(truncated)}</span>`;
+
+      // Show allowed values if it's a select type
+      if (discovered.fieldOptions || discovered.fieldUniqueValues) {
+        const values = discovered.fieldOptions?.choices || discovered.fieldUniqueValues || [];
+        if (values.length > 0 && values.length <= 10) {
+          valuesContent = `
+            <div class="def-values-row">
+              ${values.slice(0, 5).map(v => `<span class="def-value-chip">${this._escapeHtml(String(v).slice(0, 20))}</span>`).join('')}
+              ${values.length > 5 ? `<span class="def-values-more">+${values.length - 5}</span>` : ''}
+            </div>
+          `;
+        }
+      }
+    } else if (isStub || isPartial) {
+      // Show placeholder for stubs
+      descriptionContent = `<span class="def-description placeholder">No description yet</span>`;
+
+      // Show samples for stubs
+      const samples = discovered.fieldSamples || discovered.fieldUniqueValues || [];
+      if (samples.length > 0) {
+        valuesContent = `
+          <div class="def-samples-row">
+            <span class="samples-label">samples:</span>
+            ${samples.slice(0, 4).map(s => `<span class="def-sample-chip">"${this._escapeHtml(String(s).slice(0, 15))}"</span>`).join('')}
+            ${samples.length > 4 ? `<span class="def-samples-more">…</span>` : ''}
+          </div>
+        `;
+      }
+    }
+
+    // Status badge
+    let statusBadge = '';
+    if (hasDefinitionText) {
+      statusBadge = `<span class="def-status-icon complete" title="Complete"><i class="ph ph-check-circle"></i></span>`;
+    } else if (isPartial) {
+      statusBadge = `<span class="def-status-badge partial">Partial</span>`;
+    } else {
+      statusBadge = `<span class="def-status-badge stub">Stub</span>`;
+    }
+
+    // URI badge if available
+    const uriBadge = def.sourceUri
+      ? `<span class="def-uri-badge" title="${this._escapeHtml(def.sourceUri)}"><i class="ph ph-link"></i></span>`
+      : '';
+
+    return `
+      <tr class="def-list-row${isStub ? ' is-stub' : ''}${hasDefinitionText ? ' is-complete' : ''}" data-definition-id="${def.id}">
+        <td class="col-definition">
+          <div class="def-name-cell">
+            <i class="ph ${typeIcon} def-type-icon" title="${typeLabel}"></i>
+            <div class="def-name-info">
+              <span class="def-name">${this._escapeHtml(def.name || def.term?.label || def.term?.term || 'Unnamed')}</span>
+              <span class="def-type-label">${typeLabel}</span>
+            </div>
+          </div>
+        </td>
+        <td class="col-description">
+          <div class="def-desc-cell">
+            ${descriptionContent}
+            ${valuesContent}
+          </div>
+        </td>
+        <td class="col-status">
+          ${statusBadge}
+          ${uriBadge}
+        </td>
+        <td class="col-usage">
+          <span class="def-usage-count${linkedFieldCount > 0 ? ' has-usage' : ''}" title="${linkedFieldCount} field${linkedFieldCount !== 1 ? 's' : ''} using this definition">
+            ${linkedFieldCount}
+          </span>
+        </td>
+      </tr>
+    `;
+  }
+
+  /**
+   * Render a definition card for the cards view
+   */
+  _renderDefinitionCard(def) {
+    const discovered = def.discoveredFrom || {};
+    const isStub = def.status === 'stub' || def.populationMethod === 'pending';
+    const hasDefinitionText = def.term?.definitionText;
+
+    // Get type info
+    const fieldType = discovered.fieldType || def.term?.type || 'text';
+    const typeLabel = this._getTypeLabel(fieldType);
+    const typeIcon = this._getTypeIcon(fieldType);
+
+    // Count linked fields
+    let linkedFieldCount = 0;
+    this.sets.forEach(set => {
+      (set.fields || []).forEach(field => {
+        if (field.definitionRef?.definitionId === def.id ||
+            field.semanticBinding?.definitionId === def.id) {
+          linkedFieldCount++;
+        }
+      });
+    });
+
+    // Status
+    let statusClass = 'stub';
+    let statusLabel = 'Stub';
+    if (hasDefinitionText) {
+      statusClass = 'complete';
+      statusLabel = 'Complete';
+    } else if (def.status === 'partial') {
+      statusClass = 'partial';
+      statusLabel = 'Partial';
+    }
+
+    // Description
+    const description = hasDefinitionText
+      ? def.term.definitionText.slice(0, 100) + (def.term.definitionText.length > 100 ? '…' : '')
+      : 'No description yet';
+
+    // Values or samples
+    let valuesHtml = '';
+    const values = discovered.fieldOptions?.choices || discovered.fieldUniqueValues || discovered.fieldSamples || [];
+    if (values.length > 0) {
+      valuesHtml = `
+        <div class="card-values">
+          ${values.slice(0, 4).map(v => `<span class="card-value-chip">${this._escapeHtml(String(v).slice(0, 15))}</span>`).join('')}
+          ${values.length > 4 ? `<span class="card-values-more">+${values.length - 4}</span>` : ''}
+        </div>
+      `;
+    }
+
+    // URI
+    const uriHtml = def.sourceUri
+      ? `<code class="card-uri">${this._escapeHtml(def.sourceUri.slice(0, 25))}${def.sourceUri.length > 25 ? '…' : ''}</code>`
+      : `<span class="card-no-uri">No URI</span>`;
+
+    return `
+      <div class="def-card${isStub ? ' is-stub' : ''}" data-definition-id="${def.id}">
+        <div class="card-header">
+          <div class="card-name-row">
+            <i class="ph ${typeIcon} card-type-icon"></i>
+            <span class="card-name">${this._escapeHtml(def.name || def.term?.label || 'Unnamed')}</span>
+          </div>
+          <span class="card-status ${statusClass}">${statusLabel}</span>
+        </div>
+        <div class="card-type-label">${typeLabel}</div>
+        <p class="card-description${hasDefinitionText ? '' : ' placeholder'}">${this._escapeHtml(description)}</p>
+        ${valuesHtml}
+        <div class="card-footer">
+          ${uriHtml}
+          <span class="card-usage">${linkedFieldCount > 0 ? `${linkedFieldCount} field${linkedFieldCount !== 1 ? 's' : ''}` : 'Unused'}</span>
+        </div>
+        ${isStub ? `
+          <button class="card-complete-btn" data-action="complete">
+            <i class="ph ph-plus"></i> Complete this definition
+          </button>
+        ` : ''}
+      </div>
+    `;
   }
 
   /**
@@ -16890,23 +17103,60 @@ class EODataWorkbench {
     // Search input
     const searchInput = document.getElementById('defs-explorer-search-input');
     searchInput?.addEventListener('input', (e) => {
-      this._filterDefinitionsTree(e.target.value);
+      this._filterDefinitionsList(e.target.value);
     });
 
-    // View toggle
-    document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    // View toggle (cards vs table)
+    document.querySelectorAll('.definitions-explorer-view-toggle .view-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const view = btn.dataset.view;
-        document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.definitions-explorer-view-toggle .view-toggle-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        // Future: implement grid view toggle
-        if (view === 'grid') {
-          this._renderDefinitionsExplorer(); // Use existing grid explorer
+
+        const tableView = document.getElementById('definitions-table-view');
+        const cardsView = document.getElementById('definitions-cards-view');
+
+        if (view === 'cards') {
+          if (tableView) tableView.style.display = 'none';
+          if (cardsView) cardsView.style.display = '';
+        } else {
+          if (tableView) tableView.style.display = '';
+          if (cardsView) cardsView.style.display = 'none';
         }
       });
     });
 
-    // Folder expand/collapse
+    // Table row click to view definition detail
+    document.querySelectorAll('.def-list-row').forEach(row => {
+      row.addEventListener('click', () => {
+        const definitionId = row.dataset.definitionId;
+        this._showDefinitionDetail(definitionId);
+      });
+    });
+
+    // Card click to view definition detail
+    document.querySelectorAll('.def-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        // Don't trigger if clicking the complete button
+        if (e.target.closest('.card-complete-btn')) return;
+        const definitionId = card.dataset.definitionId;
+        this._showDefinitionDetail(definitionId);
+      });
+    });
+
+    // Card "Complete this definition" button
+    document.querySelectorAll('.card-complete-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const card = btn.closest('.def-card');
+        const definitionId = card?.dataset.definitionId;
+        if (definitionId) {
+          this._showDefinitionDetail(definitionId);
+        }
+      });
+    });
+
+    // Legacy: Folder expand/collapse (for backwards compatibility)
     document.querySelectorAll('.def-tree-folder-header').forEach(header => {
       header.addEventListener('click', (e) => {
         if (e.target.closest('.def-tree-action-btn')) return;
@@ -16915,7 +17165,7 @@ class EODataWorkbench {
       });
     });
 
-    // Definition item expand/collapse
+    // Legacy: Definition item expand/collapse
     document.querySelectorAll('.def-tree-item-header').forEach(header => {
       header.addEventListener('click', (e) => {
         if (e.target.closest('.def-tree-action-btn')) return;
@@ -16924,7 +17174,7 @@ class EODataWorkbench {
       });
     });
 
-    // Definition item double-click to view detail
+    // Legacy: Definition item double-click to view detail
     document.querySelectorAll('.def-tree-item').forEach(item => {
       item.addEventListener('dblclick', () => {
         const definitionId = item.dataset.definitionId;
@@ -16932,7 +17182,7 @@ class EODataWorkbench {
       });
     });
 
-    // Action buttons (header actions)
+    // Legacy: Action buttons (header actions)
     document.querySelectorAll('.def-tree-action-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -16956,7 +17206,7 @@ class EODataWorkbench {
       });
     });
 
-    // Expanded area action buttons (Define, Lookup, Edit, Apply)
+    // Legacy: Expanded area action buttons (Define, Lookup, Edit, Apply)
     document.querySelectorAll('.expanded-action-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -16981,6 +17231,51 @@ class EODataWorkbench {
             break;
         }
       });
+    });
+  }
+
+  /**
+   * Filter definitions list by search term (new table/cards view)
+   */
+  _filterDefinitionsList(searchTerm) {
+    const term = searchTerm.toLowerCase().trim();
+
+    // Filter table rows
+    document.querySelectorAll('.def-list-row').forEach(row => {
+      const definitionId = row.dataset.definitionId;
+      const def = this.definitions.find(d => d.id === definitionId);
+      if (!def) {
+        row.style.display = 'none';
+        return;
+      }
+
+      const searchFields = [
+        def.name,
+        def.term?.label,
+        def.term?.definitionText,
+        def.description
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      row.style.display = (!term || searchFields.includes(term)) ? '' : 'none';
+    });
+
+    // Filter cards
+    document.querySelectorAll('.def-card').forEach(card => {
+      const definitionId = card.dataset.definitionId;
+      const def = this.definitions.find(d => d.id === definitionId);
+      if (!def) {
+        card.style.display = 'none';
+        return;
+      }
+
+      const searchFields = [
+        def.name,
+        def.term?.label,
+        def.term?.definitionText,
+        def.description
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      card.style.display = (!term || searchFields.includes(term)) ? '' : 'none';
     });
   }
 
