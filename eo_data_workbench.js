@@ -10967,12 +10967,6 @@ class EODataWorkbench {
 
     contentArea.innerHTML = `
       <div class="definition-detail-view glossary-style semantic-engine hierarchy-redesign">
-        <!-- Semantic Philosophy Tagline -->
-        <div class="semantic-tagline">
-          <i class="ph ph-lightbulb"></i>
-          <span>Definitions shape how data is interpreted, not what the data is.</span>
-        </div>
-
         <!-- ═══════════════════════════════════════════════════════════════════
              A. IDENTITY HEADER - "What is this definition?" in 5 seconds
              ═══════════════════════════════════════════════════════════════════ -->
@@ -11030,58 +11024,51 @@ class EODataWorkbench {
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
-             B. MEANING CONTRACT - The semantic promise of this definition
+             B. WHAT IT DESCRIBES - Quick summary of what this type of data means
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="glossary-section meaning-contract-section">
           <div class="section-header">
-            <h3><i class="ph ph-handshake"></i> Meaning Contract</h3>
+            <h3><i class="ph ph-info"></i> What It Describes</h3>
           </div>
           <div class="meaning-contract-content">
             <div class="contract-assertions">
-              <span class="contract-label">This definition asserts:</span>
               <ul class="contract-list">
                 ${kindInfo.kind === 'Identifier' ? `
-                  <li><i class="ph ph-key"></i> <strong>Uniqueness:</strong> Values should be unique within their scope</li>
-                  <li><i class="ph ph-target"></i> <strong>Stability:</strong> Per-record, immutable reference</li>
-                  <li><i class="ph ph-signpost"></i> <strong>Intended role:</strong> Primary or foreign key identifier</li>
+                  <li><i class="ph ph-key"></i> Unique values that identify records (like IDs or codes)</li>
+                  <li><i class="ph ph-target"></i> Stable references that don't change over time</li>
                 ` : kindInfo.kind === 'Measure' ? `
-                  <li><i class="ph ph-chart-bar"></i> <strong>Type:</strong> Quantitative, numeric value</li>
-                  <li><i class="ph ph-calculator"></i> <strong>Aggregatable:</strong> Can be summed, averaged, or compared</li>
-                  <li><i class="ph ph-signpost"></i> <strong>Intended role:</strong> Metric or measurement</li>
+                  <li><i class="ph ph-chart-bar"></i> Numeric values you can calculate with (sum, average, etc.)</li>
+                  <li><i class="ph ph-calculator"></i> Quantitative data like amounts, counts, or percentages</li>
                 ` : kindInfo.kind === 'Temporal' ? `
-                  <li><i class="ph ph-calendar"></i> <strong>Type:</strong> Date, time, or duration</li>
-                  <li><i class="ph ph-arrows-horizontal"></i> <strong>Orderable:</strong> Can be sorted chronologically</li>
-                  <li><i class="ph ph-signpost"></i> <strong>Intended role:</strong> Timestamp or period marker</li>
+                  <li><i class="ph ph-calendar"></i> Dates, times, or durations</li>
+                  <li><i class="ph ph-arrows-horizontal"></i> Values that can be sorted chronologically</li>
                 ` : kindInfo.kind === 'Relational' ? `
-                  <li><i class="ph ph-link"></i> <strong>Type:</strong> Reference to another entity</li>
-                  <li><i class="ph ph-git-branch"></i> <strong>Joinable:</strong> Links records across datasets</li>
-                  <li><i class="ph ph-signpost"></i> <strong>Intended role:</strong> Foreign key or lookup value</li>
+                  <li><i class="ph ph-link"></i> References that connect to other records or datasets</li>
+                  <li><i class="ph ph-git-branch"></i> Foreign keys or lookup values for joining data</li>
                 ` : kindInfo.kind === 'Administrative' ? `
-                  <li><i class="ph ph-toggle-left"></i> <strong>Type:</strong> Status, flag, or state indicator</li>
-                  <li><i class="ph ph-funnel"></i> <strong>Filterable:</strong> Used for filtering and segmentation</li>
-                  <li><i class="ph ph-signpost"></i> <strong>Intended role:</strong> Control or classification field</li>
+                  <li><i class="ph ph-toggle-left"></i> Status flags, states, or control values</li>
+                  <li><i class="ph ph-funnel"></i> Used for filtering and segmenting data</li>
                 ` : `
-                  <li><i class="ph ph-tag"></i> <strong>Type:</strong> Descriptive attribute</li>
-                  <li><i class="ph ph-text-aa"></i> <strong>Categorical:</strong> Qualitative, text-based value</li>
-                  <li><i class="ph ph-signpost"></i> <strong>Intended role:</strong> Label or descriptor</li>
+                  <li><i class="ph ph-tag"></i> Descriptive labels or categories</li>
+                  <li><i class="ph ph-text-aa"></i> Text-based values for grouping and classification</li>
                 `}
               </ul>
             </div>
             <div class="contract-stance">
               <span class="stance-badge ${!isLocal ? 'authoritative' : 'interpretive'}">
                 <i class="ph ${!isLocal ? 'ph-seal-check' : 'ph-lightbulb'}"></i>
-                ${!isLocal ? 'Authoritative definition' : 'Interpretive, project-local'}
+                ${!isLocal ? 'Official standard' : 'Project-specific'}
               </span>
             </div>
           </div>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
-             C. IMPACT & USAGE - Where it's used and what it enables
+             C. WHERE IT'S USED - Current usage and benefits
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="glossary-section impact-usage-section">
           <div class="section-header">
-            <h3><i class="ph ph-lightning"></i> Impact</h3>
+            <h3><i class="ph ph-map-pin"></i> Where It's Used</h3>
           </div>
           <div class="impact-usage-content">
             <div class="impact-column usage-column">
@@ -11126,12 +11113,12 @@ class EODataWorkbench {
               `}
             </div>
             <div class="impact-column effects-column">
-              <span class="impact-column-label">Effects When Applied</span>
+              <span class="impact-column-label">Why Apply It</span>
               <ul class="effects-list">
-                <li><i class="ph ph-check-circle"></i> Clarify the meaning of selected fields</li>
-                <li><i class="ph ph-check-circle"></i> Enable consistent filtering and grouping</li>
-                ${!isLocal ? `<li><i class="ph ph-check-circle"></i> Allow cross-dataset comparison via ${externalSourceName || 'external URI'}</li>` : ''}
-                <li><i class="ph ph-check-circle"></i> Preserve semantic lineage in exports</li>
+                <li><i class="ph ph-check-circle"></i> Makes field meanings clear and consistent</li>
+                <li><i class="ph ph-check-circle"></i> Enables better filtering and grouping</li>
+                ${!isLocal ? `<li><i class="ph ph-check-circle"></i> Allows comparison across datasets</li>` : ''}
+                <li><i class="ph ph-check-circle"></i> Tracks data lineage in exports</li>
               </ul>
             </div>
           </div>
@@ -11152,11 +11139,11 @@ class EODataWorkbench {
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
-             D. STRUCTURE - Terms & Properties (the body of the definition)
+             D. TERMS - The vocabulary items in this definition
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="glossary-section definition-structure-section">
           <div class="section-header">
-            <h3><i class="ph ph-tree-structure"></i> Structure</h3>
+            <h3><i class="ph ph-list-bullets"></i> Terms</h3>
             <span class="terms-count">${terms.length} term${terms.length !== 1 ? 's' : ''}</span>
           </div>
 
@@ -11264,11 +11251,11 @@ class EODataWorkbench {
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
-             E. PROVENANCE & AUTHORITY - Trust metadata (collapsed by default)
+             E. SOURCE & ORIGIN - Where this definition came from
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="glossary-section provenance-section collapsed" id="provenance-section">
           <h3 class="collapsible-header" id="provenance-toggle">
-            <i class="ph ph-certificate"></i> Provenance & Authority
+            <i class="ph ph-globe"></i> Source & Origin
             <i class="ph ph-caret-down toggle-icon"></i>
           </h3>
           <div class="provenance-content">
@@ -11282,38 +11269,38 @@ class EODataWorkbench {
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════════
-             F. NOTES & RATIONALE - Context and interpretation notes
+             F. NOTES - Your notes about this definition
              ═══════════════════════════════════════════════════════════════════ -->
         <div class="glossary-section notes-rationale-section collapsed" id="notes-rationale-section">
           <h3 class="collapsible-header" id="notes-rationale-toggle">
-            <i class="ph ph-note-pencil"></i> Notes & Rationale
+            <i class="ph ph-note-pencil"></i> Notes
             <span class="optional-badge">optional</span>
             <i class="ph ph-caret-down toggle-icon"></i>
           </h3>
           <div class="notes-rationale-content">
             <div class="scope-selector">
-              <span class="scope-label">Interpretation scope:</span>
+              <span class="scope-label">Applies to:</span>
               <div class="scope-options">
                 <label class="scope-option">
                   <input type="checkbox" name="scope" value="individual" ${definition.interpretationScope?.includes('individual') ? 'checked' : ''}>
-                  <span>Individual-level</span>
+                  <span>Individuals</span>
                 </label>
                 <label class="scope-option">
                   <input type="checkbox" name="scope" value="household" ${definition.interpretationScope?.includes('household') ? 'checked' : ''}>
-                  <span>Household-level</span>
+                  <span>Households</span>
                 </label>
                 <label class="scope-option">
                   <input type="checkbox" name="scope" value="community" ${definition.interpretationScope?.includes('community') ? 'checked' : ''}>
-                  <span>Community-level</span>
+                  <span>Communities</span>
                 </label>
               </div>
             </div>
             <div class="notes-input-group">
-              <label for="interpretation-notes-text">Rationale and context:</label>
-              <textarea id="interpretation-notes-text" placeholder="Add context about how this definition is used in your project, why it was chosen, and any caveats...">${this._escapeHtml(definition.interpretationNotes || '')}</textarea>
+              <label for="interpretation-notes-text">Your notes:</label>
+              <textarea id="interpretation-notes-text" placeholder="Why you chose this definition, how you're using it, any caveats...">${this._escapeHtml(definition.interpretationNotes || '')}</textarea>
             </div>
             <button class="btn btn-secondary btn-sm" id="btn-save-interpretation-notes">
-              <i class="ph ph-floppy-disk"></i> Save Notes
+              <i class="ph ph-floppy-disk"></i> Save
             </button>
           </div>
         </div>
