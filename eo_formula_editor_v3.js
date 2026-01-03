@@ -308,6 +308,7 @@ class EOFormulaEditorV3 {
 
   /**
    * Render the complete modal content with EO-native layout
+   * Redesigned: Single column, full-width editor with inline pipeline strip
    */
   _renderContent(fields, isEdit) {
     const fieldName = this.field?.name || '';
@@ -315,170 +316,178 @@ class EOFormulaEditorV3 {
     const resultType = this.field?.options?.resultType || 'text';
 
     return `
-      <div class="formula-editor-v3">
+      <div class="formula-editor-v3 formula-editor-v3-redesign">
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <!-- Header: Claim Type + Meta -->
+        <!-- Header: Title + Meta Row + Actions -->
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <header class="formula-v3-header">
-          <div class="formula-v3-title-group">
+        <header class="formula-v3-header formula-v3-header-compact">
+          <div class="formula-v3-header-top">
             <div class="formula-v3-title">
-              <i class="ph ph-function"></i>
+              <span class="formula-v3-title-icon">ƒ</span>
               <h2>Formula</h2>
             </div>
-            <div class="formula-v3-meta">
-              <span class="formula-v3-chip">
+            <div class="formula-v3-actions">
+              <button type="button" class="formula-v3-btn" id="btn-browse-functions">
+                <i class="ph ph-list"></i> Functions
+              </button>
+              <button type="button" class="formula-v3-btn formula-v3-btn-primary" id="btn-save-formula">
+                <i class="ph ph-check"></i> ${isEdit ? 'Save' : 'Create'}
+              </button>
+            </div>
+          </div>
+          <div class="formula-v3-meta-row">
+            <div class="formula-v3-meta-left">
+              <span class="formula-v3-meta-item">
                 <strong>Produces</strong>
-                <span class="formula-v3-result-type-label">${RESULT_TYPES[resultType]?.label || 'Text'}</span>
+                <span class="formula-v3-result-type-badge" id="result-type-badge">${RESULT_TYPES[resultType]?.label || 'Text'}</span>
               </span>
-              <span class="formula-v3-chip">
+              <span class="formula-v3-meta-item">
                 <strong>Evaluated</strong> per record
               </span>
-              <span class="formula-v3-chip">
+              <span class="formula-v3-meta-item">
                 <strong>Cadence</strong>
                 <span class="formula-v3-cadence-label">on change</span>
               </span>
             </div>
-          </div>
-          <div class="formula-v3-actions">
-            <button type="button" class="formula-v3-btn" id="btn-browse-functions">
-              <i class="ph ph-list-magnifying-glass"></i> Functions
-            </button>
-            <button type="button" class="formula-v3-btn formula-v3-btn-primary" id="btn-save-formula">
-              <i class="ph ph-check"></i> ${isEdit ? 'Save' : 'Create'}
-            </button>
+            <div class="formula-v3-meta-right" id="formula-dependencies-header">
+              <span class="formula-v3-meta-item">
+                <strong>Depends on</strong>
+                <span class="formula-v3-deps-list" id="deps-list-header">—</span>
+              </span>
+            </div>
           </div>
         </header>
 
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <!-- Context Strip: Evaluation Frame -->
+        <!-- Context Strip: Collapsible Frame -->
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <div class="formula-v3-context">
-          <details class="formula-v3-context-details">
-            <summary class="formula-v3-context-summary">
-              <div class="formula-v3-context-left">
-                <span class="formula-v3-context-badge">Frame</span>
-                <span class="formula-v3-context-label">Evaluation Context</span>
-                <span class="formula-v3-context-preview">
-                  · ${this.evaluationContext.timeReference}
-                  · ${this.evaluationContext.timezone}
-                  · ${this.evaluationContext.updateRhythm.replace('_', ' ')}
-                </span>
+        <div class="formula-v3-context formula-v3-context-slim">
+          <button type="button" class="formula-v3-context-toggle" id="frame-toggle">
+            <span class="formula-v3-context-toggle-arrow">▶</span>
+            <span class="formula-v3-context-badge">FRAME</span>
+            <span class="formula-v3-context-label">Evaluation Context</span>
+            <span class="formula-v3-context-preview-text">
+              · ${this.evaluationContext.timeReference} · ${this.evaluationContext.timezone}
+            </span>
+          </button>
+          <div class="formula-v3-context-expanded" id="frame-expanded" style="display: none;">
+            <div class="formula-v3-context-grid-inline">
+              <div class="formula-v3-context-inline-item">
+                <span class="formula-v3-context-inline-label">Time:</span>
+                <span class="formula-v3-context-inline-value">${this.evaluationContext.timeReference}</span>
               </div>
-              <i class="ph ph-caret-down formula-v3-context-chevron"></i>
-            </summary>
-            <div class="formula-v3-context-grid">
-              ${this._renderContextField('timeReference')}
-              ${this._renderContextField('timezone')}
-              ${this._renderContextField('updateRhythm')}
+              <div class="formula-v3-context-inline-item">
+                <span class="formula-v3-context-inline-label">Scope:</span>
+                <span class="formula-v3-context-inline-value">${this.evaluationContext.timezone}</span>
+              </div>
+              <div class="formula-v3-context-inline-item">
+                <span class="formula-v3-context-inline-label">Recalc:</span>
+                <span class="formula-v3-context-inline-value">${this.evaluationContext.updateRhythm.replace('_', ' ')}</span>
+              </div>
             </div>
-          </details>
+          </div>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <!-- Body: Editor + Rail -->
+        <!-- Main Editor Area: Full Width -->
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <div class="formula-v3-body">
-          <!-- Left: Editor Card -->
-          <section class="formula-v3-editor-card">
+        <div class="formula-v3-body formula-v3-body-single">
+          <section class="formula-v3-editor-card formula-v3-editor-full">
+            <!-- Field Name + Type Row -->
             <div class="formula-v3-editor-head">
               <div class="formula-v3-editor-head-left">
                 <div class="formula-v3-name-input-group">
                   <input
                     type="text"
                     id="formula-field-name-v3"
-                    class="formula-v3-name-input"
-                    placeholder="Field name..."
+                    class="formula-v3-name-input formula-v3-name-input-lg"
+                    placeholder="Field name"
                     value="${this._escapeHtml(fieldName)}"
                     autocomplete="off"
                   >
                 </div>
               </div>
-              <div class="formula-v3-result-type-selector">
+              <div class="formula-v3-result-type-selector formula-v3-type-bar">
                 ${Object.entries(RESULT_TYPES).slice(0, 4).map(([type, info]) => `
                   <button type="button"
-                    class="formula-v3-type-pill ${resultType === type ? 'selected' : ''}"
+                    class="formula-v3-type-pill formula-v3-type-pill-compact ${resultType === type ? 'selected' : ''}"
                     data-type="${type}"
                     title="${info.label}">
-                    <i class="ph ${info.icon}"></i>
+                    ${type === 'text' ? 'Aa' : type === 'number' ? '#' : type === 'date' ? '📅' : '☑'}
                   </button>
                 `).join('')}
               </div>
             </div>
 
+            <!-- Formula Textarea with Inline Preview -->
             <div class="formula-v3-editor-body">
               <div class="formula-v3-editor-area">
-                <div class="formula-v3-editor-hint">
-                  <i class="ph ph-info"></i>
-                  <span>This expression is a relational claim over your data</span>
-                </div>
-                <div class="formula-v3-textarea-wrapper">
+                <div class="formula-v3-textarea-wrapper formula-v3-textarea-full">
                   <textarea
                     id="formula-input-v3"
-                    class="formula-v3-textarea"
-                    placeholder="IF(NOT BLANK({Due date}) AND {Due date} < NOW(), &quot;⚠️&quot;, &quot;&quot;)"
+                    class="formula-v3-textarea formula-v3-textarea-lg"
+                    placeholder="IF({title}=BLANK(),&quot;Untitled&quot;,{title})"
                     spellcheck="false"
                   >${this._escapeHtml(formula)}</textarea>
+
+                  <!-- Inline Result Preview (bottom-right) -->
+                  <div class="formula-v3-inline-preview" id="inline-preview">
+                    <span class="formula-v3-inline-preview-arrow">→</span>
+                    <span class="formula-v3-inline-preview-value" id="inline-preview-value">—</span>
+                  </div>
+
+                  <!-- Error display (bottom) -->
+                  <div class="formula-v3-inline-error" id="inline-error" style="display: none;">
+                    <i class="ph ph-warning"></i>
+                    <span id="inline-error-text"></span>
+                  </div>
+
                   <div class="formula-v3-autocomplete" id="formula-autocomplete" style="display: none;">
                     <div class="formula-v3-autocomplete-list" id="formula-autocomplete-list"></div>
                   </div>
                 </div>
               </div>
 
-              <div class="formula-v3-inline-tools">
-                ${this._renderFieldPills(fields)}
-                ${this._renderQuickInserts()}
+              <!-- Chips Row: Fields + Functions + Operators -->
+              <div class="formula-v3-chips-row">
+                <div class="formula-v3-chips-group">
+                  ${this._renderFieldPills(fields)}
+                </div>
+                <div class="formula-v3-chips-divider"></div>
+                <div class="formula-v3-chips-group">
+                  ${this._renderQuickFunctions()}
+                </div>
+                <div class="formula-v3-chips-divider"></div>
+                <div class="formula-v3-chips-group">
+                  ${this._renderQuickOperators()}
+                </div>
+              </div>
+
+              <!-- ═══════════════════════════════════════════════════════════ -->
+              <!-- Pipeline Strip (inline, minimal) -->
+              <!-- ═══════════════════════════════════════════════════════════ -->
+              <div class="formula-v3-pipeline-section">
+                <div class="formula-v3-pipeline-header">
+                  <span class="formula-v3-pipeline-label">Pipeline</span>
+                  <button type="button" class="formula-v3-pipeline-collapse" id="pipeline-collapse" style="display: none;">
+                    · collapse
+                  </button>
+                </div>
+                <div class="formula-v3-pipeline-strip" id="pipeline-strip">
+                  <div class="formula-v3-pipeline-empty">
+                    <span>Enter a formula to see pipeline</span>
+                  </div>
+                </div>
+                <div class="formula-v3-pipeline-detail" id="pipeline-detail" style="display: none;"></div>
               </div>
             </div>
           </section>
-
-          <!-- Right: Rail (Operators + Preview) -->
-          <aside class="formula-v3-rail">
-            <!-- Operator Lens Panel -->
-            <section class="formula-v3-panel" id="operator-lens-panel">
-              <h3 class="formula-v3-panel-title">
-                <i class="ph ph-flow-arrow"></i>
-                Operators in use
-              </h3>
-              <div class="formula-v3-panel-content formula-v3-operators-grid-container" id="operator-lens-content">
-                <div class="formula-v3-operators-empty">
-                  <i class="ph ph-brackets-curly"></i>
-                  <span>Enter a formula to see operators</span>
-                </div>
-              </div>
-            </section>
-
-            <!-- EO Translation Panel -->
-            <section class="formula-v3-panel" id="eo-translation-panel">
-              <h3 class="formula-v3-panel-title">
-                <i class="ph ph-code"></i>
-                EO Notation
-              </h3>
-              <div class="formula-v3-panel-content" id="eo-translation-content">
-                <div class="formula-v3-eo-empty">
-                  <span>EO translation will appear here</span>
-                </div>
-              </div>
-            </section>
-
-            <!-- Result Preview Panel -->
-            <section class="formula-v3-panel" id="result-preview-panel">
-              <h3 class="formula-v3-panel-title">
-                <i class="ph ph-eye"></i>
-                Result
-              </h3>
-              <div class="formula-v3-panel-content" id="result-preview-content">
-                <div class="formula-v3-result-empty">
-                  <span>Preview will appear here</span>
-                </div>
-              </div>
-            </section>
-          </aside>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <!-- Footer: Dependencies + Actions -->
+        <!-- Footer: Info + Actions -->
         <!-- ═══════════════════════════════════════════════════════════════ -->
-        <footer class="formula-v3-footer">
+        <footer class="formula-v3-footer formula-v3-footer-slim">
           <div class="formula-v3-footer-info" id="formula-dependencies-info">
             <span class="formula-v3-footer-hint">
               <i class="ph ph-info"></i>
@@ -498,20 +507,27 @@ class EOFormulaEditorV3 {
         <!-- Hidden: Result type value -->
         <input type="hidden" id="formula-result-type-v3" value="${resultType}">
 
-        <!-- Function Browser Drawer (hidden by default) -->
-        <div class="formula-v3-drawer" id="function-browser-drawer">
-          <div class="formula-v3-drawer-header">
-            <h3>Functions</h3>
-            <button type="button" class="formula-v3-drawer-close" id="close-function-browser">
-              <i class="ph ph-x"></i>
-            </button>
-          </div>
-          <div class="formula-v3-drawer-search">
-            <i class="ph ph-magnifying-glass"></i>
-            <input type="text" id="function-search-v3" placeholder="Search functions..." autocomplete="off">
-          </div>
-          <div class="formula-v3-drawer-content" id="function-list-v3">
-            ${this._renderFunctionList()}
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <!-- Function Browser: Floating Dropdown Overlay -->
+        <!-- ═══════════════════════════════════════════════════════════════ -->
+        <div class="formula-v3-fn-overlay" id="function-browser-overlay" style="display: none;">
+          <div class="formula-v3-fn-backdrop" id="fn-backdrop"></div>
+          <div class="formula-v3-fn-dropdown" id="function-browser-dropdown">
+            <div class="formula-v3-fn-dropdown-header">
+              <input
+                type="text"
+                id="function-search-v3"
+                class="formula-v3-fn-search-input"
+                placeholder="Search functions..."
+                autocomplete="off"
+              >
+              <button type="button" class="formula-v3-fn-dropdown-close" id="close-function-browser">
+                <i class="ph ph-x"></i>
+              </button>
+            </div>
+            <div class="formula-v3-fn-dropdown-content" id="function-list-v3">
+              ${this._renderFunctionListCompact()}
+            </div>
           </div>
         </div>
       </div>
@@ -566,7 +582,7 @@ class EOFormulaEditorV3 {
   }
 
   /**
-   * Render quick insert buttons
+   * Render quick insert buttons (legacy)
    */
   _renderQuickInserts() {
     const quickFunctions = ['NOW()', 'IF()', 'BLANK()', 'AND', '<', '='];
@@ -574,6 +590,58 @@ class EOFormulaEditorV3 {
       <button type="button" class="formula-v3-pill formula-v3-fn-pill" data-insert="${fn}">
         ${fn}
       </button>
+    `).join('');
+  }
+
+  /**
+   * Render quick function chips (redesign)
+   */
+  _renderQuickFunctions() {
+    const quickFns = ['BLANK()', 'NOW()', 'IF()', 'LEN()'];
+    return quickFns.map(fn => `
+      <button type="button" class="formula-v3-chip-btn formula-v3-chip-fn" data-insert="${fn}">
+        ${fn}
+      </button>
+    `).join('');
+  }
+
+  /**
+   * Render quick operator chips (redesign)
+   */
+  _renderQuickOperators() {
+    const ops = ['AND', '<', '='];
+    return ops.map(op => `
+      <button type="button" class="formula-v3-chip-btn formula-v3-chip-op" data-insert=" ${op} ">
+        ${op}
+      </button>
+    `).join('');
+  }
+
+  /**
+   * Render compact function list for dropdown (redesign)
+   */
+  _renderFunctionListCompact() {
+    const categories = [
+      { key: 'aggregation', name: 'Aggregation', fns: ['SUM', 'AVERAGE', 'COUNT', 'MIN', 'MAX'], color: 'purple' },
+      { key: 'text', name: 'Text', fns: ['UPPER', 'LOWER', 'LEFT', 'RIGHT', 'CONCAT'], color: 'emerald' },
+      { key: 'logic', name: 'Logic', fns: ['IF', 'IFS', 'AND', 'OR', 'NOT', 'SWITCH'], color: 'amber' },
+      { key: 'date', name: 'Date', fns: ['NOW', 'TODAY', 'YEAR', 'MONTH', 'DATEADD'], color: 'cyan' },
+      { key: 'null', name: 'Null', fns: ['BLANK', 'ISBLANK', 'IFBLANK', 'IFERROR'], color: 'slate' },
+      { key: 'semantic', name: 'Semantic', fns: ['EXCEPT', 'VALID_WHEN', 'DIAGNOSTIC'], color: 'pink' },
+    ];
+
+    return categories.map(cat => `
+      <div class="formula-v3-fn-category" data-category="${cat.key}">
+        <div class="formula-v3-fn-category-header">${cat.name}</div>
+        <div class="formula-v3-fn-category-items">
+          ${cat.fns.map(fn => `
+            <button type="button" class="formula-v3-fn-quick-item" data-syntax="${fn}()">
+              <span class="formula-v3-fn-quick-name">${fn}</span>
+              <span class="formula-v3-fn-quick-parens">()</span>
+            </button>
+          `).join('')}
+        </div>
+      </div>
     `).join('');
   }
 
@@ -640,9 +708,11 @@ class EOFormulaEditorV3 {
         const type = pill.dataset.type;
         const hiddenInput = modalEl.querySelector('#formula-result-type-v3');
         if (hiddenInput) hiddenInput.value = type;
-        // Update header label
+        // Update header labels (both old and new)
         const label = modalEl.querySelector('.formula-v3-result-type-label');
         if (label) label.textContent = RESULT_TYPES[type]?.label || type;
+        const badge = modalEl.querySelector('#result-type-badge');
+        if (badge) badge.textContent = RESULT_TYPES[type]?.label || type;
       });
     });
 
@@ -654,7 +724,7 @@ class EOFormulaEditorV3 {
       });
     });
 
-    // Function/operator quick inserts
+    // Function/operator quick inserts (legacy)
     modalEl.querySelectorAll('.formula-v3-fn-pill').forEach(pill => {
       pill.addEventListener('click', () => {
         const insertText = pill.dataset.insert;
@@ -662,7 +732,27 @@ class EOFormulaEditorV3 {
       });
     });
 
-    // Context field selects
+    // New chip buttons (functions and operators)
+    modalEl.querySelectorAll('.formula-v3-chip-btn').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const insertText = chip.dataset.insert;
+        this._insertAtCursor(insertText);
+      });
+    });
+
+    // Frame toggle (collapsible context)
+    const frameToggle = modalEl.querySelector('#frame-toggle');
+    const frameExpanded = modalEl.querySelector('#frame-expanded');
+    if (frameToggle && frameExpanded) {
+      frameToggle.addEventListener('click', () => {
+        const isOpen = frameExpanded.style.display !== 'none';
+        frameExpanded.style.display = isOpen ? 'none' : 'block';
+        const arrow = frameToggle.querySelector('.formula-v3-context-toggle-arrow');
+        if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+      });
+    }
+
+    // Context field selects (legacy)
     modalEl.querySelectorAll('.formula-v3-context-select-input').forEach(select => {
       select.addEventListener('change', () => {
         const field = select.dataset.field;
@@ -685,23 +775,39 @@ class EOFormulaEditorV3 {
       });
     });
 
-    // Function browser toggle
+    // Function browser overlay (new design)
     const browseFnBtn = modalEl.querySelector('#btn-browse-functions');
-    const fnDrawer = modalEl.querySelector('#function-browser-drawer');
+    const fnOverlay = modalEl.querySelector('#function-browser-overlay');
+    const fnBackdrop = modalEl.querySelector('#fn-backdrop');
     const closeFnBtn = modalEl.querySelector('#close-function-browser');
+    const fnDrawer = modalEl.querySelector('#function-browser-drawer'); // legacy
 
-    if (browseFnBtn && fnDrawer) {
+    if (browseFnBtn) {
       browseFnBtn.addEventListener('click', () => {
-        fnDrawer.classList.add('open');
-      });
-    }
-    if (closeFnBtn && fnDrawer) {
-      closeFnBtn.addEventListener('click', () => {
-        fnDrawer.classList.remove('open');
+        if (fnOverlay) {
+          fnOverlay.style.display = 'block';
+          const searchInput = modalEl.querySelector('#function-search-v3');
+          if (searchInput) searchInput.focus();
+        } else if (fnDrawer) {
+          fnDrawer.classList.add('open');
+        }
       });
     }
 
-    // Function group expand/collapse
+    if (fnBackdrop && fnOverlay) {
+      fnBackdrop.addEventListener('click', () => {
+        fnOverlay.style.display = 'none';
+      });
+    }
+
+    if (closeFnBtn) {
+      closeFnBtn.addEventListener('click', () => {
+        if (fnOverlay) fnOverlay.style.display = 'none';
+        if (fnDrawer) fnDrawer.classList.remove('open');
+      });
+    }
+
+    // Function group expand/collapse (legacy)
     modalEl.querySelectorAll('.formula-v3-fn-group-header').forEach(header => {
       header.addEventListener('click', () => {
         const group = header.closest('.formula-v3-fn-group');
@@ -709,12 +815,22 @@ class EOFormulaEditorV3 {
       });
     });
 
-    // Function item click
+    // Function item click (legacy)
     modalEl.querySelectorAll('.formula-v3-fn-item').forEach(item => {
       item.addEventListener('click', () => {
         const syntax = item.dataset.syntax;
         this._insertAtCursor(syntax);
-        fnDrawer?.classList.remove('open');
+        if (fnDrawer) fnDrawer.classList.remove('open');
+        if (fnOverlay) fnOverlay.style.display = 'none';
+      });
+    });
+
+    // Quick function items (new design dropdown)
+    modalEl.querySelectorAll('.formula-v3-fn-quick-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const syntax = item.dataset.syntax;
+        this._insertAtCursor(syntax);
+        if (fnOverlay) fnOverlay.style.display = 'none';
       });
     });
 
@@ -722,7 +838,25 @@ class EOFormulaEditorV3 {
     const fnSearch = modalEl.querySelector('#function-search-v3');
     if (fnSearch) {
       fnSearch.addEventListener('input', () => {
-        this._filterFunctions(fnSearch.value);
+        this._filterFunctionsCompact(fnSearch.value);
+      });
+    }
+
+    // Pipeline strip click (expand detail)
+    this.expandedPipelineOp = null;
+    modalEl.querySelectorAll('.formula-v3-pipeline-badge').forEach(badge => {
+      badge.addEventListener('click', () => {
+        const index = parseInt(badge.dataset.index);
+        this._togglePipelineDetail(index);
+      });
+    });
+
+    // Pipeline collapse button
+    const pipelineCollapse = modalEl.querySelector('#pipeline-collapse');
+    if (pipelineCollapse) {
+      pipelineCollapse.addEventListener('click', () => {
+        this.expandedPipelineOp = null;
+        this._updatePipelineDetail();
       });
     }
 
@@ -743,6 +877,90 @@ class EOFormulaEditorV3 {
         this.modal.hide();
       });
     }
+  }
+
+  /**
+   * Filter functions in the compact dropdown (new design)
+   */
+  _filterFunctionsCompact(query) {
+    const modalEl = this.modal?.element;
+    if (!modalEl) return;
+
+    const normalizedQuery = query.toLowerCase().trim();
+    const categories = modalEl.querySelectorAll('.formula-v3-fn-category');
+
+    categories.forEach(category => {
+      const items = category.querySelectorAll('.formula-v3-fn-quick-item');
+      let hasVisible = false;
+
+      items.forEach(item => {
+        const name = item.querySelector('.formula-v3-fn-quick-name')?.textContent.toLowerCase() || '';
+        const matches = normalizedQuery === '' || name.includes(normalizedQuery);
+        item.style.display = matches ? '' : 'none';
+        if (matches) hasVisible = true;
+      });
+
+      category.style.display = hasVisible ? '' : 'none';
+    });
+  }
+
+  /**
+   * Toggle pipeline detail expansion
+   */
+  _togglePipelineDetail(index) {
+    if (this.expandedPipelineOp === index) {
+      this.expandedPipelineOp = null;
+    } else {
+      this.expandedPipelineOp = index;
+    }
+    this._updatePipelineDetail();
+  }
+
+  /**
+   * Update the pipeline detail panel
+   */
+  _updatePipelineDetail() {
+    const modalEl = this.modal?.element;
+    if (!modalEl) return;
+
+    const detailEl = modalEl.querySelector('#pipeline-detail');
+    const collapseBtn = modalEl.querySelector('#pipeline-collapse');
+    const badges = modalEl.querySelectorAll('.formula-v3-pipeline-badge');
+
+    // Update badge selection state
+    badges.forEach((badge, i) => {
+      badge.classList.toggle('selected', i === this.expandedPipelineOp);
+    });
+
+    if (this.expandedPipelineOp === null || !this.pipelineSteps || this.pipelineSteps.length === 0) {
+      if (detailEl) detailEl.style.display = 'none';
+      if (collapseBtn) collapseBtn.style.display = 'none';
+      return;
+    }
+
+    const step = this.pipelineSteps[this.expandedPipelineOp];
+    if (!step) return;
+
+    const opInfo = EO_OPERATOR_DESCRIPTIONS[step.op];
+    if (!opInfo) return;
+
+    if (detailEl) {
+      detailEl.style.display = 'block';
+      detailEl.innerHTML = `
+        <div class="formula-v3-pipeline-detail-card" style="--op-color: ${opInfo.color}; --op-bg: ${opInfo.bgColor}">
+          <div class="formula-v3-pipeline-detail-left">
+            <div class="formula-v3-pipeline-detail-name">${step.label}</div>
+            <code class="formula-v3-pipeline-detail-code">${step.detail}</code>
+          </div>
+          <div class="formula-v3-pipeline-detail-right">
+            <div class="formula-v3-pipeline-detail-output-label">output</div>
+            <div class="formula-v3-pipeline-detail-output">${step.output}</div>
+          </div>
+        </div>
+      `;
+    }
+
+    if (collapseBtn) collapseBtn.style.display = 'inline';
   }
 
   /**
@@ -769,17 +987,257 @@ class EOFormulaEditorV3 {
     // Detect operators from formula
     this._detectOperators(formula);
 
-    // Update operator lens
+    // Generate pipeline steps for the new design
+    this._generatePipelineSteps(formula);
+
+    // Update operator lens (legacy)
     this._updateOperatorLens();
 
-    // Update EO translation
+    // Update EO translation (legacy)
     this._updateEOTranslation(formula);
 
-    // Update result preview
+    // Update result preview (legacy panels)
     this._updateResultPreview(formula);
 
     // Update dependencies info
     this._updateDependenciesInfo();
+
+    // Update new redesign elements
+    this._updateInlinePreview(formula);
+    this._updatePipelineStrip();
+    this._updateDependenciesHeader();
+  }
+
+  /**
+   * Generate pipeline steps from detected operators
+   */
+  _generatePipelineSteps(formula) {
+    this.pipelineSteps = [];
+    if (!formula.trim() || this.detectedOperators.length === 0) return;
+
+    // Create pipeline steps based on detected operators
+    // Order: CON -> NUL -> SEG -> ALT (typical flow)
+    const orderPriority = { CON: 1, DES: 2, NUL: 3, SEG: 4, SYN: 5, ALT: 6, INS: 7, SUP: 8, REC: 9 };
+
+    const sortedOps = [...this.detectedOperators].sort((a, b) => {
+      return (orderPriority[a.code] || 99) - (orderPriority[b.code] || 99);
+    });
+
+    // Extract field references for labels
+    const fieldRefs = formula.match(/\{([^}]+)\}/g) || [];
+    const firstField = fieldRefs.length > 0 ? fieldRefs[0].replace(/[{}]/g, '') : 'value';
+
+    sortedOps.forEach((op, i) => {
+      let detail = '';
+      let output = '—';
+      let label = op.short;
+
+      switch (op.code) {
+        case 'CON':
+          detail = `CON(record, "${firstField}")`;
+          output = `"${firstField.substring(0, 12)}..."`;
+          label = 'Get field';
+          break;
+        case 'NUL':
+          detail = 'NUL("create")';
+          output = 'BLANK';
+          label = 'Create blank';
+          break;
+        case 'SEG':
+          detail = 'SEG("=", values)';
+          output = 'false';
+          label = 'Compare';
+          break;
+        case 'ALT':
+          detail = 'ALT("if", cond, branches)';
+          output = '"result"';
+          label = 'Select branch';
+          break;
+        case 'SYN':
+          detail = 'SYN("sum", values)';
+          output = '123';
+          label = 'Aggregate';
+          break;
+        case 'DES':
+          detail = `DES(record, "${firstField}")`;
+          output = '"value"';
+          label = 'Access property';
+          break;
+        default:
+          detail = `${op.code}(...)`;
+          output = '...';
+      }
+
+      this.pipelineSteps.push({
+        op: op.code,
+        label,
+        detail,
+        output,
+      });
+    });
+  }
+
+  /**
+   * Update inline preview in textarea (redesign)
+   */
+  _updateInlinePreview(formula) {
+    const modalEl = this.modal?.element;
+    if (!modalEl) return;
+
+    const previewEl = modalEl.querySelector('#inline-preview');
+    const previewValueEl = modalEl.querySelector('#inline-preview-value');
+    const errorEl = modalEl.querySelector('#inline-error');
+    const errorTextEl = modalEl.querySelector('#inline-error-text');
+
+    if (!previewEl || !previewValueEl) return;
+
+    // Hide error by default
+    if (errorEl) errorEl.style.display = 'none';
+
+    if (!formula.trim()) {
+      previewEl.style.display = 'none';
+      return;
+    }
+
+    // Check for parse errors
+    const openParens = (formula.match(/\(/g) || []).length;
+    const closeParens = (formula.match(/\)/g) || []).length;
+    const openBraces = (formula.match(/\{/g) || []).length;
+    const closeBraces = (formula.match(/\}/g) || []).length;
+
+    if (openParens !== closeParens) {
+      previewEl.style.display = 'none';
+      if (errorEl && errorTextEl) {
+        errorEl.style.display = 'flex';
+        errorTextEl.textContent = 'Unbalanced parentheses';
+      }
+      return;
+    }
+
+    if (openBraces !== closeBraces) {
+      previewEl.style.display = 'none';
+      if (errorEl && errorTextEl) {
+        errorEl.style.display = 'flex';
+        errorTextEl.textContent = 'Unbalanced braces in field reference';
+      }
+      return;
+    }
+
+    if (this.parsedFormula?.error) {
+      previewEl.style.display = 'none';
+      if (errorEl && errorTextEl) {
+        errorEl.style.display = 'flex';
+        errorTextEl.textContent = this.parsedFormula.error;
+      }
+      return;
+    }
+
+    // Generate sample result
+    let sampleResult = '"..."';
+
+    // Try to evaluate against sample data
+    const set = this.workbench?.getCurrentSet?.();
+    const records = set?.records || [];
+    if (records.length > 0 && this.workbench?._evaluateFormula) {
+      try {
+        const result = this.workbench._evaluateFormula(formula, records[0]);
+        sampleResult = JSON.stringify(result);
+        if (sampleResult.length > 20) {
+          sampleResult = sampleResult.substring(0, 20) + '...';
+        }
+      } catch (e) {
+        // Keep default
+      }
+    } else {
+      // Infer from formula pattern
+      if (/\bIF\s*\(/i.test(formula)) {
+        if (formula.includes('⚠️') || formula.includes('warning')) {
+          sampleResult = '"⚠️"';
+        } else {
+          sampleResult = '"result"';
+        }
+      } else if (/\b(SUM|COUNT|AVG|AVERAGE|MIN|MAX)\s*\(/i.test(formula)) {
+        sampleResult = '123';
+      } else if (/\bNOW\s*\(\)/i.test(formula) || /\bTODAY\s*\(\)/i.test(formula)) {
+        sampleResult = new Date().toLocaleDateString();
+      } else if (/\bCONCATENATE\s*\(/i.test(formula) || /&/.test(formula)) {
+        sampleResult = '"text..."';
+      }
+    }
+
+    previewEl.style.display = 'flex';
+    previewValueEl.textContent = sampleResult;
+  }
+
+  /**
+   * Update pipeline strip (redesign)
+   */
+  _updatePipelineStrip() {
+    const modalEl = this.modal?.element;
+    if (!modalEl) return;
+
+    const stripEl = modalEl.querySelector('#pipeline-strip');
+    if (!stripEl) return;
+
+    if (!this.pipelineSteps || this.pipelineSteps.length === 0) {
+      stripEl.innerHTML = `
+        <div class="formula-v3-pipeline-empty">
+          <span>Enter a formula to see pipeline</span>
+        </div>
+      `;
+      return;
+    }
+
+    stripEl.innerHTML = this.pipelineSteps.map((step, i) => {
+      const opInfo = EO_OPERATOR_DESCRIPTIONS[step.op];
+      const color = opInfo?.color || '#6b7280';
+      const isLast = i === this.pipelineSteps.length - 1;
+
+      return `
+        <button type="button" class="formula-v3-pipeline-badge" data-index="${i}" style="background: ${color}">
+          ${step.op}
+        </button>
+        ${!isLast ? '<span class="formula-v3-pipeline-arrow">→</span>' : ''}
+      `;
+    }).join('');
+
+    // Re-attach click listeners
+    stripEl.querySelectorAll('.formula-v3-pipeline-badge').forEach(badge => {
+      badge.addEventListener('click', () => {
+        const index = parseInt(badge.dataset.index);
+        this._togglePipelineDetail(index);
+      });
+    });
+  }
+
+  /**
+   * Update dependencies in header (redesign)
+   */
+  _updateDependenciesHeader() {
+    const modalEl = this.modal?.element;
+    if (!modalEl) return;
+
+    const depsListEl = modalEl.querySelector('#deps-list-header');
+    if (!depsListEl) return;
+
+    // Extract field references from formula
+    const formula = modalEl.querySelector('#formula-input-v3')?.value || '';
+    const fieldRefs = formula.match(/\{([^}]+)\}/g) || [];
+    const fieldNames = fieldRefs.map(ref => ref.replace(/[{}]/g, ''));
+    const uniqueFields = [...new Set(fieldNames)];
+
+    if (uniqueFields.length === 0) {
+      depsListEl.innerHTML = '—';
+      return;
+    }
+
+    // Show first few as chips
+    const displayFields = uniqueFields.slice(0, 3);
+    const remaining = uniqueFields.length - 3;
+
+    depsListEl.innerHTML = displayFields.map(name => `
+      <span class="formula-v3-dep-chip">${name}</span>
+    `).join('') + (remaining > 0 ? `<span class="formula-v3-dep-more">+${remaining}</span>` : '');
   }
 
   /**
