@@ -1,5 +1,5 @@
 /**
- * Noema Formula Language Explainer
+ * Lakṣaṇa Formula Language Explainer
  * Interactive documentation for the formula language
  */
 
@@ -26,7 +26,7 @@ class EOFormulaExplainer {
     if (typeof EOModal !== 'undefined') {
       this.modal = new EOModal({
         id: 'formula-explainer-modal',
-        title: 'Noema Formula Language',
+        title: 'Lakṣaṇa Formula Language',
         size: 'large',
         content: this._renderContent(),
         buttons: [
@@ -56,7 +56,7 @@ class EOFormulaExplainer {
 
     if (!modal || !modalBody) return;
 
-    modalTitle.textContent = 'Noema Formula Language';
+    modalTitle.textContent = 'Lakṣaṇa Formula Language';
     modalBody.innerHTML = this._renderContent();
     modalFooter.innerHTML = '<button class="btn btn-secondary" onclick="closeModal()">Close</button>';
     modal.classList.add('active');
@@ -106,8 +106,8 @@ class EOFormulaExplainer {
 
         <!-- Footer -->
         <footer class="formula-explainer-footer">
-          <p>Noema Formula Language v1.0</p>
-          <p>Standard functions powered by <strong>formulajs</strong> (MIT) • Custom parser, EO decomposition, and semantic functions built for Noema</p>
+          <p>Lakṣaṇa Formula Language v1.0</p>
+          <p>Standard functions powered by <strong>formulajs</strong> (MIT) • Custom parser, EO decomposition, and semantic functions built for Lakṣaṇa</p>
         </footer>
       </div>
     `;
@@ -198,10 +198,10 @@ class EOFormulaExplainer {
 
   _renderOverview() {
     return `
-      <h2>What Makes Noema Formulas Different</h2>
+      <h2>What Makes Lakṣaṇa Formulas Different</h2>
 
       <p class="formula-explainer-intro">
-        Noema formulas aren't just calculations—they're <strong>meaning-aware pipelines</strong> that
+        Lakṣaṇa formulas aren't just calculations—they're <strong>meaning-aware pipelines</strong> that
         decompose into primitive operators, traverse relationships, and manage the conditions under
         which values are meaningful.
       </p>
@@ -230,7 +230,7 @@ class EOFormulaExplainer {
         <div class="formula-explainer-layer layer-emerald">
           <div class="formula-explainer-layer-title">Layer 3: Semantic Functions (Custom)</div>
           <div class="formula-explainer-layer-desc">EXCEPT, VALID_WHEN, DIAGNOSTIC, REFINE_UNTIL</div>
-          <div class="formula-explainer-layer-note">AV-inspired • Meaning-aware • Unique to Noema</div>
+          <div class="formula-explainer-layer-note">AV-inspired • Meaning-aware • Unique to Lakṣaṇa</div>
         </div>
         <div class="formula-explainer-layer layer-purple">
           <div class="formula-explainer-layer-title">Layer 2: EO Operator Layer (Custom)</div>
@@ -245,7 +245,7 @@ class EOFormulaExplainer {
       </div>
 
       ${this._callout(
-        `Most formula systems compute values. Noema formulas compute <em>claims</em>—values
+        `Most formula systems compute values. Lakṣaṇa formulas compute <em>claims</em>—values
         with lineage, scope, assumptions, and confidence. Every transformation is visible,
         every aggregation shows what was collapsed.`,
         'Why This Matters',
@@ -422,7 +422,7 @@ class EOFormulaExplainer {
       </div>
 
       ${this._callout(
-        `When SYN collapses 12 values into 1, Noema shows you what was lost. This is
+        `When SYN collapses 12 values into 1, Lakṣaṇa shows you what was lost. This is
         intentional—aggregation destroys information, and users should know.`,
         'SYN Makes Loss Visible',
         'warning'
@@ -648,7 +648,7 @@ class EOFormulaExplainer {
       ${this._callout(
         `Traditional formulas compute values. Semantic formulas compute <strong>claims</strong>—values
         with scope, assumptions, confidence, and restrictions on use. This is what makes
-        Noema different from every other data tool.`,
+        Lakṣaṇa different from every other data tool.`,
         'The Core Shift',
         'semantic'
       )}
