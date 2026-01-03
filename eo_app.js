@@ -1708,6 +1708,17 @@ function formatTimeAgo(timestamp) {
 
 function closeModal() {
   document.getElementById('modal-overlay')?.classList.remove('active');
+
+  // Restore standard modal footer buttons (some modals replace these with custom buttons)
+  const modalFooter = document.getElementById('modal-footer');
+  if (modalFooter) {
+    modalFooter.innerHTML = `
+      <button class="btn btn-secondary" id="modal-cancel">Cancel</button>
+      <button class="btn btn-primary" id="modal-confirm">Save</button>
+    `;
+    // Re-attach cancel click handler
+    document.getElementById('modal-cancel')?.addEventListener('click', closeModal);
+  }
 }
 
 // ============================================================================
