@@ -39158,6 +39158,617 @@ td.cell-editable.has-history:hover .cell-history-indicator {
   opacity: 0.8;
 }
 
+.formula-v3-fn-example {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  border-left: 2px solid var(--primary-400);
+}
+
+.formula-v3-fn-example code {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.formula-v3-fn-group-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 4px 12px 8px;
+  font-style: italic;
+}
+
+.formula-v3-fn-group-eo {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--primary-500);
+  background: var(--primary-50);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+
+/* Section Divider */
+.formula-v3-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 12px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.formula-v3-section-divider::before,
+.formula-v3-section-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-primary);
+}
+
+/* Drawer Header Actions */
+.formula-v3-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.formula-v3-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.formula-v3-drawer-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.formula-v3-drawer-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.formula-v3-drawer-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  font-size: 11px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.formula-v3-drawer-hint i {
+  color: var(--primary-500);
+}
+
+/* Documentation Sections (Reference Syntax, Operators) */
+.formula-v3-docs-group .formula-v3-fn-group-header {
+  background: linear-gradient(135deg, var(--primary-50), var(--bg-secondary));
+}
+
+.formula-v3-docs-section {
+  padding: 8px 0;
+}
+
+.formula-v3-docs-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  margin-bottom: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.formula-v3-docs-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary-200);
+}
+
+.formula-v3-docs-syntax code {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--primary-600);
+}
+
+.formula-v3-docs-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.formula-v3-docs-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.formula-v3-docs-example {
+  margin-top: 4px;
+}
+
+.formula-v3-docs-example code {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 4px;
+}
+
+/* Operators Grid */
+.formula-v3-operators-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formula-v3-docs-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.formula-v3-docs-op {
+  flex: 1;
+}
+
+.formula-v3-docs-subheader {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin: 12px 0 8px;
+}
+
+/* EO Operators Grid */
+.formula-v3-eo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.formula-v3-eo-op {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  border-left: 3px solid var(--op-color, var(--text-muted));
+}
+
+.formula-v3-eo-op code {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--op-color, var(--text-primary));
+}
+
+.formula-v3-eo-op span {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+/* Function Details Modal Overlay */
+.formula-v3-fn-details-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10001;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.formula-v3-fn-details-overlay.visible {
+  opacity: 1;
+}
+
+.formula-v3-fn-details-modal {
+  width: 90%;
+  max-width: 700px;
+  max-height: 85vh;
+  background: var(--bg-primary);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  transform: scale(0.95);
+  transition: transform 0.2s ease;
+}
+
+.formula-v3-fn-details-overlay.visible .formula-v3-fn-details-modal {
+  transform: scale(1);
+}
+
+.formula-v3-fn-details-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.formula-v3-fn-details-header h2 {
+  font-size: 18px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--primary-600);
+  margin: 0;
+}
+
+.formula-v3-fn-details-category {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  padding: 4px 10px;
+  border-radius: 99px;
+}
+
+.formula-v3-fn-details-close {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.formula-v3-fn-details-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.formula-v3-fn-details-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.formula-v3-fn-details-section {
+  margin-bottom: 20px;
+}
+
+.formula-v3-fn-details-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin: 0 0 8px;
+}
+
+.formula-v3-fn-details-section p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.formula-v3-fn-details-syntax {
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.formula-v3-fn-details-syntax code {
+  font-size: 14px;
+  font-family: var(--font-mono);
+  color: var(--primary-600);
+}
+
+/* Arguments Table */
+.formula-v3-fn-details-args {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.formula-v3-fn-details-args th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.formula-v3-fn-details-args td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+.formula-v3-fn-details-args code {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.formula-v3-fn-details-args .required {
+  color: var(--danger-500);
+  font-weight: 600;
+}
+
+/* Examples */
+.formula-v3-fn-details-examples {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formula-v3-fn-details-examples code {
+  display: block;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  border-left: 3px solid var(--primary-400);
+}
+
+/* EO Decomposition */
+.formula-v3-fn-details-eo-ops {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.formula-v3-fn-eo-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  border-left: 3px solid var(--op-color, var(--text-muted));
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--op-color, var(--text-secondary));
+}
+
+.formula-v3-fn-details-eo-explanation {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Pipeline */
+.formula-v3-fn-details-pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formula-v3-pipeline-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.formula-v3-pipeline-step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--primary-100);
+  color: var(--primary-600);
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 50%;
+}
+
+.formula-v3-pipeline-step-op {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--primary-600);
+}
+
+.formula-v3-pipeline-step-params {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+/* Library Source */
+.formula-v3-fn-details-source {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.formula-v3-fn-source-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.formula-v3-fn-source-badge.formulajs {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.formula-v3-fn-source-badge.custom-av {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+}
+
+.formula-v3-fn-source-badge.custom-sup {
+  background: rgba(20, 184, 166, 0.1);
+  color: #14b8a6;
+}
+
+.formula-v3-fn-source-badge.custom-con {
+  background: rgba(249, 115, 22, 0.1);
+  color: #f97316;
+}
+
+.formula-v3-fn-source-badge.custom {
+  background: rgba(107, 114, 128, 0.1);
+  color: #6b7280;
+}
+
+/* Implementation Code */
+.formula-v3-fn-details-impl {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.formula-v3-impl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.formula-v3-copy-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: none;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.formula-v3-copy-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.formula-v3-impl-code {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  max-height: 300px;
+}
+
+.formula-v3-impl-code code {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* AV Origin */
+.formula-v3-fn-details-av {
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.1));
+  border-radius: 8px;
+  border-left: 3px solid #8b5cf6;
+  font-style: italic;
+}
+
+/* Footer */
+.formula-v3-fn-details-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.formula-v3-fn-details-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.formula-v3-fn-details-meta .volatile {
+  color: var(--warning-500);
+}
+
+/* Toast Notification */
+.formula-v3-toast {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: var(--success-500);
+  color: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0;
+  transition: all 0.3s ease;
+  z-index: 100;
+}
+
+.formula-v3-toast.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    Field Error
    ═══════════════════════════════════════════════════════════════════════════ */

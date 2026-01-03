@@ -502,9 +502,18 @@ class EOFormulaEditorV3 {
         <div class="formula-v3-drawer" id="function-browser-drawer">
           <div class="formula-v3-drawer-header">
             <h3>Functions</h3>
-            <button type="button" class="formula-v3-drawer-close" id="close-function-browser">
-              <i class="ph ph-x"></i>
-            </button>
+            <div class="formula-v3-drawer-actions">
+              <button type="button" class="formula-v3-drawer-btn" id="btn-export-functions" title="Export function library for auditing">
+                <i class="ph ph-download-simple"></i>
+              </button>
+              <button type="button" class="formula-v3-drawer-close" id="close-function-browser">
+                <i class="ph ph-x"></i>
+              </button>
+            </div>
+          </div>
+          <div class="formula-v3-drawer-hint">
+            <i class="ph ph-info"></i>
+            <span>Right-click or Shift+click any function to view implementation details</span>
           </div>
           <div class="formula-v3-drawer-search">
             <i class="ph ph-magnifying-glass"></i>
@@ -581,25 +590,141 @@ class EOFormulaEditorV3 {
    * Render the function list organized by category
    */
   _renderFunctionList() {
-    return Object.entries(this.functionCategories).map(([key, category]) => `
-      <div class="formula-v3-fn-group" data-category="${key}">
+    return `
+      ${this._renderReferenceSyntaxSection()}
+      ${this._renderOperatorsSection()}
+      <div class="formula-v3-section-divider">
+        <span>Functions</span>
+      </div>
+      ${Object.entries(this.functionCategories).map(([key, category]) => `
+        <div class="formula-v3-fn-group" data-category="${key}">
+          <button type="button" class="formula-v3-fn-group-header">
+            <i class="ph ${category.icon}"></i>
+            <span>${category.name}</span>
+            <span class="formula-v3-fn-group-count">${category.functions.length}</span>
+            ${category.eoOperator ? `<span class="formula-v3-fn-group-eo">${category.eoOperator}</span>` : ''}
+            <i class="ph ph-caret-right formula-v3-fn-group-arrow"></i>
+          </button>
+          <div class="formula-v3-fn-group-content">
+            ${category.description ? `<div class="formula-v3-fn-group-desc">${category.description}</div>` : ''}
+            ${category.functions.map(fn => `
+              <button type="button" class="formula-v3-fn-item" data-syntax="${this._escapeHtml(fn.syntax)}">
+                <div class="formula-v3-fn-name">${fn.name}</div>
+                <div class="formula-v3-fn-syntax">${this._escapeHtml(fn.syntax)}</div>
+                <div class="formula-v3-fn-desc">${fn.description}</div>
+                ${fn.example ? `<div class="formula-v3-fn-example"><code>${this._escapeHtml(fn.example)}</code></div>` : ''}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      `).join('')}
+    `;
+  }
+
+  /**
+   * Render the Reference Syntax documentation section
+   */
+  _renderReferenceSyntaxSection() {
+    return `
+      <div class="formula-v3-fn-group formula-v3-docs-group" data-category="reference">
         <button type="button" class="formula-v3-fn-group-header">
-          <i class="ph ${category.icon}"></i>
-          <span>${category.name}</span>
-          <span class="formula-v3-fn-group-count">${category.functions.length}</span>
+          <i class="ph ph-brackets-curly"></i>
+          <span>Reference Syntax</span>
           <i class="ph ph-caret-right formula-v3-fn-group-arrow"></i>
         </button>
         <div class="formula-v3-fn-group-content">
-          ${category.functions.map(fn => `
-            <button type="button" class="formula-v3-fn-item" data-syntax="${this._escapeHtml(fn.syntax)}">
-              <div class="formula-v3-fn-name">${fn.name}</div>
-              <div class="formula-v3-fn-syntax">${this._escapeHtml(fn.syntax)}</div>
-              <div class="formula-v3-fn-desc">${fn.description}</div>
-            </button>
-          `).join('')}
+          <div class="formula-v3-docs-section">
+            <div class="formula-v3-docs-item" data-insert="{Field Name}">
+              <div class="formula-v3-docs-syntax"><code>{Field Name}</code></div>
+              <div class="formula-v3-docs-label">Same-Set Field</div>
+              <div class="formula-v3-docs-desc">Reference a field in the current record</div>
+              <div class="formula-v3-docs-example"><code>{Price}</code>, <code>{First Name}</code></div>
+            </div>
+            <div class="formula-v3-docs-item" data-insert="#Set.Field">
+              <div class="formula-v3-docs-syntax"><code>#Set.Field</code></div>
+              <div class="formula-v3-docs-label">Cross-Set Field</div>
+              <div class="formula-v3-docs-desc">Reference a field through a connection</div>
+              <div class="formula-v3-docs-example"><code>#Orders.Total</code>, <code>#Customer.Name</code></div>
+            </div>
+            <div class="formula-v3-docs-item" data-insert="#Set.Set.Field">
+              <div class="formula-v3-docs-syntax"><code>#Set.Set.Field</code></div>
+              <div class="formula-v3-docs-label">Chained Traversal</div>
+              <div class="formula-v3-docs-desc">Traverse multiple connections</div>
+              <div class="formula-v3-docs-example"><code>#Orders.Customer.Email</code></div>
+            </div>
+            <div class="formula-v3-docs-item" data-insert="$.Property">
+              <div class="formula-v3-docs-syntax"><code>$</code> or <code>$.Property</code></div>
+              <div class="formula-v3-docs-label">Current Item</div>
+              <div class="formula-v3-docs-desc">Reference current item in MAP, FILTER, etc.</div>
+              <div class="formula-v3-docs-example"><code>MAP(#Orders, $.Total * 1.1)</code></div>
+            </div>
+            <div class="formula-v3-docs-item" data-insert="[condition]">
+              <div class="formula-v3-docs-syntax"><code>[condition]</code></div>
+              <div class="formula-v3-docs-label">Filter Predicate</div>
+              <div class="formula-v3-docs-desc">Filter records by condition</div>
+              <div class="formula-v3-docs-example"><code>SUM(#Orders.Total, [Status = "Paid"])</code></div>
+            </div>
+          </div>
         </div>
       </div>
-    `).join('');
+    `;
+  }
+
+  /**
+   * Render the Operators documentation section
+   */
+  _renderOperatorsSection() {
+    return `
+      <div class="formula-v3-fn-group formula-v3-docs-group" data-category="operators">
+        <button type="button" class="formula-v3-fn-group-header">
+          <i class="ph ph-math-operations"></i>
+          <span>Operators</span>
+          <i class="ph ph-caret-right formula-v3-fn-group-arrow"></i>
+        </button>
+        <div class="formula-v3-fn-group-content">
+          <div class="formula-v3-docs-section formula-v3-operators-docs">
+            <div class="formula-v3-docs-row">
+              <div class="formula-v3-docs-item formula-v3-docs-op" data-insert=" & ">
+                <div class="formula-v3-docs-syntax"><code>&</code></div>
+                <div class="formula-v3-docs-label">Concatenation</div>
+                <div class="formula-v3-docs-desc">Join text values</div>
+              </div>
+              <div class="formula-v3-docs-item formula-v3-docs-op" data-insert=" + ">
+                <div class="formula-v3-docs-syntax"><code>+ − * /</code></div>
+                <div class="formula-v3-docs-label">Arithmetic</div>
+                <div class="formula-v3-docs-desc">Math operations</div>
+              </div>
+            </div>
+            <div class="formula-v3-docs-row">
+              <div class="formula-v3-docs-item formula-v3-docs-op" data-insert=" = ">
+                <div class="formula-v3-docs-syntax"><code>= != > < >= <=</code></div>
+                <div class="formula-v3-docs-label">Comparison</div>
+                <div class="formula-v3-docs-desc">Compare values</div>
+              </div>
+              <div class="formula-v3-docs-item formula-v3-docs-op" data-insert=" AND ">
+                <div class="formula-v3-docs-syntax"><code>AND OR NOT</code></div>
+                <div class="formula-v3-docs-label">Logical</div>
+                <div class="formula-v3-docs-desc">Combine conditions</div>
+              </div>
+            </div>
+          </div>
+          <div class="formula-v3-docs-section formula-v3-eo-operators-docs">
+            <div class="formula-v3-docs-subheader">EO Operators</div>
+            <div class="formula-v3-eo-grid">
+              <div class="formula-v3-eo-op" style="--op-color: #3b82f6"><code>CON</code><span>Connection</span></div>
+              <div class="formula-v3-eo-op" style="--op-color: #8b5cf6"><code>SEG</code><span>Segment</span></div>
+              <div class="formula-v3-eo-op" style="--op-color: #06b6d4"><code>DES</code><span>Designate</span></div>
+              <div class="formula-v3-eo-op" style="--op-color: #10b981"><code>SYN</code><span>Synthesize</span></div>
+              <div class="formula-v3-eo-op" style="--op-color: #f59e0b"><code>ALT</code><span>Alternate</span></div>
+              <div class="formula-v3-eo-op" style="--op-color: #6b7280"><code>NUL</code><span>Null</span></div>
+              <div class="formula-v3-eo-op" style="--op-color: #ec4899"><code>INS</code><span>Instantiate</span></div>
+              <div class="formula-v3-eo-op" style="--op-color: #14b8a6"><code>SUP</code><span>Superpose</span></div>
+              <div class="formula-v3-eo-op" style="--op-color: #f97316"><code>REC</code><span>Recursion</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   /**
@@ -709,14 +834,45 @@ class EOFormulaEditorV3 {
       });
     });
 
-    // Function item click
+    // Function item click - left click inserts, right click shows details
     modalEl.querySelectorAll('.formula-v3-fn-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const syntax = item.dataset.syntax;
-        this._insertAtCursor(syntax);
-        fnDrawer?.classList.remove('open');
+      item.addEventListener('click', (e) => {
+        if (e.shiftKey || e.ctrlKey || e.metaKey) {
+          // Shift/Ctrl/Cmd+click shows function details
+          const fnName = item.querySelector('.formula-v3-fn-name')?.textContent;
+          this._showFunctionDetails(fnName);
+        } else {
+          // Regular click inserts syntax
+          const syntax = item.dataset.syntax;
+          this._insertAtCursor(syntax);
+          fnDrawer?.classList.remove('open');
+        }
+      });
+      // Add context menu for function details
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const fnName = item.querySelector('.formula-v3-fn-name')?.textContent;
+        this._showFunctionDetails(fnName);
       });
     });
+
+    // Docs items click (Reference Syntax, Operators)
+    modalEl.querySelectorAll('.formula-v3-docs-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const insertText = item.dataset.insert;
+        if (insertText) {
+          this._insertAtCursor(insertText);
+        }
+      });
+    });
+
+    // Export function library button
+    const exportBtn = modalEl.querySelector('#btn-export-functions');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => {
+        this._exportFunctionLibrary();
+      });
+    }
 
     // Function search
     const fnSearch = modalEl.querySelector('#function-search-v3');
@@ -1487,82 +1643,215 @@ class EOFormulaEditorV3 {
   }
 
   /**
-   * Get function categories (same as V2 for compatibility)
+   * Get function categories - comprehensive Noema Formula Language library
    */
   _getFunctionCategories() {
     return {
-      logical: {
-        name: 'Logical',
-        icon: 'ph-git-branch',
+      // ═══════════════════════════════════════════════════════════════
+      // AGGREGATION (SYN Operator)
+      // Collapse arrays to single values
+      // ═══════════════════════════════════════════════════════════════
+      aggregation: {
+        name: 'Aggregation',
+        icon: 'ph-chart-bar',
+        description: 'Collapse multiple values into one',
+        eoOperator: 'SYN',
         functions: [
-          { name: 'IF', syntax: 'IF(condition, value_if_true, value_if_false)', description: 'Conditional logic' },
-          { name: 'SWITCH', syntax: 'SWITCH(expr, [pattern, result]..., [default])', description: 'Match patterns' },
-          { name: 'AND', syntax: 'AND(logical1, [logical2, ...])', description: 'True if all true' },
-          { name: 'OR', syntax: 'OR(logical1, [logical2, ...])', description: 'True if any true' },
-          { name: 'NOT', syntax: 'NOT(logical)', description: 'Reverse logical value' },
-          { name: 'BLANK', syntax: 'BLANK()', description: 'Returns blank value' },
-          { name: 'ISERROR', syntax: 'ISERROR(expression)', description: 'Check if expression errors' },
+          { name: 'SUM', syntax: 'SUM(values, [filter])', description: 'Add all numbers', example: 'SUM(#Orders.Total, [Status = "Paid"])' },
+          { name: 'AVERAGE', syntax: 'AVERAGE(values, [filter])', description: 'Arithmetic mean', example: 'AVERAGE(#Reviews.Rating, [Verified = TRUE])' },
+          { name: 'COUNT', syntax: 'COUNT(values, [filter])', description: 'Count items', example: 'COUNT(#Tasks, [Status = "Open"])' },
+          { name: 'MIN', syntax: 'MIN(values, [filter])', description: 'Smallest value', example: 'MIN(#Bids.Amount)' },
+          { name: 'MAX', syntax: 'MAX(values, [filter])', description: 'Largest value', example: 'MAX(#Scores.Value)' },
+          { name: 'MEDIAN', syntax: 'MEDIAN(values)', description: 'Middle value', example: 'MEDIAN(#Sales.Amount)' },
+          { name: 'FIRST', syntax: 'FIRST(values)', description: 'First item', example: 'FIRST(#Events)' },
+          { name: 'LAST', syntax: 'LAST(values)', description: 'Last item', example: 'LAST(#Activities)' },
         ]
       },
-      numeric: {
-        name: 'Numeric',
-        icon: 'ph-hash',
+
+      // ═══════════════════════════════════════════════════════════════
+      // ARRAY (SEG + ALT Operators)
+      // Transform or filter arrays
+      // ═══════════════════════════════════════════════════════════════
+      array: {
+        name: 'Array',
+        icon: 'ph-list-bullets',
+        description: 'Transform and filter collections',
+        eoOperator: 'SEG + ALT',
         functions: [
-          { name: 'SUM', syntax: 'SUM(number1, [number2, ...])', description: 'Sum of numbers' },
-          { name: 'AVERAGE', syntax: 'AVERAGE(number1, [number2, ...])', description: 'Average of numbers' },
-          { name: 'MAX', syntax: 'MAX(number1, [number2, ...])', description: 'Maximum value' },
-          { name: 'MIN', syntax: 'MIN(number1, [number2, ...])', description: 'Minimum value' },
-          { name: 'COUNT', syntax: 'COUNT(value1, [value2, ...])', description: 'Count numeric values' },
-          { name: 'ROUND', syntax: 'ROUND(number, precision)', description: 'Round to precision' },
-          { name: 'ABS', syntax: 'ABS(number)', description: 'Absolute value' },
+          { name: 'MAP', syntax: 'MAP(values, $.expression)', description: 'Transform each item', example: 'MAP(#Orders, $.Total * 1.1)' },
+          { name: 'FILTER', syntax: 'FILTER(values, $.condition)', description: 'Keep matching items', example: 'FILTER(#Tasks, $.DueDate < TODAY())' },
+          { name: 'SORT', syntax: 'SORT(values, $.property, direction)', description: 'Reorder items', example: 'SORT(#Items, $.Name, "asc")' },
+          { name: 'UNIQUE', syntax: 'UNIQUE(values)', description: 'Remove duplicates', example: 'UNIQUE(#Tags.Name)' },
+          { name: 'REVERSE', syntax: 'REVERSE(values)', description: 'Reverse order', example: 'REVERSE(#History)' },
+          { name: 'FLATTEN', syntax: 'FLATTEN(values)', description: 'Flatten nested arrays', example: 'FLATTEN(#Orders.Items)' },
+          { name: 'COMPACT', syntax: 'COMPACT(values)', description: 'Remove nulls/blanks', example: 'COMPACT(#Responses)' },
         ]
       },
+
+      // ═══════════════════════════════════════════════════════════════
+      // TEXT (ALT Operator)
+      // Transform text values
+      // ═══════════════════════════════════════════════════════════════
       text: {
         name: 'Text',
         icon: 'ph-text-aa',
+        description: 'Transform and manipulate text',
+        eoOperator: 'ALT',
         functions: [
-          { name: 'CONCATENATE', syntax: 'CONCATENATE(text1, [text2, ...])', description: 'Joins text values' },
-          { name: 'LEFT', syntax: 'LEFT(string, howMany)', description: 'Extract from beginning' },
-          { name: 'RIGHT', syntax: 'RIGHT(string, howMany)', description: 'Extract from end' },
-          { name: 'MID', syntax: 'MID(string, start, count)', description: 'Extract substring' },
-          { name: 'LEN', syntax: 'LEN(string)', description: 'String length' },
-          { name: 'UPPER', syntax: 'UPPER(string)', description: 'Convert to uppercase' },
-          { name: 'LOWER', syntax: 'LOWER(string)', description: 'Convert to lowercase' },
-          { name: 'TRIM', syntax: 'TRIM(string)', description: 'Remove whitespace' },
+          { name: 'UPPER', syntax: 'UPPER(text)', description: 'Uppercase', example: 'UPPER({Name})' },
+          { name: 'LOWER', syntax: 'LOWER(text)', description: 'Lowercase', example: 'LOWER({Email})' },
+          { name: 'TRIM', syntax: 'TRIM(text)', description: 'Remove whitespace', example: 'TRIM({Input})' },
+          { name: 'LEFT', syntax: 'LEFT(text, count)', description: 'First N characters', example: 'LEFT({Code}, 3)' },
+          { name: 'RIGHT', syntax: 'RIGHT(text, count)', description: 'Last N characters', example: 'RIGHT({Phone}, 4)' },
+          { name: 'MID', syntax: 'MID(text, start, count)', description: 'Substring', example: 'MID({SSN}, 4, 2)' },
+          { name: 'LEN', syntax: 'LEN(text)', description: 'Character count', example: 'LEN({Description})' },
+          { name: 'FIND', syntax: 'FIND(search, text)', description: 'Position of substring', example: 'FIND("@", {Email})' },
+          { name: 'REPLACE', syntax: 'REPLACE(text, start, count, new)', description: 'Replace by position', example: 'REPLACE({Phone}, 1, 3, "XXX")' },
+          { name: 'SUBSTITUTE', syntax: 'SUBSTITUTE(text, old, new)', description: 'Replace all occurrences', example: 'SUBSTITUTE({Phone}, "-", "")' },
+          { name: 'CONCAT', syntax: 'CONCAT(values, separator)', description: 'Join array to string', example: 'CONCAT(#Tags.Name, ", ")' },
+          { name: 'SPLIT', syntax: 'SPLIT(text, delimiter)', description: 'Split string to array', example: 'SPLIT({Tags}, ",")' },
+          { name: 'CONCATENATE', syntax: 'CONCATENATE(text1, text2, ...)', description: 'Join text values', example: 'CONCATENATE({First}, " ", {Last})' },
         ]
       },
+
+      // ═══════════════════════════════════════════════════════════════
+      // LOGICAL (SEG + ALT Operators)
+      // Conditional logic
+      // ═══════════════════════════════════════════════════════════════
+      logical: {
+        name: 'Logical',
+        icon: 'ph-git-branch',
+        description: 'Conditional logic and branching',
+        eoOperator: 'SEG + ALT',
+        functions: [
+          { name: 'IF', syntax: 'IF(condition, ifTrue, ifFalse)', description: 'Conditional value', example: 'IF({Status} = "Active", "Yes", "No")' },
+          { name: 'IFS', syntax: 'IFS(cond1, val1, cond2, val2, ...)', description: 'Multiple conditions', example: 'IFS({Score} >= 90, "A", {Score} >= 80, "B", TRUE, "C")' },
+          { name: 'SWITCH', syntax: 'SWITCH(expr, case1, val1, ..., default)', description: 'Pattern match', example: 'SWITCH({Type}, "A", 1, "B", 2, 0)' },
+          { name: 'AND', syntax: 'AND(cond1, cond2, ...)', description: 'All true', example: 'AND({Active}, {Verified})' },
+          { name: 'OR', syntax: 'OR(cond1, cond2, ...)', description: 'Any true', example: 'OR({Admin}, {Manager})' },
+          { name: 'NOT', syntax: 'NOT(condition)', description: 'Invert boolean', example: 'NOT({Archived})' },
+          { name: 'XOR', syntax: 'XOR(cond1, cond2)', description: 'Exactly one true', example: 'XOR({OptionA}, {OptionB})' },
+        ]
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // MATH (ALT Operator)
+      // Numeric transformations
+      // ═══════════════════════════════════════════════════════════════
+      math: {
+        name: 'Math',
+        icon: 'ph-hash',
+        description: 'Numeric operations and transformations',
+        eoOperator: 'ALT',
+        functions: [
+          { name: 'ROUND', syntax: 'ROUND(number, places)', description: 'Round to decimals', example: 'ROUND({Price}, 2)' },
+          { name: 'FLOOR', syntax: 'FLOOR(number, significance)', description: 'Round down', example: 'FLOOR({Value}, 10)' },
+          { name: 'CEILING', syntax: 'CEILING(number, significance)', description: 'Round up', example: 'CEILING({Value}, 10)' },
+          { name: 'ABS', syntax: 'ABS(number)', description: 'Absolute value', example: 'ABS({Difference})' },
+          { name: 'MOD', syntax: 'MOD(number, divisor)', description: 'Remainder', example: 'MOD({Value}, 7)' },
+          { name: 'POWER', syntax: 'POWER(number, exponent)', description: 'Exponentiation', example: 'POWER({Base}, 2)' },
+          { name: 'SQRT', syntax: 'SQRT(number)', description: 'Square root', example: 'SQRT({Area})' },
+          { name: 'LOG', syntax: 'LOG(number, base)', description: 'Logarithm', example: 'LOG({Value}, 10)' },
+          { name: 'INT', syntax: 'INT(number)', description: 'Integer part', example: 'INT({Decimal})' },
+          { name: 'VALUE', syntax: 'VALUE(text)', description: 'Convert text to number', example: 'VALUE({StringNum})' },
+        ]
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // DATE (INS + DES + ALT Operators)
+      // Temporal operations
+      // ═══════════════════════════════════════════════════════════════
       date: {
         name: 'Date & Time',
         icon: 'ph-calendar',
+        description: 'Temporal operations and formatting',
+        eoOperator: 'INS + DES + ALT',
         functions: [
-          { name: 'NOW', syntax: 'NOW()', description: 'Current date and time' },
-          { name: 'TODAY', syntax: 'TODAY()', description: 'Current date' },
-          { name: 'DATEADD', syntax: 'DATEADD(date, count, unit)', description: 'Add to date' },
-          { name: 'DATETIME_DIFF', syntax: 'DATETIME_DIFF(date1, date2, [unit])', description: 'Difference between dates' },
-          { name: 'YEAR', syntax: 'YEAR(date)', description: 'Extract year' },
-          { name: 'MONTH', syntax: 'MONTH(date)', description: 'Extract month' },
-          { name: 'DAY', syntax: 'DAY(date)', description: 'Extract day' },
+          { name: 'NOW', syntax: 'NOW()', description: 'Current datetime', example: 'NOW()' },
+          { name: 'TODAY', syntax: 'TODAY()', description: 'Current date', example: 'TODAY()' },
+          { name: 'DATE', syntax: 'DATE(year, month, day)', description: 'Construct date', example: 'DATE(2024, 1, 15)' },
+          { name: 'YEAR', syntax: 'YEAR(date)', description: 'Extract year', example: 'YEAR({Created})' },
+          { name: 'MONTH', syntax: 'MONTH(date)', description: 'Extract month (1-12)', example: 'MONTH({Date})' },
+          { name: 'DAY', syntax: 'DAY(date)', description: 'Extract day (1-31)', example: 'DAY({Date})' },
+          { name: 'WEEKDAY', syntax: 'WEEKDAY(date)', description: 'Day of week (1-7)', example: 'WEEKDAY({Date})' },
+          { name: 'DATEADD', syntax: 'DATEADD(date, amount, unit)', description: 'Add to date', example: 'DATEADD({DueDate}, 7, "days")' },
+          { name: 'DATEDIFF', syntax: 'DATEDIFF(date1, date2, unit)', description: 'Difference between dates', example: 'DATEDIFF({Start}, {End}, "days")' },
+          { name: 'DATETIME_FORMAT', syntax: 'DATETIME_FORMAT(date, format)', description: 'Format date as text', example: 'DATETIME_FORMAT({Date}, "YYYY-MM-DD")' },
+          { name: 'IS_BEFORE', syntax: 'IS_BEFORE(date1, date2)', description: 'Check if date1 < date2', example: 'IS_BEFORE({Start}, {End})' },
+          { name: 'IS_AFTER', syntax: 'IS_AFTER(date1, date2)', description: 'Check if date1 > date2', example: 'IS_AFTER({Due}, TODAY())' },
         ]
       },
+
+      // ═══════════════════════════════════════════════════════════════
+      // NULL HANDLING (NUL Operator)
+      // Handle absence
+      // ═══════════════════════════════════════════════════════════════
+      null: {
+        name: 'Null Handling',
+        icon: 'ph-prohibit',
+        description: 'Handle missing or blank values',
+        eoOperator: 'NUL',
+        functions: [
+          { name: 'BLANK', syntax: 'BLANK()', description: 'Return blank value', example: 'BLANK()' },
+          { name: 'ISBLANK', syntax: 'ISBLANK(value)', description: 'Check if blank', example: 'ISBLANK({Field})' },
+          { name: 'IFBLANK', syntax: 'IFBLANK(value, default)', description: 'Default if blank', example: 'IFBLANK({Nickname}, {Name})' },
+          { name: 'IFERROR', syntax: 'IFERROR(value, default)', description: 'Default if error', example: 'IFERROR({Total} / {Count}, 0)' },
+          { name: 'COALESCE', syntax: 'COALESCE(val1, val2, ...)', description: 'First non-blank value', example: 'COALESCE({Alt}, {Main}, "Default")' },
+          { name: 'ISERROR', syntax: 'ISERROR(value)', description: 'Check if error', example: 'ISERROR({Formula})' },
+        ]
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // CONNECTION (CON Operator)
+      // Graph traversal
+      // ═══════════════════════════════════════════════════════════════
+      connection: {
+        name: 'Connection',
+        icon: 'ph-link',
+        description: 'Graph traversal and lookups',
+        eoOperator: 'CON',
+        functions: [
+          { name: 'LOOKUP', syntax: 'LOOKUP(#Set.Field)', description: 'Explicit lookup', example: 'LOOKUP(#Customer.Name)' },
+          { name: 'ROLLUP', syntax: 'ROLLUP(#Set.Field, mode, [filter])', description: 'Aggregate over connection', example: 'ROLLUP(#Orders.Total, "SUM", [Status = "Paid"])' },
+        ]
+      },
+
+      // ═══════════════════════════════════════════════════════════════
+      // SEMANTIC (AV-Inspired)
+      // Meaning-aware operations unique to Noema
+      // ═══════════════════════════════════════════════════════════════
       semantic: {
-        name: 'Semantic (EO)',
+        name: 'Semantic',
         icon: 'ph-flow-arrow',
+        description: 'Meaning-aware operations (AV-inspired)',
+        eoOperator: 'Multiple',
         functions: [
-          { name: 'EXCEPT', syntax: 'EXCEPT(value, exclusion, ...)', description: 'Value unless exclusion matches' },
-          { name: 'UNLESS', syntax: 'UNLESS(value, exception, default)', description: 'Value unless exception' },
-          { name: 'VALID_WHEN', syntax: 'VALID_WHEN(value, scope)', description: 'Attach validity scope' },
-          { name: 'ASSUMING', syntax: 'ASSUMING(value, assumption, ...)', description: 'Value with assumptions' },
-          { name: 'DIAGNOSTIC', syntax: 'DIAGNOSTIC(value)', description: 'Mark as non-assertive' },
+          { name: 'EXCEPT', syntax: 'EXCEPT(base, UNLESS(...), ...)', description: 'Truth by elimination', example: 'EXCEPT("Valid", UNLESS({HasLicense}, "Missing license"))' },
+          { name: 'UNLESS', syntax: 'UNLESS(condition, reason)', description: 'Violation clause', example: 'UNLESS({HasInsurance}, "Not insured")' },
+          { name: 'VALID_WHEN', syntax: 'VALID_WHEN(value, scope)', description: 'Scoped truth', example: 'VALID_WHEN(SUM(#Orders.Total), {Region} = "US")' },
+          { name: 'ASSUMING', syntax: 'ASSUMING(value, assumptions...)', description: 'Attach assumptions', example: 'ASSUMING({Price}, "Currency is USD")' },
+          { name: 'SCOPE_COMPATIBLE', syntax: 'SCOPE_COMPATIBLE(value, context)', description: 'Check scope match', example: 'SCOPE_COMPATIBLE({ScopedValue}, {Context})' },
+          { name: 'EQUIVALENT_WHEN', syntax: 'EQUIVALENT_WHEN(a, b, retaining, ignoring)', description: 'Purpose-bound identity', example: 'EQUIVALENT_WHEN({A}, {B}, ["TaxID"], ["Source"])' },
+          { name: 'DIAGNOSTIC', syntax: 'DIAGNOSTIC(value, reason)', description: 'Non-assertive value', example: 'DIAGNOSTIC({Diff}, "For review only")' },
+          { name: 'REFINE_UNTIL', syntax: 'REFINE_UNTIL(initial, condition, max, rules)', description: 'Convergent iteration', example: 'REFINE_UNTIL({Raw}, STABLE, 5, ...)' },
+          { name: 'FRAGILITY', syntax: 'FRAGILITY(value, conditions...)', description: 'Confidence assessment', example: 'FRAGILITY({Value}, HIGH_IF({Stale}, "Old data"))' },
         ]
       },
+
+      // ═══════════════════════════════════════════════════════════════
+      // SUPERPOSITION (SUP Operator)
+      // Hold multiple values simultaneously
+      // ═══════════════════════════════════════════════════════════════
       superposition: {
         name: 'Superposition',
         icon: 'ph-git-fork',
+        description: 'Hold multiple contradictory values',
+        eoOperator: 'SUP',
         functions: [
-          { name: 'SUPERPOSE', syntax: 'SUPERPOSE(value1, value2, [...])', description: 'Hold multiple values' },
-          { name: 'WEIGHTED', syntax: 'WEIGHTED(value1, weight1, [...])', description: 'Weighted superposition' },
-          { name: 'COLLAPSE', syntax: 'COLLAPSE(superposition, method)', description: 'Force resolution' },
-          { name: 'IS_SUPERPOSED', syntax: 'IS_SUPERPOSED(value)', description: 'Check if superposed' },
+          { name: 'SUPERPOSE', syntax: 'SUPERPOSE(value1, value2, [...])', description: 'Hold multiple values', example: 'SUPERPOSE("Option A", "Option B")' },
+          { name: 'WEIGHTED', syntax: 'WEIGHTED(value1, weight1, [...])', description: 'Weighted superposition', example: 'WEIGHTED("High", 0.7, "Low", 0.3)' },
+          { name: 'COLLAPSE', syntax: 'COLLAPSE(superposition, method)', description: 'Force resolution', example: 'COLLAPSE({Sup}, "weighted")' },
+          { name: 'IS_SUPERPOSED', syntax: 'IS_SUPERPOSED(value)', description: 'Check if superposed', example: 'IS_SUPERPOSED({Value})' },
         ]
       },
     };
@@ -1576,6 +1865,392 @@ class EOFormulaEditorV3 {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  /**
+   * Show detailed function information modal
+   * Full transparency: implementation, library source, EO decomposition, pipeline
+   */
+  _showFunctionDetails(fnName) {
+    if (!fnName) return;
+
+    // Get function definition from the registry
+    const fnDef = window.EOFormulaFunctions?.get?.(fnName);
+    if (!fnDef) {
+      console.warn(`Function ${fnName} not found in registry`);
+      return;
+    }
+
+    // Get implementation source code
+    const implSource = fnDef.implementation?.toString() || 'Implementation not available';
+
+    // Determine library source
+    const librarySource = this._getLibrarySource(fnName, fnDef);
+
+    // Build pipeline visualization
+    const pipeline = fnDef.toPipeline?.({}) || [];
+
+    // Create the details modal
+    const detailsHtml = `
+      <div class="formula-v3-fn-details-modal">
+        <div class="formula-v3-fn-details-header">
+          <h2>${fnName}</h2>
+          <span class="formula-v3-fn-details-category">${fnDef.category || 'Unknown'}</span>
+          <button type="button" class="formula-v3-fn-details-close" id="close-fn-details">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+
+        <div class="formula-v3-fn-details-body">
+          <!-- Description -->
+          <section class="formula-v3-fn-details-section">
+            <h3>Description</h3>
+            <p>${fnDef.description || 'No description available'}</p>
+          </section>
+
+          <!-- Syntax -->
+          <section class="formula-v3-fn-details-section">
+            <h3>Syntax</h3>
+            <div class="formula-v3-fn-details-syntax">
+              <code>${this._buildSyntaxString(fnName, fnDef.args)}</code>
+            </div>
+          </section>
+
+          <!-- Arguments -->
+          ${fnDef.args?.length ? `
+          <section class="formula-v3-fn-details-section">
+            <h3>Arguments</h3>
+            <table class="formula-v3-fn-details-args">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Required</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${fnDef.args.map(arg => `
+                  <tr>
+                    <td><code>${arg.name}</code></td>
+                    <td><code>${arg.type}</code></td>
+                    <td>${arg.required ? '<span class="required">Yes</span>' : 'No'}</td>
+                    <td>${arg.description || '—'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </section>
+          ` : ''}
+
+          <!-- Returns -->
+          <section class="formula-v3-fn-details-section">
+            <h3>Returns</h3>
+            <code>${fnDef.returns || 'any'}</code>
+          </section>
+
+          <!-- Examples -->
+          ${fnDef.examples?.length ? `
+          <section class="formula-v3-fn-details-section">
+            <h3>Examples</h3>
+            <div class="formula-v3-fn-details-examples">
+              ${fnDef.examples.map(ex => `<code>${this._escapeHtml(ex)}</code>`).join('')}
+            </div>
+          </section>
+          ` : ''}
+
+          <!-- EO Decomposition -->
+          <section class="formula-v3-fn-details-section">
+            <h3>EO Operator Decomposition</h3>
+            <div class="formula-v3-fn-details-eo">
+              <div class="formula-v3-fn-details-eo-ops">
+                ${(fnDef.eoDecomposition || []).map(op => {
+                  const opInfo = EO_OPERATOR_DESCRIPTIONS[op] || { color: '#666' };
+                  return `<span class="formula-v3-fn-eo-tag" style="--op-color: ${opInfo.color}">${op}</span>`;
+                }).join(' → ')}
+              </div>
+              <p class="formula-v3-fn-details-eo-explanation">${fnDef.eoExplanation || ''}</p>
+            </div>
+          </section>
+
+          <!-- Pipeline -->
+          ${pipeline.length ? `
+          <section class="formula-v3-fn-details-section">
+            <h3>Evaluation Pipeline</h3>
+            <div class="formula-v3-fn-details-pipeline">
+              ${pipeline.map((step, i) => `
+                <div class="formula-v3-pipeline-step">
+                  <span class="formula-v3-pipeline-step-num">${i + 1}</span>
+                  <span class="formula-v3-pipeline-step-op">${step.operator}</span>
+                  <span class="formula-v3-pipeline-step-params">${JSON.stringify(step.params || {})}</span>
+                </div>
+              `).join('')}
+            </div>
+          </section>
+          ` : ''}
+
+          <!-- Library Source -->
+          <section class="formula-v3-fn-details-section">
+            <h3>Library Source</h3>
+            <div class="formula-v3-fn-details-source">
+              <div class="formula-v3-fn-source-badge ${librarySource.type}">
+                <i class="ph ${librarySource.icon}"></i>
+                <span>${librarySource.label}</span>
+              </div>
+              <p>${librarySource.description}</p>
+            </div>
+          </section>
+
+          <!-- Implementation (JavaScript) -->
+          <section class="formula-v3-fn-details-section">
+            <h3>JavaScript Implementation</h3>
+            <div class="formula-v3-fn-details-impl">
+              <div class="formula-v3-impl-header">
+                <span>eo_formula_functions.js</span>
+                <button type="button" class="formula-v3-copy-btn" data-copy="${this._escapeHtml(implSource)}">
+                  <i class="ph ph-copy"></i> Copy
+                </button>
+              </div>
+              <pre class="formula-v3-impl-code"><code>${this._escapeHtml(implSource)}</code></pre>
+            </div>
+          </section>
+
+          ${fnDef.avOrigin ? `
+          <!-- AV Origin -->
+          <section class="formula-v3-fn-details-section">
+            <h3>AV (Advaita Vedānta) Origin</h3>
+            <p class="formula-v3-fn-details-av">${fnDef.avOrigin}</p>
+          </section>
+          ` : ''}
+        </div>
+
+        <div class="formula-v3-fn-details-footer">
+          <div class="formula-v3-fn-details-meta">
+            <span>Registered in EOFormulaFunctions</span>
+            <span>Category: ${fnDef.category}</span>
+            ${fnDef.isVolatile ? '<span class="volatile">⚡ Volatile (re-evaluates)</span>' : ''}
+          </div>
+          <button type="button" class="formula-v3-btn" id="btn-use-fn">
+            <i class="ph ph-plus"></i> Insert Function
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.className = 'formula-v3-fn-details-overlay';
+    overlay.innerHTML = detailsHtml;
+    document.body.appendChild(overlay);
+
+    // Add animation
+    requestAnimationFrame(() => overlay.classList.add('visible'));
+
+    // Event handlers
+    const closeBtn = overlay.querySelector('#close-fn-details');
+    const useBtn = overlay.querySelector('#btn-use-fn');
+    const copyBtns = overlay.querySelectorAll('.formula-v3-copy-btn');
+
+    closeBtn?.addEventListener('click', () => {
+      overlay.classList.remove('visible');
+      setTimeout(() => overlay.remove(), 200);
+    });
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        overlay.classList.remove('visible');
+        setTimeout(() => overlay.remove(), 200);
+      }
+    });
+
+    useBtn?.addEventListener('click', () => {
+      const syntax = this._buildSyntaxString(fnName, fnDef.args);
+      this._insertAtCursor(syntax);
+      overlay.classList.remove('visible');
+      setTimeout(() => overlay.remove(), 200);
+    });
+
+    copyBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const text = btn.dataset.copy;
+        navigator.clipboard.writeText(text).then(() => {
+          btn.innerHTML = '<i class="ph ph-check"></i> Copied';
+          setTimeout(() => {
+            btn.innerHTML = '<i class="ph ph-copy"></i> Copy';
+          }, 2000);
+        });
+      });
+    });
+  }
+
+  /**
+   * Build syntax string from function name and args
+   */
+  _buildSyntaxString(fnName, args) {
+    if (!args || !args.length) return `${fnName}()`;
+    const argParts = args.map(arg => {
+      if (!arg.required) return `[${arg.name}]`;
+      return arg.name;
+    });
+    return `${fnName}(${argParts.join(', ')})`;
+  }
+
+  /**
+   * Determine the library source for a function
+   */
+  _getLibrarySource(fnName, fnDef) {
+    // Semantic/AV functions
+    if (fnDef.category === 'Semantic' || fnDef.avOrigin) {
+      return {
+        type: 'custom-av',
+        icon: 'ph-brain',
+        label: 'Noema Semantic (AV-inspired)',
+        description: 'Custom implementation based on Advaita Vedānta epistemic patterns. These functions provide meaning-aware operations unique to Noema.'
+      };
+    }
+
+    // Superposition functions
+    if (fnDef.category === 'Superposition') {
+      return {
+        type: 'custom-sup',
+        icon: 'ph-git-fork',
+        label: 'Noema Superposition',
+        description: 'Custom implementation for holding multiple contradictory values simultaneously. Unique to the EO (Epistemic Objects) framework.'
+      };
+    }
+
+    // Connection/CON functions
+    if (fnDef.category === 'Connection' || fnDef.eoDecomposition?.includes('CON')) {
+      return {
+        type: 'custom-con',
+        icon: 'ph-link',
+        label: 'Noema Connection',
+        description: 'Custom implementation for graph traversal and relational operations. Enables cross-set field references and rollups.'
+      };
+    }
+
+    // Check if using formulajs patterns
+    const formulajsFunctions = ['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'IF', 'AND', 'OR', 'NOT',
+      'CONCATENATE', 'LEFT', 'RIGHT', 'MID', 'LEN', 'UPPER', 'LOWER', 'TRIM', 'ROUND', 'FLOOR',
+      'CEILING', 'ABS', 'MOD', 'POWER', 'SQRT', 'LOG', 'NOW', 'TODAY', 'DATE', 'YEAR', 'MONTH',
+      'DAY', 'HOUR', 'MINUTE', 'SECOND', 'DATEADD', 'ISBLANK', 'IFERROR', 'VALUE', 'INT'];
+
+    if (formulajsFunctions.includes(fnName.toUpperCase())) {
+      return {
+        type: 'formulajs',
+        icon: 'ph-function',
+        label: 'formulajs-compatible',
+        description: 'Implementation follows formulajs patterns for compatibility. The core logic is wrapped with EO operator decomposition for pipeline visualization.'
+      };
+    }
+
+    // Default: custom Noema
+    return {
+      type: 'custom',
+      icon: 'ph-cube',
+      label: 'Noema Custom',
+      description: 'Custom implementation developed for the Noema formula language. Fully auditable and traceable through the EO operator pipeline.'
+    };
+  }
+
+  /**
+   * Export the complete function library for auditing
+   * Creates a comprehensive JSON file with all function metadata and implementations
+   */
+  _exportFunctionLibrary() {
+    const exportData = {
+      exportDate: new Date().toISOString(),
+      version: '1.0.0',
+      description: 'Noema Formula Language - Complete Function Library Export',
+      metadata: {
+        totalFunctions: 0,
+        categories: {},
+        eoOperators: Object.keys(EO_OPERATOR_DESCRIPTIONS),
+      },
+      eoOperators: EO_OPERATOR_DESCRIPTIONS,
+      functions: {},
+      categoryIndex: {},
+    };
+
+    // Get all functions from registry
+    const fnLib = window.EOFormulaFunctions;
+    if (!fnLib) {
+      console.error('EOFormulaFunctions not available');
+      return;
+    }
+
+    const byCategory = fnLib.getByCategory?.() || {};
+
+    Object.entries(byCategory).forEach(([category, functions]) => {
+      exportData.metadata.categories[category] = functions.length;
+      exportData.categoryIndex[category] = [];
+
+      functions.forEach(fn => {
+        exportData.metadata.totalFunctions++;
+        exportData.categoryIndex[category].push(fn.name);
+
+        // Get library source info
+        const librarySource = this._getLibrarySource(fn.name, fn);
+
+        exportData.functions[fn.name] = {
+          name: fn.name,
+          category: fn.category,
+          description: fn.description,
+          syntax: this._buildSyntaxString(fn.name, fn.args),
+          arguments: fn.args?.map(arg => ({
+            name: arg.name,
+            type: arg.type,
+            required: !!arg.required,
+            description: arg.description || null,
+            default: arg.default ?? null,
+            options: arg.options || null,
+          })) || [],
+          returns: fn.returns,
+          examples: fn.examples || [],
+          eo: {
+            decomposition: fn.eoDecomposition || [],
+            explanation: fn.eoExplanation || null,
+            pipeline: fn.toPipeline?.({}) || [],
+          },
+          avOrigin: fn.avOrigin || null,
+          librarySource: {
+            type: librarySource.type,
+            label: librarySource.label,
+            description: librarySource.description,
+          },
+          implementation: fn.implementation?.toString() || null,
+          isVolatile: !!fn.isVolatile,
+        };
+      });
+    });
+
+    // Create downloadable file
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `noema-formula-library-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    // Show confirmation
+    const fnDrawer = this.modal?.element?.querySelector('#function-browser-drawer');
+    if (fnDrawer) {
+      const toast = document.createElement('div');
+      toast.className = 'formula-v3-toast';
+      toast.innerHTML = `
+        <i class="ph ph-check-circle"></i>
+        <span>Exported ${exportData.metadata.totalFunctions} functions for auditing</span>
+      `;
+      fnDrawer.appendChild(toast);
+      setTimeout(() => toast.classList.add('visible'), 10);
+      setTimeout(() => {
+        toast.classList.remove('visible');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
   }
 }
 
