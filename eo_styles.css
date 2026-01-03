@@ -6195,8 +6195,8 @@ mark.search-highlight {
 /* Source/Provenance Column */
 .col-source {
   width: 120px;
-  min-width: 100px;
-  max-width: 150px;
+  min-width: 80px;
+  /* max-width removed to allow resizing */
 }
 
 .col-source .th-content {

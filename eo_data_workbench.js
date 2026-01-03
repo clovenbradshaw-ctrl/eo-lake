@@ -28401,11 +28401,12 @@ class EODataWorkbench {
                        ${someSelected && !allSelected ? 'data-indeterminate="true"' : ''}>
               </th>
               ${showProvenance ? `
-                <th class="col-provenance col-source" title="Data source and provenance">
+                <th class="col-provenance col-source" style="width: ${view?.config?.sourceColumnWidth || 120}px; position: relative;" title="Data source and provenance">
                   <div class="th-content">
                     <i class="ph ph-git-branch"></i>
                     <span class="field-name">Source</span>
                   </div>
+                  <div class="th-resize-handle" data-column-type="source"></div>
                 </th>
               ` : ''}
               ${fields.map(field => `
@@ -28468,6 +28469,7 @@ class EODataWorkbench {
             </td>
             ${showProvenance ? `
               <td class="col-provenance col-source"
+                  style="width: ${view?.config?.sourceColumnWidth || 120}px;"
                   data-record-id="${record.id}"
                   data-source-id="${this._escapeHtml(sourceInfo.sourceId)}"
                   title="${this._escapeHtml(sourceInfo.tooltip)}">
@@ -30780,6 +30782,13 @@ class EODataWorkbench {
     const onMouseMove = (e) => {
       const width = Math.max(80, startWidth + (e.pageX - startX));
       th.style.width = width + 'px';
+      // Also update corresponding td cells for non-field columns
+      const columnType = handle.dataset.columnType;
+      if (columnType === 'source') {
+        document.querySelectorAll('.col-source').forEach(cell => {
+          cell.style.width = width + 'px';
+        });
+      }
     };
 
     const onMouseUp = () => {
@@ -30789,11 +30798,24 @@ class EODataWorkbench {
 
       // Save the new width
       const fieldId = th.dataset.fieldId;
+      const columnType = handle.dataset.columnType;
       const set = this.getCurrentSet();
-      const field = set?.fields.find(f => f.id === fieldId);
-      if (field) {
-        field.width = th.offsetWidth;
-        this._saveData();
+
+      if (fieldId) {
+        // Regular field column
+        const field = set?.fields.find(f => f.id === fieldId);
+        if (field) {
+          field.width = th.offsetWidth;
+          this._saveData();
+        }
+      } else if (columnType === 'source') {
+        // Source/Provenance column - save to view config
+        const view = this.getCurrentView();
+        if (view) {
+          view.config = view.config || {};
+          view.config.sourceColumnWidth = th.offsetWidth;
+          this._saveData();
+        }
       }
     };
 
