@@ -11040,7 +11040,7 @@ class EODataWorkbench {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         const definitionId = btn.dataset.definitionId;
-        this._confirmDeleteDefinition(definitionId);
+        this._deleteDefinition(definitionId);
       });
     });
   }
@@ -11419,7 +11419,7 @@ class EODataWorkbench {
     // Delete button
     const deleteBtn = this.elements.contentArea.querySelector('#btn-delete-definition');
     if (deleteBtn) {
-      deleteBtn.addEventListener('click', () => this._confirmDeleteDefinition(definition));
+      deleteBtn.addEventListener('click', () => this._deleteDefinition(definition.id));
     }
 
     // Add term buttons
@@ -11427,7 +11427,7 @@ class EODataWorkbench {
     const addFirstTermBtn = this.elements.contentArea.querySelector('#btn-add-first-term');
     [addTermBtn, addFirstTermBtn].forEach(btn => {
       if (btn) {
-        btn.addEventListener('click', () => this._openAddTermModal(definition));
+        btn.addEventListener('click', () => this._showAddTermModal(definition.id));
       }
     });
 
@@ -14364,6 +14364,59 @@ class EODataWorkbench {
 
     // Initial load
     setTimeout(() => loadVocabulary(currentVocab), 100);
+  }
+
+  /**
+   * Open modal to manually link a definition to a URI
+   */
+  _openLinkToUriModal(definition) {
+    const html = `
+      <div class="link-uri-form">
+        <div class="form-group">
+          <label for="link-uri-input" class="form-label">URI / IRI</label>
+          <input type="url" id="link-uri-input" class="form-input"
+                 placeholder="https://schema.org/Person"
+                 value="${definition.sourceUri ? this._escapeHtml(definition.sourceUri) : ''}">
+          <p class="form-help">Enter a URI to link this definition to a standard vocabulary or external resource.</p>
+        </div>
+        <div class="uri-examples">
+          <p class="form-label" style="margin-bottom: 8px;">Example URIs:</p>
+          <div class="uri-example-list" style="font-size: 12px; color: var(--text-secondary);">
+            <div>• Schema.org: <code>https://schema.org/Person</code></div>
+            <div>• Wikidata: <code>https://www.wikidata.org/wiki/Q5</code></div>
+            <div>• Dublin Core: <code>http://purl.org/dc/terms/title</code></div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this._showModal('Link to URI', html, () => {
+      const uri = document.getElementById('link-uri-input')?.value?.trim();
+
+      if (!uri) {
+        this._showNotification('Please enter a URI', 'error');
+        return;
+      }
+
+      // Basic URL validation
+      try {
+        new URL(uri);
+      } catch (e) {
+        this._showNotification('Please enter a valid URI', 'error');
+        return;
+      }
+
+      // Update the definition
+      definition.sourceUri = uri;
+      definition.populationMethod = 'manual';
+      if (definition.status === 'stub') {
+        definition.status = 'partial';
+      }
+
+      this._saveData();
+      this._showDefinitionDetail(definition.id);
+      this._showNotification('URI linked successfully', 'success');
+    });
   }
 
   /**
