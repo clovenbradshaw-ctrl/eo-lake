@@ -2943,6 +2943,53 @@ class EODataWorkbench {
   }
 
   /**
+   * Lookup definition from external APIs
+   * Opens the definition detail view with API lookup mode enabled
+   * @param {string} definitionId - The definition ID to lookup
+   */
+  _lookupDefinitionFromAPIs(definitionId) {
+    const definition = this.definitions.find(d => d.id === definitionId);
+    if (!definition) return;
+
+    // Get the term to search for
+    const searchTerm = definition.term?.label || definition.term?.term || definition.name;
+    if (!searchTerm) {
+      this._showToast('Cannot lookup: no term name found', 'error');
+      return;
+    }
+
+    // Show loading state
+    this._showToast(`Looking up "${searchTerm}" in external sources...`, 'info');
+
+    // If DefinitionAPI is available, trigger search
+    if (window.DefinitionAPI) {
+      window.DefinitionAPI.searchAll(searchTerm, { limit: 10 })
+        .then(results => {
+          // Store results as apiSuggestions on the definition
+          if (results && results.length > 0) {
+            definition.apiSuggestions = results;
+            this._saveDefinitions();
+            this._showToast(`Found ${results.length} suggestion(s) for "${searchTerm}"`, 'success');
+            // Open definition detail to show/select from suggestions
+            this._showDefinitionDetail(definitionId);
+          } else {
+            this._showToast(`No results found for "${searchTerm}"`, 'warning');
+            // Still open detail so user can manually define
+            this._showDefinitionDetail(definitionId);
+          }
+        })
+        .catch(err => {
+          console.error('Definition API lookup error:', err);
+          this._showToast('API lookup failed. Opening definition for manual entry.', 'warning');
+          this._showDefinitionDetail(definitionId);
+        });
+    } else {
+      // Fall back to opening the definition detail
+      this._showDefinitionDetail(definitionId);
+    }
+  }
+
+  /**
    * Show notification for pending key suggestions
    * @param {number} count - Number of pending suggestions
    * @param {string} sourceId - Source ID
@@ -16510,50 +16557,7 @@ class EODataWorkbench {
                       <span class="def-tree-folder-count">${defs.length}</span>
                     </div>
                     <div class="def-tree-folder-children">
-                      ${defs.map(def => {
-                        const termCount = def.terms?.length || def.properties?.length || 0;
-                        const defIcon = this._getDefinitionIcon(def);
-                        const isStub = def.status === 'stub' || def.populationMethod === 'pending';
-                        const sourceLabel = def.sourceUri ? 'URI' : (isStub ? 'stub' : 'local');
-                        const badgeClass = def.sourceUri ? 'uri' : (isStub ? 'stub' : 'local');
-                        return `
-                          <div class="def-tree-item${isStub ? ' stub-definition' : ''}" data-definition-id="${def.id}">
-                            <div class="def-tree-item-header">
-                              <i class="ph ph-caret-right item-expand-icon"></i>
-                              <i class="ph ${defIcon} item-type-icon"></i>
-                              <span class="def-tree-item-name">${this._escapeHtml(def.name)}</span>
-                              <span class="def-tree-item-badge ${badgeClass}">${sourceLabel}</span>
-                              <span class="def-tree-item-count">${termCount}</span>
-                              <div class="def-tree-item-actions">
-                                <button class="def-tree-action-btn" data-action="view" title="View definition">
-                                  <i class="ph ph-eye"></i>
-                                </button>
-                                <button class="def-tree-action-btn" data-action="apply" title="Apply to set">
-                                  <i class="ph ph-arrow-right"></i>
-                                </button>
-                                <button class="def-tree-action-btn delete" data-action="delete" title="Delete">
-                                  <i class="ph ph-trash"></i>
-                                </button>
-                              </div>
-                            </div>
-                            <div class="def-tree-item-children">
-                              ${(def.terms || def.properties || []).slice(0, 10).map(term => `
-                                <div class="def-tree-term" data-term-id="${term.id || term.name}">
-                                  <i class="ph ph-tag term-icon"></i>
-                                  <span class="def-tree-term-name">${this._escapeHtml(term.name || term.label)}</span>
-                                  <span class="def-tree-term-type">${this._escapeHtml(term.type || term.datatype || 'string')}</span>
-                                </div>
-                              `).join('')}
-                              ${(def.terms || def.properties || []).length > 10 ? `
-                                <div class="def-tree-term-more">
-                                  <i class="ph ph-dots-three"></i>
-                                  <span>+${(def.terms || def.properties || []).length - 10} more terms</span>
-                                </div>
-                              ` : ''}
-                            </div>
-                          </div>
-                        `;
-                      }).join('')}
+                      ${defs.map(def => this._renderDefinitionTreeItem(def)).join('')}
                     </div>
                   </div>
                 `;
@@ -16611,6 +16615,253 @@ class EODataWorkbench {
       case 'OWL': return 'ph-tree-structure';
       default: return 'ph-folder';
     }
+  }
+
+  /**
+   * Render a single definition tree item with rich inline information
+   * Shows: name, status, inferred type, sample values for stubs
+   * Shows: name, authority, definition preview for populated definitions
+   * @param {Object} def - The definition object
+   * @returns {string} HTML string
+   */
+  _renderDefinitionTreeItem(def) {
+    const defIcon = this._getDefinitionIcon(def);
+    const isStub = def.status === 'stub' || def.populationMethod === 'pending';
+    const hasDefinitionText = def.term?.definitionText;
+    const discovered = def.discoveredFrom || {};
+
+    // Count linked fields across all sets
+    let linkedFieldCount = 0;
+    this.sets.forEach(set => {
+      (set.fields || []).forEach(field => {
+        const key = (def.term?.term || '').toLowerCase();
+        const fieldKey = (field.key || field.name || '').toLowerCase().replace(/[_\s-]+/g, '_');
+        if (fieldKey === key || field.definitionId === def.id || field.semanticBinding?.definitionId === def.id) {
+          linkedFieldCount++;
+        }
+      });
+    });
+
+    // Build inline preview based on definition status
+    let inlinePreview = '';
+    let expandedContent = '';
+
+    if (isStub && discovered.fieldType) {
+      // For stubs, show inferred type and samples
+      const typeLabel = this._getTypeLabel(discovered.fieldType);
+      const uniqueCount = discovered.fieldUniqueCount || 0;
+      const sampleCount = discovered.fieldSampleCount || 0;
+      const samples = discovered.fieldSamples || discovered.fieldUniqueValues || [];
+
+      // Format sample preview (truncate long values)
+      const samplePreview = samples.slice(0, 3).map(s => {
+        const str = String(s);
+        return str.length > 20 ? str.slice(0, 18) + '…' : str;
+      });
+
+      inlinePreview = `
+        <div class="def-tree-item-preview stub-preview">
+          <span class="preview-type" title="Inferred field type">
+            <i class="ph ${this._getTypeIcon(discovered.fieldType)}"></i>
+            ${typeLabel}
+          </span>
+          ${uniqueCount > 0 ? `
+            <span class="preview-stat" title="${uniqueCount} unique values out of ${sampleCount} total">
+              ${uniqueCount} unique
+            </span>
+          ` : ''}
+          ${samplePreview.length > 0 ? `
+            <span class="preview-samples" title="Sample values: ${samples.slice(0, 5).join(', ')}">
+              "${samplePreview.join('", "')}"${samples.length > 3 ? '…' : ''}
+            </span>
+          ` : ''}
+        </div>
+      `;
+
+      // Expanded content shows full samples and source info
+      expandedContent = `
+        <div class="def-tree-item-expanded">
+          ${discovered.sourceName ? `
+            <div class="expanded-row source-row">
+              <span class="expanded-label">Source:</span>
+              <span class="expanded-value">${this._escapeHtml(discovered.sourceName)} → ${this._escapeHtml(discovered.fieldName || 'unknown field')}</span>
+            </div>
+          ` : ''}
+          ${uniqueCount > 0 ? `
+            <div class="expanded-row stats-row">
+              <span class="expanded-label">Statistics:</span>
+              <span class="expanded-value">${uniqueCount} unique values from ${sampleCount} records</span>
+            </div>
+          ` : ''}
+          ${samples.length > 0 ? `
+            <div class="expanded-row samples-row">
+              <span class="expanded-label">Sample values:</span>
+              <div class="expanded-samples">
+                ${samples.slice(0, 10).map(s => `<span class="sample-chip">${this._escapeHtml(String(s).slice(0, 50))}</span>`).join('')}
+                ${samples.length > 10 ? `<span class="sample-more">+${samples.length - 10} more</span>` : ''}
+              </div>
+            </div>
+          ` : ''}
+          <div class="expanded-actions">
+            <button class="expanded-action-btn primary" data-action="define" title="Define this term">
+              <i class="ph ph-pencil-simple"></i>
+              Define
+            </button>
+            <button class="expanded-action-btn" data-action="lookup" title="Lookup in external sources">
+              <i class="ph ph-magnifying-glass"></i>
+              Lookup
+            </button>
+          </div>
+        </div>
+      `;
+    } else if (hasDefinitionText) {
+      // For populated definitions, show definition text preview and authority
+      const authority = def.authority?.shortName || def.authority?.name || '';
+      const citation = def.source?.citation || '';
+      const defText = def.term.definitionText;
+      const truncatedDef = defText.length > 100 ? defText.slice(0, 97) + '…' : defText;
+
+      inlinePreview = `
+        <div class="def-tree-item-preview defined-preview">
+          ${authority ? `
+            <span class="preview-authority" title="Defining authority">
+              <i class="ph ph-seal-check"></i>
+              ${this._escapeHtml(authority)}
+            </span>
+          ` : ''}
+          <span class="preview-definition" title="${this._escapeHtml(defText)}">
+            ${this._escapeHtml(truncatedDef)}
+          </span>
+        </div>
+      `;
+
+      // Expanded content shows full definition, source, validity
+      expandedContent = `
+        <div class="def-tree-item-expanded defined-expanded">
+          <div class="expanded-row definition-row">
+            <div class="full-definition-text">${this._escapeHtml(defText)}</div>
+          </div>
+          ${citation ? `
+            <div class="expanded-row citation-row">
+              <span class="expanded-label">Citation:</span>
+              <span class="expanded-value citation-value">${this._escapeHtml(citation)}</span>
+              ${def.source?.url ? `<a href="${def.source.url}" target="_blank" class="citation-link" title="Open source"><i class="ph ph-arrow-square-out"></i></a>` : ''}
+            </div>
+          ` : ''}
+          ${def.validity?.from ? `
+            <div class="expanded-row validity-row">
+              <span class="expanded-label">Effective:</span>
+              <span class="expanded-value">${def.validity.from}${def.validity.to ? ` to ${def.validity.to}` : ''}</span>
+            </div>
+          ` : ''}
+          ${def.jurisdiction?.programs?.length > 0 ? `
+            <div class="expanded-row programs-row">
+              <span class="expanded-label">Programs:</span>
+              <span class="expanded-value">${def.jurisdiction.programs.join(', ')}</span>
+            </div>
+          ` : ''}
+          <div class="expanded-actions">
+            <button class="expanded-action-btn" data-action="edit" title="Edit definition">
+              <i class="ph ph-pencil-simple"></i>
+              Edit
+            </button>
+            <button class="expanded-action-btn" data-action="apply" title="Apply to fields">
+              <i class="ph ph-arrow-right"></i>
+              Apply
+            </button>
+          </div>
+        </div>
+      `;
+    } else {
+      // Partial definition - has some info but not complete
+      inlinePreview = `
+        <div class="def-tree-item-preview partial-preview">
+          <span class="preview-partial-hint">Click to complete definition</span>
+        </div>
+      `;
+    }
+
+    // Status badge
+    const statusBadge = isStub
+      ? `<span class="def-tree-item-badge stub">STUB</span>`
+      : hasDefinitionText
+        ? `<span class="def-tree-item-badge defined"><i class="ph ph-check"></i></span>`
+        : `<span class="def-tree-item-badge partial">PARTIAL</span>`;
+
+    return `
+      <div class="def-tree-item${isStub ? ' stub-definition' : ' defined-definition'}" data-definition-id="${def.id}">
+        <div class="def-tree-item-header">
+          <i class="ph ph-caret-right item-expand-icon"></i>
+          <i class="ph ${defIcon} item-type-icon"></i>
+          <span class="def-tree-item-name">${this._escapeHtml(def.name || def.term?.label || def.term?.term || 'Unnamed')}</span>
+          ${statusBadge}
+          <span class="def-tree-item-count" title="${linkedFieldCount} field${linkedFieldCount !== 1 ? 's' : ''} using this key">${linkedFieldCount}</span>
+          <div class="def-tree-item-actions">
+            <button class="def-tree-action-btn" data-action="view" title="View definition">
+              <i class="ph ph-eye"></i>
+            </button>
+            <button class="def-tree-action-btn" data-action="apply" title="Apply to set">
+              <i class="ph ph-arrow-right"></i>
+            </button>
+            <button class="def-tree-action-btn delete" data-action="delete" title="Delete">
+              <i class="ph ph-trash"></i>
+            </button>
+          </div>
+        </div>
+        ${inlinePreview}
+        <div class="def-tree-item-children">
+          ${expandedContent}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Get a human-readable label for a field type
+   */
+  _getTypeLabel(type) {
+    const typeMap = {
+      'string': 'Text',
+      'text': 'Text',
+      'number': 'Number',
+      'integer': 'Integer',
+      'float': 'Decimal',
+      'boolean': 'Boolean',
+      'date': 'Date',
+      'datetime': 'Date/Time',
+      'email': 'Email',
+      'url': 'URL',
+      'phone': 'Phone',
+      'currency': 'Currency',
+      'percentage': 'Percentage',
+      'select': 'Select',
+      'multiselect': 'Multi-select'
+    };
+    return typeMap[type?.toLowerCase()] || type || 'Unknown';
+  }
+
+  /**
+   * Get an icon for a field type
+   */
+  _getTypeIcon(type) {
+    const iconMap = {
+      'string': 'ph-text-aa',
+      'text': 'ph-text-aa',
+      'number': 'ph-hash',
+      'integer': 'ph-hash',
+      'float': 'ph-hash',
+      'boolean': 'ph-toggle-left',
+      'date': 'ph-calendar',
+      'datetime': 'ph-calendar-blank',
+      'email': 'ph-envelope',
+      'url': 'ph-link',
+      'phone': 'ph-phone',
+      'currency': 'ph-currency-dollar',
+      'percentage': 'ph-percent',
+      'select': 'ph-list',
+      'multiselect': 'ph-list-checks'
+    };
+    return iconMap[type?.toLowerCase()] || 'ph-question';
   }
 
   /**
@@ -16681,7 +16932,7 @@ class EODataWorkbench {
       });
     });
 
-    // Action buttons
+    // Action buttons (header actions)
     document.querySelectorAll('.def-tree-action-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -16700,6 +16951,33 @@ class EODataWorkbench {
             break;
           case 'delete':
             this._deleteDefinition(definitionId);
+            break;
+        }
+      });
+    });
+
+    // Expanded area action buttons (Define, Lookup, Edit, Apply)
+    document.querySelectorAll('.expanded-action-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const item = btn.closest('.def-tree-item');
+        const definitionId = item?.dataset.definitionId;
+        const action = btn.dataset.action;
+
+        if (!definitionId) return;
+
+        switch (action) {
+          case 'define':
+          case 'edit':
+            // Open the definition builder for this definition
+            this._showDefinitionDetail(definitionId);
+            break;
+          case 'lookup':
+            // Trigger API lookup for this definition
+            this._lookupDefinitionFromAPIs(definitionId);
+            break;
+          case 'apply':
+            this._showApplyDefinitionModal(definitionId);
             break;
         }
       });
