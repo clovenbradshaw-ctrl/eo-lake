@@ -23547,6 +23547,12 @@ class EODataWorkbench {
     const set = this.sets.find(s => s.id === setId);
     if (!set) return;
 
+    // Clear selection when switching sets to prevent stale selection state
+    if (this.currentSetId !== setId) {
+      this.selectedRecords.clear();
+      this._updateBulkActionsToolbar();
+    }
+
     // Clear search when switching sets
     this.viewSearchTerm = '';
 
@@ -24661,9 +24667,9 @@ class EODataWorkbench {
       this._selectSet(set.id, 'fields');
     });
 
-    // Add source button
+    // Add source button - show modal to add/merge another source into this set
     document.getElementById('set-dashboard-add-source')?.addEventListener('click', () => {
-      this._showImportDialog();
+      this._showAddSourceToSetModal(set.id);
     });
 
     // Export now button
@@ -25243,7 +25249,12 @@ class EODataWorkbench {
     });
 
     document.getElementById('source-panel-add')?.addEventListener('click', () => {
-      this._showImportDialog();
+      const set = this.getCurrentSet();
+      if (set) {
+        this._showAddSourceToSetModal(set.id);
+      } else {
+        this._showImportDialog();
+      }
     });
 
     container.querySelectorAll('.source-item').forEach(item => {
@@ -29105,6 +29116,7 @@ class EODataWorkbench {
 
       // Select all checkbox
       if (target.id === 'select-all') {
+        e.stopPropagation();
         const set = this.getCurrentSet();
         if (!set) return;
         if (target.checked) {
@@ -29113,11 +29125,13 @@ class EODataWorkbench {
           this.selectedRecords.clear();
         }
         this._renderTableView();
+        this._updateBulkActionsToolbar();
         return;
       }
 
-      // Row checkbox
+      // Row checkbox - prevent any default behavior that might cause navigation
       if (target.classList.contains('row-checkbox') && target.dataset.recordId) {
+        e.stopPropagation();
         const recordId = target.dataset.recordId;
         if (target.checked) {
           this.selectedRecords.add(recordId);
@@ -29125,6 +29139,7 @@ class EODataWorkbench {
           this.selectedRecords.delete(recordId);
         }
         this._updateStatus();
+        this._updateBulkActionsToolbar();
         const row = target.closest('tr');
         row?.classList.toggle('selected', target.checked);
         return;
@@ -33960,8 +33975,19 @@ class EODataWorkbench {
   }
 
   _showFieldTypePicker(e, callback = null, position = null) {
-    const picker = this.elements.fieldTypePicker;
-    if (!picker) return;
+    // Try cached element first, then query DOM as fallback
+    let picker = this.elements.fieldTypePicker;
+    if (!picker) {
+      picker = document.getElementById('field-type-picker');
+      if (picker) {
+        this.elements.fieldTypePicker = picker;
+      }
+    }
+    if (!picker) {
+      console.error('Field type picker element not found');
+      this._showToast('Could not open field type picker', 'error');
+      return;
+    }
 
     const pickerWidth = 240; // matches CSS width
     const pickerHeight = 400; // matches CSS max-height
@@ -38051,7 +38077,7 @@ class EODataWorkbench {
   // Link Detail Editor
   // --------------------------------------------------------------------------
 
-  _showLinkDetailEditor(el, field, recordId, currentValue) {
+  async _showLinkDetailEditor(el, field, recordId, currentValue) {
     const linkedSetId = field.options?.linkedSetId;
     const allowMultiple = field.options?.allowMultiple !== false;
     const linkedSet = linkedSetId ? this.sets.find(s => s.id === linkedSetId) : this.getCurrentSet();
@@ -38061,8 +38087,20 @@ class EODataWorkbench {
       return;
     }
 
-    const primaryField = linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0];
-    const currentLinks = Array.isArray(currentValue) ? currentValue : (currentValue ? [currentValue] : []);
+    // CRITICAL: Ensure linked set records are loaded from IndexedDB before rendering
+    if (linkedSet._recordsInIndexedDB && (!linkedSet.records || linkedSet.records.length === 0)) {
+      el.innerHTML = '<div class="detail-link-loading"><i class="ph ph-spinner ph-spin"></i> Loading records...</div>';
+      await this._ensureSetRecords(linkedSet);
+    }
+
+    // Use linkedFieldId if set, otherwise fall back to primary field
+    const displayField = field.options?.linkedFieldId
+      ? linkedSet.fields.find(f => f.id === field.options.linkedFieldId)
+      : (linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0]);
+
+    // Normalize current links to handle both old format (array of IDs) and new format (array of objects)
+    const normalizedLinks = this._normalizeLinkValue(currentValue);
+    const currentLinkIds = normalizedLinks.map(l => l.recordId);
 
     let html = '<div class="detail-link-editor">';
     html += '<div class="detail-link-search">';
@@ -38070,9 +38108,10 @@ class EODataWorkbench {
     html += '</div>';
     html += '<div class="detail-link-options">';
 
-    linkedSet.records.forEach(record => {
-      const recordName = record.values?.[primaryField?.id] || 'Untitled';
-      const isLinked = currentLinks.includes(record.id);
+    const records = linkedSet.records || [];
+    records.forEach(record => {
+      const recordName = record.values?.[displayField?.id] || 'Untitled';
+      const isLinked = currentLinkIds.includes(record.id);
       html += `
         <div class="detail-link-option ${isLinked ? 'selected' : ''}" data-record-id="${record.id}">
           <span class="detail-link-check">${isLinked ? '<i class="ph ph-check"></i>' : ''}</span>
@@ -38081,7 +38120,7 @@ class EODataWorkbench {
       `;
     });
 
-    if (linkedSet.records.length === 0) {
+    if (records.length === 0) {
       html += '<div class="detail-link-empty">No records in linked set</div>';
     }
 
@@ -38095,7 +38134,7 @@ class EODataWorkbench {
 
     const editor = el.querySelector('.detail-link-editor');
     const searchInput = el.querySelector('.detail-link-search-input');
-    let selectedIds = [...currentLinks];
+    let selectedIds = [...currentLinkIds];
 
     // Search filtering
     searchInput?.addEventListener('input', (e) => {
@@ -39856,13 +39895,22 @@ class EODataWorkbench {
 
     if (!toolbar) return;
 
-    if (this.selectedRecords.size > 0) {
+    // Only count records that exist in the current set
+    const set = this.getCurrentSet();
+    const currentSetRecordIds = new Set(set?.records?.map(r => r.id) || []);
+    const validSelectedCount = [...this.selectedRecords].filter(id => currentSetRecordIds.has(id)).length;
+
+    if (validSelectedCount > 0) {
       toolbar.style.display = 'flex';
       if (countEl) {
-        countEl.textContent = `${this.selectedRecords.size} selected`;
+        countEl.textContent = `${validSelectedCount} selected`;
       }
     } else {
       toolbar.style.display = 'none';
+      // Clean up any stale selections
+      if (this.selectedRecords.size > 0 && validSelectedCount === 0) {
+        this.selectedRecords.clear();
+      }
     }
   }
 

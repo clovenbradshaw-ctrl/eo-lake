@@ -11412,13 +11412,20 @@ a:focus-visible,
 .filter-row input,
 .sort-row select {
   flex: 1;
-  min-width: 0;
+  min-width: 80px; /* Ensure text doesn't get truncated */
   padding: 6px 10px;
   background: var(--bg-primary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-size: 13px;
+}
+
+/* Give field selector more room to display full "Select field..." text */
+.filter-row select.filter-field,
+.sort-row select:first-child {
+  flex: 1.5;
+  min-width: 100px;
 }
 
 .filter-row select:focus,
