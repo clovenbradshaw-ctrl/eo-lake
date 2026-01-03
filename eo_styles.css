@@ -40952,3 +40952,732 @@ td.cell-editable.has-history:hover .cell-history-indicator {
     width: 120px;
   }
 }
+
+/* =============================================================================
+   DEFINITION PROFILE V2 - Compact Header + Horizontal Tabs Layout
+   =============================================================================
+   Redesigned layout that reduces vertical space by ~60%:
+   - Compact header with icon, name, badges, description, and metadata inline
+   - Horizontal tabs for Terms, Usage, Source, Notes
+   - Terms visible by default (most important content)
+   - Contextual CTA banner for incomplete definitions
+   ============================================================================= */
+
+.definition-profile-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* -----------------------------------------------------------------------------
+   COMPACT HEADER
+   ----------------------------------------------------------------------------- */
+.def-profile-header {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+.def-profile-header-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* Icon */
+.def-profile-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid;
+}
+
+.def-profile-icon i {
+  font-size: 20px;
+}
+
+/* Main info */
+.def-profile-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.def-profile-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.def-profile-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.def-profile-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.def-profile-local-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.def-profile-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 8px 0;
+}
+
+.def-profile-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.def-profile-uri {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.def-profile-uri a {
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+
+.def-profile-uri a:hover {
+  text-decoration: underline;
+}
+
+.def-profile-no-uri {
+  color: var(--warning);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.def-profile-no-uri i {
+  font-size: 12px;
+}
+
+.def-profile-sep {
+  color: var(--text-muted);
+}
+
+.def-profile-source {
+  color: var(--text-muted);
+}
+
+.def-profile-usage {
+  color: var(--text-muted);
+}
+
+.def-profile-usage.has-usage {
+  color: var(--text-secondary);
+}
+
+/* Actions */
+.def-profile-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.def-profile-actions .btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.def-profile-actions .btn-icon {
+  padding: 6px 8px;
+}
+
+/* -----------------------------------------------------------------------------
+   HORIZONTAL TABS CONTAINER
+   ----------------------------------------------------------------------------- */
+.def-profile-tabs-container {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Tab bar */
+.def-profile-tab-bar {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-primary);
+  padding: 0 16px;
+  background: var(--bg-tertiary);
+}
+
+.def-profile-tab {
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-bottom: -1px;
+}
+
+.def-profile-tab:hover {
+  color: var(--text-secondary);
+}
+
+.def-profile-tab.active {
+  color: var(--accent-primary);
+  border-bottom-color: var(--accent-primary);
+}
+
+.def-profile-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  border-radius: 9px;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+}
+
+.def-profile-tab.active .def-profile-tab-count {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-primary);
+}
+
+/* Tab content */
+.def-profile-tab-content {
+  padding: 16px;
+}
+
+.def-profile-tab-pane {
+  display: none;
+}
+
+.def-profile-tab-pane.active {
+  display: block;
+}
+
+/* -----------------------------------------------------------------------------
+   TERMS TAB
+   ----------------------------------------------------------------------------- */
+.def-profile-terms-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.def-profile-terms-toolbar .terms-search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  width: 240px;
+}
+
+.def-profile-terms-toolbar .terms-search-box i {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.def-profile-terms-toolbar .terms-search-box input {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.def-profile-terms-toolbar .terms-search-box input::placeholder {
+  color: var(--text-muted);
+}
+
+.def-profile-terms-toolbar .btn-link {
+  background: none;
+  border: none;
+  color: var(--accent-primary);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.def-profile-terms-toolbar .btn-link:hover {
+  text-decoration: underline;
+}
+
+/* Terms table */
+.def-profile-terms-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.def-profile-terms-table thead tr {
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.def-profile-terms-table th {
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.def-profile-terms-table th.col-term { width: 160px; }
+.def-profile-terms-table th.col-label { width: 140px; }
+.def-profile-terms-table th.col-role { width: 80px; }
+.def-profile-terms-table th.col-linked { width: 140px; }
+.def-profile-terms-table th.col-actions { width: 40px; }
+
+.def-profile-terms-table tbody tr {
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.def-profile-terms-table tbody tr:hover {
+  background: var(--bg-tertiary);
+}
+
+.def-profile-terms-table td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+.term-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.term-indicator {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.term-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.term-label-value,
+.term-linked-value {
+  color: var(--text-muted);
+}
+
+.term-role-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.term-notes-text {
+  color: var(--text-muted);
+  font-size: 12px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+.term-action-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+}
+
+.term-action-btn:hover {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+
+/* -----------------------------------------------------------------------------
+   USAGE TAB
+   ----------------------------------------------------------------------------- */
+.def-profile-usage-content h3 {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.def-profile-usage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.def-profile-usage-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.def-profile-usage-item i {
+  color: var(--text-muted);
+}
+
+.usage-set-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.usage-field-count {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.usage-fields {
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-left: auto;
+}
+
+/* -----------------------------------------------------------------------------
+   SOURCE TAB
+   ----------------------------------------------------------------------------- */
+.def-profile-source-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.def-profile-source-card {
+  padding: 12px 16px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+}
+
+.source-card-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.source-card-value {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.source-card-value.uri {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.source-card-value.uri a {
+  color: var(--accent-primary);
+  text-decoration: none;
+}
+
+.source-card-value.uri a:hover {
+  text-decoration: underline;
+}
+
+/* -----------------------------------------------------------------------------
+   NOTES TAB
+   ----------------------------------------------------------------------------- */
+.def-profile-notes-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.notes-scope-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notes-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.notes-scope-options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.scope-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.scope-checkbox input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border-secondary);
+  cursor: pointer;
+}
+
+.notes-textarea-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notes-textarea-section textarea {
+  width: 100%;
+  height: 120px;
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  resize: vertical;
+  outline: none;
+}
+
+.notes-textarea-section textarea:focus {
+  border-color: var(--accent-primary);
+}
+
+.notes-textarea-section textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.notes-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+/* -----------------------------------------------------------------------------
+   EMPTY STATES
+   ----------------------------------------------------------------------------- */
+.def-profile-empty-state {
+  text-align: center;
+  padding: 32px 20px;
+}
+
+.def-profile-empty-state.centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.def-profile-empty-state .empty-state-icon {
+  width: 48px;
+  height: 48px;
+  background: var(--bg-tertiary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 12px;
+}
+
+.def-profile-empty-state .empty-state-icon i {
+  font-size: 20px;
+  color: var(--text-muted);
+}
+
+.def-profile-empty-state p {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.def-profile-empty-state .empty-state-title {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.def-profile-empty-state .empty-state-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  max-width: 280px;
+}
+
+.def-profile-empty-state .btn-link {
+  background: none;
+  border: none;
+  color: var(--accent-primary);
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+
+.def-profile-empty-state .btn-link:hover {
+  text-decoration: underline;
+}
+
+/* -----------------------------------------------------------------------------
+   CONTEXTUAL CTA BANNER
+   ----------------------------------------------------------------------------- */
+.def-profile-cta-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 12px;
+}
+
+.cta-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cta-banner-icon {
+  font-size: 20px;
+}
+
+.cta-banner-icon i {
+  color: #f59e0b;
+}
+
+.cta-banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cta-banner-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #b45309;
+  margin: 0;
+}
+
+.cta-banner-desc {
+  font-size: 12px;
+  color: #92400e;
+  margin: 0;
+}
+
+.cta-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cta-banner-actions .btn-secondary {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #b45309;
+}
+
+.cta-banner-actions .btn-secondary:hover {
+  background: rgba(245, 158, 11, 0.25);
+}
+
+.cta-banner-actions .btn-primary {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #fff;
+}
+
+.cta-banner-actions .btn-primary:hover {
+  background: #d97706;
+  border-color: #d97706;
+}
+
+/* -----------------------------------------------------------------------------
+   RESPONSIVE ADJUSTMENTS
+   ----------------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .def-profile-header-main {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .def-profile-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .def-profile-meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .def-profile-sep {
+    display: none;
+  }
+
+  .def-profile-tab-bar {
+    padding: 0 8px;
+    overflow-x: auto;
+  }
+
+  .def-profile-tab {
+    padding: 10px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .def-profile-source-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .def-profile-cta-banner {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+
+  .cta-banner-content {
+    flex-direction: column;
+  }
+
+  .cta-banner-actions {
+    width: 100%;
+    justify-content: center;
+  }
+}

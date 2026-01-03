@@ -11014,24 +11014,16 @@ class EODataWorkbench {
     if (!contentArea) return;
 
     const terms = definition.terms || definition.properties || [];
-    const importDate = definition.importedAt ? new Date(definition.importedAt).toLocaleString() : 'Unknown';
     const defSource = definition.definitionSource;
     const uniqueTypes = this._getUniqueTermTypes(terms);
     const termLinkages = this._getTermSetLinkages(definition);
     const linkedSets = this._getLinkedSetsForDefinition(definition);
     const linkedSetsArray = Array.from(linkedSets.values());
     const isLocal = !definition.sourceUri;
-    const isWikidata = definition.sourceUri?.includes('wikidata.org');
-    const externalSourceName = isWikidata ? 'Wikidata' : (definition.sourceUri ? 'External' : null);
-
-    // Extract Wikidata Q-number if present
-    const wikidataMatch = definition.sourceUri?.match(/Q\d+/);
-    const wikidataId = wikidataMatch ? wikidataMatch[0] : null;
 
     // Get semantic metadata for the definition
     const kindInfo = this._getDefinitionKind(definition);
     const stabilityInfo = this._getDefinitionStability(definition);
-    const scopeInfo = this._getDefinitionScope(definition);
 
     // Count linked fields
     let linkedFieldsCount = 0;
@@ -11042,351 +11034,425 @@ class EODataWorkbench {
     // Calculate unique pipelines/exports (placeholder for future implementation)
     const linkedPipelinesCount = 0;
     const linkedExportsCount = 0;
+    const hasUsage = linkedFieldsCount > 0 || linkedPipelinesCount > 0;
+
+    // Get source set/field info for display
+    const sourceSetName = definition.sourceSet || linkedSetsArray[0]?.set?.name || 'Unknown';
+    const sourceFieldName = definition.sourceField || terms[0]?.name || definition.name;
+
+    // Store current tab state (default to terms)
+    if (!this._definitionActiveTab) {
+      this._definitionActiveTab = 'terms';
+    }
 
     contentArea.innerHTML = `
-      <div class="definition-detail-view glossary-style semantic-engine hierarchy-redesign">
-        <!-- ═══════════════════════════════════════════════════════════════════
-             A. IDENTITY HEADER - "What is this definition?" in 5 seconds
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="definition-identity-header">
-          <div class="identity-main">
-            <div class="identity-icon ${isLocal ? '' : 'externally-grounded'}" style="background: ${kindInfo.color}15; border-color: ${kindInfo.color}40;">
+      <div class="definition-detail-view definition-profile-v2">
+        <!-- ════════════════════════════════════════════════════════════════
+             COMPACT HEADER - All key info at a glance
+             ════════════════════════════════════════════════════════════════ -->
+        <div class="def-profile-header">
+          <div class="def-profile-header-main">
+            <!-- Icon -->
+            <div class="def-profile-icon" style="background: ${kindInfo.color}10; border-color: ${kindInfo.color}30;">
               <i class="ph ${kindInfo.icon}" style="color: ${kindInfo.color};"></i>
             </div>
-            <div class="identity-content">
-              <div class="identity-title-row">
-                <h2 class="identity-name">${this._escapeHtml(definition.name)}</h2>
-                <div class="identity-badges">
-                  <span class="kind-badge" style="background: ${kindInfo.color}15; color: ${kindInfo.color};" title="Semantic kind: ${kindInfo.kind}">
-                    <i class="ph ${kindInfo.icon}"></i>
-                    ${kindInfo.kind}
-                  </span>
-                  <span class="stability-badge" style="background: ${stabilityInfo.color}15; color: ${stabilityInfo.color};" title="${stabilityInfo.description}">
-                    <i class="ph ${stabilityInfo.icon}"></i>
-                    ${stabilityInfo.stability}
-                  </span>
-                  <span class="scope-badge" title="${scopeInfo.scopeDetail}">
-                    <i class="ph ${scopeInfo.icon}"></i>
-                    ${scopeInfo.scope}
-                  </span>
-                </div>
+
+            <!-- Main info -->
+            <div class="def-profile-info">
+              <div class="def-profile-title-row">
+                <h1 class="def-profile-name">${this._escapeHtml(definition.name)}</h1>
+                <span class="def-profile-badge def-badge-kind" style="background: ${kindInfo.color}15; color: ${kindInfo.color};">
+                  ${kindInfo.kind}
+                </span>
+                <span class="def-profile-badge def-badge-stability" style="background: ${stabilityInfo.color}15; color: ${stabilityInfo.color};">
+                  ${stabilityInfo.stability}
+                </span>
+                ${isLocal ? `<span class="def-profile-local-tag">Local</span>` : ''}
               </div>
-              <p class="identity-purpose">${this._escapeHtml(definition.description || 'Defines vocabulary terms that can be applied to data fields for semantic meaning.')}</p>
-              ${definition.sourceUri ? `
-                <div class="identity-uri">
-                  <i class="ph ph-globe"></i>
-                  ${isWikidata && wikidataId ? `<span class="wikidata-id">${wikidataId}</span>` : ''}
-                  <a href="${this._escapeHtml(definition.sourceUri)}" target="_blank" class="definition-uri-link">
-                    ${this._escapeHtml(definition.sourceUri)}
-                  </a>
+
+              <p class="def-profile-description">${this._escapeHtml(definition.description || 'Defines vocabulary terms that can be applied to data fields for semantic meaning.')}</p>
+
+              <div class="def-profile-meta">
+                ${definition.sourceUri ? `
+                  <code class="def-profile-uri">
+                    <a href="${this._escapeHtml(definition.sourceUri)}" target="_blank">${this._escapeHtml(definition.sourceUri)}</a>
+                  </code>
+                ` : `
+                  <span class="def-profile-no-uri">
+                    <i class="ph ph-warning-circle"></i> No URI defined
+                  </span>
+                `}
+                <span class="def-profile-sep">•</span>
+                <span class="def-profile-source">from ${this._escapeHtml(sourceSetName)}.${this._escapeHtml(sourceFieldName)}</span>
+                <span class="def-profile-sep">•</span>
+                <span class="def-profile-usage ${hasUsage ? 'has-usage' : ''}">
+                  ${linkedFieldsCount} field${linkedFieldsCount !== 1 ? 's' : ''}, ${linkedPipelinesCount} pipeline${linkedPipelinesCount !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="def-profile-actions">
+              <button class="btn btn-secondary btn-sm" id="btn-refresh-definition" title="Refresh from URI" ${isLocal ? 'disabled' : ''}>
+                <i class="ph ph-arrows-clockwise"></i> Refresh
+              </button>
+              <button class="btn btn-primary btn-sm" id="btn-apply-definition" title="Apply this definition to fields">
+                <i class="ph ph-arrow-right"></i> Apply to Fields
+              </button>
+              <button class="btn btn-icon btn-danger btn-sm" id="btn-delete-definition" title="Delete definition">
+                <i class="ph ph-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════════════════
+             HORIZONTAL TABS + CONTENT
+             ════════════════════════════════════════════════════════════════ -->
+        <div class="def-profile-tabs-container">
+          <!-- Tab bar -->
+          <div class="def-profile-tab-bar">
+            <button class="def-profile-tab ${this._definitionActiveTab === 'terms' ? 'active' : ''}" data-tab="terms">
+              Terms
+              <span class="def-profile-tab-count">${terms.length}</span>
+            </button>
+            <button class="def-profile-tab ${this._definitionActiveTab === 'usage' ? 'active' : ''}" data-tab="usage">
+              Usage
+            </button>
+            <button class="def-profile-tab ${this._definitionActiveTab === 'source' ? 'active' : ''}" data-tab="source">
+              Source & Origin
+            </button>
+            <button class="def-profile-tab ${this._definitionActiveTab === 'notes' ? 'active' : ''}" data-tab="notes">
+              Notes
+            </button>
+          </div>
+
+          <!-- Tab content -->
+          <div class="def-profile-tab-content">
+
+            <!-- TERMS TAB -->
+            <div class="def-profile-tab-pane ${this._definitionActiveTab === 'terms' ? 'active' : ''}" data-pane="terms">
+              ${terms.length === 0 ? `
+                <div class="def-profile-empty-state">
+                  <p>No terms defined yet</p>
+                  <button class="btn-link" id="btn-add-first-term">+ Add first term</button>
                 </div>
               ` : `
-                <div class="identity-uri local-warning">
-                  <i class="ph ph-warning-circle"></i>
-                  <span class="local-only-text">Local only — no URI defined</span>
+                <div class="def-profile-terms-toolbar">
+                  <div class="terms-search-box">
+                    <i class="ph ph-magnifying-glass"></i>
+                    <input type="text" id="terms-search-input" placeholder="Search terms..." />
+                  </div>
+                  <button class="btn-link" id="btn-add-term">+ Add Term</button>
                 </div>
+
+                <table class="def-profile-terms-table">
+                  <thead>
+                    <tr>
+                      <th class="col-term">Term</th>
+                      <th class="col-label">Label</th>
+                      <th class="col-role">Role</th>
+                      <th class="col-notes">Notes</th>
+                      <th class="col-linked">Linked To</th>
+                      <th class="col-actions"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="terms-table-body">
+                    ${this._renderTermsTableRowsV2(terms, termLinkages, definition.id)}
+                  </tbody>
+                </table>
               `}
             </div>
-          </div>
-          <div class="identity-actions">
-            <button class="btn btn-primary" id="btn-apply-definition" title="Bind this meaning to one or more columns">
-              <i class="ph ph-arrow-right"></i> Apply to Fields…
-            </button>
-            <button class="btn btn-secondary" id="btn-refresh-definition" title="Refresh from URI" ${isLocal ? 'disabled' : ''}>
-              <i class="ph ph-arrows-clockwise"></i> Refresh
-            </button>
-            <button class="btn btn-icon btn-danger" id="btn-delete-definition" title="Delete definition">
-              <i class="ph ph-trash"></i>
-            </button>
-          </div>
-        </div>
 
-        <!-- ═══════════════════════════════════════════════════════════════════
-             B. WHAT IT DESCRIBES - Quick summary of what this type of data means
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="glossary-section meaning-contract-section">
-          <div class="section-header">
-            <h3><i class="ph ph-info"></i> What It Describes</h3>
-          </div>
-          <div class="meaning-contract-content">
-            <div class="contract-assertions">
-              <ul class="contract-list">
-                ${kindInfo.kind === 'Identifier' ? `
-                  <li><i class="ph ph-key"></i> Unique values that identify records (like IDs or codes)</li>
-                  <li><i class="ph ph-target"></i> Stable references that don't change over time</li>
-                ` : kindInfo.kind === 'Measure' ? `
-                  <li><i class="ph ph-chart-bar"></i> Numeric values you can calculate with (sum, average, etc.)</li>
-                  <li><i class="ph ph-calculator"></i> Quantitative data like amounts, counts, or percentages</li>
-                ` : kindInfo.kind === 'Temporal' ? `
-                  <li><i class="ph ph-calendar"></i> Dates, times, or durations</li>
-                  <li><i class="ph ph-arrows-horizontal"></i> Values that can be sorted chronologically</li>
-                ` : kindInfo.kind === 'Relational' ? `
-                  <li><i class="ph ph-link"></i> References that connect to other records or datasets</li>
-                  <li><i class="ph ph-git-branch"></i> Foreign keys or lookup values for joining data</li>
-                ` : kindInfo.kind === 'Administrative' ? `
-                  <li><i class="ph ph-toggle-left"></i> Status flags, states, or control values</li>
-                  <li><i class="ph ph-funnel"></i> Used for filtering and segmenting data</li>
-                ` : `
-                  <li><i class="ph ph-tag"></i> Descriptive labels or categories</li>
-                  <li><i class="ph ph-text-aa"></i> Text-based values for grouping and classification</li>
-                `}
-              </ul>
-            </div>
-            <div class="contract-stance">
-              <span class="stance-badge ${!isLocal ? 'authoritative' : 'interpretive'}">
-                <i class="ph ${!isLocal ? 'ph-seal-check' : 'ph-lightbulb'}"></i>
-                ${!isLocal ? 'Official standard' : 'Project-specific'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <!-- ═══════════════════════════════════════════════════════════════════
-             C. WHERE IT'S USED - Current usage and benefits
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="glossary-section impact-usage-section">
-          <div class="section-header">
-            <h3><i class="ph ph-map-pin"></i> Where It's Used</h3>
-          </div>
-          <div class="impact-usage-content">
-            <div class="impact-column usage-column">
-              <span class="impact-column-label">Current Usage</span>
-              <div class="usage-stats">
-                <div class="usage-stat" title="Fields using this definition">
-                  <i class="ph ph-columns"></i>
-                  <span class="usage-count">${linkedFieldsCount}</span>
-                  <span class="usage-label">Fields</span>
-                </div>
-                <div class="usage-stat" title="Pipelines using this definition">
-                  <i class="ph ph-flow-arrow"></i>
-                  <span class="usage-count">${linkedPipelinesCount}</span>
-                  <span class="usage-label">Pipelines</span>
-                </div>
-                <div class="usage-stat" title="Exports using this definition">
-                  <i class="ph ph-export"></i>
-                  <span class="usage-count">${linkedExportsCount}</span>
-                  <span class="usage-label">Exports</span>
-                </div>
-              </div>
-              ${linkedSetsArray.length > 0 ? `
-                <div class="usage-details">
-                  <span class="usage-details-label">Used in:</span>
-                  <div class="used-by-list">
-                    ${linkedSetsArray.slice(0, 3).map(({ set, fields }) => `
-                      <span class="used-by-item" title="${fields.map(f => f.fieldName).join(', ')}">
+            <!-- USAGE TAB -->
+            <div class="def-profile-tab-pane ${this._definitionActiveTab === 'usage' ? 'active' : ''}" data-pane="usage">
+              ${hasUsage ? `
+                <div class="def-profile-usage-content">
+                  <h3>Applied to Fields</h3>
+                  <div class="def-profile-usage-list">
+                    ${linkedSetsArray.map(({ set, fields }) => `
+                      <div class="def-profile-usage-item">
                         <i class="ph ph-table"></i>
-                        ${this._escapeHtml(set.name)} <span class="field-count">(${fields.length} field${fields.length !== 1 ? 's' : ''})</span>
-                      </span>
+                        <span class="usage-set-name">${this._escapeHtml(set.name)}</span>
+                        <span class="usage-field-count">${fields.length} field${fields.length !== 1 ? 's' : ''}</span>
+                        <span class="usage-fields">${fields.map(f => this._escapeHtml(f.fieldName)).join(', ')}</span>
+                      </div>
                     `).join('')}
-                    ${linkedSetsArray.length > 3 ? `
-                      <span class="used-by-more">+${linkedSetsArray.length - 3} more</span>
-                    ` : ''}
                   </div>
                 </div>
               ` : `
-                <div class="usage-empty">
-                  <i class="ph ph-info"></i>
-                  <span>Not yet applied to any fields</span>
+                <div class="def-profile-empty-state centered">
+                  <div class="empty-state-icon">
+                    <i class="ph ph-clipboard-text"></i>
+                  </div>
+                  <p class="empty-state-title">Not applied to any fields yet</p>
+                  <p class="empty-state-desc">Apply this definition to fields to make their meanings clear and consistent</p>
+                  <button class="btn btn-primary btn-sm" id="btn-apply-to-fields-empty">
+                    <i class="ph ph-arrow-right"></i> Apply to Fields
+                  </button>
                 </div>
               `}
             </div>
-            <div class="impact-column effects-column">
-              <span class="impact-column-label">Why Apply It</span>
-              <ul class="effects-list">
-                <li><i class="ph ph-check-circle"></i> Makes field meanings clear and consistent</li>
-                <li><i class="ph ph-check-circle"></i> Enables better filtering and grouping</li>
-                ${!isLocal ? `<li><i class="ph ph-check-circle"></i> Allows comparison across datasets</li>` : ''}
-                <li><i class="ph ph-check-circle"></i> Tracks data lineage in exports</li>
-              </ul>
+
+            <!-- SOURCE TAB -->
+            <div class="def-profile-tab-pane ${this._definitionActiveTab === 'source' ? 'active' : ''}" data-pane="source">
+              ${defSource ? `
+                <div class="def-profile-source-grid">
+                  <div class="def-profile-source-card">
+                    <div class="source-card-label">Source</div>
+                    <div class="source-card-value">${this._escapeHtml(defSource.source?.title || defSource.authority?.name || '—')}</div>
+                  </div>
+                  <div class="def-profile-source-card">
+                    <div class="source-card-label">URI</div>
+                    <code class="source-card-value uri">${definition.sourceUri ? `<a href="${this._escapeHtml(definition.sourceUri)}" target="_blank">${this._escapeHtml(definition.sourceUri)}</a>` : '—'}</code>
+                  </div>
+                  ${defSource.validity ? `
+                    <div class="def-profile-source-card">
+                      <div class="source-card-label">Valid From</div>
+                      <div class="source-card-value">${defSource.validity.from || '—'}</div>
+                    </div>
+                    ${defSource.validity.to ? `
+                      <div class="def-profile-source-card">
+                        <div class="source-card-label">Valid Until</div>
+                        <div class="source-card-value">${defSource.validity.to}</div>
+                      </div>
+                    ` : ''}
+                  ` : ''}
+                </div>
+              ` : `
+                <div class="def-profile-empty-state centered">
+                  <div class="empty-state-icon">
+                    <i class="ph ph-globe"></i>
+                  </div>
+                  <p class="empty-state-title">No provenance information</p>
+                  <p class="empty-state-desc">This is a locally-created definition. Link it to a standard URI for interoperability.</p>
+                  <button class="btn btn-secondary btn-sm" id="btn-link-to-uri">
+                    <i class="ph ph-link"></i> Link to URI
+                  </button>
+                </div>
+              `}
             </div>
-          </div>
-          <div class="semantic-actions-bar">
-            <button class="semantic-action-btn" id="btn-apply-to-fields" title="Bind this meaning to one or more columns">
-              <i class="ph ph-plugs-connected"></i>
-              <span>Apply to fields</span>
-            </button>
-            <button class="semantic-action-btn" id="btn-compare-definitions" title="Compare with similar definitions">
-              <i class="ph ph-git-diff"></i>
-              <span>Compare with similar</span>
-            </button>
-            <button class="semantic-action-btn" id="btn-create-refinement" title="Create a local refinement that keeps link to original">
-              <i class="ph ph-git-branch"></i>
-              <span>Create local refinement</span>
-            </button>
+
+            <!-- NOTES TAB -->
+            <div class="def-profile-tab-pane ${this._definitionActiveTab === 'notes' ? 'active' : ''}" data-pane="notes">
+              <div class="def-profile-notes-content">
+                <div class="notes-scope-section">
+                  <label class="notes-label">Applies to:</label>
+                  <div class="notes-scope-options">
+                    <label class="scope-checkbox">
+                      <input type="checkbox" name="scope" value="individual" ${definition.interpretationScope?.includes('individual') ? 'checked' : ''}>
+                      <span>Individuals</span>
+                    </label>
+                    <label class="scope-checkbox">
+                      <input type="checkbox" name="scope" value="household" ${definition.interpretationScope?.includes('household') ? 'checked' : ''}>
+                      <span>Households</span>
+                    </label>
+                    <label class="scope-checkbox">
+                      <input type="checkbox" name="scope" value="community" ${definition.interpretationScope?.includes('community') ? 'checked' : ''}>
+                      <span>Communities</span>
+                    </label>
+                  </div>
+                </div>
+                <div class="notes-textarea-section">
+                  <label class="notes-label">Your notes:</label>
+                  <textarea id="interpretation-notes-text" placeholder="Why you chose this definition, how you're using it, any caveats...">${this._escapeHtml(definition.interpretationNotes || '')}</textarea>
+                </div>
+                <div class="notes-actions">
+                  <button class="btn btn-secondary btn-sm" id="btn-save-interpretation-notes">
+                    <i class="ph ph-floppy-disk"></i> Save Notes
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- ═══════════════════════════════════════════════════════════════════
-             D. TERMS - The vocabulary items in this definition
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="glossary-section definition-structure-section">
-          <div class="section-header">
-            <h3><i class="ph ph-list-bullets"></i> Terms</h3>
-            <span class="terms-count">${terms.length} term${terms.length !== 1 ? 's' : ''}</span>
-          </div>
-
-          ${terms.length === 0 ? `
-            <div class="definition-empty-terms">
-              <i class="ph ph-info"></i>
-              <span>No terms defined. Add terms manually or re-import from URI.</span>
-            </div>
-          ` : `
-            <!-- Search and Filters Toolbar -->
-            <div class="terms-toolbar">
-              <div class="terms-search-box">
-                <i class="ph ph-magnifying-glass"></i>
-                <input type="text" id="terms-search-input" placeholder="Search terms by name, description, or URI..." />
-              </div>
-              <div class="terms-filters">
-                <div class="filter-group">
-                  <label>Role:</label>
-                  <select id="terms-type-filter">
-                    <option value="">All Roles</option>
-                    ${uniqueTypes.map(type => `<option value="${this._escapeHtml(type)}">${this._escapeHtml(type)}</option>`).join('')}
-                  </select>
-                </div>
-                <div class="filter-group">
-                  <label>Link Status:</label>
-                  <select id="terms-link-filter">
-                    <option value="">All</option>
-                    <option value="linked">Linked to Sets</option>
-                    <option value="unlinked">Not Linked</option>
-                  </select>
-                </div>
-                <div class="filter-group">
-                  <label>Group by:</label>
-                  <select id="terms-group-filter">
-                    <option value="none">None</option>
-                    <option value="type">Role</option>
-                    <option value="set">Linked Set</option>
-                  </select>
-                </div>
+        <!-- ════════════════════════════════════════════════════════════════
+             CONTEXTUAL CTA - For incomplete definitions
+             ════════════════════════════════════════════════════════════════ -->
+        ${!definition.sourceUri ? `
+          <div class="def-profile-cta-banner">
+            <div class="cta-banner-content">
+              <span class="cta-banner-icon"><i class="ph ph-lightbulb"></i></span>
+              <div class="cta-banner-text">
+                <p class="cta-banner-title">This definition needs a URI</p>
+                <p class="cta-banner-desc">Link to a standard vocabulary for better interoperability</p>
               </div>
             </div>
-
-            <!-- Results Count -->
-            <div class="terms-results-info">
-              <span id="terms-results-count">Showing ${terms.length} terms</span>
-              <button id="terms-clear-filters" class="btn-link" style="display: none;">
-                <i class="ph ph-x"></i> Clear filters
+            <div class="cta-banner-actions">
+              <button class="btn btn-secondary btn-sm" id="btn-find-similar">
+                <i class="ph ph-magnifying-glass"></i> Find Similar
+              </button>
+              <button class="btn btn-primary btn-sm" id="btn-import-vocabulary">
+                <i class="ph ph-download"></i> Import from Vocabulary
               </button>
             </div>
-
-            <!-- Terms Table (simplified columns) -->
-            <div class="definition-terms-table enhanced" id="terms-table-container">
-              <table class="data-table terms-data-table">
-                <thead>
-                  <tr>
-                    <th class="col-name" style="width: 180px;">
-                      <div class="th-content">
-                        <span>Term</span>
-                        <button class="th-sort-btn" data-sort="name" title="Sort by name">
-                          <i class="ph ph-arrows-down-up"></i>
-                        </button>
-                      </div>
-                    </th>
-                    <th class="col-label" style="width: 180px;">
-                      <div class="th-content">
-                        <span>Label</span>
-                        <button class="th-sort-btn" data-sort="label" title="Sort by label">
-                          <i class="ph ph-arrows-down-up"></i>
-                        </button>
-                      </div>
-                    </th>
-                    <th class="col-type" style="width: 100px;">
-                      <div class="th-content">
-                        <span>Role</span>
-                      </div>
-                    </th>
-                    <th class="col-description">
-                      <div class="th-content">
-                        <span>Notes</span>
-                      </div>
-                    </th>
-                    <th class="col-linked" style="width: 160px;">
-                      <div class="th-content">
-                        <span>Linked To</span>
-                      </div>
-                    </th>
-                    <th class="col-actions" style="width: 60px;"></th>
-                  </tr>
-                </thead>
-                <tbody id="terms-table-body">
-                  ${this._renderTermsTableRows(terms, termLinkages, definition.id)}
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Grouped View Container (hidden by default) -->
-            <div class="terms-grouped-view" id="terms-grouped-container" style="display: none;">
-            </div>
-          `}
-          <div class="definition-add-term-section">
-            <button class="btn btn-secondary" id="btn-add-term">
-              <i class="ph ph-plus"></i> Add Term
-            </button>
           </div>
-        </div>
-
-        <!-- ═══════════════════════════════════════════════════════════════════
-             E. SOURCE & ORIGIN - Where this definition came from
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="glossary-section provenance-section collapsed" id="provenance-section">
-          <h3 class="collapsible-header" id="provenance-toggle">
-            <i class="ph ph-globe"></i> Source & Origin
-            <i class="ph ph-caret-down toggle-icon"></i>
-          </h3>
-          <div class="provenance-content">
-            ${defSource ? this._renderDefinitionSourceSection(defSource) : `
-              <div class="provenance-empty">
-                <i class="ph ph-info"></i>
-                <span>No provenance information available. This is a locally-created definition.</span>
-              </div>
-            `}
-          </div>
-        </div>
-
-        <!-- ═══════════════════════════════════════════════════════════════════
-             F. NOTES - Your notes about this definition
-             ═══════════════════════════════════════════════════════════════════ -->
-        <div class="glossary-section notes-rationale-section collapsed" id="notes-rationale-section">
-          <h3 class="collapsible-header" id="notes-rationale-toggle">
-            <i class="ph ph-note-pencil"></i> Notes
-            <span class="optional-badge">optional</span>
-            <i class="ph ph-caret-down toggle-icon"></i>
-          </h3>
-          <div class="notes-rationale-content">
-            <div class="scope-selector">
-              <span class="scope-label">Applies to:</span>
-              <div class="scope-options">
-                <label class="scope-option">
-                  <input type="checkbox" name="scope" value="individual" ${definition.interpretationScope?.includes('individual') ? 'checked' : ''}>
-                  <span>Individuals</span>
-                </label>
-                <label class="scope-option">
-                  <input type="checkbox" name="scope" value="household" ${definition.interpretationScope?.includes('household') ? 'checked' : ''}>
-                  <span>Households</span>
-                </label>
-                <label class="scope-option">
-                  <input type="checkbox" name="scope" value="community" ${definition.interpretationScope?.includes('community') ? 'checked' : ''}>
-                  <span>Communities</span>
-                </label>
-              </div>
-            </div>
-            <div class="notes-input-group">
-              <label for="interpretation-notes-text">Your notes:</label>
-              <textarea id="interpretation-notes-text" placeholder="Why you chose this definition, how you're using it, any caveats...">${this._escapeHtml(definition.interpretationNotes || '')}</textarea>
-            </div>
-            <button class="btn btn-secondary btn-sm" id="btn-save-interpretation-notes">
-              <i class="ph ph-floppy-disk"></i> Save
-            </button>
-          </div>
-        </div>
+        ` : ''}
       </div>
     `;
 
     // Attach event handlers
-    this._attachDefinitionDetailHandlers(definition);
+    this._attachDefinitionDetailHandlersV2(definition);
+  }
+
+  /**
+   * Render terms table rows for the v2 layout (simplified)
+   */
+  _renderTermsTableRowsV2(terms, termLinkages, definitionId) {
+    return terms.map((term, index) => {
+      const termName = term.name || term.term || term.label || 'Unnamed';
+      const termLabel = term.label || term.displayLabel || null;
+      const termRole = term.type || term.role || 'text';
+      const termNotes = term.description || term.notes || '';
+      const linkage = termLinkages.get(termName);
+      const linkedTo = linkage ? `${linkage.setName}.${linkage.fieldName}` : null;
+
+      return `
+        <tr class="term-row" data-term-index="${index}">
+          <td class="col-term">
+            <div class="term-name-cell">
+              <span class="term-indicator">◇</span>
+              <span class="term-name">${this._escapeHtml(termName)}</span>
+            </div>
+          </td>
+          <td class="col-label">
+            <span class="term-label-value">${termLabel ? this._escapeHtml(termLabel) : '—'}</span>
+          </td>
+          <td class="col-role">
+            <span class="term-role-badge">${this._escapeHtml(termRole)}</span>
+          </td>
+          <td class="col-notes">
+            <span class="term-notes-text">${this._escapeHtml(termNotes)}</span>
+          </td>
+          <td class="col-linked">
+            <span class="term-linked-value">${linkedTo ? this._escapeHtml(linkedTo) : '—'}</span>
+          </td>
+          <td class="col-actions">
+            <button class="btn-icon term-action-btn" data-term-name="${this._escapeHtml(termName)}" title="View term details">
+              <i class="ph ph-arrow-right"></i>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  /**
+   * Attach event handlers for the v2 definition detail view
+   */
+  _attachDefinitionDetailHandlersV2(definition) {
+    // Tab switching
+    const tabButtons = this.elements.contentArea.querySelectorAll('.def-profile-tab');
+    const tabPanes = this.elements.contentArea.querySelectorAll('.def-profile-tab-pane');
+
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tabId = btn.dataset.tab;
+        this._definitionActiveTab = tabId;
+
+        // Update active states
+        tabButtons.forEach(b => b.classList.remove('active'));
+        tabPanes.forEach(p => p.classList.remove('active'));
+
+        btn.classList.add('active');
+        const pane = this.elements.contentArea.querySelector(`[data-pane="${tabId}"]`);
+        if (pane) pane.classList.add('active');
+      });
+    });
+
+    // Apply to Fields buttons
+    const applyBtn = this.elements.contentArea.querySelector('#btn-apply-definition');
+    const applyBtnEmpty = this.elements.contentArea.querySelector('#btn-apply-to-fields-empty');
+    [applyBtn, applyBtnEmpty].forEach(btn => {
+      if (btn) {
+        btn.addEventListener('click', () => this._openApplyDefinitionModal(definition));
+      }
+    });
+
+    // Refresh button
+    const refreshBtn = this.elements.contentArea.querySelector('#btn-refresh-definition');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => this._refreshDefinitionFromUri(definition));
+    }
+
+    // Delete button
+    const deleteBtn = this.elements.contentArea.querySelector('#btn-delete-definition');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => this._confirmDeleteDefinition(definition));
+    }
+
+    // Add term buttons
+    const addTermBtn = this.elements.contentArea.querySelector('#btn-add-term');
+    const addFirstTermBtn = this.elements.contentArea.querySelector('#btn-add-first-term');
+    [addTermBtn, addFirstTermBtn].forEach(btn => {
+      if (btn) {
+        btn.addEventListener('click', () => this._openAddTermModal(definition));
+      }
+    });
+
+    // Link to URI button
+    const linkUriBtn = this.elements.contentArea.querySelector('#btn-link-to-uri');
+    if (linkUriBtn) {
+      linkUriBtn.addEventListener('click', () => this._openLinkToUriModal(definition));
+    }
+
+    // Find Similar button
+    const findSimilarBtn = this.elements.contentArea.querySelector('#btn-find-similar');
+    if (findSimilarBtn) {
+      findSimilarBtn.addEventListener('click', () => this._searchSimilarDefinitions(definition));
+    }
+
+    // Import from Vocabulary button
+    const importVocabBtn = this.elements.contentArea.querySelector('#btn-import-vocabulary');
+    if (importVocabBtn) {
+      importVocabBtn.addEventListener('click', () => this._openImportVocabularyModal(definition));
+    }
+
+    // Save notes button
+    const saveNotesBtn = this.elements.contentArea.querySelector('#btn-save-interpretation-notes');
+    if (saveNotesBtn) {
+      saveNotesBtn.addEventListener('click', () => this._saveInterpretationNotes(definition));
+    }
+
+    // Terms search
+    const termsSearchInput = this.elements.contentArea.querySelector('#terms-search-input');
+    if (termsSearchInput) {
+      termsSearchInput.addEventListener('input', (e) => this._filterTermsV2(e.target.value, definition));
+    }
+
+    // Term row actions
+    const termActionBtns = this.elements.contentArea.querySelectorAll('.term-action-btn');
+    termActionBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const termName = btn.dataset.termName;
+        this._openTermDetailModal(definition, termName);
+      });
+    });
+  }
+
+  /**
+   * Filter terms in the v2 table
+   */
+  _filterTermsV2(searchTerm, definition) {
+    const terms = definition.terms || definition.properties || [];
+    const rows = this.elements.contentArea.querySelectorAll('.term-row');
+    const searchLower = searchTerm.toLowerCase();
+
+    rows.forEach((row, index) => {
+      const term = terms[index];
+      if (!term) return;
+
+      const termName = (term.name || term.term || term.label || '').toLowerCase();
+      const termLabel = (term.label || term.displayLabel || '').toLowerCase();
+      const termNotes = (term.description || term.notes || '').toLowerCase();
+
+      const matches = termName.includes(searchLower) ||
+                      termLabel.includes(searchLower) ||
+                      termNotes.includes(searchLower);
+
+      row.style.display = matches ? '' : 'none';
+    });
   }
 
   /**
