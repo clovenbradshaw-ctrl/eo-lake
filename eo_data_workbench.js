@@ -3326,8 +3326,13 @@ class EODataWorkbench {
     const closeBtn = document.getElementById('bulk-actions-close');
     if (closeBtn) {
       closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
         e.stopPropagation();
         this._clearSelection();
+      });
+      // Also handle clicks on the icon inside the button
+      closeBtn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
       });
     }
 
@@ -23562,6 +23567,8 @@ class EODataWorkbench {
 
     // Clear search when switching sets
     this.viewSearchTerm = '';
+    const searchInput = document.getElementById('view-search');
+    if (searchInput) searchInput.value = '';
 
     // CRITICAL: Ensure records are loaded BEFORE any UI updates or saves
     // This prevents data loss from empty records being rendered/saved
@@ -28537,13 +28544,28 @@ class EODataWorkbench {
     const addFirstRecord = document.getElementById('add-first-record');
 
     const handleAddRecord = (e) => {
+      e.preventDefault();
       e.stopPropagation();
-      this.addRecord();
+      const record = this.addRecord();
+      if (record) {
+        // Optionally show the new record's detail panel
+        this._showRecordDetail(record.id);
+      }
     };
 
-    addRowBtn?.addEventListener('click', handleAddRecord);
-    addRowCell?.addEventListener('click', handleAddRecord);
-    addFirstRecord?.addEventListener('click', handleAddRecord);
+    // Ensure handlers are attached with high priority
+    if (addRowBtn) {
+      addRowBtn.style.cursor = 'pointer';
+      addRowBtn.addEventListener('click', handleAddRecord, { capture: true });
+    }
+    if (addRowCell) {
+      addRowCell.style.cursor = 'pointer';
+      addRowCell.addEventListener('click', handleAddRecord, { capture: true });
+    }
+    if (addFirstRecord) {
+      addFirstRecord.style.cursor = 'pointer';
+      addFirstRecord.addEventListener('click', handleAddRecord, { capture: true });
+    }
   }
 
   /**
@@ -31344,6 +31366,14 @@ class EODataWorkbench {
 
       this._updateRecordValue(recordId, fieldId, newValue);
       this._renderKanbanView();
+
+      // Refresh the detail panel if it's showing this record
+      if (this.elements.detailPanel?.classList.contains('open')) {
+        const currentDetailRecordId = this.elements.detailPanel?.dataset.recordId;
+        if (currentDetailRecordId === recordId) {
+          this._showRecordDetail(recordId);
+        }
+      }
     });
   }
 
@@ -37877,11 +37907,82 @@ class EODataWorkbench {
       year++;
     }
 
-    const currentDate = new Date(year, month, 1);
-    el.innerHTML = this._renderDatePicker(currentDate, field.options?.includeTime);
+    // Create a date for the new month (don't set a specific day to avoid selection issues)
+    const navigatedDate = new Date(year, month, 1);
+    el.innerHTML = this._renderDatePicker(navigatedDate, field.options?.includeTime);
+    el.classList.add('date-picker-open');
 
-    // Reattach event handlers
-    this._showDatePickerEditor(el, field, recordId, currentDate.toISOString());
+    const newPicker = el.querySelector('.date-picker');
+    if (!newPicker) return;
+
+    // Reattach navigation handlers
+    newPicker.querySelector('.dp-prev')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._navigateDatePicker(el, field, recordId, -1);
+    });
+    newPicker.querySelector('.dp-next')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._navigateDatePicker(el, field, recordId, 1);
+    });
+
+    // Helper functions for date formatting
+    const formatLocalDate = (date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+    const formatLocalDateTime = (date) => {
+      const dateStr = formatLocalDate(date);
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      return `${dateStr}T${hours}:${minutes}`;
+    };
+
+    // Reattach day click handlers
+    newPicker.querySelectorAll('.dp-day:not(.other-month):not(.empty)').forEach(day => {
+      day.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const selectedDay = parseInt(day.textContent);
+        const displayedDate = new Date(newPicker.dataset.year, newPicker.dataset.month, selectedDay);
+
+        let value = formatLocalDate(displayedDate);
+        if (field.options?.includeTime) {
+          const timeInput = newPicker.querySelector('.dp-time-input');
+          if (timeInput?.value) {
+            value += 'T' + timeInput.value;
+          }
+        }
+
+        this._updateRecordValue(recordId, field.id, value);
+        el.classList.remove('editing', 'date-picker-open');
+        el.innerHTML = this._renderDetailFieldValue(field, value);
+        this._renderView();
+      });
+    });
+
+    // Reattach Today button handler
+    newPicker.querySelector('.dp-today')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const today = new Date();
+      let value = formatLocalDate(today);
+      if (field.options?.includeTime) {
+        value = formatLocalDateTime(today);
+      }
+      this._updateRecordValue(recordId, field.id, value);
+      el.classList.remove('editing', 'date-picker-open');
+      el.innerHTML = this._renderDetailFieldValue(field, value);
+      this._renderView();
+    });
+
+    // Reattach Clear button handler
+    newPicker.querySelector('.dp-clear')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this._updateRecordValue(recordId, field.id, null);
+      el.classList.remove('editing', 'date-picker-open');
+      el.innerHTML = this._renderDetailFieldValue(field, null);
+      this._renderView();
+    });
   }
 
   _renderDatePicker(currentDate, includeTime) {
@@ -38001,7 +38102,12 @@ class EODataWorkbench {
         this._updateRecordValue(recordId, field.id, newValue);
         el.classList.remove('editing');
         el.innerHTML = this._renderDetailFieldValue(field, newValue);
+        // Re-render the view first
         this._renderView();
+        // Then refresh the detail panel to show updated data consistently
+        if (this.elements.detailPanel?.classList.contains('open')) {
+          this._showRecordDetail(recordId);
+        }
       });
     });
 
@@ -38696,15 +38802,19 @@ class EODataWorkbench {
 
     // Cmd/Ctrl + A to select all (but not when inside any editable element)
     if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
-      const isEditable = e.target.closest('input, textarea, select, [contenteditable="true"]') ||
-                         e.target.isContentEditable ||
-                         e.target.tagName === 'INPUT' ||
-                         e.target.tagName === 'TEXTAREA' ||
-                         e.target.tagName === 'SELECT';
+      // Check if target is any kind of editable element
+      const target = e.target;
+      const isEditable = target.tagName === 'INPUT' ||
+                         target.tagName === 'TEXTAREA' ||
+                         target.tagName === 'SELECT' ||
+                         target.isContentEditable ||
+                         target.closest('input, textarea, select, [contenteditable="true"]');
+      // Only select all records if NOT in an editable element
       if (!isEditable) {
         e.preventDefault();
         this._selectAll();
       }
+      // When in editable element, don't do anything - let browser handle Ctrl+A natively
     }
 
     // Cmd/Ctrl + F for filter
