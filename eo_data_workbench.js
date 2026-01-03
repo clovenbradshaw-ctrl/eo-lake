@@ -3232,6 +3232,19 @@ class EODataWorkbench {
 
     // Global click to close menus
     document.addEventListener('click', (e) => {
+      // Global fallback handler for add record buttons
+      // This catches clicks that might not bubble through the table's delegated handler
+      const addRecordElement = e.target.closest('#add-row-btn, #add-row-cell, #add-first-record, .add-row-cell');
+      if (addRecordElement) {
+        e.preventDefault();
+        e.stopPropagation();
+        const record = this.addRecord();
+        if (record) {
+          this._showRecordDetail(record.id);
+        }
+        return;
+      }
+
       if (!e.target.closest('.context-menu')) {
         this.elements.contextMenu?.classList.remove('active');
       }
@@ -3329,12 +3342,25 @@ class EODataWorkbench {
         e.preventDefault();
         e.stopPropagation();
         this._clearSelection();
+        this._showToast('Selection cleared', 'info');
       });
       // Also handle clicks on the icon inside the button
       closeBtn.addEventListener('mousedown', (e) => {
         e.preventDefault();
       });
     }
+
+    // Add global fallback handler for bulk actions close button
+    // This catches clicks that might not be handled by the direct handler
+    document.addEventListener('click', (e) => {
+      const closeTarget = e.target.closest('#bulk-actions-close, .bulk-actions-close');
+      if (closeTarget) {
+        e.preventDefault();
+        e.stopPropagation();
+        this._clearSelection();
+        this._showToast('Selection cleared', 'info');
+      }
+    }, { capture: true });
 
     // Filter/Focus panel - Focus button opens the filter panel for creating focused views (Rule 5)
     document.getElementById('btn-filter')?.addEventListener('click', () => this._toggleFilterPanel());
@@ -3424,13 +3450,10 @@ class EODataWorkbench {
       this._toggleSetTagDropdown();
     });
 
-    // Global search
-    const searchInput = document.getElementById('global-search');
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => this._handleSearch(e.target.value));
-      searchInput.addEventListener('focus', () => this._showSearchResults());
-      searchInput.addEventListener('blur', () => setTimeout(() => this._hideSearchResults(), 200));
-    }
+    // Note: Global search is handled by eo_app.js handleGlobalSearch() which supports
+    // prefix-based search (@fields, #sets, /views, ?sources, >commands, !provenance)
+    // The DataWorkbench _handleSearch is kept as a fallback for internal search needs
+    // but does not need to be attached to the global-search input
 
     // Tab bar event listeners
     this._attachTabBarListeners();
@@ -5112,6 +5135,11 @@ class EODataWorkbench {
     const set = this.sets.find(s => s.id === setId);
     // TODO: Get lens from registry when lenses are properly implemented
     const lensName = 'All Records'; // Default lens name
+
+    // Clear search when switching to a new lens
+    this.viewSearchTerm = '';
+    const searchInput = document.getElementById('view-search-input');
+    if (searchInput) searchInput.value = '';
 
     // Get the first view to display
     const defaultViewId = set?.views?.[0]?.id;
@@ -23567,7 +23595,7 @@ class EODataWorkbench {
 
     // Clear search when switching sets
     this.viewSearchTerm = '';
-    const searchInput = document.getElementById('view-search');
+    const searchInput = document.getElementById('view-search-input');
     if (searchInput) searchInput.value = '';
 
     // CRITICAL: Ensure records are loaded BEFORE any UI updates or saves
@@ -23638,7 +23666,7 @@ class EODataWorkbench {
 
     // Clear search when switching views to avoid confusion
     this.viewSearchTerm = '';
-    const searchInput = document.getElementById('view-search');
+    const searchInput = document.getElementById('view-search-input');
     if (searchInput) searchInput.value = '';
 
     // Remember this view for the current set
@@ -23675,8 +23703,8 @@ class EODataWorkbench {
 
     // Clear search when switching view types to avoid confusion
     this.viewSearchTerm = '';
-    const searchInput = document.getElementById('view-search');
-    if (searchInput) searchInput.value = '';
+    const searchInputSwitchType = document.getElementById('view-search-input');
+    if (searchInputSwitchType) searchInputSwitchType.value = '';
 
     // Remember this view for the current set
     if (this.currentSetId) {
@@ -28436,7 +28464,7 @@ class EODataWorkbench {
     if (allRecords.length === 0 && !searchTerm) {
       html += `
         <tr>
-          <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="add-row-cell" id="add-first-record" title="Add a new record/row (Ctrl+N)">
+          <td colspan="${fields.length + (showProvenance ? 3 : 2)}" class="add-row-cell" id="add-first-record" title="Add a new record/row (Ctrl+N)" onclick="getDataWorkbench()?.addRecord()">
             <div class="add-row-content">
               <i class="ph ph-rows-plus-bottom"></i>
               <span>Add your first record</span>
@@ -28508,10 +28536,10 @@ class EODataWorkbench {
       // Add row button at the end
       html += `
         <tr>
-          <td class="col-row-number add-row-cell" id="add-row-btn" title="Add a new record/row (Ctrl+N)">
+          <td class="col-row-number add-row-cell" id="add-row-btn" title="Add a new record/row (Ctrl+N)" onclick="getDataWorkbench()?.addRecord()">
             <i class="ph ph-rows-plus-bottom"></i>
           </td>
-          <td colspan="${fields.length + (showProvenance ? 2 : 1)}" class="add-row-cell" id="add-row-cell" title="Add a new record/row (Ctrl+N)">
+          <td colspan="${fields.length + (showProvenance ? 2 : 1)}" class="add-row-cell" id="add-row-cell" title="Add a new record/row (Ctrl+N)" onclick="getDataWorkbench()?.addRecord()">
             <div class="add-row-content">
               <i class="ph ph-rows-plus-bottom"></i>
               <span>Add record</span>
@@ -31387,15 +31415,19 @@ class EODataWorkbench {
       const newValue = columnId === 'null' ? null : columnId;
 
       this._updateRecordValue(recordId, fieldId, newValue);
-      this._renderKanbanView();
 
       // Refresh the detail panel if it's showing this record
-      if (this.elements.detailPanel?.classList.contains('open')) {
-        const currentDetailRecordId = this.elements.detailPanel?.dataset.recordId;
-        if (currentDetailRecordId === recordId) {
-          this._showRecordDetail(recordId);
-        }
+      // Must refresh BEFORE re-rendering to show updated values
+      if (this.elements.detailPanel?.classList.contains('open') && this.currentDetailRecordId === recordId) {
+        this._showRecordDetail(recordId);
       }
+
+      // Save changes and re-render kanban
+      this._saveData();
+      this._renderKanbanView();
+
+      // Show feedback
+      this._showToast('Card moved', 'success');
     });
   }
 
@@ -32906,8 +32938,16 @@ class EODataWorkbench {
       return null;
     }
 
+    // Ensure records array exists
+    if (!Array.isArray(set.records)) {
+      set.records = [];
+    }
+
     const record = createRecord(set.id, values);
     set.records.push(record);
+
+    // Show feedback toast for successful record creation
+    this._showToast('Record added', 'success');
 
     // Dual-write to backing source if set has a manual origin source
     // This maintains the invariant that source contains all data
@@ -37866,7 +37906,9 @@ class EODataWorkbench {
       day.addEventListener('click', (e) => {
         e.stopPropagation();
         const selectedDay = parseInt(day.textContent);
-        const displayedDate = new Date(picker.dataset.year, picker.dataset.month, selectedDay);
+        const displayedYear = parseInt(picker.dataset.year);
+        const displayedMonth = parseInt(picker.dataset.month);
+        const displayedDate = new Date(displayedYear, displayedMonth, selectedDay);
 
         let value = formatLocalDate(displayedDate);
 
@@ -37878,9 +37920,11 @@ class EODataWorkbench {
         }
 
         this._updateRecordValue(recordId, field.id, value);
+        this._saveData();
         el.classList.remove('editing', 'date-picker-open');
         el.innerHTML = this._renderDetailFieldValue(field, value);
         this._renderView();
+        this._showToast('Date updated', 'success');
       });
     });
 
@@ -37966,7 +38010,9 @@ class EODataWorkbench {
       day.addEventListener('click', (e) => {
         e.stopPropagation();
         const selectedDay = parseInt(day.textContent);
-        const displayedDate = new Date(newPicker.dataset.year, newPicker.dataset.month, selectedDay);
+        const displayedYear = parseInt(newPicker.dataset.year);
+        const displayedMonth = parseInt(newPicker.dataset.month);
+        const displayedDate = new Date(displayedYear, displayedMonth, selectedDay);
 
         let value = formatLocalDate(displayedDate);
         if (field.options?.includeTime) {
@@ -37977,9 +38023,11 @@ class EODataWorkbench {
         }
 
         this._updateRecordValue(recordId, field.id, value);
+        this._saveData();
         el.classList.remove('editing', 'date-picker-open');
         el.innerHTML = this._renderDetailFieldValue(field, value);
         this._renderView();
+        this._showToast('Date updated', 'success');
       });
     });
 
@@ -38823,14 +38871,20 @@ class EODataWorkbench {
     }
 
     // Cmd/Ctrl + A to select all (but not when inside any editable element)
-    if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a') {
       // Check if target is any kind of editable element
       const target = e.target;
-      const isEditable = target.tagName === 'INPUT' ||
-                         target.tagName === 'TEXTAREA' ||
-                         target.tagName === 'SELECT' ||
+      const tagName = target.tagName?.toUpperCase();
+      const isEditable = tagName === 'INPUT' ||
+                         tagName === 'TEXTAREA' ||
+                         tagName === 'SELECT' ||
                          target.isContentEditable ||
-                         target.closest('input, textarea, select, [contenteditable="true"]');
+                         target.closest('input, textarea, select, [contenteditable="true"]') ||
+                         // Also check if any input/textarea has focus
+                         document.activeElement?.tagName === 'INPUT' ||
+                         document.activeElement?.tagName === 'TEXTAREA' ||
+                         document.activeElement?.tagName === 'SELECT' ||
+                         document.activeElement?.isContentEditable;
       // Only select all records if NOT in an editable element
       if (!isEditable) {
         e.preventDefault();
