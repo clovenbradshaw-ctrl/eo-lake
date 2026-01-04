@@ -29460,8 +29460,13 @@ class EODataWorkbench {
       return;
     }
 
+    // Get the global activity store if available
+    const activityStore = typeof window !== 'undefined' ? window.activityStore : null;
+
     this.formulaEngine = new EOFormulaEngine({
       workbench: this,
+      activityStore: activityStore,
+      actor: 'user',
       getSet: (name) => {
         return this.sets?.find(s => s.name === name || s.id === name);
       },
