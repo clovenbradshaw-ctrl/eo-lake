@@ -25609,6 +25609,9 @@ class EODataWorkbench {
     const recordTypeAnalysis = this._analyzeRecordTypesForSet(set);
     const completeness = this._calculateSetCompleteness(set);
 
+    // Generate the history section
+    const historySection = this._renderSetHistorySection(set.id);
+
     container.innerHTML = `
       <div class="panel-content overview-panel">
         <div class="panel-content-header">
@@ -25642,9 +25645,19 @@ class EODataWorkbench {
               <div class="overview-completeness-fill" style="width: ${completeness}%"></div>
             </div>
           </div>
+          ${historySection}
         </div>
       </div>
     `;
+
+    // Attach event listener for "View All" history button
+    const viewAllBtn = container.querySelector('.set-history-view-all');
+    if (viewAllBtn) {
+      viewAllBtn.addEventListener('click', () => {
+        const setId = viewAllBtn.dataset.setId;
+        this._showSetHistoryModal(setId);
+      });
+    }
   }
 
   /**
@@ -39989,6 +40002,422 @@ class EODataWorkbench {
     activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     return activities;
+  }
+
+  /**
+   * Get history of changes for a specific set
+   * Aggregates activities from multiple sources filtered by set
+   * @param {string} setId - The set ID to get history for
+   * @returns {Array} Array of activity objects sorted by timestamp (newest first)
+   */
+  _getSetHistory(setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return [];
+
+    const activities = [];
+    const setName = set.name;
+
+    // 1. Add tossed items related to this set
+    this.tossedItems.forEach(item => {
+      // Check if this tossed item belongs to our set
+      const belongsToSet =
+        (item.type === 'set' && item.set?.id === setId) ||
+        (item.type === 'view' && item.setId === setId) ||
+        (item.type === 'record' && item.setId === setId) ||
+        (item.type === 'field' && item.setId === setId);
+
+      if (!belongsToSet) return;
+
+      const name = this._getTossedItemName(item);
+      activities.push({
+        id: `toss_${item.tossedAt}_${item.type}`,
+        timestamp: item.tossedAt,
+        action: 'delete',
+        entityType: item.type,
+        name: name,
+        details: this._getTossedItemMeta(item),
+        op: 'NUL',
+        canReverse: true,
+        reverseData: { type: 'restore_tossed', item }
+      });
+    });
+
+    // 2. Add activities from activity log that relate to this set
+    this.activityLog.forEach(act => {
+      const belongsToSet =
+        // Direct set operations
+        (act.entityType === 'set' && (
+          act.name === setName ||
+          act.reverseData?.setId === setId ||
+          act.details?.includes(`"${setName}"`)
+        )) ||
+        // View/field/record operations with setId
+        ((act.entityType === 'view' || act.entityType === 'record' || act.entityType === 'field') && (
+          act.reverseData?.setId === setId ||
+          act.details?.includes(`"${setName}"`) ||
+          act.details?.includes(`set "${setName}"`)
+        )) ||
+        // Import operations mentioning the set
+        (act.action === 'import' && act.details?.includes(setName));
+
+      if (!belongsToSet) return;
+
+      activities.push({
+        ...act,
+        canReverse: !!act.reverseData
+      });
+    });
+
+    // 3. Add field events from set's event stream
+    if (set.eventStream) {
+      set.eventStream.forEach(event => {
+        const actionMap = {
+          'field.created': 'create',
+          'field.deleted': 'delete',
+          'field.restored': 'restore',
+          'field.renamed': 'rename',
+          'field.type_changed': 'update',
+          'field.description_changed': 'update',
+          'field.definition_linked': 'link',
+          'field.definition_unlinked': 'update',
+          'field.duplicated': 'create'
+        };
+        const action = actionMap[event.type] || 'update';
+
+        activities.push({
+          id: event.id,
+          timestamp: event.timestamp,
+          action: action,
+          entityType: 'field',
+          name: event.target?.fieldName || event.changes?.name || 'Field',
+          details: this._getFieldEventDetails(event),
+          op: this._getOperatorForAction(action),
+          canReverse: false
+        });
+      });
+    }
+
+    // 4. Include set creation date as first event if available
+    if (set.createdAt) {
+      const existingCreation = activities.find(a =>
+        a.entityType === 'set' && a.action === 'create' &&
+        new Date(a.timestamp).getTime() === new Date(set.createdAt).getTime()
+      );
+      if (!existingCreation) {
+        const provenance = set.datasetProvenance;
+        let details = `${set.records?.length || 0} records, ${set.fields?.length || 0} fields`;
+        if (provenance?.sourceType) {
+          details = `From ${provenance.sourceType} import • ${details}`;
+        }
+        activities.push({
+          id: `set_created_${setId}`,
+          timestamp: set.createdAt,
+          action: 'create',
+          entityType: 'set',
+          name: setName,
+          details: details,
+          op: 'INS',
+          canReverse: false
+        });
+      }
+    }
+
+    // Sort by timestamp (newest first)
+    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    return activities;
+  }
+
+  /**
+   * Get EO operator symbol for an action
+   */
+  _getOperatorForAction(action) {
+    const map = {
+      'create': 'INS',
+      'update': 'ALT',
+      'delete': 'NUL',
+      'rename': 'DES',
+      'duplicate': 'SYN',
+      'restore': 'INS',
+      'link': 'CON',
+      'import': 'REC',
+      'export': 'REC'
+    };
+    return map[action] || 'ALT';
+  }
+
+  /**
+   * Get EO operator symbol for display
+   */
+  _getOperatorSymbol(op) {
+    const symbols = {
+      'INS': '⊕',
+      'DES': '⊙',
+      'SEG': '⊘',
+      'CON': '⊗',
+      'SYN': '≡',
+      'ALT': 'Δ',
+      'SUP': '∥',
+      'REC': '←',
+      'NUL': '∅'
+    };
+    return symbols[op] || '•';
+  }
+
+  /**
+   * Group activities by date for timeline display
+   */
+  _groupActivitiesByDate(activities) {
+    const groups = {};
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+
+    activities.forEach(activity => {
+      const date = new Date(activity.timestamp);
+      const activityDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+      let dateKey;
+      if (activityDate.getTime() === today.getTime()) {
+        dateKey = 'Today';
+      } else if (activityDate.getTime() === yesterday.getTime()) {
+        dateKey = 'Yesterday';
+      } else {
+        dateKey = activityDate.toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: activityDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+        });
+      }
+
+      if (!groups[dateKey]) {
+        groups[dateKey] = {
+          label: dateKey,
+          date: activityDate,
+          activities: []
+        };
+      }
+      groups[dateKey].activities.push(activity);
+    });
+
+    // Convert to array and sort by date (newest first)
+    return Object.values(groups).sort((a, b) => b.date - a.date);
+  }
+
+  /**
+   * Render Set History section for the Overview panel
+   */
+  _renderSetHistorySection(setId) {
+    const activities = this._getSetHistory(setId);
+    const groupedActivities = this._groupActivitiesByDate(activities);
+
+    if (activities.length === 0) {
+      return `
+        <div class="set-history-section">
+          <div class="set-history-header">
+            <h4><i class="ph ph-clock-counter-clockwise"></i> Set History</h4>
+          </div>
+          <div class="set-history-empty">
+            <i class="ph ph-clock"></i>
+            <span>No history recorded yet</span>
+          </div>
+        </div>
+      `;
+    }
+
+    // Show only first 10 activities in overview, with option to view all
+    const previewCount = 10;
+    const totalCount = activities.length;
+    const hasMore = totalCount > previewCount;
+
+    let timelineHtml = '';
+    let shownCount = 0;
+
+    for (const group of groupedActivities) {
+      if (shownCount >= previewCount) break;
+
+      timelineHtml += `
+        <div class="history-date-group">
+          <div class="history-date-marker">
+            <span class="history-date-dot"></span>
+            <span class="history-date-label">${group.label}</span>
+          </div>
+          <div class="history-date-items">
+      `;
+
+      for (const activity of group.activities) {
+        if (shownCount >= previewCount) break;
+
+        const time = new Date(activity.timestamp).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+        const opSymbol = this._getOperatorSymbol(activity.op);
+        const actionClass = activity.action || 'update';
+
+        timelineHtml += `
+          <div class="history-item" data-activity-id="${activity.id}">
+            <span class="history-item-time">${time}</span>
+            <span class="history-item-op ${actionClass}" title="${activity.op || ''}">${opSymbol}</span>
+            <div class="history-item-content">
+              <span class="history-item-action">${this._getHistoryActionText(activity)}</span>
+              ${activity.details ? `<span class="history-item-details">${this._escapeHtml(activity.details)}</span>` : ''}
+            </div>
+          </div>
+        `;
+        shownCount++;
+      }
+
+      timelineHtml += `
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="set-history-section">
+        <div class="set-history-header">
+          <h4><i class="ph ph-clock-counter-clockwise"></i> Set History</h4>
+          ${hasMore ? `<button class="set-history-view-all" data-set-id="${setId}">View All (${totalCount})</button>` : ''}
+        </div>
+        <div class="set-history-timeline">
+          ${timelineHtml}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Get human-readable action text for history item
+   */
+  _getHistoryActionText(activity) {
+    const entityLabels = {
+      'set': 'Set',
+      'record': 'record',
+      'field': 'field',
+      'view': 'view',
+      'source': 'source'
+    };
+
+    const actionVerbs = {
+      'create': 'Added',
+      'delete': 'Deleted',
+      'update': 'Updated',
+      'rename': 'Renamed',
+      'restore': 'Restored',
+      'link': 'Linked',
+      'import': 'Imported',
+      'export': 'Exported',
+      'duplicate': 'Duplicated'
+    };
+
+    const verb = actionVerbs[activity.action] || 'Modified';
+    const entity = entityLabels[activity.entityType] || activity.entityType;
+    const name = activity.name ? `"${activity.name}"` : '';
+
+    // Special case for set creation
+    if (activity.entityType === 'set' && activity.action === 'create') {
+      return `Set created`;
+    }
+
+    // Special case for bulk operations
+    if (activity.details?.match(/^\d+ records/)) {
+      return `${verb} ${activity.details.split(',')[0]}`;
+    }
+
+    return `${verb} ${entity} ${name}`.trim();
+  }
+
+  /**
+   * Show full set history modal
+   */
+  _showSetHistoryModal(setId) {
+    const set = this.sets.find(s => s.id === setId);
+    if (!set) return;
+
+    const activities = this._getSetHistory(setId);
+    const groupedActivities = this._groupActivitiesByDate(activities);
+
+    let timelineHtml = '';
+
+    for (const group of groupedActivities) {
+      timelineHtml += `
+        <div class="history-date-group">
+          <div class="history-date-marker">
+            <span class="history-date-dot"></span>
+            <span class="history-date-label">${group.label}</span>
+          </div>
+          <div class="history-date-items">
+      `;
+
+      for (const activity of group.activities) {
+        const time = new Date(activity.timestamp).toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+        const opSymbol = this._getOperatorSymbol(activity.op);
+        const actionClass = activity.action || 'update';
+        const canUndo = activity.canReverse && activity.reverseData;
+
+        timelineHtml += `
+          <div class="history-item history-item-full" data-activity-id="${activity.id}">
+            <span class="history-item-time">${time}</span>
+            <span class="history-item-op ${actionClass}" title="${activity.op || ''}">${opSymbol}</span>
+            <div class="history-item-content">
+              <span class="history-item-action">${this._getHistoryActionText(activity)}</span>
+              ${activity.details ? `<span class="history-item-details">${this._escapeHtml(activity.details)}</span>` : ''}
+            </div>
+            ${canUndo ? `<button class="history-item-undo" data-activity-id="${activity.id}" title="Undo">
+              <i class="ph ph-arrow-counter-clockwise"></i>
+            </button>` : ''}
+          </div>
+        `;
+      }
+
+      timelineHtml += `
+          </div>
+        </div>
+      `;
+    }
+
+    const modalContent = `
+      <div class="set-history-modal">
+        <div class="set-history-modal-header">
+          <div class="set-history-modal-stats">
+            <span><strong>${activities.length}</strong> changes tracked</span>
+            ${set.createdAt ? `<span>Created ${this._formatTimeAgo(set.createdAt)}</span>` : ''}
+          </div>
+        </div>
+        <div class="set-history-modal-timeline">
+          ${activities.length > 0 ? timelineHtml : `
+            <div class="set-history-empty">
+              <i class="ph ph-clock"></i>
+              <span>No history recorded yet</span>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+
+    this._showModal(`History: ${set.name}`, modalContent, null, {
+      showCancel: false,
+      confirmText: 'Close',
+      width: '600px'
+    });
+
+    // Attach undo handlers
+    setTimeout(() => {
+      document.querySelectorAll('.history-item-undo').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const activityId = btn.dataset.activityId;
+          this._reverseActivity(activityId);
+          this._closeModal();
+        });
+      });
+    }, 100);
   }
 
   _getFieldEventDetails(event) {
