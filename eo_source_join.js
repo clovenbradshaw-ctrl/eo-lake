@@ -10437,7 +10437,10 @@ class AddSourceToSetUI {
                 ${(preview.previewRecords || []).slice(0, 20).map(record => `
                   <tr>
                     ${this._getPreviewFields().map(f => {
-                      const value = record.values ? record.values[f.name] : record[f.name];
+                      // Try field.id first (for existing set records), then field.name (for mapped source records)
+                      const value = record.values
+                        ? (record.values[f.id] ?? record.values[f.name])
+                        : record[f.name];
                       return `<td>${this._escapeHtml(String(value ?? ''))}</td>`;
                     }).join('')}
                   </tr>
