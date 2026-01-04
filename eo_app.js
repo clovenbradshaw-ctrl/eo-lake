@@ -1852,12 +1852,82 @@ function clearSampleData() {
     wb.currentProjectId = null;
   }
 
+  // Clear current set/view/source/lens if they reference sample data
+  if (setIdsToRemove.has(wb.currentSetId)) {
+    wb.currentSetId = null;
+    wb.currentViewId = null;
+    wb.currentLensId = null;
+  }
+  if (sourceIdsToRemove.has(wb.currentSourceId)) {
+    wb.currentSourceId = null;
+  }
+
+  // Remove browser tabs that reference sample sets or sources
+  if (wb.browserTabs && wb.browserTabs.length > 0) {
+    wb.browserTabs = wb.browserTabs.filter(tab => {
+      if (tab.type === 'set' || tab.type === 'view' || tab.type === 'schema' || tab.type === 'lens') {
+        return !setIdsToRemove.has(tab.contentId);
+      }
+      if (tab.type === 'source') {
+        return !sourceIdsToRemove.has(tab.contentId);
+      }
+      return true;
+    });
+    // If active tab was removed, switch to first available tab
+    if (wb.activeTabId && !wb.browserTabs.find(t => t.id === wb.activeTabId)) {
+      if (wb.browserTabs.length > 0) {
+        wb.activeTabId = wb.browserTabs[0].id;
+        if (typeof wb._syncStateFromTab === 'function') {
+          wb._syncStateFromTab(wb.browserTabs[0]);
+        }
+      } else {
+        wb.activeTabId = null;
+      }
+    }
+  }
+
+  // Clean up expanded state for sample projects, sets, and lenses
+  if (wb.expandedProjects) {
+    for (const project of sampleProjects) {
+      delete wb.expandedProjects[project.id];
+    }
+  }
+  if (wb.expandedSets) {
+    for (const setId of setIdsToRemove) {
+      delete wb.expandedSets[setId];
+    }
+  }
+  if (wb.lastViewPerSet) {
+    for (const setId of setIdsToRemove) {
+      delete wb.lastViewPerSet[setId];
+    }
+  }
+  // Clean up expanded lenses state (lenses belong to sets, so we need to find them)
+  if (wb.expandedLenses) {
+    // Since sample sets have been removed, clear any orphaned lens references
+    for (const lensId of Object.keys(wb.expandedLenses)) {
+      // Check if any remaining set has this lens
+      const lensExists = (wb.sets || []).some(s =>
+        s.lenses?.some(l => l.id === lensId)
+      );
+      if (!lensExists) {
+        delete wb.expandedLenses[lensId];
+      }
+    }
+  }
+
   // Save and refresh
   if (typeof wb._saveData === 'function') {
     wb._saveData();
   }
   if (typeof wb._renderSidebar === 'function') {
     wb._renderSidebar();
+  }
+  if (typeof wb._renderTabBar === 'function') {
+    wb._renderTabBar();
+  }
+  if (typeof wb._renderView === 'function') {
+    wb._renderView();
   }
   if (typeof wb._updateBreadcrumb === 'function') {
     wb._updateBreadcrumb();
