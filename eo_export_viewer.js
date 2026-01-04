@@ -28,6 +28,7 @@ class ExportViewerState {
     this.timelinePosition = null;  // For provenance view
     this.expandedDefinitions = new Set();
     this.expandedVocabularies = new Set();
+    this.defTypeFilter = 'key';  // 'key' or 'value' - for Definitions tab toggle
     this.filters = {
       showOnlyDefined: false,
       fieldSearch: ''
@@ -47,6 +48,7 @@ class ExportViewerState {
     this.timelinePosition = null;
     this.expandedDefinitions.clear();
     this.expandedVocabularies.clear();
+    this.defTypeFilter = 'key';
   }
 
   toggleDefinition(uri) {
@@ -451,99 +453,323 @@ class ExportViewer {
   }
 
   /**
-   * Render definitions view (field definitions)
+   * Render definitions view (both key and value definitions)
    */
   _renderDefinitionsView() {
     const exp = this.state.exportData;
-    const definitions = exp.fieldDefinitions || {};
-    const defKeys = Object.keys(definitions);
+    const keyDefinitions = exp.fieldDefinitions || {};
+    const valueVocabularies = exp.valueDefinitions || {};
+    const keyDefKeys = Object.keys(keyDefinitions);
+    const vocabKeys = Object.keys(valueVocabularies);
 
-    if (defKeys.length === 0) {
+    // Collect all value definitions from vocabularies
+    const valueDefinitions = [];
+    for (const [vocabUri, vocab] of Object.entries(valueVocabularies)) {
+      for (const [valueKey, valueDef] of Object.entries(vocab.values || {})) {
+        valueDefinitions.push({
+          ...valueDef,
+          _vocabUri: vocabUri,
+          _vocabName: vocab.name,
+          _valueKey: valueKey
+        });
+      }
+    }
+
+    const hasKeyDefs = keyDefKeys.length > 0;
+    const hasValueDefs = valueDefinitions.length > 0;
+
+    if (!hasKeyDefs && !hasValueDefs) {
       return `
         <div class="empty-view">
           <i class="ph ph-book-open"></i>
-          <p>No field definitions in this export</p>
+          <p>No definitions in this export</p>
         </div>
       `;
     }
 
     return `
       <div class="definitions-view">
-        <div class="definitions-list">
-          ${defKeys.map(key => {
-            const def = definitions[key];
-            const isExpanded = this.state.expandedDefinitions.has(key);
+        <!-- Definition Type Toggle -->
+        <div class="def-type-tabs">
+          <button class="def-type-tab ${this.state.defTypeFilter !== 'value' ? 'active' : ''}"
+                  data-def-type="key">
+            <i class="ph ph-key"></i>
+            Key Definitions
+            <span class="tab-count">${keyDefKeys.length}</span>
+          </button>
+          <button class="def-type-tab ${this.state.defTypeFilter === 'value' ? 'active' : ''}"
+                  data-def-type="value">
+            <i class="ph ph-tag"></i>
+            Value Definitions
+            <span class="tab-count">${valueDefinitions.length}</span>
+          </button>
+        </div>
 
-            return `
-              <div class="definition-item ${isExpanded ? 'expanded' : ''}" data-def-key="${key}">
-                <div class="def-header" data-toggle-def="${key}">
-                  <div class="def-title">
-                    <i class="ph ph-caret-${isExpanded ? 'down' : 'right'}"></i>
-                    <span class="def-term">${def.term}</span>
-                  </div>
-                  <span class="def-uri">${def.semanticUri}</span>
-                </div>
-                ${isExpanded ? `
-                  <div class="def-body">
-                    <div class="def-section">
-                      <label>Definition</label>
-                      <p>${def.definition}</p>
-                    </div>
-                    <div class="def-meta">
-                      <div class="meta-row">
-                        <label>Version</label>
-                        <span>${def.version}</span>
-                      </div>
-                      <div class="meta-row">
-                        <label>Status</label>
-                        <span class="status-badge ${def.status}">${def.status}</span>
-                      </div>
-                      ${def.jurisdiction ? `
-                        <div class="meta-row">
-                          <label>Jurisdiction</label>
-                          <span>${def.jurisdiction}</span>
-                        </div>
-                      ` : ''}
-                      ${def.scale ? `
-                        <div class="meta-row">
-                          <label>Scale</label>
-                          <span>${def.scale}</span>
-                        </div>
-                      ` : ''}
-                      ${def.timeframe ? `
-                        <div class="meta-row">
-                          <label>Timeframe</label>
-                          <span>${def.timeframe}</span>
-                        </div>
-                      ` : ''}
-                    </div>
-                    ${def.background?.length > 0 ? `
-                      <div class="def-section">
-                        <label>Background</label>
-                        <ul class="background-list">
-                          ${def.background.map(b => `<li>${b}</li>`).join('')}
-                        </ul>
-                      </div>
-                    ` : ''}
-                    ${def.usageHistory?.length > 0 ? `
-                      <div class="def-section">
-                        <label>Usage History</label>
-                        <ul class="usage-history">
-                          ${def.usageHistory.map(h => `
-                            <li>
-                              <span class="history-action">${h.action}</span>
-                              <span class="history-time">${new Date(h.timestamp).toLocaleString()}</span>
-                              ${h.agent ? `<span class="history-agent">by ${h.agent}</span>` : ''}
-                            </li>
-                          `).join('')}
-                        </ul>
-                      </div>
-                    ` : ''}
-                  </div>
-                ` : ''}
+        <!-- Key Definitions Section -->
+        <div class="def-section-container ${this.state.defTypeFilter === 'value' ? 'hidden' : ''}">
+          <div class="def-section-header key-section">
+            <i class="ph ph-key"></i>
+            <h3>Key Definitions</h3>
+            <span class="section-subtitle">What do the column headers mean?</span>
+          </div>
+          ${hasKeyDefs ? `
+            <div class="definitions-list">
+              ${keyDefKeys.map(key => this._renderKeyDefinition(key, keyDefinitions[key])).join('')}
+            </div>
+          ` : `
+            <div class="empty-section">
+              <p>No key definitions yet</p>
+            </div>
+          `}
+        </div>
+
+        <!-- Value Definitions Section -->
+        <div class="def-section-container ${this.state.defTypeFilter !== 'value' ? 'hidden' : ''}">
+          <div class="def-section-header value-section">
+            <i class="ph ph-tag"></i>
+            <h3>Value Definitions</h3>
+            <span class="section-subtitle">What do specific values mean?</span>
+          </div>
+          ${hasValueDefs ? `
+            <div class="definitions-list">
+              ${valueDefinitions.map(vd => this._renderValueDefinition(vd)).join('')}
+            </div>
+          ` : `
+            <div class="empty-section">
+              <p>No value definitions yet</p>
+            </div>
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render a single key definition item
+   */
+  _renderKeyDefinition(key, def) {
+    const isExpanded = this.state.expandedDefinitions.has(key);
+
+    return `
+      <div class="definition-item key-def ${isExpanded ? 'expanded' : ''}" data-def-key="${key}">
+        <div class="def-header" data-toggle-def="${key}">
+          <div class="def-title">
+            <i class="ph ph-caret-${isExpanded ? 'down' : 'right'}"></i>
+            <span class="def-type-badge key">KEY</span>
+            <span class="def-term">${def.term}</span>
+          </div>
+          <span class="def-uri">${def.semanticUri || ''}</span>
+        </div>
+        ${isExpanded ? `
+          <div class="def-body">
+            <div class="def-section">
+              <label>Definition</label>
+              <p>${def.definition || 'No definition provided'}</p>
+            </div>
+            <div class="def-meta">
+              <div class="meta-row">
+                <label>Version</label>
+                <span>${def.version || '-'}</span>
               </div>
-            `;
-          }).join('')}
+              <div class="meta-row">
+                <label>Status</label>
+                <span class="status-badge ${def.status || 'stub'}">${def.status || 'stub'}</span>
+              </div>
+              ${def.jurisdiction ? `
+                <div class="meta-row">
+                  <label>Jurisdiction</label>
+                  <span>${def.jurisdiction}</span>
+                </div>
+              ` : ''}
+              ${def.scale ? `
+                <div class="meta-row">
+                  <label>Scale</label>
+                  <span>${def.scale}</span>
+                </div>
+              ` : ''}
+              ${def.timeframe ? `
+                <div class="meta-row">
+                  <label>Timeframe</label>
+                  <span>${def.timeframe}</span>
+                </div>
+              ` : ''}
+            </div>
+            ${def.background?.length > 0 ? `
+              <div class="def-section">
+                <label>Background</label>
+                <ul class="background-list">
+                  ${def.background.map(b => `<li>${b}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+            ${def.usageHistory?.length > 0 ? `
+              <div class="def-section">
+                <label>Usage History</label>
+                <ul class="usage-history">
+                  ${def.usageHistory.map(h => `
+                    <li>
+                      <span class="history-action">${h.action}</span>
+                      <span class="history-time">${new Date(h.timestamp).toLocaleString()}</span>
+                      ${h.agent ? `<span class="history-agent">by ${h.agent}</span>` : ''}
+                    </li>
+                  `).join('')}
+                </ul>
+              </div>
+            ` : ''}
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * Render a single value definition item
+   */
+  _renderValueDefinition(valueDef) {
+    const expandKey = `val:${valueDef._vocabUri}:${valueDef._valueKey}`;
+    const isExpanded = this.state.expandedDefinitions.has(expandKey);
+    const defSrc = valueDef.definitionSource;
+    const hasRichDef = defSrc && (defSrc.authority || defSrc.source || defSrc.jurisdiction);
+
+    return `
+      <div class="definition-item value-def ${isExpanded ? 'expanded' : ''} ${hasRichDef ? 'has-rich-def' : ''}"
+           data-def-key="${expandKey}">
+        <div class="def-header" data-toggle-def="${expandKey}">
+          <div class="def-title">
+            <i class="ph ph-caret-${isExpanded ? 'down' : 'right'}"></i>
+            <span class="def-type-badge value">VALUE</span>
+            <code class="def-value">${valueDef.value || valueDef._valueKey}</code>
+            <span class="def-term">${valueDef.term || valueDef.value}</span>
+          </div>
+          <div class="def-meta-inline">
+            ${hasRichDef ? '<i class="ph ph-seal-check" title="Has authoritative definition"></i>' : ''}
+            <span class="def-vocab-name">${valueDef._vocabName}</span>
+          </div>
+        </div>
+        ${isExpanded ? `
+          <div class="def-body">
+            <!-- Simple definition -->
+            <div class="def-section">
+              <label>Definition</label>
+              <p>${valueDef.definition || defSrc?.term?.definitionText || 'No definition provided'}</p>
+            </div>
+
+            <!-- Rich definition source (if available) -->
+            ${hasRichDef ? this._renderRichValueDefinition(defSrc) : ''}
+
+            <!-- Implications -->
+            ${valueDef.implications?.length > 0 ? `
+              <div class="def-section">
+                <label>Implications</label>
+                <ul class="implications-list">
+                  ${valueDef.implications.map(i => `<li><i class="ph ph-arrow-right"></i> ${i}</li>`).join('')}
+                </ul>
+              </div>
+            ` : ''}
+
+            <!-- Basic metadata -->
+            <div class="def-meta">
+              <div class="meta-row">
+                <label>Status</label>
+                <span class="status-badge ${valueDef.status || 'active'}">${valueDef.status || 'active'}</span>
+              </div>
+              ${valueDef.jurisdiction ? `
+                <div class="meta-row">
+                  <label>Jurisdiction</label>
+                  <span>${valueDef.jurisdiction}</span>
+                </div>
+              ` : ''}
+              ${valueDef.validFrom ? `
+                <div class="meta-row">
+                  <label>Valid From</label>
+                  <span>${valueDef.validFrom}</span>
+                </div>
+              ` : ''}
+              ${valueDef.validTo ? `
+                <div class="meta-row">
+                  <label>Valid To</label>
+                  <span>${valueDef.validTo}</span>
+                </div>
+              ` : ''}
+              <div class="meta-row">
+                <label>Vocabulary</label>
+                <span class="vocab-link">${valueDef._vocabUri}</span>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  /**
+   * Render rich definition source details for a value
+   */
+  _renderRichValueDefinition(defSrc) {
+    if (!defSrc) return '';
+
+    return `
+      <div class="rich-def-section">
+        <div class="rich-def-header">
+          <i class="ph ph-seal-check"></i>
+          <span>Authoritative Definition Source</span>
+        </div>
+
+        <!-- Authority -->
+        ${defSrc.authority ? `
+          <div class="def-subsection">
+            <label><i class="ph ph-buildings"></i> Authority</label>
+            <div class="authority-info">
+              <span class="authority-name">${defSrc.authority.name || 'Unknown'}</span>
+              ${defSrc.authority.shortName ? `<span class="authority-abbrev">(${defSrc.authority.shortName})</span>` : ''}
+              ${defSrc.authority.type ? `<span class="authority-type">${defSrc.authority.type.replace(/_/g, ' ')}</span>` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Source Document -->
+        ${defSrc.source ? `
+          <div class="def-subsection">
+            <label><i class="ph ph-file-text"></i> Source</label>
+            <div class="source-info">
+              ${defSrc.source.citation ? `<span class="source-citation">${defSrc.source.citation}</span>` : ''}
+              ${defSrc.source.title ? `<span class="source-title">${defSrc.source.title}</span>` : ''}
+              ${defSrc.source.section ? `<span class="source-section">§${defSrc.source.section}</span>` : ''}
+              ${defSrc.source.url ? `<a href="${defSrc.source.url}" target="_blank" class="source-url"><i class="ph ph-arrow-square-out"></i> View Source</a>` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Jurisdiction -->
+        ${defSrc.jurisdiction ? `
+          <div class="def-subsection">
+            <label><i class="ph ph-map-pin"></i> Jurisdiction</label>
+            <div class="jurisdiction-info">
+              ${defSrc.jurisdiction.geographic ? `<span class="jurisdiction-geo">${defSrc.jurisdiction.geographic}</span>` : ''}
+              ${defSrc.jurisdiction.programs?.length > 0 ? `
+                <span class="jurisdiction-programs">Programs: ${defSrc.jurisdiction.programs.join(', ')}</span>
+              ` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Validity -->
+        ${defSrc.validity ? `
+          <div class="def-subsection">
+            <label><i class="ph ph-calendar"></i> Validity</label>
+            <div class="validity-info">
+              ${defSrc.validity.from ? `<span>Effective: ${defSrc.validity.from}</span>` : ''}
+              ${defSrc.validity.to ? `<span>Until: ${defSrc.validity.to}</span>` : ''}
+              ${defSrc.validity.supersedes ? `<span>Supersedes: ${defSrc.validity.supersedes}</span>` : ''}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Definition Status -->
+        <div class="def-subsection">
+          <label><i class="ph ph-flag"></i> Definition Status</label>
+          <span class="status-badge ${defSrc.status || 'stub'}">${defSrc.status || 'stub'}</span>
+          ${defSrc.populationMethod ? `<span class="population-method">(${defSrc.populationMethod})</span>` : ''}
         </div>
       </div>
     `;
@@ -891,6 +1117,14 @@ class ExportViewer {
       el.addEventListener('click', (e) => {
         const key = e.currentTarget.dataset.toggleDef;
         this.state.toggleDefinition(key);
+        this.render();
+      });
+    });
+
+    // Definition type tabs (Key vs Value)
+    this.container.querySelectorAll('.def-type-tab').forEach(tab => {
+      tab.addEventListener('click', (e) => {
+        this.state.defTypeFilter = e.currentTarget.dataset.defType;
         this.render();
       });
     });
@@ -1435,11 +1669,179 @@ class ExportViewer {
       }
 
       /* Definitions View */
+
+      /* Definition Type Tabs (Key vs Value toggle) */
+      .def-type-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 16px;
+        padding: 4px;
+        background: var(--bg-secondary, #f8f8f8);
+        border-radius: 8px;
+      }
+
+      .def-type-tab {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 16px;
+        border: none;
+        background: transparent;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-muted, #666);
+        transition: all 0.15s ease;
+      }
+
+      .def-type-tab:hover {
+        background: var(--bg-hover, #e8e8e8);
+      }
+
+      .def-type-tab.active {
+        background: var(--bg-primary, #fff);
+        color: var(--primary, #0066cc);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      }
+
+      .def-type-tab .tab-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        background: var(--bg-secondary, #e8e8e8);
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .def-type-tab.active .tab-count {
+        background: var(--primary-light, #e6f0ff);
+        color: var(--primary, #0066cc);
+      }
+
+      /* Section containers */
+      .def-section-container {
+        margin-bottom: 24px;
+      }
+
+      .def-section-container.hidden {
+        display: none;
+      }
+
+      .def-section-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 0;
+        border-bottom: 2px solid var(--border-color, #e0e0e0);
+        margin-bottom: 12px;
+      }
+
+      .def-section-header.key-section {
+        border-bottom-color: #0066cc;
+      }
+
+      .def-section-header.key-section i {
+        color: #0066cc;
+      }
+
+      .def-section-header.value-section {
+        border-bottom-color: #8b5cf6;
+      }
+
+      .def-section-header.value-section i {
+        color: #8b5cf6;
+      }
+
+      .def-section-header h3 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .def-section-header .section-subtitle {
+        font-size: 12px;
+        color: var(--text-muted, #888);
+        margin-left: auto;
+      }
+
+      .empty-section {
+        padding: 24px;
+        text-align: center;
+        color: var(--text-muted, #888);
+        background: var(--bg-secondary, #f8f8f8);
+        border-radius: 8px;
+      }
+
+      /* Definition Items */
       .definition-item {
         background: var(--bg-secondary, #f8f8f8);
         border-radius: 6px;
         margin-bottom: 8px;
         overflow: hidden;
+        border-left: 3px solid transparent;
+      }
+
+      .definition-item.key-def {
+        border-left-color: #0066cc;
+      }
+
+      .definition-item.value-def {
+        border-left-color: #8b5cf6;
+      }
+
+      .definition-item.has-rich-def {
+        background: linear-gradient(to right, #f0f7ff, var(--bg-secondary, #f8f8f8));
+      }
+
+      .def-type-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+
+      .def-type-badge.key {
+        background: #e6f0ff;
+        color: #0066cc;
+      }
+
+      .def-type-badge.value {
+        background: #f3e8ff;
+        color: #8b5cf6;
+      }
+
+      .def-value {
+        font-family: monospace;
+        background: var(--bg-primary, #fff);
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 12px;
+      }
+
+      .def-meta-inline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--text-muted, #888);
+      }
+
+      .def-meta-inline i.ph-seal-check {
+        color: #10b981;
+      }
+
+      .def-vocab-name {
+        font-style: italic;
       }
 
       .def-header {
@@ -1496,6 +1898,146 @@ class ExportViewer {
         flex-direction: column;
       }
 
+      /* Implications list */
+      .implications-list {
+        list-style: none;
+        padding: 0;
+        margin: 8px 0 0 0;
+      }
+
+      .implications-list li {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 0;
+        font-size: 13px;
+      }
+
+      .implications-list li i {
+        color: var(--primary, #0066cc);
+        font-size: 12px;
+      }
+
+      /* Rich definition source section */
+      .rich-def-section {
+        background: var(--bg-primary, #fff);
+        border: 1px solid var(--border-color, #e0e0e0);
+        border-radius: 8px;
+        padding: 12px;
+        margin: 12px 0;
+      }
+
+      .rich-def-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-bottom: 8px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--border-color, #e0e0e0);
+        font-weight: 600;
+        font-size: 12px;
+        color: #10b981;
+      }
+
+      .rich-def-header i {
+        font-size: 16px;
+      }
+
+      .def-subsection {
+        margin-bottom: 10px;
+        padding-bottom: 10px;
+        border-bottom: 1px dashed var(--border-color, #e8e8e8);
+      }
+
+      .def-subsection:last-child {
+        margin-bottom: 0;
+        padding-bottom: 0;
+        border-bottom: none;
+      }
+
+      .def-subsection > label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-muted, #666);
+        text-transform: uppercase;
+        margin-bottom: 4px;
+      }
+
+      .def-subsection > label i {
+        font-size: 12px;
+      }
+
+      .authority-info,
+      .source-info,
+      .jurisdiction-info,
+      .validity-info {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 13px;
+      }
+
+      .authority-name,
+      .source-citation {
+        font-weight: 600;
+      }
+
+      .authority-abbrev {
+        color: var(--text-muted, #888);
+      }
+
+      .authority-type {
+        background: var(--bg-secondary, #f0f0f0);
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 11px;
+        text-transform: capitalize;
+      }
+
+      .source-title {
+        font-style: italic;
+      }
+
+      .source-section {
+        font-family: monospace;
+        background: var(--bg-secondary, #f0f0f0);
+        padding: 2px 6px;
+        border-radius: 3px;
+      }
+
+      .source-url {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        color: var(--primary, #0066cc);
+        text-decoration: none;
+        font-size: 12px;
+      }
+
+      .source-url:hover {
+        text-decoration: underline;
+      }
+
+      .jurisdiction-programs {
+        font-size: 12px;
+        color: var(--text-muted, #888);
+      }
+
+      .population-method {
+        font-size: 11px;
+        color: var(--text-muted, #888);
+        margin-left: 4px;
+      }
+
+      .vocab-link {
+        font-family: monospace;
+        font-size: 11px;
+        color: var(--primary, #0066cc);
+      }
+
       .status-badge {
         display: inline-block;
         padding: 2px 6px;
@@ -1505,7 +2047,9 @@ class ExportViewer {
       }
 
       .status-badge.active,
-      .status-badge.stable {
+      .status-badge.stable,
+      .status-badge.complete,
+      .status-badge.verified {
         background: #e6ffe6;
         color: #008800;
       }
@@ -1516,7 +2060,9 @@ class ExportViewer {
       }
 
       .status-badge.provisional,
-      .status-badge.draft {
+      .status-badge.draft,
+      .status-badge.stub,
+      .status-badge.partial {
         background: #fff6e6;
         color: #886600;
       }

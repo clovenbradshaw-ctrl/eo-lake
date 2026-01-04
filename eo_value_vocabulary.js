@@ -41,6 +41,11 @@ const ValueChangeType = Object.freeze({
 
 /**
  * ValueDefinition - The meaning of a single value within a vocabulary
+ *
+ * Supports two levels of definition:
+ * - Simple: A plain text `definition` string for quick display
+ * - Rich: A full `definitionSource` object with authority, citation, jurisdiction, etc.
+ *   (Same structure as DefinitionSource used for field/key definitions)
  */
 class ValueDefinition {
   /**
@@ -48,7 +53,8 @@ class ValueDefinition {
    * @param {string} options.value - The actual value (e.g., "active", "US", "P1")
    * @param {string} options.uri - Semantic URI for this value
    * @param {string} options.term - Human-readable term/label
-   * @param {string} options.definition - What this value means
+   * @param {string} options.definition - What this value means (simple text)
+   * @param {Object} options.definitionSource - Rich definition with authority, source, etc.
    * @param {string[]} options.implications - What using this value implies
    * @param {string} options.jurisdiction - Authority context for this value
    * @param {string} options.validFrom - When this value became valid
@@ -64,7 +70,89 @@ class ValueDefinition {
     this.definition = options.definition || '';
     this.implications = Array.isArray(options.implications) ? [...options.implications] : [];
 
-    // Context
+    // Rich definition source (same structure as DefinitionSource for keys)
+    // This allows values to have full regulatory/legal definition support
+    this.definitionSource = options.definitionSource ? {
+      // Status and population tracking
+      status: options.definitionSource.status || 'stub',
+      populationMethod: options.definitionSource.populationMethod || 'pending',
+
+      // Term info
+      term: options.definitionSource.term ? {
+        term: options.definitionSource.term.term || this.value,
+        label: options.definitionSource.term.label || this.term,
+        asWritten: options.definitionSource.term.asWritten || null,
+        definitionText: options.definitionSource.term.definitionText || this.definition || null,
+        categories: Array.isArray(options.definitionSource.term.categories)
+          ? [...options.definitionSource.term.categories] : null
+      } : null,
+
+      // Authority (who defines this value's meaning)
+      authority: options.definitionSource.authority ? {
+        name: options.definitionSource.authority.name || null,
+        shortName: options.definitionSource.authority.shortName || null,
+        uri: options.definitionSource.authority.uri || null,
+        type: options.definitionSource.authority.type || null
+      } : null,
+
+      // Source document (where this value is defined)
+      source: options.definitionSource.source ? {
+        title: options.definitionSource.source.title || null,
+        citation: options.definitionSource.source.citation || null,
+        section: options.definitionSource.source.section || null,
+        url: options.definitionSource.source.url || null,
+        type: options.definitionSource.source.type || null
+      } : null,
+
+      // Version
+      version: options.definitionSource.version ? {
+        id: options.definitionSource.version.id || null,
+        published: options.definitionSource.version.published || null
+      } : null,
+
+      // Validity period
+      validity: options.definitionSource.validity ? {
+        from: options.definitionSource.validity.from || null,
+        to: options.definitionSource.validity.to || null,
+        supersedes: options.definitionSource.validity.supersedes || null,
+        supersededBy: options.definitionSource.validity.supersededBy || null
+      } : null,
+
+      // Jurisdiction scope
+      jurisdiction: options.definitionSource.jurisdiction ? {
+        geographic: options.definitionSource.jurisdiction.geographic || null,
+        programs: Array.isArray(options.definitionSource.jurisdiction.programs)
+          ? [...options.definitionSource.jurisdiction.programs] : null
+      } : null,
+
+      // Discovery origin (which field/source this value was found in)
+      discoveredFrom: options.definitionSource.discoveredFrom ? {
+        sourceId: options.definitionSource.discoveredFrom.sourceId || null,
+        sourceName: options.definitionSource.discoveredFrom.sourceName || null,
+        fieldId: options.definitionSource.discoveredFrom.fieldId || null,
+        fieldName: options.definitionSource.discoveredFrom.fieldName || null,
+        vocabularyUri: options.definitionSource.discoveredFrom.vocabularyUri || null,
+        discoveredAt: options.definitionSource.discoveredFrom.discoveredAt || new Date().toISOString()
+      } : null,
+
+      // API suggestions for user selection
+      apiSuggestions: Array.isArray(options.definitionSource.apiSuggestions)
+        ? [...options.definitionSource.apiSuggestions] : [],
+
+      // URI source tracking for modification detection
+      uriSource: options.definitionSource.uriSource ? {
+        uri: options.definitionSource.uriSource.uri || null,
+        source: options.definitionSource.uriSource.source || null,
+        label: options.definitionSource.uriSource.label || null,
+        populatedAt: options.definitionSource.uriSource.populatedAt || null,
+        originalValues: options.definitionSource.uriSource.originalValues
+          ? JSON.parse(JSON.stringify(options.definitionSource.uriSource.originalValues)) : null
+      } : null,
+
+      modifiedFromSource: options.definitionSource.modifiedFromSource || false
+    } : null;
+
+    // Context (legacy fields, also available in definitionSource)
     this.jurisdiction = options.jurisdiction || null;
     this.validFrom = options.validFrom || null;
     this.validTo = options.validTo || null;
@@ -88,6 +176,44 @@ class ValueDefinition {
   }
 
   /**
+   * Check if this value has a rich definition source
+   */
+  get hasDefinitionSource() {
+    return this.definitionSource !== null;
+  }
+
+  /**
+   * Get the definition text (prefers definitionSource.term.definitionText if available)
+   */
+  get definitionText() {
+    if (this.definitionSource?.term?.definitionText) {
+      return this.definitionSource.term.definitionText;
+    }
+    return this.definition;
+  }
+
+  /**
+   * Get the authority info if available
+   */
+  get authority() {
+    return this.definitionSource?.authority || null;
+  }
+
+  /**
+   * Get the source citation if available
+   */
+  get sourceCitation() {
+    return this.definitionSource?.source?.citation || null;
+  }
+
+  /**
+   * Get the definition status
+   */
+  get definitionStatus() {
+    return this.definitionSource?.status || (this.definition ? 'complete' : 'stub');
+  }
+
+  /**
    * Check if this value is currently valid
    */
   get isValid() {
@@ -108,7 +234,7 @@ class ValueDefinition {
   }
 
   toJSON() {
-    return {
+    const json = {
       value: this.value,
       uri: this.uri,
       term: this.term,
@@ -127,6 +253,13 @@ class ValueDefinition {
       updatedAt: this.updatedAt,
       updatedBy: this.updatedBy
     };
+
+    // Include definitionSource if present
+    if (this.definitionSource) {
+      json.definitionSource = JSON.parse(JSON.stringify(this.definitionSource));
+    }
+
+    return json;
   }
 
   static fromJSON(json) {
@@ -867,6 +1000,110 @@ function getSeededVocabularies() {
           term: 'Low',
           definition: 'Non-urgent, address when time permits',
           implications: ['Best effort', 'May be deferred']
+        }
+      }
+    },
+    {
+      name: 'HUD Housing Status',
+      uri: 'eo://vocabulary/hud-housing-status',
+      description: 'Housing status categories as defined by HUD for homeless assistance programs',
+      maintainer: 'external:hud',
+      externalSource: 'https://www.ecfr.gov/current/title-24/subtitle-B/chapter-V/subchapter-C/part-578',
+      values: {
+        'chronically_homeless': {
+          value: 'chronically_homeless',
+          term: 'Chronically Homeless',
+          definition: 'An individual or family that is homeless and lives in a place not meant for human habitation, a safe haven, or in an emergency shelter, and has been homeless continuously for at least 12 months or on at least 4 separate occasions in the last 3 years.',
+          implications: [
+            'Priority for permanent supportive housing',
+            'Eligible for chronic homeless set-aside beds',
+            'Requires documentation of disability'
+          ],
+          definitionSource: {
+            status: 'verified',
+            populationMethod: 'api_lookup',
+            term: {
+              term: 'chronically_homeless',
+              label: 'Chronically Homeless',
+              asWritten: 'Chronically homeless',
+              definitionText: 'A homeless individual with a disability who lives either in a place not meant for human habitation, a safe haven, or in an emergency shelter, or in an institutional care facility if the individual has been living in the facility for fewer than 90 days and had been living in a place not meant for human habitation, a safe haven, or in an emergency shelter immediately before entering the institutional care facility. The individual also must have been living as described above continuously for at least 12 months, or on at least four separate occasions in the last 3 years, where the combined occasions total a length of time of at least 12 months.',
+              categories: ['Category 1', 'Disability Required']
+            },
+            authority: {
+              name: 'U.S. Department of Housing and Urban Development',
+              shortName: 'HUD',
+              uri: 'https://www.wikidata.org/wiki/Q827381',
+              type: 'federal_agency'
+            },
+            source: {
+              title: 'Continuum of Care Program',
+              citation: '24 CFR 578.3',
+              section: 'Definitions',
+              url: 'https://www.ecfr.gov/current/title-24/subtitle-B/chapter-V/subchapter-C/part-578/subpart-A/section-578.3',
+              type: 'regulation'
+            },
+            validity: {
+              from: '2012-12-05',
+              to: null
+            },
+            jurisdiction: {
+              geographic: 'United States',
+              programs: ['CoC Program', 'ESG Program']
+            }
+          }
+        },
+        'literally_homeless': {
+          value: 'literally_homeless',
+          term: 'Literally Homeless (Category 1)',
+          definition: 'Individual or family who lacks a fixed, regular, and adequate nighttime residence.',
+          implications: [
+            'Eligible for emergency shelter',
+            'Eligible for transitional housing',
+            'Eligible for rapid rehousing'
+          ],
+          definitionSource: {
+            status: 'complete',
+            populationMethod: 'api_lookup',
+            term: {
+              term: 'literally_homeless',
+              label: 'Literally Homeless',
+              asWritten: 'Category 1: Literally Homeless',
+              definitionText: 'Individual or family who lacks a fixed, regular, and adequate nighttime residence, meaning: has a primary nighttime residence that is a public or private place not designed for or ordinarily used as a regular sleeping accommodation for human beings; or is living in a publicly or privately operated shelter designated to provide temporary living arrangements.',
+              categories: ['Category 1']
+            },
+            authority: {
+              name: 'U.S. Department of Housing and Urban Development',
+              shortName: 'HUD',
+              type: 'federal_agency'
+            },
+            source: {
+              citation: '24 CFR 578.3',
+              type: 'regulation'
+            },
+            jurisdiction: {
+              geographic: 'United States',
+              programs: ['CoC Program', 'ESG Program']
+            }
+          }
+        },
+        'at_risk': {
+          value: 'at_risk',
+          term: 'At Risk of Homelessness',
+          definition: 'Individual or family at imminent risk of losing housing within 14 days.',
+          implications: [
+            'Eligible for homelessness prevention',
+            'May require income documentation',
+            'Priority based on severity of risk'
+          ]
+        },
+        'stably_housed': {
+          value: 'stably_housed',
+          term: 'Stably Housed',
+          definition: 'Individual or family in permanent housing with reasonable expectation of continued tenancy.',
+          implications: [
+            'Not eligible for homeless-dedicated housing',
+            'May be eligible for other housing assistance'
+          ]
         }
       }
     }
