@@ -33563,6 +33563,11 @@ body.has-picked-up .browser-tab:hover {
   color: var(--success-600, #16a34a);
 }
 
+.new-tab-shortcut-icon.new-view {
+  background: var(--cyan-100, #cffafe);
+  color: var(--cyan-600, #0891b2);
+}
+
 .new-tab-shortcut span {
   font-size: 12px;
   color: var(--text-secondary, #6b7280);

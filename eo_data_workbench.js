@@ -1590,6 +1590,12 @@ class EODataWorkbench {
             </div>
             <span>Import</span>
           </button>
+          <button class="new-tab-shortcut" data-action="new-view">
+            <div class="new-tab-shortcut-icon new-view">
+              <i class="ph ph-squares-four"></i>
+            </div>
+            <span>New View</span>
+          </button>
         </div>
 
         ${recentSets.length > 0 ? `
@@ -1650,6 +1656,9 @@ class EODataWorkbench {
             break;
           case 'import':
             this._showImportDialog();
+            break;
+          case 'new-view':
+            this._showNewViewFromNewTab();
             break;
         }
       });
@@ -4788,6 +4797,116 @@ class EODataWorkbench {
     this._renderView();
     this._updateBreadcrumb();
     this._saveData();
+  }
+
+  /**
+   * Show dialog to create a new view from New Tab page
+   * Allows user to select a set first, then create view or lens
+   */
+  _showNewViewFromNewTab() {
+    const sets = this._getProjectSets();
+
+    if (sets.length === 0) {
+      this._showToast('No sets available. Create a set first.', 'warning');
+      return;
+    }
+
+    const viewTypes = [
+      { type: 'table', name: 'Table', icon: 'ph-table', desc: 'Spreadsheet-style rows and columns' },
+      { type: 'cards', name: 'Cards', icon: 'ph-cards', desc: 'Visual cards for each record' },
+      { type: 'kanban', name: 'Kanban', icon: 'ph-kanban', desc: 'Drag-and-drop board by status' },
+      { type: 'calendar', name: 'Calendar', icon: 'ph-calendar-blank', desc: 'Date-based calendar view' },
+      { type: 'graph', name: 'Graph', icon: 'ph-graph', desc: 'Network visualization of relationships' },
+      { type: 'filesystem', name: 'Filesystem', icon: 'ph-folder-open', desc: 'Hierarchical tree structure' }
+    ];
+
+    const html = `
+      <div class="create-view-form">
+        <div class="form-group">
+          <label for="view-set-select" class="form-label">Select Set</label>
+          <select id="view-set-select" class="form-select">
+            ${sets.map(set => `
+              <option value="${set.id}">${this._escapeHtml(set.name)} (${(set.records || []).length} records)</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="view-name" class="form-label">View Name</label>
+          <input type="text" id="view-name" class="form-input" placeholder="My View" value="New View">
+        </div>
+        <div class="form-group">
+          <label class="form-label">View Type</label>
+          <div class="view-type-grid">
+            ${viewTypes.map(vt => `
+              <div class="view-type-option" data-type="${vt.type}">
+                <i class="ph ${vt.icon}"></i>
+                <span class="view-type-name">${vt.name}</span>
+                <span class="view-type-desc">${vt.desc}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+
+    this._showModal('Create New View', html, () => {
+      const setId = document.getElementById('view-set-select')?.value;
+      const name = document.getElementById('view-name')?.value || 'New View';
+      const selectedType = document.querySelector('.view-type-option.selected')?.dataset.type || 'table';
+
+      const set = this.sets.find(s => s.id === setId);
+      if (!set) {
+        this._showToast('Please select a set', 'error');
+        return;
+      }
+
+      // Ensure views array exists
+      if (!set.views) {
+        set.views = [];
+      }
+
+      const newView = createView(name, selectedType);
+      set.views.push(newView);
+
+      // Switch to the set and new view
+      this.currentSetId = set.id;
+      this.currentViewId = newView.id;
+      this.lastViewPerSet[set.id] = newView.id;
+
+      // Open the set tab with the new view
+      this.openTab('set', {
+        contentId: set.id,
+        title: set.name,
+        icon: set.icon || 'ph-table'
+      });
+
+      // Record activity
+      this._recordActivity({
+        action: 'create',
+        entityType: 'view',
+        name: name,
+        details: `${selectedType} view in "${set.name}"`
+      });
+
+      this._renderSidebar();
+      this._renderView();
+      this._updateBreadcrumb();
+      this._saveData();
+      this._showToast(`Created "${name}" view in "${set.name}"`, 'success');
+    });
+
+    // Handle view type selection
+    setTimeout(() => {
+      const options = document.querySelectorAll('.view-type-option');
+      options.forEach(opt => {
+        opt.addEventListener('click', () => {
+          options.forEach(o => o.classList.remove('selected'));
+          opt.classList.add('selected');
+        });
+      });
+      // Default select table
+      options[0]?.classList.add('selected');
+    }, 0);
   }
 
   /**
