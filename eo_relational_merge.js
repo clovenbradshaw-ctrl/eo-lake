@@ -521,11 +521,15 @@ class RelationalMergeUI {
     const currentValue = this.config[questionId];
     const isSet = currentValue !== null;
 
+    // Check if this question needs attention (others are answered but this isn't)
+    const otherAnswered = this._hasAnyOtherAnswers(questionId);
+    const needsAttention = !isSet && otherAnswered;
+
     // Get SQL crosswalk hint for this question type
     const sqlCrosswalk = this._getSqlCrosswalk(questionId);
 
     return `
-      <div class="rm-panel ${isSet ? 'rm-panel-set' : ''}" data-panel="${questionId}">
+      <div class="rm-panel ${isSet ? 'rm-panel-set' : ''} ${needsAttention ? 'rm-panel-needs-attention' : ''}" data-panel="${questionId}">
         <div class="rm-panel-header">
           <h3><i class="ph ${this._getQuestionIcon(questionId)}"></i> ${title}</h3>
           <span class="rm-panel-question">${question}</span>
@@ -600,15 +604,29 @@ class RelationalMergeUI {
     }
   }
 
+  _hasAnyOtherAnswers(questionId) {
+    const questions = ['recognition', 'boundary', 'resolution'];
+    return questions.some(q => q !== questionId && this.config[q] !== null);
+  }
+
   _renderPositionSummary() {
     if (!this.config.isComplete()) {
+      const missing = [];
+      if (!this.config.recognition) missing.push('1. Which Rows to Include');
+      if (!this.config.boundary) missing.push('2. Handle Unmatched Rows');
+      if (!this.config.resolution) missing.push('3. Output Type');
+
+      const missingText = missing.length === 3
+        ? 'Answer all three questions to define the merge position.'
+        : `Still need: ${missing.join(', ')}`;
+
       return `
         <div class="rm-phase-summary rm-phase-incomplete">
           <div class="rm-phase-header">
             <i class="ph ph-compass"></i>
             <span>Merge Position</span>
           </div>
-          <p class="rm-phase-message">Answer all three questions to define the merge position.</p>
+          <p class="rm-phase-message">${missingText}</p>
         </div>
       `;
     }
@@ -1081,6 +1099,7 @@ class RelationalMergeUI {
     if (currentIndex < steps.length - 1) {
       this._currentStep = steps[currentIndex + 1];
       this._render();
+      this._scrollBodyToTop();
     }
   }
 
@@ -1090,6 +1109,14 @@ class RelationalMergeUI {
     if (currentIndex > 0) {
       this._currentStep = steps[currentIndex - 1];
       this._render();
+      this._scrollBodyToTop();
+    }
+  }
+
+  _scrollBodyToTop() {
+    const body = this.container.querySelector('.relational-merge-body');
+    if (body) {
+      body.scrollTop = 0;
     }
   }
 

@@ -35455,6 +35455,24 @@ td.cell-editable.has-history:hover .cell-history-indicator {
   background: linear-gradient(135deg, rgba(0, 112, 243, 0.03) 0%, var(--bg-secondary) 100%);
 }
 
+.rm-panel.rm-panel-needs-attention {
+  border-color: var(--warning-color, #f59e0b);
+  animation: rm-attention-pulse 2s ease-in-out infinite;
+}
+
+.rm-panel.rm-panel-needs-attention .rm-panel-header h3 {
+  color: var(--warning-color, #f59e0b);
+}
+
+@keyframes rm-attention-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2);
+  }
+}
+
 .rm-panel-header {
   display: flex;
   align-items: baseline;
