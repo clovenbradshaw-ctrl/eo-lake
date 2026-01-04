@@ -18764,7 +18764,7 @@ body.has-picked-up .browser-tab:hover {
   gap: 16px;
 }
 
-.sources-table-empty i {
+.sources-table-empty > i {
   font-size: 64px;
   opacity: 0.4;
 }
