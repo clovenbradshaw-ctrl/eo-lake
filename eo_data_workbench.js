@@ -29651,6 +29651,21 @@ class EODataWorkbench {
         return;
       }
 
+      // Link chip click - navigate to linked record details
+      const linkChip = target.closest('.link-chip');
+      if (linkChip && linkChip.dataset.linkedId) {
+        e.stopPropagation(); // Prevent row click
+        const linkedRecordId = linkChip.dataset.linkedId;
+        // Find the field to get the linked set ID
+        const cell = linkChip.closest('td[data-field-id]');
+        const fieldId = cell?.dataset.fieldId;
+        const set = this.getCurrentSet();
+        const field = set?.fields?.find(f => f.id === fieldId);
+        const linkedSetId = field?.options?.linkedSetId;
+        this._showLinkedRecordDetail(linkedRecordId, linkedSetId);
+        return;
+      }
+
       // Row click for detail panel (but not on checkboxes or editing cells)
       if (target.type !== 'checkbox' && !target.closest('.cell-editing')) {
         const row = target.closest('tr[data-record-id]');
@@ -37280,7 +37295,296 @@ class EODataWorkbench {
       });
     });
 
+    // Link chip click handlers in detail panel
+    body.querySelectorAll('.link-chip').forEach(el => {
+      el.addEventListener('click', () => {
+        const linkedId = el.dataset.linkedId;
+        const fieldId = el.closest('.detail-field-group')?.dataset.fieldId;
+        const field = set?.fields?.find(f => f.id === fieldId);
+        const linkedSetId = field?.options?.linkedSetId;
+        if (linkedId) {
+          this._showLinkedRecordDetail(linkedId, linkedSetId);
+        }
+      });
+    });
+
     this._openDetailPanel();
+  }
+
+  /**
+   * Show linked record details from any set (used when clicking on link chips)
+   * @param {string} linkedRecordId - The ID of the linked record to show
+   * @param {string} linkedSetId - The ID of the set containing the linked record
+   * @param {object} context - Optional context about where we navigated from
+   */
+  _showLinkedRecordDetail(linkedRecordId, linkedSetId, context = null) {
+    // Find the linked set
+    const linkedSet = linkedSetId ? this.sets?.find(s => s.id === linkedSetId) : null;
+
+    // If no linked set specified, try to find the record across all sets
+    let record, targetSet;
+    if (linkedSet) {
+      record = linkedSet.records?.find(r => r.id === linkedRecordId);
+      targetSet = linkedSet;
+    } else {
+      // Search across all sets
+      for (const set of this.sets) {
+        record = set.records?.find(r => r.id === linkedRecordId);
+        if (record) {
+          targetSet = set;
+          break;
+        }
+      }
+    }
+
+    if (!record || !targetSet) {
+      this._showToast(`Linked record not found: ${linkedRecordId}`, 'warning');
+      return;
+    }
+
+    const panel = this.elements.detailPanel;
+    const body = document.getElementById('detail-panel-body');
+    if (!panel || !body) return;
+
+    // Store navigation context for back button
+    if (!this._detailNavigationStack) {
+      this._detailNavigationStack = [];
+    }
+
+    // Push current detail to stack if there's one open (for back navigation)
+    if (this.currentDetailRecordId && context !== 'back') {
+      this._detailNavigationStack.push({
+        recordId: this.currentDetailRecordId,
+        setId: this.getCurrentSet()?.id
+      });
+    }
+
+    // Clear stack if this is a back navigation
+    if (context === 'back') {
+      // Stack is already popped by the back button handler
+    }
+
+    this.currentDetailRecordId = linkedRecordId;
+    this._currentDetailSetId = targetSet.id;
+
+    const currentSet = this.getCurrentSet();
+    const isFromDifferentSet = currentSet?.id !== targetSet.id;
+    const fields = targetSet.fields || [];
+    const primaryField = fields.find(f => f.isPrimary) || fields[0];
+    const title = record.values[primaryField?.id] || 'Untitled';
+
+    // Build breadcrumb if viewing record from different set
+    const breadcrumbHtml = isFromDifferentSet ? `
+      <div class="linked-record-breadcrumb">
+        <button class="linked-record-back-btn" id="linked-record-back">
+          <i class="ph ph-arrow-left"></i>
+          Back
+        </button>
+        <div class="linked-record-source">
+          <i class="ph ph-table"></i>
+          <span class="linked-record-set-name">${this._escapeHtml(targetSet.name)}</span>
+        </div>
+      </div>
+    ` : '';
+
+    body.innerHTML = `
+      ${breadcrumbHtml}
+      <div class="detail-record ${isFromDifferentSet ? 'linked-record-view' : ''}">
+        <h2 style="font-size: 18px; margin-bottom: 16px;">
+          <i class="ph ${isFromDifferentSet ? 'ph-link' : 'ph-note'}" style="color: var(--primary-500);"></i>
+          ${this._escapeHtml(title)}
+        </h2>
+        ${fields.map(field => {
+          const value = record.values[field.id];
+          // For linked records from other sets, make them read-only to avoid confusion
+          const isEditable = !isFromDifferentSet && ![FieldTypes.FORMULA, FieldTypes.ROLLUP, FieldTypes.COUNT, FieldTypes.AUTONUMBER].includes(field.type);
+          return `
+            <div class="detail-field-group" data-field-id="${field.id}">
+              <div class="detail-field-label">
+                <i class="ph ${FieldTypeIcons[field.type]}"></i>
+                ${this._escapeHtml(field.name)}
+              </div>
+              <div class="detail-field-value ${isEditable ? 'editable' : ''}"
+                   data-field-id="${field.id}"
+                   data-record-id="${linkedRecordId}"
+                   data-set-id="${targetSet.id}"
+                   ${isEditable ? 'title="Click to edit"' : ''}>
+                ${this._renderLinkedDetailFieldValue(field, value, targetSet)}
+              </div>
+            </div>
+          `;
+        }).join('')}
+
+        ${!isFromDifferentSet ? `
+          <div class="detail-actions">
+            <button class="detail-action-btn" id="detail-duplicate">
+              <i class="ph ph-copy"></i>
+              <span>Duplicate</span>
+            </button>
+            <button class="detail-action-btn danger" id="detail-delete">
+              <i class="ph ph-trash"></i>
+              <span>Delete</span>
+            </button>
+          </div>
+        ` : `
+          <div class="detail-actions">
+            <button class="detail-action-btn" id="linked-record-open-in-set">
+              <i class="ph ph-arrow-square-out"></i>
+              <span>Open in ${this._escapeHtml(targetSet.name)}</span>
+            </button>
+          </div>
+        `}
+
+        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border-primary);">
+          <div style="font-size: 11px; color: var(--text-muted);">
+            <i class="ph ph-clock"></i> Created: ${this._formatDateSafe(record.createdAt)}<br>
+            <i class="ph ph-pencil"></i> Updated: ${this._formatDateSafe(record.updatedAt)}<br>
+            <i class="ph ph-hash"></i> ID: ${record.id}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Add click handlers for editable fields (only if same set)
+    if (!isFromDifferentSet) {
+      body.querySelectorAll('.detail-field-value.editable').forEach(el => {
+        el.addEventListener('click', () => {
+          this._startDetailFieldEdit(el);
+        });
+      });
+
+      document.getElementById('detail-duplicate')?.addEventListener('click', () => {
+        this.duplicateRecord(linkedRecordId);
+        this._showToast('Record duplicated', 'success');
+      });
+
+      document.getElementById('detail-delete')?.addEventListener('click', () => {
+        this.deleteRecord(linkedRecordId);
+        panel.classList.remove('open');
+        this._showToast('Record tossed', 'info');
+      });
+    }
+
+    // Back button handler
+    document.getElementById('linked-record-back')?.addEventListener('click', () => {
+      if (this._detailNavigationStack && this._detailNavigationStack.length > 0) {
+        const prev = this._detailNavigationStack.pop();
+        if (prev.setId === currentSet?.id) {
+          this._showRecordDetail(prev.recordId);
+        } else {
+          this._showLinkedRecordDetail(prev.recordId, prev.setId, 'back');
+        }
+      } else {
+        panel.classList.remove('open');
+      }
+    });
+
+    // Open in set button handler
+    document.getElementById('linked-record-open-in-set')?.addEventListener('click', () => {
+      this._navigateToRecordInSet(linkedRecordId, targetSet.id);
+    });
+
+    // Add click handlers for link chips in the detail panel
+    body.querySelectorAll('.link-chip').forEach(el => {
+      el.addEventListener('click', () => {
+        const linkedId = el.dataset.linkedId;
+        const fieldId = el.closest('.detail-field-group')?.dataset.fieldId;
+        const field = targetSet.fields?.find(f => f.id === fieldId);
+        const nextLinkedSetId = field?.options?.linkedSetId;
+        if (linkedId) {
+          this._showLinkedRecordDetail(linkedId, nextLinkedSetId);
+        }
+      });
+    });
+
+    this._openDetailPanel();
+  }
+
+  /**
+   * Navigate to a record in its own set (switch sets and show detail)
+   */
+  _navigateToRecordInSet(recordId, setId) {
+    // First switch to the set
+    this._selectSet(setId);
+
+    // Then show the record detail after a brief delay to allow view to update
+    setTimeout(() => {
+      this._showRecordDetail(recordId);
+      // Try to scroll to the record in the table
+      const row = document.querySelector(`tr[data-record-id="${recordId}"]`);
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.add('highlight-row');
+        setTimeout(() => row.classList.remove('highlight-row'), 2000);
+      }
+    }, 100);
+  }
+
+  /**
+   * Render field value for linked record detail panel
+   * Similar to _renderDetailFieldValue but uses the correct set context
+   */
+  _renderLinkedDetailFieldValue(field, value, sourceSet) {
+    const computedFieldTypes = [FieldTypes.FORMULA, FieldTypes.ROLLUP, FieldTypes.COUNT, FieldTypes.AUTONUMBER];
+
+    if (!computedFieldTypes.includes(field.type) && (value === null || value === undefined || value === '')) {
+      return '<span class="cell-empty">Empty</span>';
+    }
+
+    switch (field.type) {
+      case FieldTypes.CHECKBOX:
+        return `<i class="ph ${value ? 'ph-check-square' : 'ph-square'}" style="font-size: 18px; color: ${value ? 'var(--success-500)' : 'var(--text-muted)'}"></i>`;
+      case FieldTypes.SELECT:
+        const choice = field.options?.choices?.find(c => c.id === value);
+        return choice ? `<span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>` : this._escapeHtml(String(value));
+      case FieldTypes.MULTI_SELECT:
+        if (Array.isArray(value)) {
+          return value.map(v => {
+            const c = field.options?.choices?.find(ch => ch.id === v);
+            return c ? `<span class="select-tag color-${c.color || 'gray'}">${this._escapeHtml(c.name)}</span>` : '';
+          }).join(' ');
+        }
+        return '<span class="cell-empty">-</span>';
+      case FieldTypes.DATE:
+        return this._formatDate(value, field);
+      case FieldTypes.URL:
+        return `<a href="${this._escapeHtml(value)}" target="_blank" style="color: var(--primary-500);">${this._escapeHtml(value)}</a>`;
+      case FieldTypes.EMAIL:
+        return `<a href="mailto:${this._escapeHtml(value)}" style="color: var(--primary-500);">${this._escapeHtml(value)}</a>`;
+      case FieldTypes.LINK:
+        const detailLinks = this._normalizeLinkValue(value);
+        if (detailLinks.length > 0) {
+          const linkedSetId = field.options?.linkedSetId;
+          const linkedSet = linkedSetId ? this.sets?.find(s => s.id === linkedSetId) : sourceSet;
+          const displayField = field.options?.linkedFieldId
+            ? linkedSet?.fields?.find(f => f.id === field.options.linkedFieldId)
+            : (linkedSet?.fields?.find(f => f.isPrimary) || linkedSet?.fields?.[0]);
+          const hasEdgeFields = field.options?.enableEdgeData && field.options?.edgeFields?.length > 0;
+          return detailLinks.map(link => {
+            const linkedRecord = linkedSet?.records?.find(r => r.id === link.recordId);
+            const name = linkedRecord?.values?.[displayField?.id] || 'Unknown';
+            const hasEdgeData = hasEdgeFields && link.edgeData && Object.keys(link.edgeData).length > 0;
+            const edgeIndicator = hasEdgeData ? '<i class="ph ph-arrows-horizontal edge-indicator" title="Has edge data"></i>' : '';
+            return `<span class="link-chip clickable${hasEdgeData ? ' has-edge-data' : ''}" data-linked-id="${link.recordId}" data-linked-set-id="${linkedSetId || ''}">${this._escapeHtml(name)}${edgeIndicator}</span>`;
+          }).join(' ');
+        }
+        return '<span class="cell-empty">No links</span>';
+      case FieldTypes.ATTACHMENT:
+        if (Array.isArray(value) && value.length > 0) {
+          return value.map(att => {
+            const name = typeof att === 'object' ? (att.name || att.filename || 'File') : String(att);
+            return `<span class="attachment-chip"><i class="ph ph-file"></i> ${this._escapeHtml(name)}</span>`;
+          }).join(' ');
+        }
+        return '<span class="cell-empty">No files</span>';
+      case FieldTypes.FORMULA:
+        return '<span class="cell-formula cell-empty">Formula</span>';
+      default:
+        if (typeof value === 'object') {
+          return `<code style="font-size: 11px;">${this._escapeHtml(JSON.stringify(value, null, 2).substring(0, 100))}...</code>`;
+        }
+        return this._escapeHtml(String(value));
+    }
   }
 
   /**
