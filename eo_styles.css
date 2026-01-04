@@ -41258,6 +41258,31 @@ td.cell-editable.has-history:hover .cell-history-indicator {
   color: var(--text-secondary);
 }
 
+/* Formula Explainer Modal - wider layout */
+#formula-explainer-modal.eo-modal {
+  width: 960px;
+  max-width: calc(100vw - 32px);
+}
+
+#formula-explainer-modal .formula-explainer {
+  min-height: 550px;
+  max-height: 75vh;
+}
+
+#formula-explainer-modal .formula-explainer-nav {
+  width: 180px;
+}
+
+#formula-explainer-modal .formula-explainer-content {
+  padding: 28px 32px;
+}
+
+/* Also support native modal fallback */
+.modal:has(.formula-explainer) {
+  max-width: 960px;
+  width: 95%;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .formula-explainer-grid {
