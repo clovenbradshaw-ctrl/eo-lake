@@ -34148,6 +34148,7 @@ class EODataWorkbench {
 
   /**
    * Merge two records together
+   * TABLE RULE 5: Ensures new fields from source are added to set's field list
    */
   _mergeRecords(sourceRecord, targetRecordId) {
     const set = this.getCurrentSet();
@@ -34155,6 +34156,12 @@ class EODataWorkbench {
 
     const targetRecord = set.records.find(r => r.id === targetRecordId);
     if (!targetRecord) return;
+
+    // Build a set of existing field IDs for quick lookup
+    const existingFieldIds = new Set(set.fields.map(f => f.id));
+
+    // Track new fields that need to be added (TABLE RULE 5)
+    const newFieldsToAdd = [];
 
     // Count merged fields
     let mergedFieldCount = 0;
@@ -34164,18 +34171,39 @@ class EODataWorkbench {
       if (value !== undefined && value !== null && value !== '') {
         targetRecord.values[fieldId] = value;
         mergedFieldCount++;
+
+        // Check if this field exists in the set - if not, we need to add it
+        if (!existingFieldIds.has(fieldId)) {
+          // Create a new field for this value (TABLE RULE 5)
+          const newField = ensureValidField({
+            id: fieldId,
+            name: fieldId, // Use ID as name fallback, can be renamed later
+            type: typeof value === 'number' ? 'number' :
+                  typeof value === 'boolean' ? 'checkbox' : 'text'
+          });
+          newFieldsToAdd.push(newField);
+          existingFieldIds.add(fieldId); // Prevent duplicates
+        }
       }
     });
+
+    // Add any new fields to the set (TABLE RULE 5)
+    if (newFieldsToAdd.length > 0) {
+      set.fields = [...set.fields, ...newFieldsToAdd];
+    }
 
     targetRecord.updatedAt = new Date().toISOString();
 
     // Record activity for record merge
+    const newFieldsNote = newFieldsToAdd.length > 0
+      ? ` (${newFieldsToAdd.length} new field${newFieldsToAdd.length !== 1 ? 's' : ''} added)`
+      : '';
     this._recordActivity({
       action: 'update',
       operator: 'SYN', // Synthesize - merging identities
       entityType: 'record',
       name: `Record in ${set.name}`,
-      details: `Merged ${mergedFieldCount} field${mergedFieldCount !== 1 ? 's' : ''} from source record into target record`,
+      details: `Merged ${mergedFieldCount} field${mergedFieldCount !== 1 ? 's' : ''} from source record into target record${newFieldsNote}`,
       canReverse: false
     });
 
