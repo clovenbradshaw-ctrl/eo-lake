@@ -14202,38 +14202,119 @@ class EODataWorkbench {
 
   /**
    * Open modal to import/browse vocabulary terms
-   * Allows browsing standard vocabularies and selecting terms to link
+   * Searches all vocabulary sources (Schema.org, Wikidata, LOV) simultaneously
+   * with fuzzy matching for better auto-suggestions
    */
   async _openImportVocabularyModal(definition) {
     if (!definition) return;
 
+    // Get source badge color based on source name
+    const getSourceColor = (source) => {
+      const colors = {
+        'Schema.org': '#4285f4',
+        'Wikidata': '#006699',
+        'LOV': '#7c3aed'
+      };
+      return colors[source] || '#666';
+    };
+
     const html = `
       <div class="import-vocabulary-modal">
-        <div class="vocab-tabs">
-          <button class="vocab-tab active" data-vocab="schemaOrg">Schema.org</button>
-          <button class="vocab-tab" data-vocab="wikidata">Wikidata</button>
-          <button class="vocab-tab" data-vocab="skos">SKOS Concepts</button>
-        </div>
-
         <div class="vocab-content">
           <div class="vocab-search">
             <input type="text" id="vocab-search-input" class="form-input"
-                   placeholder="Search vocabulary...">
+                   placeholder="Search all vocabularies (Schema.org, Wikidata, SKOS)..."
+                   value="${this._escapeHtml(definition.name || '')}">
+            <div class="search-hint">Searches Schema.org, Wikidata, and Linked Open Vocabularies with fuzzy matching</div>
           </div>
 
           <div id="vocab-browse-results" class="vocab-results">
             <div class="loading-state">
-              <i class="ph ph-spinner ph-spin"></i> Loading vocabulary...
+              <i class="ph ph-spinner ph-spin"></i> Searching all vocabularies...
             </div>
           </div>
         </div>
 
         <div id="vocab-selected-term" class="selected-term-preview" style="display: none;"></div>
       </div>
+      <style>
+        .import-vocabulary-modal .search-hint {
+          font-size: 11px;
+          color: var(--text-tertiary, #888);
+          margin-top: 4px;
+        }
+        .import-vocabulary-modal .vocab-term-item {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          padding: 10px 12px;
+          border-bottom: 1px solid var(--border-color, #e5e7eb);
+          cursor: pointer;
+          transition: background-color 0.15s;
+        }
+        .import-vocabulary-modal .vocab-term-item:hover {
+          background-color: var(--hover-bg, #f3f4f6);
+        }
+        .import-vocabulary-modal .vocab-term-item.selected {
+          background-color: var(--selected-bg, #eff6ff);
+          border-left: 3px solid var(--primary-color, #3b82f6);
+        }
+        .import-vocabulary-modal .term-header {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .import-vocabulary-modal .term-label {
+          font-weight: 500;
+          color: var(--text-primary, #111);
+        }
+        .import-vocabulary-modal .source-badge {
+          font-size: 10px;
+          padding: 2px 6px;
+          border-radius: 3px;
+          color: white;
+          font-weight: 500;
+        }
+        .import-vocabulary-modal .match-score {
+          font-size: 10px;
+          color: var(--text-tertiary, #888);
+          margin-left: auto;
+        }
+        .import-vocabulary-modal .term-description {
+          font-size: 12px;
+          color: var(--text-secondary, #666);
+          line-height: 1.4;
+        }
+        .import-vocabulary-modal .term-uri {
+          font-size: 11px;
+          color: var(--text-tertiary, #888);
+          font-family: monospace;
+        }
+        .import-vocabulary-modal .vocab-results {
+          max-height: 350px;
+          overflow-y: auto;
+          border: 1px solid var(--border-color, #e5e7eb);
+          border-radius: 6px;
+          margin-top: 12px;
+        }
+        .import-vocabulary-modal .empty-state,
+        .import-vocabulary-modal .loading-state,
+        .import-vocabulary-modal .error-state {
+          padding: 40px 20px;
+          text-align: center;
+          color: var(--text-secondary, #666);
+        }
+        .import-vocabulary-modal .empty-state i,
+        .import-vocabulary-modal .loading-state i,
+        .import-vocabulary-modal .error-state i {
+          font-size: 32px;
+          margin-bottom: 12px;
+          display: block;
+        }
+      </style>
     `;
 
     let selectedTerm = null;
-    let currentVocab = 'schemaOrg';
 
     this._showModal('Import from Vocabulary', html, () => {
       if (!selectedTerm) {
@@ -14269,8 +14350,8 @@ class EODataWorkbench {
     const resultsDiv = document.getElementById('vocab-browse-results');
     const searchInput = document.getElementById('vocab-search-input');
 
-    const loadVocabulary = async (vocab, searchTerm = '') => {
-      resultsDiv.innerHTML = '<div class="loading-state"><i class="ph ph-spinner ph-spin"></i> Loading...</div>';
+    const searchAllVocabularies = async (searchTerm = '') => {
+      resultsDiv.innerHTML = '<div class="loading-state"><i class="ph ph-spinner ph-spin"></i> Searching all vocabularies...</div>';
 
       try {
         const api = window.EO?.getDefinitionAPI?.();
@@ -14278,16 +14359,20 @@ class EODataWorkbench {
           throw new Error('Definition API not available');
         }
 
-        let results = [];
-        const query = searchTerm || definition.name || 'type';
+        const query = searchTerm || definition.name || 'identifier';
 
-        if (vocab === 'schemaOrg') {
-          results = await api.searchConcepts(query, { sources: ['schemaOrg'], limit: 20 });
-        } else if (vocab === 'wikidata') {
-          results = await api.searchConcepts(query, { sources: ['wikidata'], limit: 20 });
-        } else if (vocab === 'skos') {
-          // For SKOS, search in LOV or similar
-          results = await api.searchConcepts(query, { sources: ['lov'], limit: 20 });
+        // Use the new searchAllConcepts method that searches all sources
+        let results = [];
+        if (api.searchAllConcepts) {
+          results = await api.searchAllConcepts(query, { limit: 30 });
+        } else {
+          // Fallback: search all sources in parallel
+          const [schemaResults, wikidataResults, lovResults] = await Promise.all([
+            api.searchConcepts(query, { sources: ['schemaOrg'], limit: 15 }).catch(() => []),
+            api.searchConcepts(query, { sources: ['wikidata'], limit: 15 }).catch(() => []),
+            api.searchConcepts(query, { sources: ['lov'], limit: 15 }).catch(() => [])
+          ]);
+          results = [...schemaResults, ...wikidataResults, ...lovResults];
         }
 
         if (results.length === 0) {
@@ -14295,19 +14380,26 @@ class EODataWorkbench {
             <div class="empty-state">
               <i class="ph ph-folder-open"></i>
               <p>No terms found</p>
-              <span class="hint">Try a different search term</span>
+              <span class="hint">Try a different search term or check your spelling</span>
             </div>
           `;
           return;
         }
 
-        resultsDiv.innerHTML = results.map((r, i) => `
-          <div class="vocab-term-item" data-index="${i}">
-            <div class="term-label">${this._escapeHtml(r.label)}</div>
-            <div class="term-description">${this._escapeHtml(r.description || '')}</div>
-            <div class="term-uri">${this._escapeHtml(r.uri)}</div>
-          </div>
-        `).join('');
+        resultsDiv.innerHTML = results.map((r, i) => {
+          const scorePercent = r.score ? Math.round(r.score * 100) : null;
+          return `
+            <div class="vocab-term-item" data-index="${i}">
+              <div class="term-header">
+                <span class="term-label">${this._escapeHtml(r.label)}</span>
+                <span class="source-badge" style="background-color: ${getSourceColor(r.source)}">${this._escapeHtml(r.source)}</span>
+                ${scorePercent !== null ? `<span class="match-score">${scorePercent}% match</span>` : ''}
+              </div>
+              <div class="term-description">${this._escapeHtml(r.description || '')}</div>
+              <div class="term-uri">${this._escapeHtml(r.uri)}</div>
+            </div>
+          `;
+        }).join('');
 
         resultsDiv._results = results;
 
@@ -14345,29 +14437,17 @@ class EODataWorkbench {
       }
     };
 
-    // Tab switching
-    document.querySelectorAll('.vocab-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.vocab-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-        currentVocab = tab.dataset.vocab;
-        selectedTerm = null;
-        document.getElementById('vocab-selected-term').style.display = 'none';
-        loadVocabulary(currentVocab, searchInput?.value?.trim());
-      });
-    });
-
-    // Search handler
+    // Search handler with debounce
     let searchTimeout;
     searchInput?.addEventListener('input', () => {
       clearTimeout(searchTimeout);
       searchTimeout = setTimeout(() => {
-        loadVocabulary(currentVocab, searchInput.value.trim());
+        searchAllVocabularies(searchInput.value.trim());
       }, 300);
     });
 
-    // Initial load
-    setTimeout(() => loadVocabulary(currentVocab), 100);
+    // Initial search using definition name
+    setTimeout(() => searchAllVocabularies(searchInput?.value?.trim()), 100);
   }
 
   /**

@@ -638,7 +638,95 @@ function getSourcesSummary() {
 }
 
 // ============================================================================
-// SECTION III: Concept URI APIs
+// SECTION III: Fuzzy Matching Utilities
+// ============================================================================
+
+/**
+ * Calculate fuzzy match score between query and target string
+ * Uses a combination of techniques: substring match, word match, and character sequence matching
+ * @param {string} query - Search query
+ * @param {string} target - Target string to match against
+ * @returns {number} Score from 0 to 1, higher is better match
+ */
+function fuzzyMatchScore(query, target) {
+  if (!query || !target) return 0;
+
+  const q = query.toLowerCase().trim();
+  const t = target.toLowerCase().trim();
+
+  // Exact match
+  if (t === q) return 1.0;
+
+  // Starts with query (high score)
+  if (t.startsWith(q)) return 0.95;
+
+  // Contains exact query
+  if (t.includes(q)) return 0.85;
+
+  // Word-based matching
+  const queryWords = q.split(/\s+/).filter(w => w.length > 0);
+  const targetWords = t.split(/\s+/).filter(w => w.length > 0);
+
+  // Check if all query words are found in target
+  const allWordsFound = queryWords.every(qw =>
+    targetWords.some(tw => tw.includes(qw) || qw.includes(tw))
+  );
+  if (allWordsFound && queryWords.length > 0) {
+    return 0.75 + (0.1 * (queryWords.length / Math.max(targetWords.length, 1)));
+  }
+
+  // Character sequence matching (fuzzy)
+  let score = 0;
+  let qIdx = 0;
+  let consecutiveMatches = 0;
+  let maxConsecutive = 0;
+
+  for (let i = 0; i < t.length && qIdx < q.length; i++) {
+    if (t[i] === q[qIdx]) {
+      qIdx++;
+      consecutiveMatches++;
+      maxConsecutive = Math.max(maxConsecutive, consecutiveMatches);
+    } else {
+      consecutiveMatches = 0;
+    }
+  }
+
+  // Score based on how many characters matched and consecutive matches
+  if (qIdx > 0) {
+    const matchRatio = qIdx / q.length;
+    const consecutiveBonus = maxConsecutive / q.length * 0.2;
+    score = (matchRatio * 0.5) + consecutiveBonus;
+  }
+
+  return Math.min(score, 0.7); // Cap fuzzy matches at 0.7
+}
+
+/**
+ * Filter and rank items using fuzzy matching
+ * @param {Array} items - Array of items to filter
+ * @param {string} query - Search query
+ * @param {Function} getSearchableText - Function to extract searchable text from item
+ * @param {number} threshold - Minimum score threshold (default 0.3)
+ * @returns {Array} Filtered and sorted items with scores
+ */
+function fuzzyFilter(items, query, getSearchableText, threshold = 0.3) {
+  if (!query || query.trim().length === 0) {
+    return items.map(item => ({ item, score: 1 }));
+  }
+
+  const scored = items.map(item => {
+    const text = getSearchableText(item);
+    const score = fuzzyMatchScore(query, text);
+    return { item, score };
+  });
+
+  return scored
+    .filter(({ score }) => score >= threshold)
+    .sort((a, b) => b.score - a.score);
+}
+
+// ============================================================================
+// SECTION IV: Concept URI APIs
 // ============================================================================
 
 /**
@@ -650,6 +738,7 @@ function getSourcesSummary() {
  * @property {string} description - Short description
  * @property {string} source - Source name (Wikidata, DBpedia, etc.)
  * @property {Object} [details] - Additional metadata from source
+ * @property {number} [score] - Relevance score (0-1)
  */
 
 const ConceptAPIs = {
@@ -919,68 +1008,97 @@ const ConceptAPIs = {
 
   /**
    * Schema.org - Web vocabulary (static, no API)
+   * Uses fuzzy matching for better search results
    */
   schemaOrg: {
     name: 'Schema.org',
     type: 'static',
 
-    // Common Schema.org types and properties
+    // Common Schema.org types and properties (expanded vocabulary)
     vocabulary: [
       // Types
-      { id: 'Thing', type: 'Type', desc: 'The most generic type' },
-      { id: 'Person', type: 'Type', desc: 'A person (alive, dead, undead, or fictional)' },
-      { id: 'Organization', type: 'Type', desc: 'An organization such as a school, NGO, corporation, club, etc.' },
-      { id: 'GovernmentOrganization', type: 'Type', desc: 'A governmental organization or agency' },
-      { id: 'Place', type: 'Type', desc: 'Entities that have a physical location' },
-      { id: 'Event', type: 'Type', desc: 'An event happening at a certain time and location' },
-      { id: 'Action', type: 'Type', desc: 'An action performed by an agent' },
-      { id: 'CreativeWork', type: 'Type', desc: 'The most generic kind of creative work' },
-      { id: 'Product', type: 'Type', desc: 'Any offered product or service' },
-      { id: 'Intangible', type: 'Type', desc: 'A utility class for things like quantities and structured values' },
-      { id: 'MonetaryAmount', type: 'Type', desc: 'A monetary value or range' },
-      { id: 'QuantitativeValue', type: 'Type', desc: 'A point value or interval for quantitative measurements' },
-      { id: 'PropertyValue', type: 'Type', desc: 'A property-value pairing' },
-      { id: 'PostalAddress', type: 'Type', desc: 'The mailing address' },
-      { id: 'ContactPoint', type: 'Type', desc: 'A contact point' },
-      { id: 'GeoCoordinates', type: 'Type', desc: 'Geographic coordinates' },
-      { id: 'Duration', type: 'Type', desc: 'Quantity, e.g. 1 hour' },
-      { id: 'DateTime', type: 'Type', desc: 'A combination of date and time' },
+      { id: 'Thing', type: 'Type', desc: 'The most generic type', keywords: ['entity', 'object', 'item'] },
+      { id: 'Person', type: 'Type', desc: 'A person (alive, dead, undead, or fictional)', keywords: ['human', 'individual', 'user'] },
+      { id: 'Organization', type: 'Type', desc: 'An organization such as a school, NGO, corporation, club, etc.', keywords: ['company', 'business', 'entity'] },
+      { id: 'GovernmentOrganization', type: 'Type', desc: 'A governmental organization or agency', keywords: ['government', 'agency', 'federal', 'state'] },
+      { id: 'Place', type: 'Type', desc: 'Entities that have a physical location', keywords: ['location', 'address', 'site'] },
+      { id: 'Event', type: 'Type', desc: 'An event happening at a certain time and location', keywords: ['occurrence', 'meeting', 'activity'] },
+      { id: 'Action', type: 'Type', desc: 'An action performed by an agent', keywords: ['activity', 'operation', 'task'] },
+      { id: 'CreativeWork', type: 'Type', desc: 'The most generic kind of creative work', keywords: ['document', 'content', 'work'] },
+      { id: 'Product', type: 'Type', desc: 'Any offered product or service', keywords: ['item', 'good', 'merchandise'] },
+      { id: 'Intangible', type: 'Type', desc: 'A utility class for things like quantities and structured values', keywords: ['abstract', 'value'] },
+      { id: 'MonetaryAmount', type: 'Type', desc: 'A monetary value or range', keywords: ['money', 'currency', 'price', 'cost', 'amount'] },
+      { id: 'QuantitativeValue', type: 'Type', desc: 'A point value or interval for quantitative measurements', keywords: ['number', 'quantity', 'measurement', 'numeric'] },
+      { id: 'PropertyValue', type: 'Type', desc: 'A property-value pairing', keywords: ['attribute', 'field', 'key-value'] },
+      { id: 'PostalAddress', type: 'Type', desc: 'The mailing address', keywords: ['address', 'street', 'location', 'mail'] },
+      { id: 'ContactPoint', type: 'Type', desc: 'A contact point', keywords: ['contact', 'phone', 'email', 'communication'] },
+      { id: 'GeoCoordinates', type: 'Type', desc: 'Geographic coordinates', keywords: ['latitude', 'longitude', 'location', 'geo', 'coordinates'] },
+      { id: 'Duration', type: 'Type', desc: 'Quantity, e.g. 1 hour', keywords: ['time', 'period', 'length', 'span'] },
+      { id: 'DateTime', type: 'Type', desc: 'A combination of date and time', keywords: ['timestamp', 'date', 'time', 'when'] },
+      { id: 'Date', type: 'Type', desc: 'A date value', keywords: ['day', 'calendar', 'when'] },
+      { id: 'Time', type: 'Type', desc: 'A time value', keywords: ['clock', 'hour', 'when'] },
+      { id: 'Number', type: 'Type', desc: 'A numerical value', keywords: ['numeric', 'integer', 'float', 'quantity'] },
+      { id: 'Text', type: 'Type', desc: 'A text string value', keywords: ['string', 'text', 'characters', 'words'] },
+      { id: 'Boolean', type: 'Type', desc: 'Boolean true or false', keywords: ['true', 'false', 'yes', 'no', 'flag'] },
+      { id: 'URL', type: 'Type', desc: 'A Uniform Resource Locator', keywords: ['link', 'web', 'address', 'uri'] },
       // Properties
-      { id: 'identifier', type: 'Property', desc: 'The identifier property' },
-      { id: 'name', type: 'Property', desc: 'The name of the item' },
-      { id: 'description', type: 'Property', desc: 'A description of the item' },
-      { id: 'url', type: 'Property', desc: 'URL of the item' },
-      { id: 'status', type: 'Property', desc: 'The status of something' },
-      { id: 'startDate', type: 'Property', desc: 'The start date and time' },
-      { id: 'endDate', type: 'Property', desc: 'The end date and time' },
-      { id: 'dateCreated', type: 'Property', desc: 'Date of creation' },
-      { id: 'dateModified', type: 'Property', desc: 'Date of last modification' },
-      { id: 'location', type: 'Property', desc: 'The location of the event/organization' },
-      { id: 'address', type: 'Property', desc: 'Physical address of the item' },
-      { id: 'memberOf', type: 'Property', desc: 'Organization the person/org is a member of' },
-      { id: 'category', type: 'Property', desc: 'A category for the item' },
-      { id: 'value', type: 'Property', desc: 'The value of a QuantitativeValue' },
-      { id: 'unitCode', type: 'Property', desc: 'The unit of measurement' }
+      { id: 'identifier', type: 'Property', desc: 'The identifier property represents any kind of unique identifier', keywords: ['id', 'unique', 'key', 'uuid', 'guid', 'code', 'number'] },
+      { id: 'name', type: 'Property', desc: 'The name of the item', keywords: ['title', 'label', 'heading'] },
+      { id: 'description', type: 'Property', desc: 'A description of the item', keywords: ['text', 'summary', 'details', 'about'] },
+      { id: 'url', type: 'Property', desc: 'URL of the item', keywords: ['link', 'web', 'address', 'uri'] },
+      { id: 'sameAs', type: 'Property', desc: 'URL of a reference that unambiguously indicates the identity', keywords: ['equivalent', 'identical', 'link', 'uri'] },
+      { id: 'status', type: 'Property', desc: 'The status of something', keywords: ['state', 'condition', 'active', 'inactive'] },
+      { id: 'startDate', type: 'Property', desc: 'The start date and time', keywords: ['begin', 'from', 'start', 'effective'] },
+      { id: 'endDate', type: 'Property', desc: 'The end date and time', keywords: ['finish', 'to', 'end', 'expiry', 'until'] },
+      { id: 'dateCreated', type: 'Property', desc: 'Date of creation', keywords: ['created', 'made', 'new', 'timestamp'] },
+      { id: 'dateModified', type: 'Property', desc: 'Date of last modification', keywords: ['updated', 'changed', 'modified', 'edited'] },
+      { id: 'datePublished', type: 'Property', desc: 'Date of first publication', keywords: ['published', 'released', 'issued'] },
+      { id: 'location', type: 'Property', desc: 'The location of the event/organization', keywords: ['place', 'where', 'address', 'site'] },
+      { id: 'address', type: 'Property', desc: 'Physical address of the item', keywords: ['location', 'street', 'postal'] },
+      { id: 'email', type: 'Property', desc: 'Email address', keywords: ['mail', 'contact', 'electronic'] },
+      { id: 'telephone', type: 'Property', desc: 'Telephone number', keywords: ['phone', 'mobile', 'contact', 'number'] },
+      { id: 'memberOf', type: 'Property', desc: 'Organization the person/org is a member of', keywords: ['belongs', 'organization', 'group'] },
+      { id: 'category', type: 'Property', desc: 'A category for the item', keywords: ['type', 'classification', 'group', 'class'] },
+      { id: 'value', type: 'Property', desc: 'The value of a QuantitativeValue', keywords: ['amount', 'number', 'quantity'] },
+      { id: 'unitCode', type: 'Property', desc: 'The unit of measurement using UN/CEFACT code', keywords: ['unit', 'measurement', 'uom'] },
+      { id: 'unitText', type: 'Property', desc: 'The unit of measurement as text', keywords: ['unit', 'measurement', 'uom'] },
+      { id: 'currency', type: 'Property', desc: 'The currency code (ISO 4217)', keywords: ['money', 'usd', 'eur', 'code'] },
+      { id: 'additionalType', type: 'Property', desc: 'Additional type URL for more specific typing', keywords: ['type', 'class', 'category', 'subtype'] },
+      { id: 'alternateName', type: 'Property', desc: 'An alias for the item', keywords: ['alias', 'aka', 'alternate', 'other name'] },
+      { id: 'serialNumber', type: 'Property', desc: 'Serial number or unique identifier assigned by manufacturer', keywords: ['serial', 'id', 'unique', 'code', 'number'] },
+      { id: 'sku', type: 'Property', desc: 'Stock keeping unit identifier', keywords: ['product', 'id', 'code', 'inventory', 'unique'] },
+      { id: 'gtin', type: 'Property', desc: 'Global Trade Item Number (GTIN-8, GTIN-12, GTIN-13, GTIN-14)', keywords: ['barcode', 'upc', 'ean', 'product', 'id', 'unique'] },
+      { id: 'duns', type: 'Property', desc: 'Dun & Bradstreet unique identifier', keywords: ['business', 'id', 'unique', 'company', 'number'] },
+      { id: 'taxID', type: 'Property', desc: 'Tax identification number', keywords: ['tax', 'id', 'ein', 'tin', 'unique', 'number'] },
+      { id: 'globalLocationNumber', type: 'Property', desc: 'Global Location Number (GLN)', keywords: ['location', 'id', 'unique', 'gln'] },
+      { id: 'leiCode', type: 'Property', desc: 'Legal Entity Identifier code', keywords: ['lei', 'legal', 'entity', 'id', 'unique'] },
+      { id: 'naics', type: 'Property', desc: 'North American Industry Classification System code', keywords: ['industry', 'classification', 'code', 'naics'] },
+      { id: 'isicV4', type: 'Property', desc: 'International Standard Industrial Classification code', keywords: ['industry', 'classification', 'code', 'isic'] }
     ],
 
     async search(query, options = {}) {
       const limit = options.limit || DefinitionAPIConfig.DEFAULT_LIMIT;
-      const q = query.toLowerCase();
 
-      return this.vocabulary
-        .filter(item =>
-          item.id.toLowerCase().includes(q) ||
-          item.desc.toLowerCase().includes(q)
-        )
+      // Use fuzzy matching to find relevant terms
+      const results = fuzzyFilter(
+        this.vocabulary,
+        query,
+        item => `${item.id} ${item.desc} ${(item.keywords || []).join(' ')}`,
+        0.25 // Lower threshold for more results
+      );
+
+      return results
         .slice(0, limit)
-        .map(item => ({
+        .map(({ item, score }) => ({
           uri: `https://schema.org/${item.id}`,
           id: item.id,
           label: item.id,
           description: `[${item.type}] ${item.desc}`,
           source: 'Schema.org',
+          score: score,
           details: {
-            type: item.type
+            type: item.type,
+            keywords: item.keywords
           }
         }));
     }
@@ -1359,6 +1477,74 @@ class DefinitionAPI {
 
     const allResults = await Promise.all(searches);
     return allResults.flat();
+  }
+
+  /**
+   * Search ALL concept sources simultaneously and return ranked results
+   * This is the main method for vocabulary import - searches Schema.org, Wikidata, and LOV together
+   * @param {string} query - Search query
+   * @param {Object} options - { limit, excludeSources: [] }
+   * @returns {Promise<ConceptResult[]>} Ranked, deduplicated results from all sources
+   */
+  async searchAllConcepts(query, options = {}) {
+    const limit = options.limit || 30;
+    const excludeSources = options.excludeSources || [];
+
+    // All vocabulary sources to search
+    const allSources = ['schemaOrg', 'wikidata', 'lov'].filter(s => !excludeSources.includes(s));
+
+    // Search all sources in parallel
+    const searches = allSources.map(async (sourceName) => {
+      const api = ConceptAPIs[sourceName];
+      if (!api) return [];
+
+      const cacheKey = `concept:${sourceName}:${query}`;
+      if (this.cache.has(cacheKey)) {
+        const cached = this.cache.get(cacheKey);
+        if (Date.now() - cached.timestamp < DefinitionAPIConfig.CACHE_TTL_MS) {
+          return cached.data;
+        }
+      }
+
+      try {
+        const sourceResults = await api.search(query, { limit: 15 });
+        this.cache.set(cacheKey, { data: sourceResults, timestamp: Date.now() });
+        return sourceResults;
+      } catch (error) {
+        console.warn(`Error searching ${sourceName}:`, error);
+        return [];
+      }
+    });
+
+    const allResults = await Promise.all(searches);
+    const combined = allResults.flat();
+
+    // Add fuzzy scores to results that don't have them (from API sources)
+    const scored = combined.map(result => {
+      if (result.score !== undefined) {
+        return result;
+      }
+      // Calculate fuzzy score for API results
+      const searchText = `${result.label || ''} ${result.description || ''}`;
+      const score = fuzzyMatchScore(query, searchText);
+      return { ...result, score };
+    });
+
+    // Deduplicate by URI (prefer higher scored results)
+    const seenUris = new Map();
+    for (const result of scored) {
+      const uri = result.uri?.toLowerCase();
+      if (!uri) continue;
+
+      if (!seenUris.has(uri) || seenUris.get(uri).score < result.score) {
+        seenUris.set(uri, result);
+      }
+    }
+
+    // Sort by score (descending) and return top results
+    return Array.from(seenUris.values())
+      .sort((a, b) => (b.score || 0) - (a.score || 0))
+      .slice(0, limit);
   }
 
   /**
