@@ -5701,6 +5701,94 @@ mark.search-highlight {
   height: calc(100% - 52px);
 }
 
+/* ===== Linked Record Breadcrumb ===== */
+.linked-record-breadcrumb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin: -16px -16px 16px -16px;
+  background: var(--primary-50);
+  border-bottom: 1px solid var(--primary-200);
+}
+
+.linked-record-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.linked-record-back-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--primary-500);
+  color: var(--primary-600);
+}
+
+.linked-record-back-btn i {
+  font-size: 14px;
+}
+
+.linked-record-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--primary-100);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--primary-700);
+  font-weight: 500;
+}
+
+.linked-record-source i {
+  font-size: 14px;
+  color: var(--primary-500);
+}
+
+.linked-record-set-name {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Linked record view styling */
+.detail-record.linked-record-view h2 i {
+  color: var(--primary-500);
+}
+
+/* Highlight row animation for navigation */
+tr.highlight-row {
+  animation: highlightRow 2s ease-out;
+}
+
+@keyframes highlightRow {
+  0% {
+    background-color: var(--primary-100);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* Clickable link chips in detail panel */
+.link-chip.clickable {
+  cursor: pointer;
+}
+
+.link-chip.clickable:hover {
+  background: var(--primary-200);
+  transform: translateY(-1px);
+}
+
 /* ===== Pipeline Panel ===== */
 .pipeline-panel {
   width: 0;
