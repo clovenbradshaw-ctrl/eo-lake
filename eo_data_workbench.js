@@ -1749,50 +1749,34 @@ class EODataWorkbench {
     const content = this.elements.contentArea;
     if (!content) return;
 
-    // Preserve view mode state
-    const showRawJson = this._activityTabShowRawJson || false;
-
     // Collect all activities
     const allActivities = this._collectAllActivities();
 
     content.innerHTML = `
-      <div class="activity-page">
-        <div class="activity-header">
-          <div class="activity-header-left">
-            <h1><i class="ph ph-clock-counter-clockwise"></i> Activity</h1>
-            <span class="activity-count-badge" id="activity-tab-count">${allActivities.length} ${allActivities.length === 1 ? 'activity' : 'activities'}</span>
-          </div>
-          <div class="activity-header-right">
-            <div class="activity-tab-filters">
-              <select id="activity-tab-filter-type" class="activity-filter-select">
-                <option value="all">All types</option>
-                <option value="source">Sources</option>
-                <option value="set">Sets</option>
-                <option value="view">Views</option>
-                <option value="field">Fields</option>
-                <option value="record">Records</option>
-                <option value="lens">Lenses</option>
-              </select>
-              <select id="activity-tab-filter-action" class="activity-filter-select">
-                <option value="all">All actions</option>
-                <option value="create">Created</option>
-                <option value="update">Updated</option>
-                <option value="delete">Deleted</option>
-                <option value="restore">Restored</option>
-              </select>
-            </div>
-            <div class="activity-view-toggle">
-              <button class="activity-view-btn ${!showRawJson ? 'active' : ''}" data-view="table" title="Table view">
-                <i class="ph ph-table"></i>
-              </button>
-              <button class="activity-view-btn ${showRawJson ? 'active' : ''}" data-view="json" title="Raw JSON">
-                <i class="ph ph-brackets-curly"></i>
-              </button>
-            </div>
+      <div class="activity-simple-container">
+        <div class="activity-toolbar">
+          <span class="activity-count-text">${allActivities.length} ${allActivities.length === 1 ? 'activity' : 'activities'}</span>
+          <div class="activity-toolbar-filters">
+            <select id="activity-tab-filter-type" class="activity-toolbar-select">
+              <option value="all">All types</option>
+              <option value="source">Sources</option>
+              <option value="set">Sets</option>
+              <option value="view">Views</option>
+              <option value="field">Fields</option>
+              <option value="record">Records</option>
+              <option value="lens">Lenses</option>
+            </select>
+            <select id="activity-tab-filter-action" class="activity-toolbar-select">
+              <option value="all">All actions</option>
+              <option value="create">Created</option>
+              <option value="update">Updated</option>
+              <option value="delete">Deleted</option>
+              <option value="restore">Restored</option>
+            </select>
           </div>
         </div>
-        <div class="activity-content" id="activity-tab-content">
-          ${showRawJson ? this._renderActivityTabJsonView(allActivities) : this._renderActivityTabTableView(allActivities)}
+        <div class="activity-simple-content" id="activity-tab-content">
+          ${this._renderActivityTabTableView(allActivities)}
         </div>
       </div>
     `;
@@ -1804,10 +1788,8 @@ class EODataWorkbench {
   _renderActivityTabTableView(activities) {
     if (activities.length === 0) {
       return `
-        <div class="activity-empty-state">
-          <i class="ph ph-clock-counter-clockwise"></i>
-          <h3>No recent activity</h3>
-          <p>Your recent actions will appear here</p>
+        <div class="activity-empty-simple">
+          No activity recorded
         </div>
       `;
     }
@@ -1820,40 +1802,32 @@ class EODataWorkbench {
 
       return `
         <tr data-activity-id="${activity.id}">
-          <td class="activity-col-time">${timeAgo}</td>
-          <td class="activity-col-action">${actionBadge}</td>
-          <td class="activity-col-type">${typeBadge}</td>
-          <td class="activity-col-name">
-            <span class="activity-name" title="${this._escapeHtml(activity.name || '')}">${this._escapeHtml(activity.name || 'Untitled')}</span>
-          </td>
-          <td class="activity-col-details">
-            <span class="activity-details" title="${this._escapeHtml(activity.details || '')}">${this._escapeHtml(activity.details || '')}</span>
-          </td>
-          <td class="activity-col-actions">
-            ${canUndo ? `<button class="activity-undo-btn" data-activity-id="${activity.id}" title="Reverse this action">Undo</button>` : ''}
-          </td>
+          <td>${timeAgo}</td>
+          <td>${actionBadge}</td>
+          <td>${typeBadge}</td>
+          <td>${this._escapeHtml(activity.name || 'Untitled')}</td>
+          <td class="activity-details-cell">${this._escapeHtml(activity.details || '')}</td>
+          <td>${canUndo ? `<button class="activity-undo-btn" data-activity-id="${activity.id}">Undo</button>` : ''}</td>
         </tr>
       `;
     }).join('');
 
     return `
-      <div class="activity-table-wrapper">
-        <table class="activity-table">
-          <thead>
-            <tr>
-              <th class="activity-col-time">Time</th>
-              <th class="activity-col-action">Action</th>
-              <th class="activity-col-type">Type</th>
-              <th class="activity-col-name">Name</th>
-              <th class="activity-col-details">Details</th>
-              <th class="activity-col-actions"></th>
-            </tr>
-          </thead>
-          <tbody id="activity-tab-table-body">
-            ${rows}
-          </tbody>
-        </table>
-      </div>
+      <table class="activity-simple-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Action</th>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Details</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="activity-tab-table-body">
+          ${rows}
+        </tbody>
+      </table>
     `;
   }
 
@@ -1914,7 +1888,7 @@ class EODataWorkbench {
       }
 
       // Update count
-      const countEl = content.querySelector('#activity-tab-count');
+      const countEl = content.querySelector('.activity-count-text');
       if (countEl) {
         countEl.textContent = `${filtered.length} ${filtered.length === 1 ? 'activity' : 'activities'}`;
       }
@@ -1922,33 +1896,13 @@ class EODataWorkbench {
       // Update content
       const contentArea = content.querySelector('#activity-tab-content');
       if (contentArea) {
-        const showRawJson = this._activityTabShowRawJson || false;
-        contentArea.innerHTML = showRawJson
-          ? this._renderActivityTabJsonView(filtered)
-          : this._renderActivityTabTableView(filtered);
-
-        // Re-attach content-specific listeners
+        contentArea.innerHTML = this._renderActivityTabTableView(filtered);
         this._attachActivityTabContentListeners();
       }
     };
 
     typeFilter?.addEventListener('change', applyFilters);
     actionFilter?.addEventListener('change', applyFilters);
-
-    // View toggle listeners
-    content.querySelectorAll('.activity-view-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const view = btn.dataset.view;
-        this._activityTabShowRawJson = view === 'json';
-
-        // Update button states
-        content.querySelectorAll('.activity-view-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-
-        // Re-render content with current filters
-        applyFilters();
-      });
-    });
 
     // Attach content-specific listeners
     this._attachActivityTabContentListeners();
@@ -1967,26 +1921,6 @@ class EODataWorkbench {
         this._renderActivityTab(); // Re-render after undo
       });
     });
-
-    // Copy JSON button
-    const copyBtn = content.querySelector('.activity-json-copy-btn');
-    if (copyBtn) {
-      copyBtn.addEventListener('click', () => {
-        const activities = this._collectAllActivities().slice(0, 100).map(activity => {
-          const clean = { ...activity };
-          if (clean.reverseData) {
-            clean.reverseData = { type: clean.reverseData.type };
-          }
-          return clean;
-        });
-        const jsonString = JSON.stringify(activities, null, 2);
-        navigator.clipboard.writeText(jsonString).then(() => {
-          this._showToast('JSON copied to clipboard', 'success');
-        }).catch(() => {
-          this._showToast('Failed to copy to clipboard', 'error');
-        });
-      });
-    }
   }
 
   /**
