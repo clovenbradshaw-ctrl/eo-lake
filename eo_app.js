@@ -1458,9 +1458,9 @@ function handleSearchResultClick(item) {
       }
       break;
     case 'field_definition':
-      // Navigate to the set and optionally open the fields panel
+      // Navigate to the set and open the schema panel
       if (setId) {
-        _dataWorkbench?._selectSet(setId, 'fields');
+        _dataWorkbench?._selectSet(setId, 'schema');
       }
       break;
     case 'view':
