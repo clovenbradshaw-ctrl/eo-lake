@@ -9180,8 +9180,14 @@ class SourceMerger {
       return { success: false, error: 'Source not found' };
     }
 
-    // Map source records using field mapping
-    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, targetSet.fields);
+    // Create new fields FIRST so we have their IDs for record mapping (TABLE RULE 5)
+    const newFields = this._getNewFieldsFromMapping(fieldMapping, targetSet.fields);
+
+    // Combine existing and new fields so _mapSourceRecords can use field IDs
+    const allFields = [...targetSet.fields, ...newFields];
+
+    // Map source records using field IDs (not names)
+    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, allFields);
 
     let previewRecords = [];
     let stats = {};
@@ -9192,7 +9198,8 @@ class SourceMerger {
         stats = {
           existingRecords: targetSet.records.length,
           newRecords: mappedRecords.length,
-          totalRecords: previewRecords.length
+          totalRecords: previewRecords.length,
+          newFields: newFields.length
         };
         break;
 
@@ -9207,7 +9214,8 @@ class SourceMerger {
           existingRecords: targetSet.records.length,
           sourceRecords: mappedRecords.length,
           matchedRecords: joinResult.length,
-          joinType: joinConfig.type || 'left'
+          joinType: joinConfig.type || 'left',
+          newFields: newFields.length
         };
         break;
 
@@ -9217,7 +9225,8 @@ class SourceMerger {
         stats = {
           existingRecords: targetSet.records.length,
           appendedRecords: mappedRecords.length,
-          totalRecords: previewRecords.length
+          totalRecords: previewRecords.length,
+          newFields: newFields.length
         };
         break;
     }
@@ -9227,7 +9236,8 @@ class SourceMerger {
       previewRecords: previewRecords.slice(0, limit),
       totalCount: previewRecords.length,
       stats,
-      fieldMapping
+      fieldMapping,
+      newFields
     };
   }
 
@@ -9369,10 +9379,14 @@ class SourceMerger {
   // --------------------------------------------------------------------------
 
   _appendMerge(targetSet, source, fieldMapping, actor, timestamp) {
-    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, targetSet.fields);
-
-    // Determine if we need to add new fields
+    // Create new fields FIRST so we have their IDs for record mapping (TABLE RULE 5)
     const newFields = this._getNewFieldsFromMapping(fieldMapping, targetSet.fields);
+
+    // Combine existing and new fields so _mapSourceRecords can use field IDs
+    const allFields = [...targetSet.fields, ...newFields];
+
+    // Map source records using field IDs (not names)
+    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, allFields);
 
     // Create merged records with unique IDs
     const mergedRecords = mappedRecords.map((record, index) => ({
@@ -9388,7 +9402,7 @@ class SourceMerger {
     // Build updated set
     const updatedSet = {
       ...targetSet,
-      fields: [...targetSet.fields, ...newFields],
+      fields: allFields,
       records: [...targetSet.records, ...mergedRecords],
       updatedAt: timestamp,
       derivation: this._buildMergeDerivation(targetSet, source, 'append', fieldMapping, actor, timestamp)
@@ -9410,9 +9424,14 @@ class SourceMerger {
   }
 
   _unionMerge(targetSet, source, fieldMapping, actor, timestamp) {
-    // Union is similar to append but combines matching field names
-    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, targetSet.fields);
+    // Create new fields FIRST so we have their IDs for record mapping (TABLE RULE 5)
     const newFields = this._getNewFieldsFromMapping(fieldMapping, targetSet.fields);
+
+    // Combine existing and new fields so _mapSourceRecords can use field IDs
+    const allFields = [...targetSet.fields, ...newFields];
+
+    // Map source records using field IDs (not names)
+    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, allFields);
 
     const mergedRecords = mappedRecords.map((record, index) => ({
       id: this._generateRecordId(),
@@ -9426,7 +9445,7 @@ class SourceMerger {
 
     const updatedSet = {
       ...targetSet,
-      fields: [...targetSet.fields, ...newFields],
+      fields: allFields,
       records: [...targetSet.records, ...mergedRecords],
       updatedAt: timestamp,
       derivation: this._buildMergeDerivation(targetSet, source, 'union', fieldMapping, actor, timestamp)
@@ -9453,7 +9472,14 @@ class SourceMerger {
       outputFields = null
     } = joinConfig;
 
-    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, targetSet.fields);
+    // Create new fields FIRST so we have their IDs for record mapping (TABLE RULE 5)
+    const newFields = this._getNewFieldsFromMapping(fieldMapping, targetSet.fields);
+
+    // Combine existing and new fields so _mapSourceRecords can use field IDs
+    const allFields = [...targetSet.fields, ...newFields];
+
+    // Map source records using field IDs (not names)
+    const mappedRecords = this._mapSourceRecords(source.records, fieldMapping, allFields);
 
     // Execute the join
     const joinedRecords = this._executeJoin(
@@ -9462,10 +9488,6 @@ class SourceMerger {
       conditions,
       type
     );
-
-    // Determine output fields - either specified or all from both sides
-    const newFields = this._getNewFieldsFromMapping(fieldMapping, targetSet.fields);
-    const allFields = [...targetSet.fields, ...newFields];
 
     const mergedRecords = joinedRecords.map((record, index) => ({
       id: this._generateRecordId(),
@@ -9500,25 +9522,34 @@ class SourceMerger {
     };
   }
 
-  _mapSourceRecords(records, fieldMapping, targetFields) {
-    const targetFieldNames = new Set(targetFields.map(f => f.name));
+  _mapSourceRecords(records, fieldMapping, allFields) {
+    // Build a name-to-field map for looking up field IDs (TABLE RULE 5)
+    const fieldByName = new Map();
+    for (const field of allFields) {
+      fieldByName.set(field.name, field);
+    }
 
     return records.map(record => {
       const values = {};
 
       for (const mapping of fieldMapping) {
+        // Get source value from source field name
+        const sourceValue = record.values
+          ? record.values[mapping.sourceField]
+          : record[mapping.sourceField];
+
         if (mapping.targetField) {
-          // Get value from source field
-          const sourceValue = record.values
-            ? record.values[mapping.sourceField]
-            : record[mapping.sourceField];
-          values[mapping.targetField] = sourceValue;
+          // Map to existing field - use field ID as key (TABLE RULE 5)
+          const targetField = fieldByName.get(mapping.targetField);
+          if (targetField) {
+            values[targetField.id] = sourceValue;
+          }
         } else if (mapping.createNew && mapping.suggestedName) {
-          // Create new field
-          const sourceValue = record.values
-            ? record.values[mapping.sourceField]
-            : record[mapping.sourceField];
-          values[mapping.suggestedName] = sourceValue;
+          // Map to new field - use field ID as key (TABLE RULE 5)
+          const newField = fieldByName.get(mapping.suggestedName);
+          if (newField) {
+            values[newField.id] = sourceValue;
+          }
         }
       }
 
@@ -9530,13 +9561,27 @@ class SourceMerger {
     const existingNames = new Set(existingFields.map(f => f.name));
     const newFields = [];
 
+    // Use ensureValidField to guarantee proper field structure with ID (TABLE RULE 5)
+    const ensureValidField = typeof window !== 'undefined' && window.ensureValidField
+      ? window.ensureValidField
+      : (field) => ({
+          ...field,
+          id: field.id || `fld_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          name: field.name || 'Untitled',
+          type: field.type || 'text',
+          width: Math.max(80, Number(field.width) || 200),
+          options: field.options || {}
+        });
+
     for (const mapping of fieldMapping) {
       if (mapping.createNew && mapping.suggestedName && !existingNames.has(mapping.suggestedName)) {
-        newFields.push({
+        // Create field with proper ID and structure via ensureValidField
+        const newField = ensureValidField({
           name: mapping.suggestedName,
           type: mapping.suggestedType || 'text',
           addedVia: 'merge'
         });
+        newFields.push(newField);
         existingNames.add(mapping.suggestedName);
       }
     }
