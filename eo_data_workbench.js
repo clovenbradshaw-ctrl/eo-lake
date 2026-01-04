@@ -30922,7 +30922,7 @@ class EODataWorkbench {
     this._updateRecordValue(recordId, fieldId, value);
   }
 
-  _updateRecordValue(recordId, fieldId, value, skipUndo = false) {
+  _updateRecordValue(recordId, fieldId, value, skipUndo = false, skipReciprocal = false) {
     const set = this.getCurrentSet();
 
     // Safety check: If records are in IndexedDB but not loaded, this is a bug
@@ -30931,7 +30931,7 @@ class EODataWorkbench {
       console.error('[DATA LOSS PREVENTION] Attempted to update record but records not loaded from IndexedDB. Loading now...');
       this._ensureSetRecords(set).then(() => {
         // Retry the update after records are loaded
-        this._updateRecordValue(recordId, fieldId, value, skipUndo);
+        this._updateRecordValue(recordId, fieldId, value, skipUndo, skipReciprocal);
       });
       return;
     }
@@ -31017,6 +31017,11 @@ class EODataWorkbench {
       canReverse: true,
       reverseData: { type: 'update_field', recordId, fieldId, oldValue, newValue: value, setId: set.id }
     });
+
+    // Update reciprocal links for LINK fields
+    if (field && field.type === FieldTypes.LINK && !skipReciprocal) {
+      this._updateReciprocalLinks(set.id, recordId, field, oldValue, value);
+    }
 
     this._saveData();
   }
@@ -41688,6 +41693,119 @@ class EODataWorkbench {
       }
       return link;
     });
+  }
+
+  // --------------------------------------------------------------------------
+  // Reciprocal Link Utilities
+  // --------------------------------------------------------------------------
+
+  /**
+   * Find or create a reciprocal LINK field in the target set that points back to the source set.
+   * @param {Object} sourceSet - The set containing the original link field
+   * @param {Object} sourceField - The original link field
+   * @param {Object} targetSet - The set to find/create the reciprocal field in
+   * @returns {Object|null} The reciprocal field, or null if target set not found
+   */
+  _findOrCreateReciprocalField(sourceSet, sourceField, targetSet) {
+    if (!targetSet || !sourceSet || !sourceField) return null;
+
+    // Look for an existing LINK field in target set that points to source set
+    let reciprocalField = targetSet.fields.find(f =>
+      f.type === FieldTypes.LINK &&
+      f.options?.linkedSetId === sourceSet.id
+    );
+
+    // If no reciprocal field exists, create one
+    if (!reciprocalField) {
+      const fieldId = 'field_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+      reciprocalField = {
+        id: fieldId,
+        name: sourceSet.name,
+        type: FieldTypes.LINK,
+        options: {
+          linkedSetId: sourceSet.id,
+          linkedViewId: null,
+          linkedFieldId: null,
+          allowMultiple: true, // Reciprocal links should allow multiple since many records can link to one
+          enableEdgeData: sourceField.options?.enableEdgeData || false,
+          edgeFields: sourceField.options?.edgeFields || []
+        }
+      };
+      targetSet.fields.push(reciprocalField);
+      targetSet.updatedAt = new Date().toISOString();
+    }
+
+    return reciprocalField;
+  }
+
+  /**
+   * Update reciprocal links when a LINK field value changes.
+   * When Set A links to Set B, this creates/updates the link from Set B back to Set A.
+   * @param {string} sourceSetId - ID of the set containing the link field
+   * @param {string} sourceRecordId - ID of the record being edited
+   * @param {Object} field - The link field being updated
+   * @param {*} oldValue - Previous value of the link field
+   * @param {*} newValue - New value of the link field
+   * @param {boolean} skipReciprocal - If true, don't trigger further reciprocal updates (prevents infinite loops)
+   */
+  _updateReciprocalLinks(sourceSetId, sourceRecordId, field, oldValue, newValue, skipReciprocal = false) {
+    if (skipReciprocal) return;
+    if (!field || field.type !== FieldTypes.LINK) return;
+
+    const linkedSetId = field.options?.linkedSetId;
+    if (!linkedSetId) return;
+
+    const sourceSet = this.sets.find(s => s.id === sourceSetId);
+    const targetSet = this.sets.find(s => s.id === linkedSetId);
+    if (!sourceSet || !targetSet) return;
+
+    // Normalize old and new values to arrays of link objects
+    const oldLinks = this._normalizeLinkValue(oldValue);
+    const newLinks = this._normalizeLinkValue(newValue);
+
+    const oldIds = new Set(oldLinks.map(l => l.recordId));
+    const newIds = new Set(newLinks.map(l => l.recordId));
+
+    // Find added and removed links
+    const addedLinks = newLinks.filter(l => !oldIds.has(l.recordId));
+    const removedIds = [...oldIds].filter(id => !newIds.has(id));
+
+    // Find or create the reciprocal field in the target set
+    const reciprocalField = this._findOrCreateReciprocalField(sourceSet, field, targetSet);
+    if (!reciprocalField) return;
+
+    // Add reciprocal links for newly added links
+    for (const addedLink of addedLinks) {
+      const targetRecord = targetSet.records.find(r => r.id === addedLink.recordId);
+      if (!targetRecord) continue;
+
+      // Get current links in the reciprocal field
+      const currentReciprocalLinks = this._normalizeLinkValue(targetRecord.values[reciprocalField.id]);
+      const alreadyLinked = currentReciprocalLinks.some(l => l.recordId === sourceRecordId);
+
+      if (!alreadyLinked) {
+        // Add the reciprocal link with the same edge data
+        const newReciprocalLink = this._createLinkObject(sourceRecordId, addedLink.edgeData);
+        const updatedLinks = [...currentReciprocalLinks, newReciprocalLink];
+        targetRecord.values[reciprocalField.id] = updatedLinks;
+        targetRecord.updatedAt = new Date().toISOString();
+      }
+    }
+
+    // Remove reciprocal links for removed links
+    for (const removedId of removedIds) {
+      const targetRecord = targetSet.records.find(r => r.id === removedId);
+      if (!targetRecord) continue;
+
+      // Get current links in the reciprocal field
+      const currentReciprocalLinks = this._normalizeLinkValue(targetRecord.values[reciprocalField.id]);
+      const updatedLinks = currentReciprocalLinks.filter(l => l.recordId !== sourceRecordId);
+
+      if (updatedLinks.length !== currentReciprocalLinks.length) {
+        targetRecord.values[reciprocalField.id] = updatedLinks.length > 0 ? updatedLinks : null;
+        targetRecord.updatedAt = new Date().toISOString();
+      }
+    }
   }
 
   // --------------------------------------------------------------------------
