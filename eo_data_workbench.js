@@ -2095,6 +2095,11 @@ class EODataWorkbench {
    */
   _initTabKeyboardShortcuts() {
     document.addEventListener('keydown', (e) => {
+      // Skip shortcuts when typing in input fields
+      if (e.target.closest('input, textarea, [contenteditable="true"]')) {
+        return;
+      }
+
       // Ctrl+T: New tab
       if (e.ctrlKey && e.key === 't') {
         e.preventDefault();
@@ -39141,19 +39146,19 @@ class EODataWorkbench {
     }
 
     // Ctrl + Tab to go to next tab
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Tab' && !e.shiftKey) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Tab' && !e.shiftKey && !e.target.closest('input, textarea')) {
       e.preventDefault();
       this._nextTab();
     }
 
     // Ctrl + Shift + Tab to go to previous tab
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Tab' && e.shiftKey) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Tab' && e.shiftKey && !e.target.closest('input, textarea')) {
       e.preventDefault();
       this._prevTab();
     }
 
     // Ctrl + 1-9 to switch to specific tab (1-indexed)
-    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && !e.target.closest('input, textarea')) {
       const tabIndex = parseInt(e.key, 10);
       if (tabIndex >= 1 && tabIndex <= 9) {
         const set = this.getCurrentSet();
