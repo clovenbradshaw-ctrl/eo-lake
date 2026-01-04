@@ -24176,6 +24176,27 @@ class EODataWorkbench {
     this._saveData();
   }
 
+  /**
+   * Close a view tab (switch away from it without removing it from the set)
+   */
+  _closeView(viewId) {
+    const set = this.getCurrentSet();
+    if (!set || set.views.length <= 1) {
+      // Can't close the last tab - nothing to switch to
+      return;
+    }
+
+    const viewIndex = set.views.findIndex(v => v.id === viewId);
+    if (viewIndex === -1) return;
+
+    // Only need to switch if closing the current view
+    if (this.currentViewId === viewId) {
+      // Switch to adjacent tab (prefer next, fallback to previous)
+      const newIndex = viewIndex < set.views.length - 1 ? viewIndex + 1 : viewIndex - 1;
+      this._selectView(set.views[newIndex].id);
+    }
+  }
+
   _switchViewType(viewType) {
     const set = this.getCurrentSet();
     if (!set) return;
@@ -28760,13 +28781,13 @@ class EODataWorkbench {
       });
     });
 
-    // Tab close button clicks
+    // Tab close button clicks - just close (switch away), don't toss
     header.querySelectorAll('.view-tab-close').forEach(closeBtn => {
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const viewId = closeBtn.dataset.viewId;
         if (viewId) {
-          this._tossTab(viewId);
+          this._closeView(viewId);
         }
       });
     });
