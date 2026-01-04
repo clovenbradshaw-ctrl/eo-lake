@@ -1608,7 +1608,14 @@ html, body {
 }
 
 /* Prevent text from causing layout shifts */
-.set-item-name,
+.set-item-name {
+  flex: 1 1 auto;
+  min-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .set-view-item span,
 .workspace-name {
   flex: 1 1 0;
@@ -2443,6 +2450,7 @@ html, body {
 
 .set-item-name {
   flex: 1;
+  min-width: 80px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
