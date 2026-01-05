@@ -919,9 +919,107 @@ class SetDefinition {
 // ============================================================================
 
 class ChainExecutor {
-  constructor(sourceStore, eventStore = null) {
+  constructor(sourceStore, eventStore = null, options = {}) {
     this.sourceStore = sourceStore;
     this.eventStore = eventStore;
+    this.activityStore = options.activityStore || null;
+    this.actor = options.actor || 'system';
+  }
+
+  /**
+   * Record an activity if activity store is available
+   * @param {string} op - Operator type
+   * @param {Object} params - Operator parameters
+   * @param {Object} stats - Execution stats (inputRows, outputRows)
+   * @param {Object} setDef - Set definition being executed
+   */
+  async _recordActivity(op, params, stats, setDef) {
+    if (!this.activityStore) return;
+
+    try {
+      const Activity = typeof window !== 'undefined' && window.EOActivity?.Activity;
+      if (!Activity) return;
+
+      const target = setDef?.setId || setDef?.name || 'query_execution';
+      const actor = setDef?.grounding?.actor || this.actor;
+
+      let activity;
+      switch (op) {
+        case OperatorType.INS:
+          activity = Activity.insert(target, actor, {
+            method: 'query_source',
+            data: { sourceId: params.sourceId, alias: params.alias, rows: stats.outputRows }
+          });
+          break;
+        case OperatorType.SEG:
+          activity = Activity.segment(target, actor, {
+            method: 'query_filter',
+            data: {
+              predicate: params.predicate,
+              selectFields: params.selectFields,
+              inputRows: stats.inputRows,
+              outputRows: stats.outputRows
+            }
+          });
+          break;
+        case OperatorType.CON:
+          activity = Activity.connect(target, actor, params.rightSourceId, {
+            method: 'query_join',
+            data: {
+              joinType: params.type,
+              on: params.on,
+              conflict: params.conflict,
+              inputRows: stats.inputRows,
+              outputRows: stats.outputRows
+            }
+          });
+          break;
+        case OperatorType.ALT:
+          activity = Activity.update(target, actor, [stats.inputRows, stats.outputRows], {
+            method: 'query_temporal',
+            data: { temporalType: params.temporalType, timestamp: params.timestamp }
+          });
+          break;
+        case OperatorType.AGG:
+          activity = Activity.synthesize(target, actor, params.groupBy, {
+            method: 'query_aggregate',
+            data: { aggregations: params.aggregations, inputRows: stats.inputRows, outputRows: stats.outputRows }
+          });
+          break;
+        case OperatorType.DES:
+          activity = Activity.designate(target, actor, params.designation, {
+            method: 'query_name'
+          });
+          break;
+        case OperatorType.SYN:
+          activity = Activity.synthesize(target, actor, [params.left, params.right], {
+            method: 'query_synthesis',
+            data: { synthesisType: params.synthesisType, confidence: params.confidence }
+          });
+          break;
+        case OperatorType.SUP:
+          activity = Activity.superpose(target, actor, params.interpretations, {
+            method: 'query_superposition',
+            data: { field: params.field, resolution: params.resolution }
+          });
+          break;
+        case OperatorType.NUL:
+          activity = Activity.nullify(target, actor, params.expectation?.basis || 'absence_check', {
+            method: 'query_absence',
+            data: { expectation: params.expectation, outputRows: stats.outputRows }
+          });
+          break;
+        default:
+          return;
+      }
+
+      if (activity && this.activityStore.record) {
+        await this.activityStore.record(activity);
+      }
+    } catch (e) {
+      // Don't let activity recording errors break query execution
+      console.warn('Failed to record query activity:', e);
+    }
   }
 
   /**
@@ -951,13 +1049,17 @@ class ChainExecutor {
       data = result.data;
       columns = result.columns || columns;
 
-      stats.operations.push({
+      const opStats = {
         op: op.op,
         symbol: op.symbol,
         inputRows: beforeCount,
         outputRows: data.length,
         params: op.params
-      });
+      };
+      stats.operations.push(opStats);
+
+      // Record activity for this operator execution
+      this._recordActivity(op.op, op.params, { inputRows: beforeCount, outputRows: data.length }, setDef);
     }
 
     stats.outputRows = data.length;

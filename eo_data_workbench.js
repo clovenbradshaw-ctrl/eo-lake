@@ -1590,6 +1590,12 @@ class EODataWorkbench {
             </div>
             <span>Import</span>
           </button>
+          <button class="new-tab-shortcut" data-action="new-view">
+            <div class="new-tab-shortcut-icon new-view">
+              <i class="ph ph-squares-four"></i>
+            </div>
+            <span>New View</span>
+          </button>
         </div>
 
         ${recentSets.length > 0 ? `
@@ -1650,6 +1656,9 @@ class EODataWorkbench {
             break;
           case 'import':
             this._showImportDialog();
+            break;
+          case 'new-view':
+            this._showNewViewFromNewTab();
             break;
         }
       });
@@ -1749,50 +1758,34 @@ class EODataWorkbench {
     const content = this.elements.contentArea;
     if (!content) return;
 
-    // Preserve view mode state
-    const showRawJson = this._activityTabShowRawJson || false;
-
     // Collect all activities
     const allActivities = this._collectAllActivities();
 
     content.innerHTML = `
-      <div class="activity-page">
-        <div class="activity-header">
-          <div class="activity-header-left">
-            <h1><i class="ph ph-clock-counter-clockwise"></i> Activity</h1>
-            <span class="activity-count-badge" id="activity-tab-count">${allActivities.length} ${allActivities.length === 1 ? 'activity' : 'activities'}</span>
-          </div>
-          <div class="activity-header-right">
-            <div class="activity-tab-filters">
-              <select id="activity-tab-filter-type" class="activity-filter-select">
-                <option value="all">All types</option>
-                <option value="source">Sources</option>
-                <option value="set">Sets</option>
-                <option value="view">Views</option>
-                <option value="field">Fields</option>
-                <option value="record">Records</option>
-                <option value="lens">Lenses</option>
-              </select>
-              <select id="activity-tab-filter-action" class="activity-filter-select">
-                <option value="all">All actions</option>
-                <option value="create">Created</option>
-                <option value="update">Updated</option>
-                <option value="delete">Deleted</option>
-                <option value="restore">Restored</option>
-              </select>
-            </div>
-            <div class="activity-view-toggle">
-              <button class="activity-view-btn ${!showRawJson ? 'active' : ''}" data-view="table" title="Table view">
-                <i class="ph ph-table"></i>
-              </button>
-              <button class="activity-view-btn ${showRawJson ? 'active' : ''}" data-view="json" title="Raw JSON">
-                <i class="ph ph-brackets-curly"></i>
-              </button>
-            </div>
+      <div class="activity-simple-container">
+        <div class="activity-toolbar">
+          <span class="activity-count-text">${allActivities.length} ${allActivities.length === 1 ? 'activity' : 'activities'}</span>
+          <div class="activity-toolbar-filters">
+            <select id="activity-tab-filter-type" class="activity-toolbar-select">
+              <option value="all">All types</option>
+              <option value="source">Sources</option>
+              <option value="set">Sets</option>
+              <option value="view">Views</option>
+              <option value="field">Fields</option>
+              <option value="record">Records</option>
+              <option value="lens">Lenses</option>
+            </select>
+            <select id="activity-tab-filter-action" class="activity-toolbar-select">
+              <option value="all">All actions</option>
+              <option value="create">Created</option>
+              <option value="update">Updated</option>
+              <option value="delete">Deleted</option>
+              <option value="restore">Restored</option>
+            </select>
           </div>
         </div>
-        <div class="activity-content" id="activity-tab-content">
-          ${showRawJson ? this._renderActivityTabJsonView(allActivities) : this._renderActivityTabTableView(allActivities)}
+        <div class="activity-simple-content" id="activity-tab-content">
+          ${this._renderActivityTabTableView(allActivities)}
         </div>
       </div>
     `;
@@ -1804,10 +1797,8 @@ class EODataWorkbench {
   _renderActivityTabTableView(activities) {
     if (activities.length === 0) {
       return `
-        <div class="activity-empty-state">
-          <i class="ph ph-clock-counter-clockwise"></i>
-          <h3>No recent activity</h3>
-          <p>Your recent actions will appear here</p>
+        <div class="activity-empty-simple">
+          No activity recorded
         </div>
       `;
     }
@@ -1820,40 +1811,32 @@ class EODataWorkbench {
 
       return `
         <tr data-activity-id="${activity.id}">
-          <td class="activity-col-time">${timeAgo}</td>
-          <td class="activity-col-action">${actionBadge}</td>
-          <td class="activity-col-type">${typeBadge}</td>
-          <td class="activity-col-name">
-            <span class="activity-name" title="${this._escapeHtml(activity.name || '')}">${this._escapeHtml(activity.name || 'Untitled')}</span>
-          </td>
-          <td class="activity-col-details">
-            <span class="activity-details" title="${this._escapeHtml(activity.details || '')}">${this._escapeHtml(activity.details || '')}</span>
-          </td>
-          <td class="activity-col-actions">
-            ${canUndo ? `<button class="activity-undo-btn" data-activity-id="${activity.id}" title="Reverse this action">Undo</button>` : ''}
-          </td>
+          <td>${timeAgo}</td>
+          <td>${actionBadge}</td>
+          <td>${typeBadge}</td>
+          <td>${this._escapeHtml(activity.name || 'Untitled')}</td>
+          <td class="activity-details-cell">${this._escapeHtml(activity.details || '')}</td>
+          <td>${canUndo ? `<button class="activity-undo-btn" data-activity-id="${activity.id}">Undo</button>` : ''}</td>
         </tr>
       `;
     }).join('');
 
     return `
-      <div class="activity-table-wrapper">
-        <table class="activity-table">
-          <thead>
-            <tr>
-              <th class="activity-col-time">Time</th>
-              <th class="activity-col-action">Action</th>
-              <th class="activity-col-type">Type</th>
-              <th class="activity-col-name">Name</th>
-              <th class="activity-col-details">Details</th>
-              <th class="activity-col-actions"></th>
-            </tr>
-          </thead>
-          <tbody id="activity-tab-table-body">
-            ${rows}
-          </tbody>
-        </table>
-      </div>
+      <table class="activity-simple-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Action</th>
+            <th>Type</th>
+            <th>Name</th>
+            <th>Details</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="activity-tab-table-body">
+          ${rows}
+        </tbody>
+      </table>
     `;
   }
 
@@ -1914,7 +1897,7 @@ class EODataWorkbench {
       }
 
       // Update count
-      const countEl = content.querySelector('#activity-tab-count');
+      const countEl = content.querySelector('.activity-count-text');
       if (countEl) {
         countEl.textContent = `${filtered.length} ${filtered.length === 1 ? 'activity' : 'activities'}`;
       }
@@ -1922,33 +1905,13 @@ class EODataWorkbench {
       // Update content
       const contentArea = content.querySelector('#activity-tab-content');
       if (contentArea) {
-        const showRawJson = this._activityTabShowRawJson || false;
-        contentArea.innerHTML = showRawJson
-          ? this._renderActivityTabJsonView(filtered)
-          : this._renderActivityTabTableView(filtered);
-
-        // Re-attach content-specific listeners
+        contentArea.innerHTML = this._renderActivityTabTableView(filtered);
         this._attachActivityTabContentListeners();
       }
     };
 
     typeFilter?.addEventListener('change', applyFilters);
     actionFilter?.addEventListener('change', applyFilters);
-
-    // View toggle listeners
-    content.querySelectorAll('.activity-view-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const view = btn.dataset.view;
-        this._activityTabShowRawJson = view === 'json';
-
-        // Update button states
-        content.querySelectorAll('.activity-view-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-
-        // Re-render content with current filters
-        applyFilters();
-      });
-    });
 
     // Attach content-specific listeners
     this._attachActivityTabContentListeners();
@@ -1967,26 +1930,6 @@ class EODataWorkbench {
         this._renderActivityTab(); // Re-render after undo
       });
     });
-
-    // Copy JSON button
-    const copyBtn = content.querySelector('.activity-json-copy-btn');
-    if (copyBtn) {
-      copyBtn.addEventListener('click', () => {
-        const activities = this._collectAllActivities().slice(0, 100).map(activity => {
-          const clean = { ...activity };
-          if (clean.reverseData) {
-            clean.reverseData = { type: clean.reverseData.type };
-          }
-          return clean;
-        });
-        const jsonString = JSON.stringify(activities, null, 2);
-        navigator.clipboard.writeText(jsonString).then(() => {
-          this._showToast('JSON copied to clipboard', 'success');
-        }).catch(() => {
-          this._showToast('Failed to copy to clipboard', 'error');
-        });
-      });
-    }
   }
 
   /**
@@ -4788,6 +4731,116 @@ class EODataWorkbench {
     this._renderView();
     this._updateBreadcrumb();
     this._saveData();
+  }
+
+  /**
+   * Show dialog to create a new view from New Tab page
+   * Allows user to select a set first, then create view or lens
+   */
+  _showNewViewFromNewTab() {
+    const sets = this._getProjectSets();
+
+    if (sets.length === 0) {
+      this._showToast('No sets available. Create a set first.', 'warning');
+      return;
+    }
+
+    const viewTypes = [
+      { type: 'table', name: 'Table', icon: 'ph-table', desc: 'Spreadsheet-style rows and columns' },
+      { type: 'cards', name: 'Cards', icon: 'ph-cards', desc: 'Visual cards for each record' },
+      { type: 'kanban', name: 'Kanban', icon: 'ph-kanban', desc: 'Drag-and-drop board by status' },
+      { type: 'calendar', name: 'Calendar', icon: 'ph-calendar-blank', desc: 'Date-based calendar view' },
+      { type: 'graph', name: 'Graph', icon: 'ph-graph', desc: 'Network visualization of relationships' },
+      { type: 'filesystem', name: 'Filesystem', icon: 'ph-folder-open', desc: 'Hierarchical tree structure' }
+    ];
+
+    const html = `
+      <div class="create-view-form">
+        <div class="form-group">
+          <label for="view-set-select" class="form-label">Select Set</label>
+          <select id="view-set-select" class="form-select">
+            ${sets.map(set => `
+              <option value="${set.id}">${this._escapeHtml(set.name)} (${(set.records || []).length} records)</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="view-name" class="form-label">View Name</label>
+          <input type="text" id="view-name" class="form-input" placeholder="My View" value="New View">
+        </div>
+        <div class="form-group">
+          <label class="form-label">View Type</label>
+          <div class="view-type-grid">
+            ${viewTypes.map(vt => `
+              <div class="view-type-option" data-type="${vt.type}">
+                <i class="ph ${vt.icon}"></i>
+                <span class="view-type-name">${vt.name}</span>
+                <span class="view-type-desc">${vt.desc}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+
+    this._showModal('Create New View', html, () => {
+      const setId = document.getElementById('view-set-select')?.value;
+      const name = document.getElementById('view-name')?.value || 'New View';
+      const selectedType = document.querySelector('.view-type-option.selected')?.dataset.type || 'table';
+
+      const set = this.sets.find(s => s.id === setId);
+      if (!set) {
+        this._showToast('Please select a set', 'error');
+        return;
+      }
+
+      // Ensure views array exists
+      if (!set.views) {
+        set.views = [];
+      }
+
+      const newView = createView(name, selectedType);
+      set.views.push(newView);
+
+      // Switch to the set and new view
+      this.currentSetId = set.id;
+      this.currentViewId = newView.id;
+      this.lastViewPerSet[set.id] = newView.id;
+
+      // Open the set tab with the new view
+      this.openTab('set', {
+        contentId: set.id,
+        title: set.name,
+        icon: set.icon || 'ph-table'
+      });
+
+      // Record activity
+      this._recordActivity({
+        action: 'create',
+        entityType: 'view',
+        name: name,
+        details: `${selectedType} view in "${set.name}"`
+      });
+
+      this._renderSidebar();
+      this._renderView();
+      this._updateBreadcrumb();
+      this._saveData();
+      this._showToast(`Created "${name}" view in "${set.name}"`, 'success');
+    });
+
+    // Handle view type selection
+    setTimeout(() => {
+      const options = document.querySelectorAll('.view-type-option');
+      options.forEach(opt => {
+        opt.addEventListener('click', () => {
+          options.forEach(o => o.classList.remove('selected'));
+          opt.classList.add('selected');
+        });
+      });
+      // Default select table
+      options[0]?.classList.add('selected');
+    }, 0);
   }
 
   /**
@@ -16029,7 +16082,7 @@ class EODataWorkbench {
             this._selectSet(setId);
             break;
           case 'edit':
-            this._selectSet(setId, 'fields');
+            this._selectSet(setId, 'schema');
             break;
           case 'export':
             this._exportSet(setId);
@@ -16365,17 +16418,41 @@ class EODataWorkbench {
       return;
     }
 
-    const provenanceFields = [
-      { key: 'agent', label: 'Agent', icon: 'ph-user', description: 'Who provided this data' },
-      { key: 'method', label: 'Method', icon: 'ph-gear', description: 'How it was produced' },
-      { key: 'source', label: 'Origin', icon: 'ph-link', description: 'Where it came from' },
-      { key: 'term', label: 'Term', icon: 'ph-tag', description: 'Key concept' },
-      { key: 'definition', label: 'Definition', icon: 'ph-book-open', description: 'What the term means' },
-      { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-globe', description: 'Scope or authority' },
-      { key: 'scale', label: 'Scale', icon: 'ph-chart-line', description: 'Operational level' },
-      { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', description: 'Observation period' },
-      { key: 'background', label: 'Background', icon: 'ph-info', description: 'Enabling conditions' }
+    const provenanceGroups = [
+      {
+        title: 'Source & Attribution',
+        subtitle: 'Where did this data come from?',
+        icon: 'ph-identification-card',
+        fields: [
+          { key: 'agent', label: 'Agent', icon: 'ph-user', description: 'Person, team, or system that provided or created this data' },
+          { key: 'method', label: 'Method', icon: 'ph-gear', description: 'How this data was collected or generated (e.g., survey, API, manual entry)' },
+          { key: 'source', label: 'Origin', icon: 'ph-link', description: 'Original file, database, or system where this data came from' }
+        ]
+      },
+      {
+        title: 'Meaning & Scope',
+        subtitle: 'What does this data represent?',
+        icon: 'ph-book-open-text',
+        fields: [
+          { key: 'term', label: 'Term', icon: 'ph-tag', description: 'The key concept or entity this data describes' },
+          { key: 'definition', label: 'Definition', icon: 'ph-book-open', description: 'Precise meaning of the term in this context' },
+          { key: 'jurisdiction', label: 'Jurisdiction', icon: 'ph-globe', description: 'Geographic region, legal authority, or organizational scope' }
+        ]
+      },
+      {
+        title: 'Context & Conditions',
+        subtitle: 'When and where does this apply?',
+        icon: 'ph-map-trifold',
+        fields: [
+          { key: 'scale', label: 'Scale', icon: 'ph-chart-line', description: 'Level of analysis (e.g., individual, department, company-wide)' },
+          { key: 'timeframe', label: 'Timeframe', icon: 'ph-calendar', description: 'Time period this data covers or when it was observed' },
+          { key: 'background', label: 'Background', icon: 'ph-info', description: 'Assumptions or conditions required for this data to be valid' }
+        ]
+      }
     ];
+
+    // Flatten for save processing
+    const provenanceFields = provenanceGroups.flatMap(g => g.fields);
 
     const html = `
       <div class="source-provenance-edit-modal">
@@ -16385,24 +16462,35 @@ class EODataWorkbench {
         </h3>
         <p class="modal-subtitle">All changes are tracked in edit history.</p>
 
-        <div class="provenance-edit-grid">
-          ${provenanceFields.map(field => {
-            const currentValue = this._getProvenanceValue(source.provenance?.[field.key]) || '';
-            return `
-              <div class="provenance-edit-field">
-                <label for="prov-${field.key}">
-                  <i class="ph ${field.icon}"></i>
-                  ${field.label}
-                </label>
-                <input type="text"
-                       id="prov-${field.key}"
-                       name="${field.key}"
-                       value="${this._escapeHtml(currentValue)}"
-                       placeholder="${field.description}">
+        ${provenanceGroups.map(group => `
+          <div class="provenance-edit-section">
+            <div class="provenance-section-header">
+              <i class="ph ${group.icon}"></i>
+              <div class="provenance-section-title">
+                <span class="section-name">${group.title}</span>
+                <span class="section-subtitle">${group.subtitle}</span>
               </div>
-            `;
-          }).join('')}
-        </div>
+            </div>
+            <div class="provenance-edit-grid">
+              ${group.fields.map(field => {
+                const currentValue = this._getProvenanceValue(source.provenance?.[field.key]) || '';
+                return `
+                  <div class="provenance-edit-field">
+                    <label for="prov-${field.key}">
+                      <i class="ph ${field.icon}"></i>
+                      ${field.label}
+                    </label>
+                    <input type="text"
+                           id="prov-${field.key}"
+                           name="${field.key}"
+                           value="${this._escapeHtml(currentValue)}"
+                           placeholder="${field.description}">
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `).join('')}
       </div>
     `;
 
@@ -24176,6 +24264,27 @@ class EODataWorkbench {
     this._saveData();
   }
 
+  /**
+   * Close a view tab (switch away from it without removing it from the set)
+   */
+  _closeView(viewId) {
+    const set = this.getCurrentSet();
+    if (!set || set.views.length <= 1) {
+      // Can't close the last tab - nothing to switch to
+      return;
+    }
+
+    const viewIndex = set.views.findIndex(v => v.id === viewId);
+    if (viewIndex === -1) return;
+
+    // Only need to switch if closing the current view
+    if (this.currentViewId === viewId) {
+      // Switch to adjacent tab (prefer next, fallback to previous)
+      const newIndex = viewIndex < set.views.length - 1 ? viewIndex + 1 : viewIndex - 1;
+      this._selectView(set.views[newIndex].id);
+    }
+  }
+
   _switchViewType(viewType) {
     const set = this.getCurrentSet();
     if (!set) return;
@@ -25034,7 +25143,7 @@ class EODataWorkbench {
 
     // Edit button - go to fields
     document.getElementById('set-dashboard-edit-btn')?.addEventListener('click', () => {
-      this._selectSet(set.id, 'fields');
+      this._selectSet(set.id, 'schema');
     });
 
     // Delete button
@@ -25191,7 +25300,7 @@ class EODataWorkbench {
 
     // Edit button - go to fields
     document.getElementById('set-dashboard-edit-btn')?.addEventListener('click', () => {
-      this._selectSet(set.id, 'fields');
+      this._selectSet(set.id, 'schema');
     });
 
     // Delete button
@@ -25201,15 +25310,15 @@ class EODataWorkbench {
 
     // View fields links
     document.getElementById('set-dashboard-view-fields')?.addEventListener('click', () => {
-      this._selectSet(set.id, 'fields');
+      this._selectSet(set.id, 'schema');
     });
 
     document.getElementById('set-dashboard-manage-fields')?.addEventListener('click', () => {
-      this._selectSet(set.id, 'fields');
+      this._selectSet(set.id, 'schema');
     });
 
     document.getElementById('set-dashboard-show-all-fields')?.addEventListener('click', () => {
-      this._selectSet(set.id, 'fields');
+      this._selectSet(set.id, 'schema');
     });
 
     // Add source button - show modal to add/merge another source into this set
@@ -25254,7 +25363,7 @@ class EODataWorkbench {
     // Field item clicks
     document.querySelectorAll('.set-dashboard-field-item').forEach(item => {
       item.addEventListener('click', () => {
-        this._selectSet(set.id, 'fields');
+        this._selectSet(set.id, 'schema');
       });
     });
 
@@ -25876,7 +25985,7 @@ class EODataWorkbench {
     `;
 
     document.getElementById('transforms-view-fields')?.addEventListener('click', () => {
-      this._selectSet(set.id, 'fields');
+      this._selectSet(set.id, 'schema');
     });
   }
 
@@ -28760,13 +28869,13 @@ class EODataWorkbench {
       });
     });
 
-    // Tab close button clicks
+    // Tab close button clicks - just close (switch away), don't toss
     header.querySelectorAll('.view-tab-close').forEach(closeBtn => {
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         const viewId = closeBtn.dataset.viewId;
         if (viewId) {
-          this._tossTab(viewId);
+          this._closeView(viewId);
         }
       });
     });
@@ -29460,8 +29569,13 @@ class EODataWorkbench {
       return;
     }
 
+    // Get the global activity store if available
+    const activityStore = typeof window !== 'undefined' ? window.activityStore : null;
+
     this.formulaEngine = new EOFormulaEngine({
       workbench: this,
+      activityStore: activityStore,
+      actor: 'user',
       getSet: (name) => {
         return this.sets?.find(s => s.name === name || s.id === name);
       },

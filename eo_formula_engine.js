@@ -888,6 +888,80 @@ class PipelineEvaluator {
     this.functions = options.functions || {};
     this.getSet = options.getSet || (() => null);
     this.getLinkedRecords = options.getLinkedRecords || (() => []);
+    this.activityStore = options.activityStore || null;
+    this.actor = options.actor || 'system';
+  }
+
+  /**
+   * Record an activity if activity store is available
+   * @param {string} op - Operator type (CON, SEG, DES, SYN, ALT, NUL)
+   * @param {Object} step - The pipeline step being executed
+   * @param {*} input - Input to the operator
+   * @param {*} output - Output from the operator
+   * @param {Object} context - Evaluation context
+   */
+  async _recordActivity(op, step, input, output, context = {}) {
+    if (!this.activityStore) return;
+
+    // Only record activities for significant operations, not simple formula evaluations
+    // Skip if this is a simple value extraction (DES on a field)
+    if (op === 'DES' && !context.recordAllActivities) return;
+
+    try {
+      const Activity = typeof window !== 'undefined' && window.EOActivity?.Activity;
+      if (!Activity) return;
+
+      const target = context.currentRecord?.id || context.currentSet?.id || step.source || 'formula_eval';
+      const actor = context.actor || this.actor;
+
+      let activity;
+      switch (op) {
+        case 'CON':
+          activity = Activity.connect(target, actor, step.source, {
+            method: 'formula_evaluation',
+            data: { step: { operator: step.operator, source: step.source } }
+          });
+          break;
+        case 'SEG':
+          activity = Activity.segment(target, actor, {
+            method: 'formula_filter',
+            data: { condition: step.condition }
+          });
+          break;
+        case 'SYN':
+          activity = Activity.synthesize(target, actor, input, {
+            method: 'formula_aggregation',
+            data: { mode: step.mode }
+          });
+          break;
+        case 'ALT':
+          activity = Activity.update(target, actor, [input, output], {
+            method: 'formula_transform',
+            data: { mode: step.mode }
+          });
+          break;
+        case 'NUL':
+          activity = Activity.nullify(target, actor, 'formula_null_handling', {
+            method: 'formula_null',
+            data: { default: step.default }
+          });
+          break;
+        case 'DES':
+          activity = Activity.designate(target, actor, step.property, {
+            method: 'formula_designate'
+          });
+          break;
+        default:
+          return;
+      }
+
+      if (activity && this.activityStore.record) {
+        await this.activityStore.record(activity);
+      }
+    } catch (e) {
+      // Don't let activity recording errors break formula evaluation
+      console.warn('Failed to record formula activity:', e);
+    }
   }
 
   /**
@@ -963,28 +1037,42 @@ class PipelineEvaluator {
    */
   executeOperator(step, input, context) {
     try {
+      let result;
       switch (step.operator) {
         case OperatorTypes.CON:
-          return this._executeCON(step, input, context);
+          result = this._executeCON(step, input, context);
+          break;
 
         case OperatorTypes.SEG:
-          return this._executeSEG(step, input, context);
+          result = this._executeSEG(step, input, context);
+          break;
 
         case OperatorTypes.DES:
-          return this._executeDES(step, input, context);
+          result = this._executeDES(step, input, context);
+          break;
 
         case OperatorTypes.SYN:
-          return this._executeSYN(step, input, context);
+          result = this._executeSYN(step, input, context);
+          break;
 
         case OperatorTypes.ALT:
-          return this._executeALT(step, input, context);
+          result = this._executeALT(step, input, context);
+          break;
 
         case OperatorTypes.NUL:
-          return this._executeNUL(step, input, context);
+          result = this._executeNUL(step, input, context);
+          break;
 
         default:
           return { value: input, error: `Unknown operator: ${step.operator}` };
       }
+
+      // Record activity for successful operator execution
+      if (result && !result.error) {
+        this._recordActivity(step.operator, step, input, result.value, context);
+      }
+
+      return result;
     } catch (error) {
       return { value: null, error: error.message };
     }
@@ -1522,11 +1610,14 @@ class EOFormulaEngine {
   constructor(options = {}) {
     this.parser = new EOFormulaParser();
     this.graph = new FormulaGraph();
+    this.activityStore = options.activityStore || null;
     this.evaluator = new PipelineEvaluator({
       graph: this.graph,
       functions: this._buildFunctionLibrary(options.functions),
       getSet: options.getSet || (() => null),
-      getLinkedRecords: options.getLinkedRecords || (() => [])
+      getLinkedRecords: options.getLinkedRecords || (() => []),
+      activityStore: this.activityStore,
+      actor: options.actor || 'system'
     });
 
     // Reference to workbench for data access
