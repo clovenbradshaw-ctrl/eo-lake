@@ -1083,6 +1083,38 @@ class ImportOrchestrator {
         }
       }
 
+      // Step 4b: Check for duplicate imports
+      // Detect if this exact file has already been imported by comparing content hash
+      if (contentHash && this.workbench && Array.isArray(this.workbench.sources)) {
+        const duplicateSource = this.workbench.sources.find(
+          s => s.fileIdentity?.contentHash === contentHash
+        );
+
+        if (duplicateSource) {
+          this._emitProgress('error', {
+            phase: 'duplicate_detected',
+            error: 'Duplicate import detected',
+            duplicateOf: {
+              id: duplicateSource.id,
+              name: duplicateSource.name,
+              importedAt: duplicateSource.importedAt
+            }
+          });
+
+          return {
+            success: false,
+            error: 'duplicate_import',
+            message: `This file has already been imported as "${duplicateSource.name}"`,
+            duplicateSource: {
+              id: duplicateSource.id,
+              name: duplicateSource.name,
+              importedAt: duplicateSource.importedAt,
+              recordCount: duplicateSource.recordCount
+            }
+          };
+        }
+      }
+
       // Step 5: Build the source object
       const sourceId = 'src_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 8);
 
@@ -1398,6 +1430,37 @@ class ImportOrchestrator {
           contentHash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
         } catch (e) {
           // Hash computation is optional
+        }
+      }
+
+      // Step 2b: Check for duplicate imports
+      if (contentHash && this.workbench && Array.isArray(this.workbench.sources)) {
+        const duplicateSource = this.workbench.sources.find(
+          s => s.fileIdentity?.contentHash === contentHash
+        );
+
+        if (duplicateSource) {
+          this._emitProgress('error', {
+            phase: 'duplicate_detected',
+            error: 'Duplicate import detected',
+            duplicateOf: {
+              id: duplicateSource.id,
+              name: duplicateSource.name,
+              importedAt: duplicateSource.importedAt
+            }
+          });
+
+          return {
+            success: false,
+            error: 'duplicate_import',
+            message: `This file has already been imported as "${duplicateSource.name}"`,
+            duplicateSource: {
+              id: duplicateSource.id,
+              name: duplicateSource.name,
+              importedAt: duplicateSource.importedAt,
+              recordCount: duplicateSource.recordCount
+            }
+          };
         }
       }
 
@@ -4371,6 +4434,17 @@ function initImportHandlers() {
           originalSource: fileContent
         });
 
+        // Check for duplicate
+        if (result.success === false && result.error === 'duplicate_import') {
+          results.push({
+            fileName: file.name,
+            duplicate: true,
+            duplicateOf: result.duplicateSource.name
+          });
+          completedFiles++;
+          continue;
+        }
+
         results.push({
           fileName: file.name,
           source: result.source,
@@ -4390,25 +4464,50 @@ function initImportHandlers() {
       progressSection.style.display = 'none';
       successSection.style.display = 'flex';
 
+      // Separate imported and duplicate files
+      const imported = results.filter(r => !r.duplicate);
+      const duplicates = results.filter(r => r.duplicate);
+
       const totalDuration = Date.now() - importStartTime;
       const successMsg = document.getElementById('success-message');
       if (successMsg) {
-        successMsg.textContent = `Successfully imported ${totalRecords} records from ${results.length} files in ${formatElapsedTime(totalDuration)}`;
+        let msg = `Successfully imported ${totalRecords} records from ${imported.length} files in ${formatElapsedTime(totalDuration)}`;
+        if (duplicates.length > 0) {
+          msg += ` (${duplicates.length} duplicate${duplicates.length > 1 ? 's' : ''} skipped)`;
+        }
+        successMsg.textContent = msg;
       }
 
       // Show created sources
-      const sourcesList = results.map(r =>
+      const sourcesList = imported.map(r =>
         `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: var(--bg-tertiary); border-radius: 4px;">
           ${r.fileName} (${r.recordCount})
         </span>`
       ).join('');
 
+      // Show duplicates list if any
+      const duplicatesList = duplicates.length > 0 ? duplicates.map(r =>
+        `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: var(--status-warning-bg, #fff3cd); color: var(--status-warning-text, #856404); border-radius: 4px;">
+          ${r.fileName} (duplicate of "${r.duplicateOf}")
+        </span>`
+      ).join('') : '';
+
       const successViews = document.getElementById('success-views-created');
       if (successViews) {
-        successViews.innerHTML = `
-          <div style="margin-top: 8px;"><i class="ph ph-files"></i> Imported sources:</div>
-          <div style="margin-top: 6px;">${sourcesList}</div>
-        `;
+        let html = '';
+        if (imported.length > 0) {
+          html += `
+            <div style="margin-top: 8px;"><i class="ph ph-files"></i> Imported sources:</div>
+            <div style="margin-top: 6px;">${sourcesList}</div>
+          `;
+        }
+        if (duplicates.length > 0) {
+          html += `
+            <div style="margin-top: 12px;"><i class="ph ph-warning"></i> Skipped duplicates:</div>
+            <div style="margin-top: 6px;">${duplicatesList}</div>
+          `;
+        }
+        successViews.innerHTML = html;
       }
 
       // Refresh workbench sidebar
@@ -4416,9 +4515,9 @@ function initImportHandlers() {
         workbench._renderSidebar();
       }
 
-      // Record activity for each imported source
+      // Record activity for each imported source (skip duplicates)
       if (workbench?._recordActivity) {
-        for (const r of results) {
+        for (const r of imported) {
           workbench._recordActivity({
             action: 'create',
             entityType: 'source',
@@ -4429,10 +4528,10 @@ function initImportHandlers() {
         }
       }
 
-      // Navigate to the first imported source
-      if (workbench?._showSourceDetail && results[0]?.source?.id) {
+      // Navigate to the first imported source (skip duplicates)
+      if (workbench?._showSourceDetail && imported[0]?.source?.id) {
         setTimeout(() => {
-          workbench._showSourceDetail(results[0].source.id);
+          workbench._showSourceDetail(imported[0].source.id);
         }, 1900);
       }
 
@@ -4581,6 +4680,19 @@ function initImportHandlers() {
 
         const splitDuration = Date.now() - singleImportStartTime;
 
+        // Check for duplicate import error
+        if (result.success === false && result.error === 'duplicate_import') {
+          progressSection.style.display = 'none';
+          previewSection.style.display = 'block';
+          confirmBtn.disabled = false;
+          cancelBtn.disabled = false;
+
+          const dup = result.duplicateSource;
+          const importedDate = dup.importedAt ? new Date(dup.importedAt).toLocaleDateString() : 'unknown date';
+          alert(`This file has already been imported.\n\nExisting source: "${dup.name}"\nImported on: ${importedDate}\nRecords: ${dup.recordCount}`);
+          return;
+        }
+
         // Show success for split sources import
         progressSection.style.display = 'none';
         successSection.style.display = 'flex';
@@ -4660,6 +4772,20 @@ function initImportHandlers() {
         clearInterval(singleElapsedTimerInterval);
 
         const singleDuration = Date.now() - singleImportStartTime;
+
+        // Check for duplicate import error
+        if (result.success === false && result.error === 'duplicate_import') {
+          progressSection.style.display = 'none';
+          previewSection.style.display = 'block';
+          confirmBtn.disabled = false;
+          cancelBtn.disabled = false;
+
+          // Show duplicate warning with existing source info
+          const dup = result.duplicateSource;
+          const importedDate = dup.importedAt ? new Date(dup.importedAt).toLocaleDateString() : 'unknown date';
+          alert(`This file has already been imported.\n\nExisting source: "${dup.name}"\nImported on: ${importedDate}\nRecords: ${dup.recordCount}`);
+          return;
+        }
 
         // Show success for source import
         progressSection.style.display = 'none';
