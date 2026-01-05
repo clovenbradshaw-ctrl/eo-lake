@@ -3585,10 +3585,206 @@ class EODataWorkbench {
             }
           }
         });
+
+        // Initialize Definitions Set and sync existing definitions
+        this._initializeDefinitionsSet();
       }
     } catch (e) {
       console.error('Failed to load data:', e);
     }
+  }
+
+  /**
+   * Initialize the Definitions Set infrastructure
+   * Creates the system Definitions Set and syncs existing definitions to it
+   */
+  _initializeDefinitionsSet() {
+    try {
+      const DefinitionsSetManager = typeof window !== 'undefined' &&
+        window.EO?.DefinitionsSetManager;
+      const DisambiguationEngine = typeof window !== 'undefined' &&
+        window.EO?.DisambiguationEngine;
+
+      if (!DefinitionsSetManager) {
+        console.log('DefinitionsSetManager not available yet');
+        return;
+      }
+
+      // Create manager instance
+      this._definitionsSetManager = new DefinitionsSetManager(this);
+
+      // Ensure the Definitions Set exists
+      const defSet = this._definitionsSetManager.ensureDefinitionsSet();
+      console.log('Definitions Set initialized:', defSet.id, 'with', defSet.records?.length || 0, 'records');
+
+      // Sync existing workbench.definitions to the Definitions Set
+      if (this.definitions?.length > 0) {
+        const syncResult = this._definitionsSetManager.syncDefinitionsArrayToSet();
+        console.log('Synced definitions to Definitions Set:', syncResult);
+      }
+
+      // Initialize disambiguation engine
+      if (DisambiguationEngine) {
+        this._disambiguationEngine = new DisambiguationEngine(this._definitionsSetManager);
+        this._disambiguationEngine.initialize();
+        console.log('Disambiguation engine initialized');
+      }
+
+      // Complete any pending definition links for sets
+      const completePendingDefinitionLinks = window.EO?.completePendingDefinitionLinks;
+      if (completePendingDefinitionLinks) {
+        for (const set of this.sets || []) {
+          const hasPendingLinks = set.fields?.some(f => f.pendingDefinitionLink);
+          if (hasPendingLinks) {
+            completePendingDefinitionLinks(set.id, this);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to initialize Definitions Set:', err);
+    }
+  }
+
+  /**
+   * Get the Definitions Set Manager
+   */
+  getDefinitionsSetManager() {
+    if (!this._definitionsSetManager) {
+      this._initializeDefinitionsSet();
+    }
+    return this._definitionsSetManager;
+  }
+
+  /**
+   * Get the Disambiguation Engine
+   */
+  getDisambiguationEngine() {
+    if (!this._disambiguationEngine) {
+      this._initializeDefinitionsSet();
+    }
+    return this._disambiguationEngine;
+  }
+
+  /**
+   * Show disambiguation UI for a field
+   * @param {string} setId - The set containing the field
+   * @param {string} fieldId - The field ID or name
+   * @param {Object} options - Options for the disambiguation panel
+   */
+  showFieldDisambiguation(setId, fieldId, options = {}) {
+    const DisambiguationPanel = typeof window !== 'undefined' &&
+      window.EO?.DisambiguationPanel;
+
+    if (!DisambiguationPanel) {
+      console.warn('DisambiguationPanel not available');
+      return;
+    }
+
+    const set = this.sets?.find(s => s.id === setId);
+    const field = set?.fields?.find(f => f.id === fieldId || f.name === fieldId);
+
+    if (!field) {
+      console.warn('Field not found:', fieldId);
+      return;
+    }
+
+    // Get disambiguation status
+    const engine = this.getDisambiguationEngine();
+    const status = engine?.checkDisambiguation(field.name);
+
+    // Get context from sibling fields
+    const siblingFields = set.fields
+      ?.filter(f => f.name !== field.name)
+      ?.map(f => f.name) || [];
+
+    // Get sample values
+    const sampleValues = set.records
+      ?.slice(0, 10)
+      ?.map(r => r.values?.[field.id] || r.values?.[field.name])
+      ?.filter(v => v != null) || [];
+
+    // Resolve with context
+    const resolution = engine?.resolveWithContext(field.name, {
+      siblingFields,
+      domain: set.domain || options.domain,
+      sampleValues
+    });
+
+    // Create modal container
+    const modal = document.createElement('div');
+    modal.className = 'disambiguation-modal';
+    modal.innerHTML = `
+      <div class="disambiguation-modal-overlay"></div>
+      <div class="disambiguation-modal-content"></div>
+    `;
+    document.body.appendChild(modal);
+
+    // Create the panel
+    const panel = new DisambiguationPanel({
+      container: modal.querySelector('.disambiguation-modal-content'),
+      term: field.name,
+      candidates: resolution?.alternatives ? [resolution.bestMatch, ...resolution.alternatives] : status?.candidates || [],
+      context: { siblingFields, domain: set.domain, sampleValues },
+      bestMatch: resolution?.bestMatch,
+      confidence: resolution?.confidence || 0,
+      reasoning: resolution?.reasoning,
+      onSelect: (definitionId, decision) => {
+        // Link the field to the selected definition
+        const manager = this.getDefinitionsSetManager();
+        manager?.linkFieldToDefinition(setId, fieldId, definitionId, {
+          method: decision.method,
+          alternatives: decision.alternatives,
+          context: decision.context
+        });
+
+        // Record the disambiguation decision
+        engine?.recordDisambiguationDecision(definitionId, decision);
+
+        // Save and refresh
+        this._saveData();
+        this._renderSetsNav();
+
+        modal.remove();
+        this._showNotification(`Linked "${field.name}" to definition`, 'success');
+      },
+      onCreateNew: (newDef) => {
+        // Create new definition in Definitions Set
+        const manager = this.getDefinitionsSetManager();
+        const record = manager?.createDefinitionRecord({
+          term: { term: newDef.term, label: newDef.label },
+          status: 'complete',
+          discoveredFrom: { fieldName: field.name, sourceId: set.id }
+        });
+
+        if (record) {
+          // Set context signature
+          if (newDef.contextSignature) {
+            engine?.setContextSignature(record.id, newDef.contextSignature);
+          }
+
+          // Link the field
+          manager?.linkFieldToDefinition(setId, fieldId, record.id, {
+            method: 'user_creation'
+          });
+
+          // Save and refresh
+          this._saveData();
+          this._renderSetsNav();
+        }
+
+        modal.remove();
+        this._showNotification(`Created and linked definition for "${field.name}"`, 'success');
+      },
+      onCancel: () => {
+        modal.remove();
+      }
+    });
+    panel.render();
+
+    // Close on overlay click
+    modal.querySelector('.disambiguation-modal-overlay')?.addEventListener('click', () => {
+      modal.remove();
+    });
   }
 
   /**

@@ -2369,11 +2369,56 @@ class ImportOrchestrator {
    * Create stub definitions for all fields in a source
    * Implements the "keys in definitions by default" pattern
    *
+   * ENHANCED: Now creates linked records in the Definitions Set
+   * and establishes reciprocal field ↔ definition links
+   *
    * @param {Object} source - The imported source object
    * @param {Object} options - Options
    * @returns {DefinitionSource[]} - Array of stub definitions
    */
   _createStubDefinitions(source, options = {}) {
+    // Try the new linked definitions system first
+    const createLinkedStubDefinitions = typeof window !== 'undefined' &&
+      window.EO?.createLinkedStubDefinitions;
+
+    if (createLinkedStubDefinitions && this.workbench) {
+      try {
+        // Use the new system that creates records in the Definitions Set
+        const definitionRecords = createLinkedStubDefinitions(source, this.workbench, options);
+
+        // Also maintain backward compatibility with workbench.definitions array
+        if (this.workbench.definitions && Array.isArray(this.workbench.definitions)) {
+          for (const record of definitionRecords) {
+            const internalDef = this._convertDefinitionRecordToInternal(record, source);
+
+            // Check for duplicates
+            const existingDef = this.workbench.definitions.find(d =>
+              d.terms?.[0]?.name === record.values?.fld_def_term ||
+              d.id === record.id
+            );
+
+            if (!existingDef) {
+              this.workbench.definitions.push(internalDef);
+
+              // Add to current project
+              if (typeof this.workbench._addDefinitionToProject === 'function') {
+                this.workbench._addDefinitionToProject(internalDef.id);
+              }
+            }
+          }
+        }
+
+        console.log('ImportOrchestrator: Created', definitionRecords.length, 'linked definition records in Definitions Set');
+
+        // Return in the old format for backward compatibility
+        return definitionRecords.map(r => this._convertRecordToDefinitionSource(r));
+
+      } catch (err) {
+        console.warn('ImportOrchestrator: New definitions system failed, falling back:', err);
+      }
+    }
+
+    // Fallback to old system
     const createStubDefinitionsForSource = typeof window !== 'undefined' &&
       window.EO?.createStubDefinitionsForSource;
 
@@ -2419,6 +2464,69 @@ class ImportOrchestrator {
     }
 
     return stubDefinitions;
+  }
+
+  /**
+   * Convert a Definitions Set record to internal definition format
+   * @param {Object} record - Definition record from Definitions Set
+   * @param {Object} source - The source the definition came from
+   * @returns {Object} Internal definition format
+   */
+  _convertDefinitionRecordToInternal(record, source) {
+    const values = record.values || {};
+
+    return {
+      id: record.id,
+      name: values.fld_def_label || values.fld_def_term || 'Unknown',
+      description: values.fld_def_definition || `Key from ${source?.name || 'imported data'}`,
+      sourceUri: values.fld_def_meaning_uri || null,
+      format: 'stub',
+      importedAt: record.createdAt || new Date().toISOString(),
+      status: values.fld_def_status || 'stub',
+      populationMethod: 'pending',
+      terms: [{
+        id: `term_${record.id}`,
+        name: values.fld_def_term || '',
+        label: values.fld_def_label || values.fld_def_term,
+        type: 'stub',
+        description: values.fld_def_definition || null,
+        fieldType: values.fld_def_discovered_from?.fieldType || null
+      }],
+      discoveredFrom: values.fld_def_discovered_from || null,
+      definitionSource: {
+        term: { term: values.fld_def_term, label: values.fld_def_label },
+        authority: values.fld_def_authority ? { name: values.fld_def_authority } : null,
+        source: values.fld_def_source_citation ? { citation: values.fld_def_source_citation } : null,
+        apiSuggestions: values.fld_def_api_suggestions || []
+      },
+      // Track link to Definitions Set record
+      definitionRecordId: record.id,
+      linkedFields: values.fld_def_linked_fields || []
+    };
+  }
+
+  /**
+   * Convert a Definitions Set record back to DefinitionSource format
+   * For backward compatibility with existing code
+   */
+  _convertRecordToDefinitionSource(record) {
+    const values = record.values || {};
+
+    return {
+      id: record.id,
+      status: values.fld_def_status || 'stub',
+      populationMethod: 'pending',
+      term: {
+        term: values.fld_def_term,
+        label: values.fld_def_label,
+        definitionText: values.fld_def_definition
+      },
+      authority: values.fld_def_authority ? { name: values.fld_def_authority } : null,
+      source: values.fld_def_source_citation ? { citation: values.fld_def_source_citation } : null,
+      discoveredFrom: values.fld_def_discovered_from,
+      apiSuggestions: values.fld_def_api_suggestions || [],
+      disambiguation: values.fld_def_disambiguation || null
+    };
   }
 
   /**
