@@ -43965,29 +43965,94 @@ class EODataWorkbench {
    * Restore a field to a previous value
    * Creates a new update event (never mutates history - Rule 3)
    */
-  _restoreFieldValue(recordId, fieldId, previousValue, sourceEventId) {
+  async _restoreFieldValue(recordId, fieldId, previousValue, sourceEventId) {
+    try {
+      const set = this.getCurrentSet();
+
+      if (!set) {
+        this._showToast('No set selected', 'error');
+        return;
+      }
+
+      // Ensure records are loaded from IndexedDB if needed
+      if (set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+        await this._ensureSetRecords(set);
+      }
+
+      const record = set?.records?.find(r => r.id === recordId);
+      const field = set?.fields?.find(f => f.id === fieldId);
+
+      if (!record) {
+        this._showToast('Could not find record', 'error');
+        return;
+      }
+
+      if (!field) {
+        this._showToast('Could not find field', 'error');
+        return;
+      }
+
+      const currentValue = record.values[fieldId];
+
+      // Check if the values are actually different
+      // Use JSON.stringify for deep comparison in case of complex values
+      const currentStr = JSON.stringify(currentValue);
+      const previousStr = JSON.stringify(previousValue);
+
+      if (currentStr === previousStr) {
+        this._showToast('Value is already set to this', 'info');
+        this._hideFieldHistoryPopover();
+        return;
+      }
+
+      // Update the value using existing method (which creates proper events)
+      this._updateRecordValue(recordId, fieldId, previousValue);
+
+      // Verify the update succeeded
+      const updatedRecord = set.records.find(r => r.id === recordId);
+      const newValue = updatedRecord?.values[fieldId];
+      const newValueStr = JSON.stringify(newValue);
+
+      if (newValueStr !== previousStr) {
+        console.error('Restore verification failed:', { previousValue, newValue, currentValue });
+        this._showToast('Restore may not have completed correctly', 'warning');
+      } else {
+        this._showToast('Restored to previous value', 'success');
+      }
+
+      // Re-render the cell
+      const cell = document.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
+      if (cell) {
+        cell.innerHTML = this._renderCellContent(field, previousValue);
+      }
+
+      // Also re-render if in detail panel view
+      this._refreshDetailPanelField(recordId, fieldId);
+
+      this._hideFieldHistoryPopover();
+    } catch (err) {
+      console.error('Error restoring field value:', err);
+      this._showToast('Failed to restore value: ' + err.message, 'error');
+    }
+  }
+
+  /**
+   * Refresh a specific field in the detail panel if it's open
+   */
+  _refreshDetailPanelField(recordId, fieldId) {
+    // Check if detail panel is showing this record
+    const detailPanel = document.querySelector('.detail-panel');
+    if (!detailPanel) return;
+
+    const panelRecordId = detailPanel.dataset?.recordId;
+    if (panelRecordId !== recordId) return;
+
+    // Re-render the entire detail panel to reflect the change
     const set = this.getCurrentSet();
     const record = set?.records?.find(r => r.id === recordId);
-    const field = set?.fields?.find(f => f.id === fieldId);
-
-    if (!record || !field) {
-      this._showToast('Could not find record or field', 'error');
-      return;
+    if (record) {
+      this._showRecordDetail(recordId);
     }
-
-    const currentValue = record.values[fieldId];
-
-    // Update the value using existing method (which creates proper events)
-    this._updateRecordValue(recordId, fieldId, previousValue);
-
-    // Re-render the cell
-    const cell = document.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
-    if (cell) {
-      cell.innerHTML = this._renderCellContent(field, previousValue);
-    }
-
-    this._showToast(`Restored to previous value`, 'success');
-    this._hideFieldHistoryPopover();
   }
 
   /**
@@ -44266,14 +44331,37 @@ class EODataWorkbench {
     popover.querySelectorAll('.event-restore-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const restoreRecordId = btn.dataset.recordId;
-        const restoreFieldId = btn.dataset.fieldId;
-        const restoreValue = JSON.parse(btn.dataset.restoreValue);
-        const eventId = btn.dataset.eventId;
+        e.preventDefault();
 
-        // Show confirmation
-        if (confirm(`Restore field to previous value?\n\nThis will create a new change event (history is preserved).`)) {
-          this._restoreFieldValue(restoreRecordId, restoreFieldId, restoreValue, eventId);
+        try {
+          const restoreRecordId = btn.dataset.recordId;
+          const restoreFieldId = btn.dataset.fieldId;
+          const restoreValueRaw = btn.dataset.restoreValue;
+          const eventId = btn.dataset.eventId;
+
+          // Validate required data
+          if (!restoreRecordId || !restoreFieldId) {
+            this._showToast('Missing record or field information', 'error');
+            return;
+          }
+
+          // Parse the restore value with error handling
+          let restoreValue;
+          try {
+            restoreValue = JSON.parse(restoreValueRaw);
+          } catch (parseError) {
+            console.error('Failed to parse restore value:', restoreValueRaw, parseError);
+            this._showToast('Could not parse restore value', 'error');
+            return;
+          }
+
+          // Show confirmation and restore
+          if (confirm(`Restore field to previous value?\n\nThis will create a new change event (history is preserved).`)) {
+            this._restoreFieldValue(restoreRecordId, restoreFieldId, restoreValue, eventId);
+          }
+        } catch (err) {
+          console.error('Restore button click handler error:', err);
+          this._showToast('Failed to restore value', 'error');
         }
       });
     });
