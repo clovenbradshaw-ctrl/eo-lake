@@ -1749,6 +1749,9 @@ class EODataWorkbench {
     const content = this.elements.contentArea;
     if (!content) return;
 
+    // Preserve view mode state
+    const showStructured = this._activityTabShowStructured || false;
+
     // Collect all activities
     const allActivities = this._collectAllActivities();
 
@@ -1756,27 +1759,37 @@ class EODataWorkbench {
       <div class="activity-simple-container">
         <div class="activity-toolbar">
           <span class="activity-count-text">${allActivities.length} ${allActivities.length === 1 ? 'activity' : 'activities'}</span>
-          <div class="activity-toolbar-filters">
-            <select id="activity-tab-filter-type" class="activity-toolbar-select">
-              <option value="all">All types</option>
-              <option value="source">Sources</option>
-              <option value="set">Sets</option>
-              <option value="view">Views</option>
-              <option value="field">Fields</option>
-              <option value="record">Records</option>
-              <option value="lens">Lenses</option>
-            </select>
-            <select id="activity-tab-filter-action" class="activity-toolbar-select">
-              <option value="all">All actions</option>
-              <option value="create">Created</option>
-              <option value="update">Updated</option>
-              <option value="delete">Deleted</option>
-              <option value="restore">Restored</option>
-            </select>
+          <div class="activity-toolbar-right">
+            <div class="activity-toolbar-filters">
+              <select id="activity-tab-filter-type" class="activity-toolbar-select">
+                <option value="all">All types</option>
+                <option value="source">Sources</option>
+                <option value="set">Sets</option>
+                <option value="view">Views</option>
+                <option value="field">Fields</option>
+                <option value="record">Records</option>
+                <option value="lens">Lenses</option>
+              </select>
+              <select id="activity-tab-filter-action" class="activity-toolbar-select">
+                <option value="all">All actions</option>
+                <option value="create">Created</option>
+                <option value="update">Updated</option>
+                <option value="delete">Deleted</option>
+                <option value="restore">Restored</option>
+              </select>
+            </div>
+            <div class="activity-view-toggle">
+              <button class="activity-view-btn ${!showStructured ? 'active' : ''}" data-view="table" title="Table view">
+                <i class="ph ph-table"></i>
+              </button>
+              <button class="activity-view-btn ${showStructured ? 'active' : ''}" data-view="structured" title="Structured view">
+                <i class="ph ph-brackets-curly"></i>
+              </button>
+            </div>
           </div>
         </div>
         <div class="activity-simple-content" id="activity-tab-content">
-          ${this._renderActivityTabTableView(allActivities)}
+          ${showStructured ? this._renderActivityTabStructuredView(allActivities) : this._renderActivityTabTableView(allActivities)}
         </div>
       </div>
     `;
@@ -1831,38 +1844,58 @@ class EODataWorkbench {
     `;
   }
 
-  _renderActivityTabJsonView(activities) {
+  _renderActivityTabStructuredView(activities) {
     if (activities.length === 0) {
       return `
-        <div class="activity-empty-state">
-          <i class="ph ph-clock-counter-clockwise"></i>
-          <h3>No recent activity</h3>
-          <p>Your recent actions will appear here</p>
+        <div class="activity-empty-simple">
+          No activity recorded
         </div>
       `;
     }
 
-    // Clean up activities for JSON display (remove circular refs and functions)
-    const cleanActivities = activities.slice(0, 100).map(activity => {
-      const clean = { ...activity };
-      // Remove reverseData for cleaner display (it can contain large objects)
-      if (clean.reverseData) {
-        clean.reverseData = { type: clean.reverseData.type, '...': 'data omitted for display' };
-      }
-      return clean;
-    });
+    const cards = activities.slice(0, 100).map(activity => {
+      const timestamp = activity.timestamp ? new Date(activity.timestamp).toLocaleString() : 'Unknown';
+      const canUndo = activity.canReverse && activity.reverseData;
 
-    const jsonString = JSON.stringify(cleanActivities, null, 2);
+      // Build the fields to display
+      const fields = [];
+
+      if (activity.id) fields.push({ label: 'ID', value: activity.id });
+      fields.push({ label: 'Timestamp', value: timestamp });
+      fields.push({ label: 'Action', value: activity.action || 'unknown', isAction: true });
+      fields.push({ label: 'Type', value: activity.entityType || 'unknown' });
+      if (activity.name) fields.push({ label: 'Name', value: activity.name });
+      if (activity.details) fields.push({ label: 'Details', value: activity.details });
+      if (activity.entityId) fields.push({ label: 'Entity ID', value: activity.entityId });
+      if (activity.parentId) fields.push({ label: 'Parent ID', value: activity.parentId });
+      if (activity.source) fields.push({ label: 'Source', value: activity.source });
+
+      const fieldsHtml = fields.map(f => {
+        let valueClass = 'activity-struct-value';
+        if (f.isAction) {
+          valueClass += ` activity-struct-action-${activity.action || 'unknown'}`;
+        }
+        return `
+          <div class="activity-struct-field">
+            <span class="activity-struct-label">${this._escapeHtml(f.label)}</span>
+            <span class="${valueClass}">${this._escapeHtml(String(f.value))}</span>
+          </div>
+        `;
+      }).join('');
+
+      return `
+        <div class="activity-struct-card" data-activity-id="${activity.id}">
+          <div class="activity-struct-fields">
+            ${fieldsHtml}
+          </div>
+          ${canUndo ? `<button class="activity-undo-btn" data-activity-id="${activity.id}">Undo</button>` : ''}
+        </div>
+      `;
+    }).join('');
 
     return `
-      <div class="activity-json-view">
-        <div class="activity-json-toolbar">
-          <button class="activity-json-copy-btn" title="Copy to clipboard">
-            <i class="ph ph-copy"></i> Copy JSON
-          </button>
-          <span class="activity-json-info">${activities.length} activities (showing up to 100)</span>
-        </div>
-        <pre class="activity-json-content"><code>${this._escapeHtml(jsonString)}</code></pre>
+      <div class="activity-struct-list">
+        ${cards}
       </div>
     `;
   }
@@ -1896,13 +1929,31 @@ class EODataWorkbench {
       // Update content
       const contentArea = content.querySelector('#activity-tab-content');
       if (contentArea) {
-        contentArea.innerHTML = this._renderActivityTabTableView(filtered);
+        const showStructured = this._activityTabShowStructured || false;
+        contentArea.innerHTML = showStructured
+          ? this._renderActivityTabStructuredView(filtered)
+          : this._renderActivityTabTableView(filtered);
         this._attachActivityTabContentListeners();
       }
     };
 
     typeFilter?.addEventListener('change', applyFilters);
     actionFilter?.addEventListener('change', applyFilters);
+
+    // View toggle listeners
+    content.querySelectorAll('.activity-view-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const view = btn.dataset.view;
+        this._activityTabShowStructured = view === 'structured';
+
+        // Update button states
+        content.querySelectorAll('.activity-view-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        // Re-render content with current filters
+        applyFilters();
+      });
+    });
 
     // Attach content-specific listeners
     this._attachActivityTabContentListeners();
