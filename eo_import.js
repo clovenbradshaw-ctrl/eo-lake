@@ -3428,6 +3428,7 @@ function showImportModal() {
             <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
           </div>
           <p class="progress-detail" id="progress-detail">Preparing...</p>
+          <p class="progress-elapsed" id="progress-elapsed"></p>
         </div>
       </div>
 
@@ -4329,6 +4330,18 @@ function initImportHandlers() {
     let totalRecords = 0;
     let completedFiles = 0;
 
+    // Start elapsed time timer
+    const importStartTime = Date.now();
+    const progressElapsed = document.getElementById('progress-elapsed');
+    const elapsedTimerInterval = setInterval(() => {
+      if (progressElapsed) {
+        const elapsed = Date.now() - importStartTime;
+        const rate = totalRecords > 0 ? Math.round(totalRecords / (elapsed / 1000)) : 0;
+        const rateText = rate > 0 ? ` (${rate} records/sec)` : '';
+        progressElapsed.textContent = `Elapsed: ${formatElapsedTime(elapsed)}${rateText}`;
+      }
+    }, 1000);
+
     try {
       for (const file of currentFiles) {
         // Update progress text
@@ -4370,13 +4383,17 @@ function initImportHandlers() {
         if (progressBar) progressBar.style.width = `${(completedFiles / currentFiles.length) * 100}%`;
       }
 
+      // Clear elapsed timer
+      clearInterval(elapsedTimerInterval);
+
       // Show success
       progressSection.style.display = 'none';
       successSection.style.display = 'flex';
 
+      const totalDuration = Date.now() - importStartTime;
       const successMsg = document.getElementById('success-message');
       if (successMsg) {
-        successMsg.textContent = `Successfully imported ${totalRecords} records from ${results.length} files`;
+        successMsg.textContent = `Successfully imported ${totalRecords} records from ${results.length} files in ${formatElapsedTime(totalDuration)}`;
       }
 
       // Show created sources
@@ -4425,6 +4442,7 @@ function initImportHandlers() {
       }, 1800);
 
     } catch (error) {
+      clearInterval(elapsedTimerInterval);
       progressSection.style.display = 'none';
       filesListSection.style.display = 'block';
       confirmBtn.disabled = false;
@@ -4504,6 +4522,19 @@ function initImportHandlers() {
     confirmBtn.disabled = true;
     cancelBtn.disabled = true;
 
+    // Start elapsed time timer for single file import
+    const singleImportStartTime = Date.now();
+    let singleImportRecordCount = 0;
+    const singleProgressElapsed = document.getElementById('progress-elapsed');
+    const singleElapsedTimerInterval = setInterval(() => {
+      if (singleProgressElapsed) {
+        const elapsed = Date.now() - singleImportStartTime;
+        const rate = singleImportRecordCount > 0 ? Math.round(singleImportRecordCount / (elapsed / 1000)) : 0;
+        const rateText = rate > 0 ? ` (${rate} records/sec)` : '';
+        singleProgressElapsed.textContent = `Elapsed: ${formatElapsedTime(elapsed)}${rateText}`;
+      }
+    }, 1000);
+
     // Collect all 9 provenance fields
     const provenance = {
       // Epistemic triad
@@ -4524,6 +4555,10 @@ function initImportHandlers() {
       // Listen for progress events
       const progressHandler = (e) => {
         updateProgress(e.detail);
+        // Update record count for rate calculation
+        if (e.detail.recordsProcessed) {
+          singleImportRecordCount = e.detail.recordsProcessed;
+        }
       };
       window.addEventListener('eo-import-progress', progressHandler);
 
@@ -4542,6 +4577,9 @@ function initImportHandlers() {
         });
 
         window.removeEventListener('eo-import-progress', progressHandler);
+        clearInterval(singleElapsedTimerInterval);
+
+        const splitDuration = Date.now() - singleImportStartTime;
 
         // Show success for split sources import
         progressSection.style.display = 'none';
@@ -4550,7 +4588,7 @@ function initImportHandlers() {
         const successMsg = document.getElementById('success-message');
         if (successMsg) {
           successMsg.textContent =
-            `Successfully imported ${result.totalRecordCount} records into ${result.sources.length} Sources`;
+            `Successfully imported ${result.totalRecordCount} records into ${result.sources.length} Sources in ${formatElapsedTime(splitDuration)}`;
         }
 
         // Show created sources info
@@ -4619,6 +4657,9 @@ function initImportHandlers() {
         });
 
         window.removeEventListener('eo-import-progress', progressHandler);
+        clearInterval(singleElapsedTimerInterval);
+
+        const singleDuration = Date.now() - singleImportStartTime;
 
         // Show success for source import
         progressSection.style.display = 'none';
@@ -4627,7 +4668,7 @@ function initImportHandlers() {
         const successMsgEl = document.getElementById('success-message');
         if (successMsgEl) {
           successMsgEl.textContent =
-            `Successfully imported ${result.recordCount} records as Source`;
+            `Successfully imported ${result.recordCount} records as Source in ${formatElapsedTime(singleDuration)}`;
         }
 
         // Show next steps info
@@ -4677,6 +4718,7 @@ function initImportHandlers() {
       }, 1800);
 
     } catch (error) {
+      clearInterval(singleElapsedTimerInterval);
       progressSection.style.display = 'none';
       previewSection.style.display = 'block';
       confirmBtn.disabled = false;
@@ -5107,6 +5149,16 @@ function initImportHandlers() {
 }
 
 // Helper functions
+function formatElapsedTime(ms) {
+  const totalSeconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes > 0) {
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }
+  return `${seconds}s`;
+}
+
 function formatFileSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -5785,6 +5837,13 @@ importStyles.textContent = `
   .progress-detail {
     font-size: 13px;
     color: var(--text-muted);
+  }
+
+  .progress-elapsed {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    font-variant-numeric: tabular-nums;
   }
 
   .import-success {
