@@ -30487,7 +30487,7 @@ class EODataWorkbench {
   }
 
   /**
-   * Show modal with full long text content
+   * Show modal with full long text content, inline editing, and field history/provenance tabs
    */
   _showLongTextModal(recordId, fieldId) {
     const set = this.getCurrentSet();
@@ -30498,38 +30498,172 @@ class EODataWorkbench {
     const value = record.values[fieldId] || '';
     const fieldName = field.name || 'Notes';
 
-    // Create modal for displaying long text
+    // Get field history and provenance
+    const fieldHistory = this._getFieldHistory(recordId, fieldId);
+    const fieldProv = record.fieldProvenance?.[fieldId];
+    const recordProv = record.provenance;
+    const datasetProv = set?.datasetProvenance?.provenance;
+
+    // Determine effective provenance
+    let provenanceSource = 'dataset';
+    let effectiveProv = datasetProv;
+    if (fieldProv && Object.values(fieldProv).some(v => v !== null && v !== undefined)) {
+      provenanceSource = 'field';
+      effectiveProv = fieldProv;
+    } else if (recordProv && Object.values(recordProv).some(v => v !== null && v !== undefined)) {
+      provenanceSource = 'record';
+      effectiveProv = recordProv;
+    }
+
+    // Helper to get provenance value
+    const getProvValue = (prov, simpleKey, eoKey) => {
+      if (!prov) return null;
+      if (prov[simpleKey]) {
+        return typeof prov[simpleKey] === 'object' ? prov[simpleKey].value : prov[simpleKey];
+      }
+      if (prov[eoKey]) {
+        return typeof prov[eoKey] === 'object' ? prov[eoKey].value : prov[eoKey];
+      }
+      return null;
+    };
+
+    const provAgent = getProvValue(effectiveProv, 'agent', 'asserting_agent');
+    const provMethod = getProvValue(effectiveProv, 'method', 'designation_mechanism');
+    const provSource = getProvValue(effectiveProv, 'source', 'identity_kind');
+    const hasProvenance = provAgent || provMethod || provSource;
+
+    // Render history timeline
+    const historyHtml = fieldHistory.length > 0
+      ? `<div class="longtext-modal-history-events">
+          ${fieldHistory.slice().reverse().map(event => this._renderFieldHistoryEvent(event, field, recordId, true)).join('')}
+        </div>`
+      : `<div class="longtext-modal-history-empty">
+          <i class="ph ph-clock-afternoon"></i>
+          <span>No changes tracked yet</span>
+          <div class="longtext-modal-history-hint">Changes will appear here as you edit this field</div>
+        </div>`;
+
+    // Render provenance content
+    const provenanceHtml = `
+      <div class="longtext-modal-provenance">
+        <div class="longtext-modal-provenance-source">
+          <span class="provenance-source-badge ${provenanceSource}">${provenanceSource}</span>
+          provenance
+        </div>
+        <div class="longtext-modal-provenance-grid">
+          <div class="longtext-modal-prov-item">
+            <label>Agent</label>
+            <span>${provAgent ? this._escapeHtml(provAgent) : '<em class="empty">Not set</em>'}</span>
+          </div>
+          <div class="longtext-modal-prov-item">
+            <label>Method</label>
+            <span>${provMethod ? this._escapeHtml(provMethod) : '<em class="empty">Not set</em>'}</span>
+          </div>
+          <div class="longtext-modal-prov-item">
+            <label>Source</label>
+            <span>${provSource ? this._escapeHtml(provSource) : '<em class="empty">Not set</em>'}</span>
+          </div>
+        </div>
+      </div>`;
+
+    // Create modal with tabs for content/history/provenance
     const modal = new EOModal({
       title: fieldName,
       size: 'large',
       content: `
-        <div class="longtext-modal-content">
-          <div class="longtext-modal-text">${this._escapeHtml(value).replace(/\n/g, '<br>')}</div>
+        <div class="longtext-modal-tabbed">
+          <div class="longtext-modal-tabs">
+            <button class="longtext-modal-tab active" data-tab="content">
+              <i class="ph ph-text-aa"></i> Content
+            </button>
+            <button class="longtext-modal-tab" data-tab="history">
+              <i class="ph ph-clock-counter-clockwise"></i> History
+              <span class="tab-badge">${fieldHistory.length}</span>
+            </button>
+            <button class="longtext-modal-tab" data-tab="provenance">
+              <i class="ph ph-git-branch"></i> Provenance
+            </button>
+          </div>
+          <div class="longtext-modal-tab-content active" data-tab-content="content">
+            <div class="longtext-modal-edit-container">
+              <textarea class="longtext-modal-textarea" id="longtext-edit-${recordId}-${fieldId}">${this._escapeHtml(value)}</textarea>
+            </div>
+          </div>
+          <div class="longtext-modal-tab-content" data-tab-content="history">
+            <div class="longtext-modal-history">
+              ${historyHtml}
+            </div>
+          </div>
+          <div class="longtext-modal-tab-content" data-tab-content="provenance">
+            ${provenanceHtml}
+          </div>
         </div>
       `,
       buttons: [
         {
-          text: 'Edit',
-          icon: 'ph-pencil-simple',
-          variant: 'secondary',
-          action: () => {
-            modal.hide();
-            // Find the cell and start editing
-            const cell = this.container.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
-            if (cell) {
-              this._startCellEdit(cell);
-            }
-          }
+          label: 'Cancel',
+          secondary: true,
+          action: 'cancel',
+          onClick: () => modal.hide()
         },
         {
-          text: 'Close',
-          variant: 'primary',
-          action: () => modal.hide()
+          label: 'Save',
+          icon: 'ph-floppy-disk',
+          primary: true,
+          action: 'save',
+          onClick: () => {
+            const textarea = modal.element.querySelector('.longtext-modal-textarea');
+            const newValue = textarea?.value || '';
+            if (newValue !== value) {
+              this._updateCellValue(recordId, fieldId, newValue);
+            }
+            modal.hide();
+          }
         }
       ]
     });
 
     modal.show();
+
+    // Attach tab switching handlers
+    const tabContainer = modal.element.querySelector('.longtext-modal-tabbed');
+    tabContainer?.querySelectorAll('.longtext-modal-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabName = tab.dataset.tab;
+
+        // Update active tab button
+        tabContainer.querySelectorAll('.longtext-modal-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Update active tab content
+        tabContainer.querySelectorAll('.longtext-modal-tab-content').forEach(c => c.classList.remove('active'));
+        tabContainer.querySelector(`[data-tab-content="${tabName}"]`)?.classList.add('active');
+      });
+    });
+
+    // Attach restore button handlers for history events
+    modal.element.querySelectorAll('.event-restore-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const restoreValue = JSON.parse(btn.dataset.restoreValue);
+        const textarea = modal.element.querySelector('.longtext-modal-textarea');
+        if (textarea && confirm('Restore field to this previous value?')) {
+          textarea.value = restoreValue ?? '';
+          // Switch back to content tab
+          const contentTab = modal.element.querySelector('.longtext-modal-tab[data-tab="content"]');
+          contentTab?.click();
+        }
+      });
+    });
+
+    // Focus the textarea
+    setTimeout(() => {
+      const textarea = modal.element.querySelector('.longtext-modal-textarea');
+      if (textarea) {
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+      }
+    }, 100);
   }
 
   /**
@@ -30551,9 +30685,10 @@ class EODataWorkbench {
       `,
       buttons: [
         {
-          text: 'Close',
-          variant: 'primary',
-          action: () => modal.hide()
+          label: 'Close',
+          primary: true,
+          action: 'close',
+          onClick: () => modal.hide()
         }
       ]
     });
@@ -30598,10 +30733,11 @@ class EODataWorkbench {
       `,
       buttons: [
         {
-          text: 'Edit',
+          label: 'Edit',
           icon: 'ph-pencil-simple',
-          variant: 'secondary',
-          action: () => {
+          secondary: true,
+          action: 'edit',
+          onClick: () => {
             modal.hide();
             // Find the cell and start editing
             const cell = this.container.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
@@ -30611,9 +30747,10 @@ class EODataWorkbench {
           }
         },
         {
-          text: 'Close',
-          variant: 'primary',
-          action: () => modal.hide()
+          label: 'Close',
+          primary: true,
+          action: 'close',
+          onClick: () => modal.hide()
         }
       ]
     });
