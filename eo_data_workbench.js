@@ -11174,7 +11174,9 @@ class EODataWorkbench {
    * @returns {Object} { status: string, icon: string, color: string, uri: string|null }
    */
   _getDefinitionInteropStatus(definition) {
-    const hasUri = !!definition.sourceUri;
+    // Check both old format (sourceUri) and new Definitions Set format (values.fld_def_meaning_uri)
+    const uri = definition.sourceUri || definition.values?.fld_def_meaning_uri || null;
+    const hasUri = !!uri;
     const hasSuggestions = (definition.apiSuggestions || []).length > 0;
     const isLocalOnly = definition.status === 'local_only';
 
@@ -11183,7 +11185,7 @@ class EODataWorkbench {
         status: 'Linked',
         icon: 'ph-link',
         color: '#10b981',
-        uri: definition.sourceUri,
+        uri: uri,
         description: 'Linked to external standard'
       };
     }
