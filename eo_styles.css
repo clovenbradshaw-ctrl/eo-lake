@@ -3973,6 +3973,17 @@ html, body {
   color: var(--success-700);
 }
 
+.field-definition-badge.stub {
+  background: var(--warning-50);
+  color: var(--warning-700);
+  border: 1px dashed var(--warning-300);
+}
+
+.field-definition-badge.stub:hover {
+  background: var(--warning-100);
+  border-color: var(--warning-400);
+}
+
 .field-definition-badge.out-of-sync {
   background: var(--warning-50);
   color: var(--warning-700);

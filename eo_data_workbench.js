@@ -27650,6 +27650,9 @@ class EODataWorkbench {
       if (usage.formulas > 0) usageParts.push(`${usage.formulas} Formula${usage.formulas > 1 ? 's' : ''}`);
       const usageText = usageParts.length > 0 ? usageParts.join(' · ') : '—';
 
+      // Definition info: check both definitionRef and semanticBinding/definitionId
+      const defInfo = this._getFieldDefinitionInfo(field);
+
       return `
         <tr data-field-id="${field.id}" class="field-row">
           <td class="col-checkbox">
@@ -27677,10 +27680,13 @@ class EODataWorkbench {
           </td>
           <td class="col-definition">
             <div class="field-definition-cell">
-              ${definitionRef ? `
-                <span class="field-definition-badge linked" data-field-id="${field.id}" title="${this._escapeHtml(definitionRef.uri || '')}">
-                  <i class="ph ph-link"></i>
-                  ${this._escapeHtml(this._getDefinitionName(definitionRef.definitionId) || 'Linked')}
+              ${defInfo.hasDefinition ? `
+                <span class="field-definition-badge ${defInfo.isStub ? 'stub' : 'linked'}"
+                      data-field-id="${field.id}"
+                      data-definition-id="${defInfo.definitionId}"
+                      title="${defInfo.isStub ? 'Stub - needs definition text or URI' : this._escapeHtml(defInfo.uri || defInfo.name || '')}">
+                  <i class="ph ${defInfo.isStub ? 'ph-note-blank' : 'ph-link'}"></i>
+                  ${defInfo.isStub ? 'Stub' : this._escapeHtml(defInfo.name || 'Linked')}
                 </span>
               ` : `
                 <button class="link-definition-btn" data-field-id="${field.id}">
@@ -28203,12 +28209,21 @@ class EODataWorkbench {
       });
     });
 
-    // Definition badges (view linked definition)
+    // Definition badges (view linked definition or edit stub)
     document.querySelectorAll('.field-definition-badge').forEach(badge => {
       badge.addEventListener('click', (e) => {
         e.stopPropagation();
         const fieldId = badge.dataset.fieldId;
-        this._showDefinitionLinkModal(fieldId);
+        const definitionId = badge.dataset.definitionId;
+
+        // If we have a definition ID, navigate to the definition detail view
+        // This allows users to write a definition or link to a URI
+        if (definitionId) {
+          this._showDefinitionDetail(definitionId);
+        } else {
+          // No definition yet - show link modal
+          this._showDefinitionLinkModal(fieldId);
+        }
       });
     });
 
@@ -35531,6 +35546,9 @@ class EODataWorkbench {
     // Dual-write field to backing source if set has a manual origin source
     this._dualWriteFieldToSource(set, field);
 
+    // Auto-create stub definition and link field to it
+    this._createAndLinkStubDefinition(set, field);
+
     // Record field history event
     this._recordFieldEvent(field.id, 'field.created', {
       name: name,
@@ -35584,6 +35602,184 @@ class EODataWorkbench {
       type: field.type,
       sourceColumn: field.name
     });
+  }
+
+  /**
+   * Create a stub definition and link the field to it automatically
+   * Per design: All keys should have a definition stub by default
+   *
+   * @param {Object} set - The set containing the field
+   * @param {Object} field - The field to create a definition for
+   */
+  _createAndLinkStubDefinition(set, field) {
+    // Skip if field already has a definition
+    if (field.definitionId || field.semanticBinding?.definitionId) {
+      return;
+    }
+
+    // Use the DefinitionsSetManager if available
+    const DefinitionsSetManager = window.EO?.DefinitionsSetManager;
+    if (DefinitionsSetManager) {
+      const manager = new DefinitionsSetManager(this);
+      manager.ensureDefinitionsSet();
+
+      // Create the stub definition data
+      const stubDefData = {
+        id: `def_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        term: {
+          term: field.name,
+          label: this._formatFieldNameAsLabel(field.name)
+        },
+        status: 'stub',
+        populationMethod: 'pending',
+        discoveredFrom: {
+          setId: set.id,
+          setName: set.name,
+          fieldId: field.id,
+          fieldName: field.name,
+          fieldType: field.type,
+          discoveredAt: new Date().toISOString()
+        }
+      };
+
+      // Create the definition record
+      const record = manager.createDefinitionRecord(stubDefData, stubDefData.discoveredFrom);
+
+      // Link the field to the definition
+      manager.linkFieldToDefinition(set.id, field.id, record.id);
+
+      // Also add to workbench.definitions for backward compatibility
+      if (!this.definitions) this.definitions = [];
+      const existingDef = this.definitions.find(d => d.id === record.id);
+      if (!existingDef) {
+        this.definitions.push({
+          id: record.id,
+          name: field.name,
+          description: '',
+          status: 'stub',
+          sourceUri: null,
+          terms: [{
+            name: field.name,
+            label: this._formatFieldNameAsLabel(field.name),
+            type: field.type,
+            description: ''
+          }],
+          importedAt: new Date().toISOString(),
+          discoveredFrom: stubDefData.discoveredFrom
+        });
+      }
+
+      console.log(`Created stub definition for field "${field.name}" in set "${set.name}"`);
+    } else {
+      // Fallback: Just add to workbench.definitions without Definitions Set integration
+      if (!this.definitions) this.definitions = [];
+
+      const stubId = `def_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const stubDef = {
+        id: stubId,
+        name: field.name,
+        description: '',
+        status: 'stub',
+        sourceUri: null,
+        terms: [{
+          name: field.name,
+          label: this._formatFieldNameAsLabel(field.name),
+          type: field.type,
+          description: ''
+        }],
+        importedAt: new Date().toISOString(),
+        discoveredFrom: {
+          setId: set.id,
+          setName: set.name,
+          fieldId: field.id,
+          fieldName: field.name,
+          fieldType: field.type,
+          discoveredAt: new Date().toISOString()
+        }
+      };
+
+      this.definitions.push(stubDef);
+
+      // Link field to definition
+      field.definitionId = stubId;
+      field.semanticBinding = {
+        definitionId: stubId,
+        definitionTerm: field.name,
+        boundAt: new Date().toISOString(),
+        boundBy: 'auto-stub'
+      };
+
+      console.log(`Created stub definition (fallback) for field "${field.name}"`);
+    }
+  }
+
+  /**
+   * Format a field name as a human-readable label
+   * @param {string} fieldName - The field name to format
+   * @returns {string} Human-readable label
+   */
+  _formatFieldNameAsLabel(fieldName) {
+    return fieldName
+      .replace(/_/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/\b\w/g, c => c.toUpperCase())
+      .trim();
+  }
+
+  /**
+   * Get comprehensive definition info for a field
+   * Checks all possible definition binding methods
+   *
+   * @param {Object} field - The field to check
+   * @returns {Object} Definition info { hasDefinition, isStub, definitionId, name, uri, status }
+   */
+  _getFieldDefinitionInfo(field) {
+    // Check for definition binding from multiple sources
+    const definitionId = field.definitionId ||
+                         field.semanticBinding?.definitionId ||
+                         field.definitionRef?.definitionId;
+
+    if (!definitionId) {
+      return { hasDefinition: false };
+    }
+
+    // Find the definition
+    const definition = this.definitions?.find(d => d.id === definitionId);
+
+    // Also check in Definitions Set if available
+    let definitionSetRecord = null;
+    const definitionsSet = this.sets?.find(s => s.id === 'set_definitions');
+    if (definitionsSet) {
+      definitionSetRecord = definitionsSet.records?.find(r => r.id === definitionId);
+    }
+
+    // Determine status (stub vs populated)
+    const status = definition?.status ||
+                   definitionSetRecord?.values?.fld_def_status ||
+                   'stub';
+    const isStub = status === 'stub';
+
+    // Get name/label
+    const name = definition?.name ||
+                 definition?.terms?.[0]?.name ||
+                 definitionSetRecord?.values?.fld_def_term ||
+                 field.semanticBinding?.definitionTerm ||
+                 field.name;
+
+    // Get URI if available
+    const uri = definition?.sourceUri ||
+                definitionSetRecord?.values?.fld_def_meaning_uri ||
+                field.definitionRef?.uri ||
+                null;
+
+    return {
+      hasDefinition: true,
+      isStub,
+      definitionId,
+      name,
+      uri,
+      status
+    };
   }
 
   _deleteField(fieldId) {
