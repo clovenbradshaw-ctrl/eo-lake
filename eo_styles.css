@@ -23,6 +23,10 @@
   --primary-800: #1e40af;
   --primary-900: #1e3a8a;
 
+  /* Accent Colors */
+  --accent-color: #3b82f6;
+  --accent-color-dark: #2563eb;
+
   /* Neutral Colors */
   --gray-50: #f9fafb;
   --gray-100: #f3f4f6;
@@ -5810,7 +5814,6 @@ tr.highlight-row {
 
 .link-chip.clickable:hover {
   background: var(--primary-200);
-  transform: translateY(-1px);
 }
 
 /* ===== Pipeline Panel ===== */
@@ -11171,7 +11174,6 @@ a:focus-visible,
 
 .rule-card:hover {
   border-color: var(--border-secondary);
-  transform: translateY(-2px);
 }
 
 .rule-card.passed {
@@ -18927,7 +18929,6 @@ body.has-picked-up .browser-tab:hover {
 
 .source-type-card:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  transform: translateY(-2px);
 }
 
 .source-type-card-header {
@@ -26820,7 +26821,6 @@ body.has-picked-up .browser-tab:hover {
 .fe-grid-item:hover {
   border-color: var(--accent);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
 }
 
 .fe-grid-item .fe-grid-icon {
@@ -35910,7 +35910,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 .semantic-action-btn:hover {
   background: var(--bg-hover);
   border-color: var(--primary-400);
-  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
 
@@ -37904,7 +37903,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 }
 
 .glossary-icon:hover {
-  transform: scale(1.05);
   box-shadow:
     0 6px 16px rgba(139, 92, 246, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
@@ -38001,7 +37999,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 .glossary-actions .btn-primary:hover {
   background: linear-gradient(135deg, var(--primary-400), var(--primary-500));
   box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
-  transform: translateY(-1px);
 }
 
 .glossary-actions .btn-secondary {
@@ -38111,7 +38108,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 .used-by-item:hover {
   border-color: rgba(16, 185, 129, 0.4);
   box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
-  transform: translateY(-1px);
 }
 
 .used-by-item i {
@@ -38260,14 +38256,9 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 
 .semantic-action-btn:hover {
   border-color: rgba(139, 92, 246, 0.4);
-  transform: translateY(-4px);
   box-shadow:
     0 8px 24px rgba(139, 92, 246, 0.2),
     0 4px 8px rgba(0, 0, 0, 0.1);
-}
-
-.semantic-action-btn:active {
-  transform: translateY(-2px);
 }
 
 .semantic-action-btn i {
@@ -38280,7 +38271,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 
 .semantic-action-btn:hover i {
   color: #a78bfa;
-  transform: scale(1.1);
 }
 
 .semantic-action-btn span {
@@ -39496,7 +39486,6 @@ td.cell-editable.has-history:hover .cell-history-indicator {
 .definition-grouped-item:hover {
   border-color: var(--primary-400);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transform: translateY(-1px);
 }
 
 .grouped-item-main {
