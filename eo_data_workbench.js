@@ -4838,6 +4838,14 @@ class EODataWorkbench {
 
   /**
    * Show modal to create a new view
+   *
+   * Views are configured with two dimensions:
+   * - "Organize by" (Lens): How data is structured for understanding
+   * - "Display as" (View): How the organized data is rendered
+   *
+   * The Lens is implicit infrastructure - users don't need to know
+   * they're configuring a Lens, just that they're choosing how to
+   * organize their data.
    */
   _showCreateViewModal() {
     const set = this.getCurrentSet();
@@ -4846,14 +4854,46 @@ class EODataWorkbench {
       return;
     }
 
-    const viewTypes = [
-      { type: 'table', name: 'Table', icon: 'ph-table', desc: 'Spreadsheet-style rows and columns' },
-      { type: 'cards', name: 'Cards', icon: 'ph-cards', desc: 'Visual cards for each record' },
-      { type: 'kanban', name: 'Kanban', icon: 'ph-kanban', desc: 'Drag-and-drop board by status' },
-      { type: 'calendar', name: 'Calendar', icon: 'ph-calendar-blank', desc: 'Date-based calendar view' },
-      { type: 'graph', name: 'Graph', icon: 'ph-graph', desc: 'Network visualization of relationships' },
-      { type: 'filesystem', name: 'Filesystem', icon: 'ph-folder-open', desc: 'Hierarchical tree structure' }
+    // Get fields that can be used for organization
+    const fields = set?.fields || [];
+    const selectFields = fields.filter(f => f.type === FieldTypes.SELECT || f.type === FieldTypes.MULTI_SELECT);
+    const dateFields = fields.filter(f => f.type === FieldTypes.DATE);
+    const linkFields = fields.filter(f => f.type === FieldTypes.LINK);
+
+    // Build "Organize by" options
+    const organizeOptions = [
+      { value: 'none', label: 'None (flat list)', group: 'default' }
     ];
+
+    // Add select fields for grouping
+    selectFields.forEach(f => {
+      organizeOptions.push({
+        value: `field:${f.id}`,
+        label: f.name,
+        group: 'group',
+        fieldType: 'select'
+      });
+    });
+
+    // Add date fields for temporal organization
+    dateFields.forEach(f => {
+      organizeOptions.push({
+        value: `date:${f.id}`,
+        label: f.name,
+        group: 'date',
+        fieldType: 'date'
+      });
+    });
+
+    // Add link fields for relationship/graph organization
+    linkFields.forEach(f => {
+      organizeOptions.push({
+        value: `link:${f.id}`,
+        label: f.name,
+        group: 'relationship',
+        fieldType: 'link'
+      });
+    });
 
     const html = `
       <div class="create-view-form">
@@ -4862,38 +4902,177 @@ class EODataWorkbench {
           <input type="text" id="view-name" class="form-input" placeholder="My View" value="New View">
         </div>
         <div class="form-group">
-          <label class="form-label">View Type</label>
-          <div class="view-type-grid">
-            ${viewTypes.map(vt => `
-              <div class="view-type-option" data-type="${vt.type}">
-                <i class="ph ${vt.icon}"></i>
-                <span class="view-type-name">${vt.name}</span>
-                <span class="view-type-desc">${vt.desc}</span>
-              </div>
-            `).join('')}
-          </div>
+          <label for="view-organize" class="form-label">Organize by</label>
+          <select id="view-organize" class="form-select">
+            <optgroup label="Default">
+              <option value="none">None (flat list)</option>
+            </optgroup>
+            ${selectFields.length > 0 ? `
+              <optgroup label="Group by field">
+                ${selectFields.map(f => `<option value="field:${f.id}">${this._escapeHtml(f.name)}</option>`).join('')}
+              </optgroup>
+            ` : ''}
+            ${dateFields.length > 0 ? `
+              <optgroup label="By date">
+                ${dateFields.map(f => `<option value="date:${f.id}">${this._escapeHtml(f.name)}</option>`).join('')}
+              </optgroup>
+            ` : ''}
+            ${linkFields.length > 0 ? `
+              <optgroup label="By relationship">
+                ${linkFields.map(f => `<option value="link:${f.id}">${this._escapeHtml(f.name)}</option>`).join('')}
+              </optgroup>
+            ` : ''}
+          </select>
+          <span class="form-hint">How should records be structured?</span>
+        </div>
+        <div class="form-group">
+          <label for="view-display" class="form-label">Display as</label>
+          <select id="view-display" class="form-select">
+            <option value="table">Table</option>
+            <option value="cards">Cards</option>
+          </select>
+          <span class="form-hint">How should records be rendered?</span>
         </div>
       </div>
     `;
 
     this._showModal('Create New View', html, () => {
       const name = document.getElementById('view-name')?.value || 'New View';
-      const selectedType = document.querySelector('.view-type-option.selected')?.dataset.type || 'table';
-      this._createNewView(name, selectedType);
+      const organizeBy = document.getElementById('view-organize')?.value || 'none';
+      const displayAs = document.getElementById('view-display')?.value || 'table';
+      this._createNewViewWithLens(name, organizeBy, displayAs);
     });
 
-    // Handle view type selection
+    // Handle organize by change to update display options
     setTimeout(() => {
-      const options = document.querySelectorAll('.view-type-option');
-      options.forEach(opt => {
-        opt.addEventListener('click', () => {
-          options.forEach(o => o.classList.remove('selected'));
-          opt.classList.add('selected');
-        });
-      });
-      // Default select table
-      options[0]?.classList.add('selected');
+      const organizeSelect = document.getElementById('view-organize');
+      const displaySelect = document.getElementById('view-display');
+
+      const updateDisplayOptions = () => {
+        const organizeValue = organizeSelect?.value || 'none';
+        const [organizeType] = organizeValue.split(':');
+
+        // Define available display types based on organization
+        let displayOptions = [];
+
+        if (organizeType === 'none') {
+          // Flat: Table or Cards
+          displayOptions = [
+            { value: 'table', label: 'Table' },
+            { value: 'cards', label: 'Cards' }
+          ];
+        } else if (organizeType === 'field') {
+          // Grouped by select field: Table (grouped), Kanban, or Cards
+          displayOptions = [
+            { value: 'table', label: 'Table (grouped)' },
+            { value: 'kanban', label: 'Kanban board' },
+            { value: 'cards', label: 'Cards (grouped)' }
+          ];
+        } else if (organizeType === 'date') {
+          // By date: Calendar, Timeline, or Table
+          displayOptions = [
+            { value: 'calendar', label: 'Calendar' },
+            { value: 'timeline', label: 'Timeline' },
+            { value: 'table', label: 'Table (by date)' }
+          ];
+        } else if (organizeType === 'link') {
+          // By relationship: Graph or Table
+          displayOptions = [
+            { value: 'graph', label: 'Graph' },
+            { value: 'table', label: 'Table' }
+          ];
+        }
+
+        // Update display select options
+        if (displaySelect) {
+          const currentValue = displaySelect.value;
+          displaySelect.innerHTML = displayOptions
+            .map(opt => `<option value="${opt.value}">${opt.label}</option>`)
+            .join('');
+
+          // Try to preserve selection if still valid
+          if (displayOptions.some(opt => opt.value === currentValue)) {
+            displaySelect.value = currentValue;
+          }
+        }
+      };
+
+      // Initial update
+      updateDisplayOptions();
+
+      // Update on change
+      organizeSelect?.addEventListener('change', updateDisplayOptions);
     }, 0);
+  }
+
+  /**
+   * Create a new view with lens configuration
+   *
+   * @param {string} name - View name
+   * @param {string} organizeBy - Organization type (e.g., 'none', 'field:fld_123', 'date:fld_456')
+   * @param {string} displayAs - Display type (e.g., 'table', 'kanban', 'calendar')
+   */
+  _createNewViewWithLens(name, organizeBy, displayAs) {
+    const set = this.getCurrentSet();
+    if (!set) {
+      this._showToast('Please select a set first to create a new view', 'warning');
+      return;
+    }
+
+    // Ensure views array exists
+    if (!set.views) {
+      set.views = [];
+    }
+
+    // Parse organize by value
+    const [organizeType, fieldId] = organizeBy.includes(':')
+      ? organizeBy.split(':')
+      : [organizeBy, null];
+
+    // Build view config with lens information embedded
+    const viewConfig = {
+      filters: [],
+      sorts: [],
+      groups: [],
+      hiddenFields: [],
+      fieldOrder: []
+    };
+
+    // Configure based on organization type
+    if (organizeType === 'field' && fieldId) {
+      viewConfig.groupByFieldId = fieldId;
+    } else if (organizeType === 'date' && fieldId) {
+      viewConfig.dateFieldId = fieldId;
+    } else if (organizeType === 'link' && fieldId) {
+      viewConfig.linkFieldId = fieldId;
+    }
+
+    // Store lens metadata for future reference
+    viewConfig.lens = {
+      type: organizeType,
+      fieldId: fieldId || null
+    };
+
+    const newView = createView(name, displayAs, viewConfig);
+    set.views.push(newView);
+
+    // Switch to the new view
+    this.currentViewId = newView.id;
+    this.lastViewPerSet[this.currentSetId] = newView.id;
+
+    // Record activity for activity stream
+    this._recordActivity({
+      action: 'create',
+      entityType: 'view',
+      name: name,
+      details: `${displayAs} view organized by ${organizeType === 'none' ? 'flat list' : organizeType} in "${set.name}"`
+    });
+
+    // Re-render
+    this._renderSidebar();
+    this._renderView();
+    this._updateBreadcrumb();
+    this._saveData();
   }
 
   /**
@@ -4935,7 +5114,7 @@ class EODataWorkbench {
 
   /**
    * Show dialog to create a new view from New Tab page
-   * Allows user to select a set first, then create view or lens
+   * Allows user to select a set first, then create view with lens configuration
    */
   _showNewViewFromNewTab() {
     const sets = this._getProjectSets();
@@ -4944,15 +5123,6 @@ class EODataWorkbench {
       this._showToast('No sets available. Create a set first.', 'warning');
       return;
     }
-
-    const viewTypes = [
-      { type: 'table', name: 'Table', icon: 'ph-table', desc: 'Spreadsheet-style rows and columns' },
-      { type: 'cards', name: 'Cards', icon: 'ph-cards', desc: 'Visual cards for each record' },
-      { type: 'kanban', name: 'Kanban', icon: 'ph-kanban', desc: 'Drag-and-drop board by status' },
-      { type: 'calendar', name: 'Calendar', icon: 'ph-calendar-blank', desc: 'Date-based calendar view' },
-      { type: 'graph', name: 'Graph', icon: 'ph-graph', desc: 'Network visualization of relationships' },
-      { type: 'filesystem', name: 'Filesystem', icon: 'ph-folder-open', desc: 'Hierarchical tree structure' }
-    ];
 
     const html = `
       <div class="create-view-form">
@@ -4969,16 +5139,19 @@ class EODataWorkbench {
           <input type="text" id="view-name" class="form-input" placeholder="My View" value="New View">
         </div>
         <div class="form-group">
-          <label class="form-label">View Type</label>
-          <div class="view-type-grid">
-            ${viewTypes.map(vt => `
-              <div class="view-type-option" data-type="${vt.type}">
-                <i class="ph ${vt.icon}"></i>
-                <span class="view-type-name">${vt.name}</span>
-                <span class="view-type-desc">${vt.desc}</span>
-              </div>
-            `).join('')}
-          </div>
+          <label for="view-organize" class="form-label">Organize by</label>
+          <select id="view-organize" class="form-select">
+            <option value="none">None (flat list)</option>
+          </select>
+          <span class="form-hint">How should records be structured?</span>
+        </div>
+        <div class="form-group">
+          <label for="view-display" class="form-label">Display as</label>
+          <select id="view-display" class="form-select">
+            <option value="table">Table</option>
+            <option value="cards">Cards</option>
+          </select>
+          <span class="form-hint">How should records be rendered?</span>
         </div>
       </div>
     `;
@@ -4986,7 +5159,8 @@ class EODataWorkbench {
     this._showModal('Create New View', html, () => {
       const setId = document.getElementById('view-set-select')?.value;
       const name = document.getElementById('view-name')?.value || 'New View';
-      const selectedType = document.querySelector('.view-type-option.selected')?.dataset.type || 'table';
+      const organizeBy = document.getElementById('view-organize')?.value || 'none';
+      const displayAs = document.getElementById('view-display')?.value || 'table';
 
       const set = this.sets.find(s => s.id === setId);
       if (!set) {
@@ -4999,7 +5173,36 @@ class EODataWorkbench {
         set.views = [];
       }
 
-      const newView = createView(name, selectedType);
+      // Parse organize by value
+      const [organizeType, fieldId] = organizeBy.includes(':')
+        ? organizeBy.split(':')
+        : [organizeBy, null];
+
+      // Build view config with lens information embedded
+      const viewConfig = {
+        filters: [],
+        sorts: [],
+        groups: [],
+        hiddenFields: [],
+        fieldOrder: []
+      };
+
+      // Configure based on organization type
+      if (organizeType === 'field' && fieldId) {
+        viewConfig.groupByFieldId = fieldId;
+      } else if (organizeType === 'date' && fieldId) {
+        viewConfig.dateFieldId = fieldId;
+      } else if (organizeType === 'link' && fieldId) {
+        viewConfig.linkFieldId = fieldId;
+      }
+
+      // Store lens metadata
+      viewConfig.lens = {
+        type: organizeType,
+        fieldId: fieldId || null
+      };
+
+      const newView = createView(name, displayAs, viewConfig);
       set.views.push(newView);
 
       // Switch to the set and new view
@@ -5019,7 +5222,7 @@ class EODataWorkbench {
         action: 'create',
         entityType: 'view',
         name: name,
-        details: `${selectedType} view in "${set.name}"`
+        details: `${displayAs} view organized by ${organizeType === 'none' ? 'flat list' : organizeType} in "${set.name}"`
       });
 
       this._renderSidebar();
@@ -5029,17 +5232,104 @@ class EODataWorkbench {
       this._showToast(`Created "${name}" view in "${set.name}"`, 'success');
     });
 
-    // Handle view type selection
+    // Handle set selection change and organize by change
     setTimeout(() => {
-      const options = document.querySelectorAll('.view-type-option');
-      options.forEach(opt => {
-        opt.addEventListener('click', () => {
-          options.forEach(o => o.classList.remove('selected'));
-          opt.classList.add('selected');
-        });
-      });
-      // Default select table
-      options[0]?.classList.add('selected');
+      const setSelect = document.getElementById('view-set-select');
+      const organizeSelect = document.getElementById('view-organize');
+      const displaySelect = document.getElementById('view-display');
+
+      const updateOrganizeOptions = () => {
+        const setId = setSelect?.value;
+        const set = this.sets.find(s => s.id === setId);
+        if (!set || !organizeSelect) return;
+
+        const fields = set?.fields || [];
+        const selectFields = fields.filter(f => f.type === FieldTypes.SELECT || f.type === FieldTypes.MULTI_SELECT);
+        const dateFields = fields.filter(f => f.type === FieldTypes.DATE);
+        const linkFields = fields.filter(f => f.type === FieldTypes.LINK);
+
+        let html = `
+          <optgroup label="Default">
+            <option value="none">None (flat list)</option>
+          </optgroup>
+        `;
+
+        if (selectFields.length > 0) {
+          html += `
+            <optgroup label="Group by field">
+              ${selectFields.map(f => `<option value="field:${f.id}">${this._escapeHtml(f.name)}</option>`).join('')}
+            </optgroup>
+          `;
+        }
+
+        if (dateFields.length > 0) {
+          html += `
+            <optgroup label="By date">
+              ${dateFields.map(f => `<option value="date:${f.id}">${this._escapeHtml(f.name)}</option>`).join('')}
+            </optgroup>
+          `;
+        }
+
+        if (linkFields.length > 0) {
+          html += `
+            <optgroup label="By relationship">
+              ${linkFields.map(f => `<option value="link:${f.id}">${this._escapeHtml(f.name)}</option>`).join('')}
+            </optgroup>
+          `;
+        }
+
+        organizeSelect.innerHTML = html;
+        updateDisplayOptions();
+      };
+
+      const updateDisplayOptions = () => {
+        const organizeValue = organizeSelect?.value || 'none';
+        const [organizeType] = organizeValue.split(':');
+
+        let displayOptions = [];
+
+        if (organizeType === 'none') {
+          displayOptions = [
+            { value: 'table', label: 'Table' },
+            { value: 'cards', label: 'Cards' }
+          ];
+        } else if (organizeType === 'field') {
+          displayOptions = [
+            { value: 'table', label: 'Table (grouped)' },
+            { value: 'kanban', label: 'Kanban board' },
+            { value: 'cards', label: 'Cards (grouped)' }
+          ];
+        } else if (organizeType === 'date') {
+          displayOptions = [
+            { value: 'calendar', label: 'Calendar' },
+            { value: 'timeline', label: 'Timeline' },
+            { value: 'table', label: 'Table (by date)' }
+          ];
+        } else if (organizeType === 'link') {
+          displayOptions = [
+            { value: 'graph', label: 'Graph' },
+            { value: 'table', label: 'Table' }
+          ];
+        }
+
+        if (displaySelect) {
+          const currentValue = displaySelect.value;
+          displaySelect.innerHTML = displayOptions
+            .map(opt => `<option value="${opt.value}">${opt.label}</option>`)
+            .join('');
+
+          if (displayOptions.some(opt => opt.value === currentValue)) {
+            displaySelect.value = currentValue;
+          }
+        }
+      };
+
+      // Initial update
+      updateOrganizeOptions();
+
+      // Update on changes
+      setSelect?.addEventListener('change', updateOrganizeOptions);
+      organizeSelect?.addEventListener('change', updateDisplayOptions);
     }, 0);
   }
 
@@ -5422,13 +5712,16 @@ class EODataWorkbench {
     const set = this.sets.find(s => s.id === setId);
     const hasRecords = set && set.records && set.records.length > 0;
 
+    // View types for quick picker (simplified - no filesystem)
+    // Filesystem was removed because it's actually a lens (hierarchical organization)
+    // not a view type. Users can achieve hierarchy via the full Create View modal.
     const viewTypes = [
       { type: 'table', icon: 'ph-table', label: 'Table' },
       { type: 'cards', icon: 'ph-cards', label: 'Cards' },
       { type: 'kanban', icon: 'ph-kanban', label: 'Kanban' },
       { type: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar' },
       { type: 'graph', icon: 'ph-graph', label: 'Graph' },
-      { type: 'filesystem', icon: 'ph-folder-open', label: 'Filesystem' }
+      { type: 'timeline', icon: 'ph-clock-countdown', label: 'Timeline' }
     ];
 
     const picker = document.createElement('div');
