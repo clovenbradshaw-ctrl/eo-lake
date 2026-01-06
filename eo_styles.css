@@ -8423,6 +8423,246 @@ tr.highlight-row {
   color: var(--text-muted);
 }
 
+/* ============================================================================
+   Definition Detail Modal - First-class definition viewing modal
+   Opens above other modals (field modal, cell edit modal)
+   ============================================================================ */
+
+.definition-detail-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 500; /* Above EOModal (401) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  backdrop-filter: blur(2px);
+}
+
+.definition-detail-modal-backdrop.visible {
+  opacity: 1;
+}
+
+.definition-detail-modal {
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateY(10px) scale(0.98);
+  transition: transform 0.2s ease;
+}
+
+.definition-detail-modal-backdrop.visible .definition-detail-modal {
+  transform: translateY(0) scale(1);
+}
+
+.definition-detail-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.definition-detail-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.definition-detail-modal-title i {
+  font-size: 18px;
+  color: var(--primary-500);
+}
+
+.definition-detail-modal-close {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.definition-detail-modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.definition-detail-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.definition-detail-section {
+  margin-bottom: 16px;
+}
+
+.definition-detail-section:last-child {
+  margin-bottom: 0;
+}
+
+.definition-detail-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.definition-detail-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.definition-detail-authority {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.definition-detail-authority i {
+  color: var(--success-500);
+}
+
+.definition-detail-uri {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.definition-detail-uri i {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.definition-detail-uri a {
+  color: var(--primary-500);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.definition-detail-uri a:hover {
+  text-decoration: underline;
+}
+
+.definition-detail-citation {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--border-primary);
+}
+
+/* Empty state */
+.definition-detail-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 32px 16px;
+}
+
+.definition-detail-empty-icon {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-secondary);
+  border-radius: 50%;
+  margin-bottom: 16px;
+}
+
+.definition-detail-empty-icon i {
+  font-size: 28px;
+  color: var(--text-muted);
+}
+
+.definition-detail-empty-text {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.definition-detail-empty-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 300px;
+}
+
+.definition-detail-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-primary);
+  background: var(--bg-secondary);
+}
+
+.definition-detail-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.definition-detail-btn-primary {
+  background: var(--primary-500);
+  color: white;
+}
+
+.definition-detail-btn-primary:hover {
+  background: var(--primary-600);
+}
+
+.definition-detail-btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+}
+
+.definition-detail-btn-secondary:hover {
+  background: var(--bg-hover);
+}
+
 /* History Section */
 .cell-edit-modal-history {
   border-top: 1px solid var(--border-light);
