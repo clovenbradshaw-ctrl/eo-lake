@@ -5,23 +5,49 @@
  * Every action that affects data or system state should be tracked
  * with full provenance linking to the user who performed it.
  *
+ * IMPORTANT: This module uses the EO 9-operator vocabulary for all activities.
+ * The 9 operators are the canonical verbs for describing state changes:
+ *
+ *   INS (⊕) - Assert existence (create, insert)
+ *   DES (⊙) - Designate identity (name, identify, bind)
+ *   SEG (⊘) - Scope visibility (filter, segment, restrict access)
+ *   CON (⊗) - Connect entities (relate, link, share)
+ *   SYN (≡) - Synthesize identity (merge, combine)
+ *   ALT (Δ) - Alternate world state (update, modify, change)
+ *   SUP (∥) - Superpose interpretations (interpret, layer meaning)
+ *   REC (←) - Record grounding (import, reference, cite)
+ *   NUL (∅) - Assert meaningful absence (delete, archive, ghost)
+ *
  * Design Principles:
  * 1. ALL actions attributable to users - no anonymous modifications
  * 2. Immutable audit log - activities cannot be modified after creation
- * 3. Rich context - capture why, how, and what for each action
- * 4. Queryable - efficiently find actions by user, time, type, target
- * 5. Privacy-aware - respect data retention policies
- *
- * Activity Categories:
- * - Authentication: login, logout, password changes
- * - Data: create, read, update, delete operations
- * - Import/Export: data movement operations
- * - Sharing: collaboration and access changes
- * - System: configuration and settings changes
+ * 3. EO operator vocabulary - every action maps to one of 9 operators
+ * 4. Rich context - capture why, how, and what for each action
+ * 5. Queryable - efficiently find actions by user, time, type, target
  */
 
 // ============================================================================
-// Activity Categories and Types
+// EO Operators (from eo_activity.js)
+// ============================================================================
+
+/**
+ * The 9 canonical EO operators
+ * Every user activity MUST map to one of these operators
+ */
+const EO_OPERATORS = Object.freeze({
+  INS: '⊕',   // Assert existence
+  DES: '⊙',   // Designate identity
+  SEG: '⊘',   // Scope visibility
+  CON: '⊗',   // Connect entities
+  SYN: '≡',   // Synthesize identity
+  ALT: 'Δ',   // Alternate world state
+  SUP: '∥',   // Superpose interpretations
+  REC: '←',   // Record grounding
+  NUL: '∅'    // Assert meaningful absence
+});
+
+// ============================================================================
+// Activity Categories and Types (mapped to EO operators)
 // ============================================================================
 
 /**
@@ -38,92 +64,159 @@ const ActivityCategory = Object.freeze({
 });
 
 /**
- * Specific activity types within each category
+ * Activity types mapped to EO operators
+ *
+ * Each activity type specifies:
+ * - op: The EO operator this maps to
+ * - category: High-level category
+ * - description: Human-readable description
  */
 const ActivityType = Object.freeze({
-  // Authentication
-  AUTH_LOGIN: 'auth.login',
-  AUTH_LOGOUT: 'auth.logout',
-  AUTH_LOGIN_FAILED: 'auth.login_failed',
-  AUTH_PASSWORD_CHANGED: 'auth.password_changed',
-  AUTH_PASSWORD_RESET: 'auth.password_reset',
-  AUTH_MFA_ENABLED: 'auth.mfa_enabled',
-  AUTH_MFA_DISABLED: 'auth.mfa_disabled',
-  AUTH_SESSION_EXPIRED: 'auth.session_expired',
+  // ──────────────────────────────────────────────────────────────────────────
+  // Authentication (INS for sessions, NUL for logout, ALT for changes)
+  // ──────────────────────────────────────────────────────────────────────────
+  AUTH_LOGIN: { id: 'auth.login', op: 'INS', category: 'auth', description: 'User logged in (session created)' },
+  AUTH_LOGOUT: { id: 'auth.logout', op: 'NUL', category: 'auth', description: 'User logged out (session ended)' },
+  AUTH_LOGIN_FAILED: { id: 'auth.login_failed', op: 'NUL', category: 'auth', description: 'Login attempt failed' },
+  AUTH_PASSWORD_CHANGED: { id: 'auth.password_changed', op: 'ALT', category: 'auth', description: 'Password changed' },
+  AUTH_PASSWORD_RESET: { id: 'auth.password_reset', op: 'ALT', category: 'auth', description: 'Password reset' },
+  AUTH_MFA_ENABLED: { id: 'auth.mfa_enabled', op: 'INS', category: 'auth', description: 'MFA enabled' },
+  AUTH_MFA_DISABLED: { id: 'auth.mfa_disabled', op: 'NUL', category: 'auth', description: 'MFA disabled' },
+  AUTH_SESSION_EXPIRED: { id: 'auth.session_expired', op: 'NUL', category: 'auth', description: 'Session expired' },
 
-  // Data operations
-  DATA_CREATED: 'data.created',
-  DATA_UPDATED: 'data.updated',
-  DATA_DELETED: 'data.deleted',
-  DATA_RESTORED: 'data.restored',
-  DATA_MERGED: 'data.merged',
-  DATA_SPLIT: 'data.split',
+  // ──────────────────────────────────────────────────────────────────────────
+  // Data operations (INS, ALT, NUL, SYN)
+  // ──────────────────────────────────────────────────────────────────────────
+  DATA_CREATED: { id: 'data.created', op: 'INS', category: 'data', description: 'Data created' },
+  DATA_UPDATED: { id: 'data.updated', op: 'ALT', category: 'data', description: 'Data updated' },
+  DATA_DELETED: { id: 'data.deleted', op: 'NUL', category: 'data', description: 'Data deleted (ghosted)' },
+  DATA_RESTORED: { id: 'data.restored', op: 'INS', category: 'data', description: 'Data restored from ghost' },
+  DATA_MERGED: { id: 'data.merged', op: 'SYN', category: 'data', description: 'Data merged (synthesized)' },
+  DATA_SPLIT: { id: 'data.split', op: 'SEG', category: 'data', description: 'Data split (segmented)' },
 
+  // ──────────────────────────────────────────────────────────────────────────
   // Record-level operations
-  RECORD_CREATED: 'data.record_created',
-  RECORD_UPDATED: 'data.record_updated',
-  RECORD_DELETED: 'data.record_deleted',
+  // ──────────────────────────────────────────────────────────────────────────
+  RECORD_CREATED: { id: 'data.record_created', op: 'INS', category: 'data', description: 'Record created' },
+  RECORD_UPDATED: { id: 'data.record_updated', op: 'ALT', category: 'data', description: 'Record updated' },
+  RECORD_DELETED: { id: 'data.record_deleted', op: 'NUL', category: 'data', description: 'Record deleted' },
 
+  // ──────────────────────────────────────────────────────────────────────────
   // Field-level operations
-  FIELD_UPDATED: 'data.field_updated',
-  FIELD_CLEARED: 'data.field_cleared',
+  // ──────────────────────────────────────────────────────────────────────────
+  FIELD_UPDATED: { id: 'data.field_updated', op: 'ALT', category: 'data', description: 'Field value updated' },
+  FIELD_CLEARED: { id: 'data.field_cleared', op: 'NUL', category: 'data', description: 'Field value cleared' },
 
-  // Schema operations
-  SCHEMA_CREATED: 'data.schema_created',
-  SCHEMA_UPDATED: 'data.schema_updated',
-  SCHEMA_FIELD_ADDED: 'data.schema_field_added',
-  SCHEMA_FIELD_REMOVED: 'data.schema_field_removed',
-  SCHEMA_FIELD_RENAMED: 'data.schema_field_renamed',
+  // ──────────────────────────────────────────────────────────────────────────
+  // Schema operations (DES for naming/binding, INS for creation)
+  // ──────────────────────────────────────────────────────────────────────────
+  SCHEMA_CREATED: { id: 'data.schema_created', op: 'INS', category: 'data', description: 'Schema created' },
+  SCHEMA_UPDATED: { id: 'data.schema_updated', op: 'ALT', category: 'data', description: 'Schema updated' },
+  SCHEMA_FIELD_ADDED: { id: 'data.schema_field_added', op: 'INS', category: 'data', description: 'Schema field added' },
+  SCHEMA_FIELD_REMOVED: { id: 'data.schema_field_removed', op: 'NUL', category: 'data', description: 'Schema field removed' },
+  SCHEMA_FIELD_RENAMED: { id: 'data.schema_field_renamed', op: 'DES', category: 'data', description: 'Schema field renamed (redesignated)' },
 
-  // Import operations
-  IMPORT_STARTED: 'import.started',
-  IMPORT_COMPLETED: 'import.completed',
-  IMPORT_FAILED: 'import.failed',
-  IMPORT_CANCELLED: 'import.cancelled',
+  // ──────────────────────────────────────────────────────────────────────────
+  // Semantic binding operations (DES, SUP)
+  // ──────────────────────────────────────────────────────────────────────────
+  BINDING_CREATED: { id: 'data.binding_created', op: 'DES', category: 'data', description: 'Semantic binding created' },
+  BINDING_UPDATED: { id: 'data.binding_updated', op: 'ALT', category: 'data', description: 'Semantic binding updated' },
+  BINDING_REMOVED: { id: 'data.binding_removed', op: 'NUL', category: 'data', description: 'Semantic binding removed' },
+  INTERPRETATION_ADDED: { id: 'data.interpretation_added', op: 'SUP', category: 'data', description: 'Interpretation superposed' },
 
-  // Export operations
-  EXPORT_STARTED: 'export.started',
-  EXPORT_COMPLETED: 'export.completed',
-  EXPORT_FAILED: 'export.failed',
+  // ──────────────────────────────────────────────────────────────────────────
+  // Import operations (REC for recording external data)
+  // ──────────────────────────────────────────────────────────────────────────
+  IMPORT_STARTED: { id: 'import.started', op: 'REC', category: 'import', description: 'Import started' },
+  IMPORT_COMPLETED: { id: 'import.completed', op: 'REC', category: 'import', description: 'Import completed (data recorded)' },
+  IMPORT_FAILED: { id: 'import.failed', op: 'NUL', category: 'import', description: 'Import failed' },
+  IMPORT_CANCELLED: { id: 'import.cancelled', op: 'NUL', category: 'import', description: 'Import cancelled' },
 
-  // Sharing and collaboration
-  SHARE_PROJECT: 'share.project',
-  SHARE_SET: 'share.set',
-  SHARE_VIEW: 'share.view',
-  SHARE_REVOKED: 'share.revoked',
-  SHARE_INVITATION_SENT: 'share.invitation_sent',
-  SHARE_INVITATION_ACCEPTED: 'share.invitation_accepted',
-  SHARE_INVITATION_DECLINED: 'share.invitation_declined',
+  // ──────────────────────────────────────────────────────────────────────────
+  // Export operations (REC for recording to external)
+  // ──────────────────────────────────────────────────────────────────────────
+  EXPORT_STARTED: { id: 'export.started', op: 'REC', category: 'export', description: 'Export started' },
+  EXPORT_COMPLETED: { id: 'export.completed', op: 'REC', category: 'export', description: 'Export completed' },
+  EXPORT_FAILED: { id: 'export.failed', op: 'NUL', category: 'export', description: 'Export failed' },
 
-  // Access control
-  ACCESS_GRANTED: 'share.access_granted',
-  ACCESS_REVOKED: 'share.access_revoked',
-  ACCESS_ROLE_CHANGED: 'share.role_changed',
+  // ──────────────────────────────────────────────────────────────────────────
+  // Sharing and collaboration (CON for connections, SEG for access)
+  // ──────────────────────────────────────────────────────────────────────────
+  SHARE_PROJECT: { id: 'share.project', op: 'CON', category: 'share', description: 'Project shared (connection created)' },
+  SHARE_SET: { id: 'share.set', op: 'CON', category: 'share', description: 'Set shared' },
+  SHARE_VIEW: { id: 'share.view', op: 'CON', category: 'share', description: 'View shared' },
+  SHARE_REVOKED: { id: 'share.revoked', op: 'NUL', category: 'share', description: 'Share revoked (connection removed)' },
+  SHARE_INVITATION_SENT: { id: 'share.invitation_sent', op: 'CON', category: 'share', description: 'Invitation sent' },
+  SHARE_INVITATION_ACCEPTED: { id: 'share.invitation_accepted', op: 'CON', category: 'share', description: 'Invitation accepted' },
+  SHARE_INVITATION_DECLINED: { id: 'share.invitation_declined', op: 'NUL', category: 'share', description: 'Invitation declined' },
 
-  // System configuration
-  SYSTEM_SETTINGS_CHANGED: 'system.settings_changed',
-  SYSTEM_INTEGRATION_ADDED: 'system.integration_added',
-  SYSTEM_INTEGRATION_REMOVED: 'system.integration_removed',
+  // ──────────────────────────────────────────────────────────────────────────
+  // Access control (SEG for scoping visibility)
+  // ──────────────────────────────────────────────────────────────────────────
+  ACCESS_GRANTED: { id: 'share.access_granted', op: 'SEG', category: 'share', description: 'Access granted (visibility scoped)' },
+  ACCESS_REVOKED: { id: 'share.access_revoked', op: 'SEG', category: 'share', description: 'Access revoked (visibility restricted)' },
+  ACCESS_ROLE_CHANGED: { id: 'share.role_changed', op: 'ALT', category: 'share', description: 'Access role changed' },
 
-  // User management
-  USER_CREATED: 'system.user_created',
-  USER_UPDATED: 'system.user_updated',
-  USER_DEACTIVATED: 'system.user_deactivated',
-  USER_REACTIVATED: 'system.user_reactivated',
+  // ──────────────────────────────────────────────────────────────────────────
+  // System configuration (ALT for changes, INS/NUL for integrations)
+  // ──────────────────────────────────────────────────────────────────────────
+  SYSTEM_SETTINGS_CHANGED: { id: 'system.settings_changed', op: 'ALT', category: 'system', description: 'System settings changed' },
+  SYSTEM_INTEGRATION_ADDED: { id: 'system.integration_added', op: 'CON', category: 'system', description: 'Integration added (connection)' },
+  SYSTEM_INTEGRATION_REMOVED: { id: 'system.integration_removed', op: 'NUL', category: 'system', description: 'Integration removed' },
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // User management (INS, ALT, NUL)
+  // ──────────────────────────────────────────────────────────────────────────
+  USER_CREATED: { id: 'system.user_created', op: 'INS', category: 'system', description: 'User created' },
+  USER_UPDATED: { id: 'system.user_updated', op: 'ALT', category: 'system', description: 'User updated' },
+  USER_DEACTIVATED: { id: 'system.user_deactivated', op: 'NUL', category: 'system', description: 'User deactivated (ghosted)' },
+  USER_REACTIVATED: { id: 'system.user_reactivated', op: 'INS', category: 'system', description: 'User reactivated' },
+
+  // ──────────────────────────────────────────────────────────────────────────
   // Project operations
-  PROJECT_CREATED: 'data.project_created',
-  PROJECT_UPDATED: 'data.project_updated',
-  PROJECT_ARCHIVED: 'data.project_archived',
-  PROJECT_RESTORED: 'data.project_restored',
-  PROJECT_DELETED: 'data.project_deleted',
+  // ──────────────────────────────────────────────────────────────────────────
+  PROJECT_CREATED: { id: 'data.project_created', op: 'INS', category: 'data', description: 'Project created' },
+  PROJECT_UPDATED: { id: 'data.project_updated', op: 'ALT', category: 'data', description: 'Project updated' },
+  PROJECT_ARCHIVED: { id: 'data.project_archived', op: 'NUL', category: 'data', description: 'Project archived (ghosted)' },
+  PROJECT_RESTORED: { id: 'data.project_restored', op: 'INS', category: 'data', description: 'Project restored' },
+  PROJECT_DELETED: { id: 'data.project_deleted', op: 'NUL', category: 'data', description: 'Project deleted' },
 
-  // View/read operations (optional)
-  VIEW_PROJECT: 'view.project',
-  VIEW_SET: 'view.set',
-  VIEW_RECORD: 'view.record',
-  VIEW_EXPORTED_DATA: 'view.exported_data'
+  // ──────────────────────────────────────────────────────────────────────────
+  // View/read operations (REC for recording access)
+  // ──────────────────────────────────────────────────────────────────────────
+  VIEW_PROJECT: { id: 'view.project', op: 'REC', category: 'view', description: 'Project viewed' },
+  VIEW_SET: { id: 'view.set', op: 'REC', category: 'view', description: 'Set viewed' },
+  VIEW_RECORD: { id: 'view.record', op: 'REC', category: 'view', description: 'Record viewed' },
+  VIEW_EXPORTED_DATA: { id: 'view.exported_data', op: 'REC', category: 'view', description: 'Exported data viewed' }
 });
+
+/**
+ * Get EO operator for an activity type
+ */
+function getActivityOperator(activityType) {
+  if (typeof activityType === 'object' && activityType.op) {
+    return activityType.op;
+  }
+  // Find by id if string passed
+  for (const [key, val] of Object.entries(ActivityType)) {
+    if (val.id === activityType) {
+      return val.op;
+    }
+  }
+  return null;
+}
+
+/**
+ * Get activity type info by ID
+ */
+function getActivityTypeById(typeId) {
+  for (const [key, val] of Object.entries(ActivityType)) {
+    if (val.id === typeId) {
+      return { key, ...val };
+    }
+  }
+  return null;
+}
 
 /**
  * Activity result/outcome
@@ -154,12 +247,16 @@ function generateActivityId() {
  *
  * This is the core audit log entry. Each activity captures:
  * - WHO: userId (required), sessionId
- * - WHAT: type, category, target
+ * - WHAT: type, category, target, EO operator
  * - WHEN: timestamp
  * - WHERE: clientContext (IP, user agent, etc.)
  * - WHY: reason, context
  * - HOW: method, details
  * - RESULT: outcome, changes made
+ *
+ * EO OPERATOR ALIGNMENT:
+ * Every activity maps to one of the 9 EO operators (INS, DES, SEG, CON, SYN, ALT, SUP, REC, NUL).
+ * This enables consistent querying and understanding of what type of state change occurred.
  */
 class UserActivity {
   constructor(options = {}) {
@@ -175,8 +272,9 @@ class UserActivity {
     this.delegatedFrom = options.delegatedFrom || null;
     this.delegationReason = options.delegationReason || null;
 
-    // WHAT - Action classification
-    this.type = options.type; // From ActivityType
+    // WHAT - Action classification with EO operator
+    this.type = this._normalizeType(options.type); // Activity type ID (e.g., 'data.created')
+    this.op = options.op || this._deriveOperator(options.type); // EO operator (INS, DES, etc.)
     this.category = options.category || this._deriveCategory(options.type);
 
     // Target of the action
@@ -204,6 +302,9 @@ class UserActivity {
     this.method = options.method || null; // ui, api, import, scheduled, etc.
     this.details = options.details || {};
 
+    // Delta for ALT operations (matches eo_activity.js format)
+    this.delta = options.delta || null; // [previousValue, newValue]
+
     // RESULT - Outcome
     this.result = options.result || ActivityResult.SUCCESS;
     this.errorMessage = options.errorMessage || null;
@@ -216,8 +317,34 @@ class UserActivity {
     Object.freeze(this.clientContext);
     Object.freeze(this.context);
     Object.freeze(this.details);
+    if (this.delta) Object.freeze(this.delta);
     if (this.changes) Object.freeze(this.changes);
     Object.freeze(this.metadata);
+  }
+
+  /**
+   * Normalize type to string ID
+   */
+  _normalizeType(type) {
+    if (!type) return null;
+    if (typeof type === 'object' && type.id) {
+      return type.id;
+    }
+    return type;
+  }
+
+  /**
+   * Derive EO operator from activity type
+   */
+  _deriveOperator(type) {
+    if (!type) return null;
+    // If type is an ActivityType object with op field
+    if (typeof type === 'object' && type.op) {
+      return type.op;
+    }
+    // If type is a string, look it up
+    const typeInfo = getActivityTypeById(type);
+    return typeInfo?.op || null;
   }
 
   /**
@@ -225,8 +352,26 @@ class UserActivity {
    */
   _deriveCategory(type) {
     if (!type) return null;
-    const prefix = type.split('.')[0];
-    return prefix || null;
+    // If type is an ActivityType object with category field
+    if (typeof type === 'object' && type.category) {
+      return type.category;
+    }
+    // If type is a string ID, parse prefix or look up
+    if (typeof type === 'string') {
+      const typeInfo = getActivityTypeById(type);
+      if (typeInfo?.category) return typeInfo.category;
+      // Fallback to prefix parsing
+      const prefix = type.split('.')[0];
+      return prefix || null;
+    }
+    return null;
+  }
+
+  /**
+   * Get the EO operator symbol
+   */
+  getOperatorSymbol() {
+    return this.op ? EO_OPERATORS[this.op] : null;
   }
 
   /**
@@ -280,6 +425,7 @@ class UserActivity {
       delegatedFrom: this.delegatedFrom,
       delegationReason: this.delegationReason,
       type: this.type,
+      op: this.op,  // EO operator
       category: this.category,
       targetType: this.targetType,
       targetId: this.targetId,
@@ -290,6 +436,7 @@ class UserActivity {
       context: { ...this.context },
       method: this.method,
       details: { ...this.details },
+      delta: this.delta ? [...this.delta] : null,  // [prev, next] for ALT operations
       result: this.result,
       errorMessage: this.errorMessage,
       changes: this.changes ? { ...this.changes } : null,
@@ -316,13 +463,14 @@ class UserActivityStore {
   constructor() {
     this.activities = new Map();
     this.dbName = 'eo_user_activity_store';
-    this.dbVersion = 1;
+    this.dbVersion = 2;  // Bumped for EO operator index
     this.db = null;
 
     // Indexes for efficient querying
     this.byUser = new Map();      // userId -> Set<activityId>
     this.byTarget = new Map();    // targetId -> Set<activityId>
     this.byType = new Map();      // type -> Set<activityId>
+    this.byOp = new Map();        // EO operator -> Set<activityId> (NEW: EO-aligned)
     this.byTime = [];             // Sorted by timestamp
 
     // Subscribers
@@ -421,6 +569,14 @@ class UserActivityStore {
         this.byType.set(activity.type, new Set());
       }
       this.byType.get(activity.type).add(activity.id);
+    }
+
+    // By EO operator (for EO-aligned queries)
+    if (activity.op) {
+      if (!this.byOp.has(activity.op)) {
+        this.byOp.set(activity.op, new Set());
+      }
+      this.byOp.get(activity.op).add(activity.id);
     }
 
     // By time (maintain sorted order)
@@ -585,6 +741,36 @@ class UserActivityStore {
   }
 
   /**
+   * Get activities by EO operator
+   * This enables EO-aligned queries like "all INS operations" or "all NUL operations"
+   *
+   * @param {string} op - EO operator (INS, DES, SEG, CON, SYN, ALT, SUP, REC, NUL)
+   * @param {Object} options - Query options
+   */
+  getByOperator(op, options = {}) {
+    const ids = this.byOp.get(op);
+    if (!ids) return [];
+
+    let activities = Array.from(ids).map(id => this.activities.get(id));
+
+    // Filter by user if specified
+    if (options.userId) {
+      activities = activities.filter(a => a.userId === options.userId);
+    }
+
+    // Sort by time (newest first)
+    activities.sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    if (options.limit) {
+      activities = activities.slice(0, options.limit);
+    }
+
+    return activities;
+  }
+
+  /**
    * Get recent activities
    */
   getRecent(options = {}) {
@@ -606,6 +792,12 @@ class UserActivityStore {
     // Filter by user
     if (filters.userId) {
       results = results.filter(a => a.userId === filters.userId);
+    }
+
+    // Filter by EO operator (PRIMARY filter for EO-aligned queries)
+    if (filters.op) {
+      const ops = Array.isArray(filters.op) ? filters.op : [filters.op];
+      results = results.filter(a => ops.includes(a.op));
     }
 
     // Filter by type
@@ -783,6 +975,9 @@ async function getTargetActivities(targetId, limit = 50) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
+    // EO Operators
+    EO_OPERATORS,
+
     // Types
     ActivityCategory,
     ActivityType,
@@ -794,6 +989,10 @@ if (typeof module !== 'undefined' && module.exports) {
 
     // ID generation
     generateActivityId,
+
+    // EO operator helpers
+    getActivityOperator,
+    getActivityTypeById,
 
     // Singleton access
     getUserActivityStore,
@@ -808,6 +1007,9 @@ if (typeof module !== 'undefined' && module.exports) {
 
 if (typeof window !== 'undefined') {
   window.EOUserActivity = {
+    // EO Operators
+    EO_OPERATORS,
+
     // Types
     ActivityCategory,
     ActivityType,
@@ -819,6 +1021,10 @@ if (typeof window !== 'undefined') {
 
     // ID generation
     generateActivityId,
+
+    // EO operator helpers
+    getActivityOperator,
+    getActivityTypeById,
 
     // Singleton access
     getUserActivityStore,
