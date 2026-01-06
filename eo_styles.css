@@ -45644,3 +45644,86 @@ html.light-theme .formula-explainer-fn-name.fn-slate { color: #475569; }
     display: none;
   }
 }
+
+/* ===== Radio Card Groups for Edit Modals ===== */
+.radio-card-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.radio-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-secondary, #1e293b);
+  border: 1px solid var(--border-primary, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.radio-card:hover {
+  background: var(--bg-tertiary, #334155);
+  border-color: var(--border-secondary, rgba(255, 255, 255, 0.2));
+}
+
+.radio-card.selected {
+  background: var(--primary-500, #3b82f6);
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--primary-500, #3b82f6);
+}
+
+.radio-card input[type="radio"] {
+  display: none;
+}
+
+.radio-card-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+.radio-card-content i {
+  font-size: 20px;
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.radio-card-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #f1f5f9);
+  min-width: 100px;
+}
+
+.radio-card-desc {
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+  flex: 1;
+}
+
+/* Form hint text */
+.form-hint {
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+  margin-top: 4px;
+  margin-bottom: 8px;
+}
+
+/* Responsive adjustments for radio cards */
+@media (max-width: 480px) {
+  .radio-card-content {
+    flex-wrap: wrap;
+  }
+
+  .radio-card-desc {
+    flex-basis: 100%;
+    margin-top: 4px;
+    margin-left: 36px;
+  }
+}
