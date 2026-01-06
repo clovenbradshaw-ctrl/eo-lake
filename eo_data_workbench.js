@@ -30267,6 +30267,18 @@ class EODataWorkbench {
         return;
       }
 
+      // Cell click - open field modal for editing with history
+      const cell = target.closest('td.cell-editable');
+      if (cell && !cell.classList.contains('cell-editing')) {
+        e.stopPropagation(); // Prevent row click
+        const recordId = cell.closest('tr')?.dataset.recordId;
+        const fieldId = cell.dataset.fieldId;
+        if (recordId && fieldId) {
+          this._showFieldModal(recordId, fieldId);
+        }
+        return;
+      }
+
       // Row click for detail panel (but not on checkboxes or editing cells)
       if (target.type !== 'checkbox' && !target.closest('.cell-editing')) {
         const row = target.closest('tr[data-record-id]');
@@ -30664,6 +30676,891 @@ class EODataWorkbench {
         textarea.setSelectionRange(textarea.value.length, textarea.value.length);
       }
     }, 100);
+  }
+
+  /**
+   * Get modal size based on field type
+   * @param {string} fieldType - The field type
+   * @returns {string} Modal size ('small', 'medium', 'large')
+   */
+  _getModalSizeForFieldType(fieldType) {
+    const largeSizes = [FieldTypes.LONG_TEXT, FieldTypes.JSON];
+    const mediumSizes = [FieldTypes.LINK, FieldTypes.MULTI_SELECT];
+
+    if (largeSizes.includes(fieldType)) return 'large';
+    if (mediumSizes.includes(fieldType)) return 'medium';
+    return 'small';
+  }
+
+  /**
+   * Show field modal with editable content and toggleable history
+   * Opens when clicking on any cell in the table
+   */
+  _showFieldModal(recordId, fieldId) {
+    const set = this.getCurrentSet();
+    const record = set?.records.find(r => r.id === recordId);
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!record || !field) return;
+
+    const value = record.values[fieldId];
+    const fieldName = field.name || 'Field';
+    const fieldIcon = FieldTypeIcons[field.type] || 'ph-circle';
+    const primaryFieldValue = record.values[set.primaryFieldId] || 'Untitled';
+
+    // Check if field is editable
+    const isEditable = ![FieldTypes.FORMULA, FieldTypes.ROLLUP, FieldTypes.COUNT, FieldTypes.AUTONUMBER].includes(field.type);
+
+    // Get field history
+    const fieldHistory = this._getFieldHistory(recordId, fieldId);
+    const historyCount = fieldHistory.filter(event => {
+      const action = event.payload?.action;
+      return action === 'record_updated' || action === 'field_changed' || action === 'update';
+    }).length;
+
+    // Determine modal size based on field type
+    const modalSize = this._getModalSizeForFieldType(field.type);
+
+    // Render the editor content based on field type
+    const editorContent = this._renderFieldModalEditor(field, value, recordId, isEditable);
+
+    // Render history section (collapsible)
+    const historyHtml = this._renderFieldModalHistory(fieldHistory, field, recordId);
+
+    // Create modal
+    const modal = new EOModal({
+      id: `field-modal-${recordId}-${fieldId}`,
+      title: `<i class="ph ${fieldIcon}"></i> ${this._escapeHtml(fieldName)}`,
+      size: modalSize,
+      content: `
+        <div class="field-modal-container">
+          <div class="field-modal-record-context">
+            Record: ${this._escapeHtml(primaryFieldValue)}
+          </div>
+
+          <div class="field-modal-editor-section">
+            ${editorContent}
+          </div>
+
+          <div class="field-modal-history-section">
+            <button class="field-modal-history-toggle ${historyCount > 0 ? 'expanded' : ''}" data-expanded="${historyCount > 0}">
+              <i class="ph ph-caret-right toggle-icon"></i>
+              <span>History</span>
+              <span class="field-modal-history-count">${historyCount}</span>
+            </button>
+            <div class="field-modal-history-content ${historyCount > 0 ? 'expanded' : ''}">
+              ${historyHtml}
+            </div>
+          </div>
+        </div>
+      `,
+      buttons: isEditable ? [
+        {
+          label: 'Cancel',
+          secondary: true,
+          action: 'cancel',
+          onClick: () => modal.hide()
+        },
+        {
+          label: 'Save',
+          icon: 'ph-floppy-disk',
+          primary: true,
+          action: 'save',
+          onClick: () => {
+            const newValue = this._getFieldModalValue(modal, field);
+            if (newValue !== undefined && newValue !== value) {
+              this._updateCellValue(recordId, fieldId, newValue);
+            }
+            modal.hide();
+          }
+        }
+      ] : [
+        {
+          label: 'Close',
+          primary: true,
+          action: 'close',
+          onClick: () => modal.hide()
+        }
+      ]
+    });
+
+    modal.show();
+
+    // Attach history toggle handler
+    const toggleBtn = modal.element.querySelector('.field-modal-history-toggle');
+    const historyContent = modal.element.querySelector('.field-modal-history-content');
+    toggleBtn?.addEventListener('click', () => {
+      const isExpanded = toggleBtn.dataset.expanded === 'true';
+      toggleBtn.dataset.expanded = (!isExpanded).toString();
+      toggleBtn.classList.toggle('expanded', !isExpanded);
+      historyContent?.classList.toggle('expanded', !isExpanded);
+    });
+
+    // Attach restore button handlers
+    modal.element.querySelectorAll('.event-restore-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const restoreValue = JSON.parse(btn.dataset.restoreValue);
+        if (confirm('Restore field to this previous value?')) {
+          this._setFieldModalValue(modal, field, restoreValue);
+        }
+      });
+    });
+
+    // Attach type-specific handlers
+    this._attachFieldModalHandlers(modal, field, value, recordId);
+
+    // Focus the input element
+    setTimeout(() => {
+      const focusable = modal.element.querySelector('.field-modal-editor input, .field-modal-editor textarea, .field-modal-editor select');
+      if (focusable) {
+        focusable.focus();
+        if (focusable.select) focusable.select();
+      }
+    }, 100);
+  }
+
+  /**
+   * Render the appropriate editor for a field type in the modal
+   */
+  _renderFieldModalEditor(field, value, recordId, isEditable) {
+    if (!isEditable) {
+      return this._renderFieldModalReadOnly(field, value);
+    }
+
+    switch (field.type) {
+      case FieldTypes.TEXT:
+      case FieldTypes.URL:
+      case FieldTypes.EMAIL:
+      case FieldTypes.PHONE:
+        return this._renderFieldModalTextInput(field, value);
+
+      case FieldTypes.LONG_TEXT:
+        return this._renderFieldModalTextarea(field, value);
+
+      case FieldTypes.NUMBER:
+        return this._renderFieldModalNumberInput(field, value);
+
+      case FieldTypes.CHECKBOX:
+        return this._renderFieldModalCheckbox(field, value);
+
+      case FieldTypes.SELECT:
+        return this._renderFieldModalSelect(field, value);
+
+      case FieldTypes.MULTI_SELECT:
+        return this._renderFieldModalMultiSelect(field, value);
+
+      case FieldTypes.DATE:
+        return this._renderFieldModalDateInput(field, value);
+
+      case FieldTypes.LINK:
+        return this._renderFieldModalLinkEditor(field, value, recordId);
+
+      case FieldTypes.JSON:
+        return this._renderFieldModalJsonEditor(field, value);
+
+      default:
+        return this._renderFieldModalTextInput(field, value);
+    }
+  }
+
+  _renderFieldModalReadOnly(field, value) {
+    let displayValue = '';
+
+    switch (field.type) {
+      case FieldTypes.FORMULA:
+        displayValue = `
+          <div class="field-modal-readonly-value">${this._escapeHtml(String(value ?? ''))}</div>
+          <div class="field-modal-formula-info">
+            <span class="field-modal-info-label">Formula:</span>
+            <code>${this._escapeHtml(field.options?.formula || '')}</code>
+          </div>
+        `;
+        break;
+      case FieldTypes.ROLLUP:
+        displayValue = `
+          <div class="field-modal-readonly-value">${this._escapeHtml(String(value ?? ''))}</div>
+          <div class="field-modal-formula-info">
+            <span class="field-modal-info-label">Aggregation:</span>
+            <code>${this._escapeHtml(field.options?.aggregation || 'SUM')}</code>
+          </div>
+        `;
+        break;
+      case FieldTypes.COUNT:
+      case FieldTypes.AUTONUMBER:
+        displayValue = `<div class="field-modal-readonly-value">${this._escapeHtml(String(value ?? ''))}</div>`;
+        break;
+      default:
+        displayValue = `<div class="field-modal-readonly-value">${this._escapeHtml(String(value ?? ''))}</div>`;
+    }
+
+    return `
+      <div class="field-modal-editor field-modal-readonly">
+        ${displayValue}
+        <div class="field-modal-readonly-notice">
+          <i class="ph ph-lock-simple"></i>
+          <span>This field is computed automatically</span>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderFieldModalTextInput(field, value) {
+    const placeholder = field.type === FieldTypes.URL ? 'https://...' :
+                        field.type === FieldTypes.EMAIL ? 'email@example.com' :
+                        field.type === FieldTypes.PHONE ? '+1 (555) 000-0000' : '';
+    return `
+      <div class="field-modal-editor">
+        <input type="text"
+               class="field-modal-input"
+               value="${this._escapeHtml(value || '')}"
+               placeholder="${placeholder}"
+               data-field-type="${field.type}">
+      </div>
+    `;
+  }
+
+  _renderFieldModalTextarea(field, value) {
+    const wordCount = value ? value.trim().split(/\s+/).filter(w => w).length : 0;
+    return `
+      <div class="field-modal-editor field-modal-editor-large">
+        <textarea class="field-modal-textarea">${this._escapeHtml(value || '')}</textarea>
+        <div class="field-modal-textarea-footer">
+          <span class="field-modal-word-count">${wordCount} words</span>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderFieldModalNumberInput(field, value) {
+    const format = field.options?.format || 'number';
+    const precision = field.options?.precision ?? 2;
+    return `
+      <div class="field-modal-editor">
+        <input type="number"
+               class="field-modal-input field-modal-number-input"
+               value="${value ?? ''}"
+               step="${format === 'percent' ? '0.01' : Math.pow(10, -precision)}"
+               data-format="${format}">
+        ${format !== 'number' ? `<span class="field-modal-number-format">${format === 'currency' ? '$' : format === 'percent' ? '%' : ''}</span>` : ''}
+      </div>
+    `;
+  }
+
+  _renderFieldModalCheckbox(field, value) {
+    return `
+      <div class="field-modal-editor field-modal-checkbox-editor">
+        <label class="field-modal-checkbox-label">
+          <input type="checkbox"
+                 class="field-modal-checkbox"
+                 ${value ? 'checked' : ''}>
+          <span class="field-modal-checkbox-visual">
+            <i class="ph ${value ? 'ph-check-square-fill' : 'ph-square'}"></i>
+          </span>
+          <span class="field-modal-checkbox-text">${value ? 'Checked' : 'Unchecked'}</span>
+        </label>
+      </div>
+    `;
+  }
+
+  _renderFieldModalSelect(field, value) {
+    const choices = field.options?.choices || [];
+    const currentChoice = choices.find(c => c.id === value);
+
+    return `
+      <div class="field-modal-editor field-modal-select-editor">
+        <div class="field-modal-select-current" data-value="${value || ''}">
+          ${currentChoice
+            ? `<span class="select-tag color-${currentChoice.color || 'gray'}">${this._escapeHtml(currentChoice.name)}</span>`
+            : '<span class="field-modal-select-placeholder">Select an option...</span>'
+          }
+          <i class="ph ph-caret-down"></i>
+        </div>
+        <div class="field-modal-select-dropdown">
+          <div class="field-modal-select-search">
+            <i class="ph ph-magnifying-glass"></i>
+            <input type="text" placeholder="Search options..." class="field-modal-select-search-input">
+          </div>
+          <div class="field-modal-select-options">
+            ${value ? `
+              <div class="field-modal-select-option field-modal-select-clear" data-value="">
+                <i class="ph ph-x"></i>
+                <span>Clear selection</span>
+              </div>
+            ` : ''}
+            ${choices.map(choice => `
+              <div class="field-modal-select-option ${choice.id === value ? 'selected' : ''}" data-value="${choice.id}">
+                <span class="field-modal-select-check">${choice.id === value ? '<i class="ph ph-check"></i>' : ''}</span>
+                <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderFieldModalMultiSelect(field, value) {
+    const choices = field.options?.choices || [];
+    const selectedIds = Array.isArray(value) ? value : (value ? [value] : []);
+
+    return `
+      <div class="field-modal-editor field-modal-multiselect-editor">
+        <div class="field-modal-multiselect-selected">
+          ${selectedIds.length > 0
+            ? selectedIds.map(id => {
+                const choice = choices.find(c => c.id === id);
+                return choice ? `<span class="select-tag color-${choice.color || 'gray'}" data-id="${id}">${this._escapeHtml(choice.name)} <i class="ph ph-x remove-tag"></i></span>` : '';
+              }).join('')
+            : '<span class="field-modal-multiselect-placeholder">Select options...</span>'
+          }
+        </div>
+        <div class="field-modal-multiselect-search">
+          <i class="ph ph-magnifying-glass"></i>
+          <input type="text" placeholder="Search options..." class="field-modal-multiselect-search-input">
+        </div>
+        <div class="field-modal-multiselect-options">
+          ${choices.map(choice => `
+            <label class="field-modal-multiselect-option">
+              <input type="checkbox" value="${choice.id}" ${selectedIds.includes(choice.id) ? 'checked' : ''}>
+              <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+            </label>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  _renderFieldModalDateInput(field, value) {
+    const includeTime = field.options?.includeTime;
+    const inputType = includeTime ? 'datetime-local' : 'date';
+    let formattedValue = '';
+
+    if (value) {
+      try {
+        const date = new Date(value);
+        if (includeTime) {
+          formattedValue = date.toISOString().slice(0, 16);
+        } else {
+          formattedValue = date.toISOString().slice(0, 10);
+        }
+      } catch (e) {
+        formattedValue = value;
+      }
+    }
+
+    return `
+      <div class="field-modal-editor">
+        <input type="${inputType}"
+               class="field-modal-input field-modal-date-input"
+               value="${formattedValue}">
+      </div>
+    `;
+  }
+
+  _renderFieldModalLinkEditor(field, value, recordId) {
+    const linkedSetId = field.options?.linkedSetId;
+    const linkedSet = linkedSetId ? this.sets.find(s => s.id === linkedSetId) : this.getCurrentSet();
+    const allowMultiple = field.options?.allowMultiple !== false;
+
+    if (!linkedSet) {
+      return `<div class="field-modal-editor field-modal-link-error">No linked set configured</div>`;
+    }
+
+    const normalizedLinks = this._normalizeLinkValue(value);
+    const displayField = field.options?.linkedFieldId
+      ? linkedSet.fields.find(f => f.id === field.options.linkedFieldId)
+      : (linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0]);
+
+    return `
+      <div class="field-modal-editor field-modal-link-editor" data-linked-set-id="${linkedSetId}" data-allow-multiple="${allowMultiple}">
+        <div class="field-modal-link-selected">
+          ${normalizedLinks.length > 0
+            ? normalizedLinks.map(link => {
+                const linkedRecord = linkedSet.records?.find(r => r.id === link.recordId);
+                const displayValue = linkedRecord?.values?.[displayField?.id] || 'Unknown';
+                return `<span class="link-chip" data-linked-id="${link.recordId}">${this._escapeHtml(displayValue)} <i class="ph ph-x remove-link"></i></span>`;
+              }).join('')
+            : '<span class="field-modal-link-placeholder">Link records...</span>'
+          }
+        </div>
+        <div class="field-modal-link-search">
+          <i class="ph ph-magnifying-glass"></i>
+          <input type="text" placeholder="Search ${linkedSet.name}..." class="field-modal-link-search-input">
+        </div>
+        <div class="field-modal-link-options" data-loading="true">
+          <div class="field-modal-link-loading">
+            <i class="ph ph-spinner ph-spin"></i> Loading records...
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderFieldModalJsonEditor(field, value) {
+    const displayMode = field.options?.displayMode || 'keyValue';
+    let jsonString = '';
+
+    try {
+      jsonString = typeof value === 'string' ? value : JSON.stringify(value || {}, null, 2);
+    } catch (e) {
+      jsonString = String(value || '{}');
+    }
+
+    return `
+      <div class="field-modal-editor field-modal-editor-large field-modal-json-editor">
+        <div class="field-modal-json-toolbar">
+          <button class="field-modal-json-mode ${displayMode === 'keyValue' ? 'active' : ''}" data-mode="keyValue">
+            <i class="ph ph-list"></i> Key-Value
+          </button>
+          <button class="field-modal-json-mode ${displayMode === 'raw' ? 'active' : ''}" data-mode="raw">
+            <i class="ph ph-code"></i> Raw JSON
+          </button>
+        </div>
+        <textarea class="field-modal-json-textarea">${this._escapeHtml(jsonString)}</textarea>
+      </div>
+    `;
+  }
+
+  /**
+   * Render the history section for the field modal
+   */
+  _renderFieldModalHistory(fieldHistory, field, recordId) {
+    const changes = fieldHistory.filter(event => {
+      const action = event.payload?.action;
+      return action === 'record_updated' || action === 'field_changed' || action === 'update';
+    });
+
+    if (changes.length === 0) {
+      return `
+        <div class="field-modal-history-empty">
+          <i class="ph ph-clock-afternoon"></i>
+          <span>No changes yet</span>
+          <div class="field-modal-history-hint">Changes will appear here as you edit this field</div>
+        </div>
+      `;
+    }
+
+    // Show last 5 changes, with option to show more
+    const visibleChanges = changes.slice().reverse().slice(0, 5);
+    const hasMore = changes.length > 5;
+
+    return `
+      <div class="field-modal-history-events">
+        ${visibleChanges.map(event => this._renderFieldHistoryEvent(event, field, recordId, true)).join('')}
+      </div>
+      ${hasMore ? `
+        <button class="field-modal-history-show-more">
+          Show all ${changes.length} changes
+        </button>
+      ` : ''}
+    `;
+  }
+
+  /**
+   * Get the current value from the field modal editor
+   */
+  _getFieldModalValue(modal, field) {
+    const editor = modal.element.querySelector('.field-modal-editor');
+    if (!editor) return undefined;
+
+    switch (field.type) {
+      case FieldTypes.TEXT:
+      case FieldTypes.URL:
+      case FieldTypes.EMAIL:
+      case FieldTypes.PHONE:
+        return editor.querySelector('.field-modal-input')?.value || '';
+
+      case FieldTypes.LONG_TEXT:
+        return editor.querySelector('.field-modal-textarea')?.value || '';
+
+      case FieldTypes.NUMBER:
+        const numValue = editor.querySelector('.field-modal-number-input')?.value;
+        return numValue === '' ? null : parseFloat(numValue);
+
+      case FieldTypes.CHECKBOX:
+        return editor.querySelector('.field-modal-checkbox')?.checked || false;
+
+      case FieldTypes.SELECT:
+        return editor.querySelector('.field-modal-select-current')?.dataset.value || null;
+
+      case FieldTypes.MULTI_SELECT:
+        const checked = editor.querySelectorAll('.field-modal-multiselect-option input:checked');
+        return Array.from(checked).map(cb => cb.value);
+
+      case FieldTypes.DATE:
+        const dateValue = editor.querySelector('.field-modal-date-input')?.value;
+        return dateValue ? new Date(dateValue).toISOString() : null;
+
+      case FieldTypes.LINK:
+        const linkChips = editor.querySelectorAll('.link-chip[data-linked-id]');
+        const links = Array.from(linkChips).map(chip => ({ recordId: chip.dataset.linkedId }));
+        return links.length > 0 ? links : null;
+
+      case FieldTypes.JSON:
+        try {
+          const jsonText = editor.querySelector('.field-modal-json-textarea')?.value || '{}';
+          return JSON.parse(jsonText);
+        } catch (e) {
+          return editor.querySelector('.field-modal-json-textarea')?.value;
+        }
+
+      default:
+        return editor.querySelector('input, textarea')?.value;
+    }
+  }
+
+  /**
+   * Set a value in the field modal editor (used for restore)
+   */
+  _setFieldModalValue(modal, field, value) {
+    const editor = modal.element.querySelector('.field-modal-editor');
+    if (!editor) return;
+
+    switch (field.type) {
+      case FieldTypes.TEXT:
+      case FieldTypes.URL:
+      case FieldTypes.EMAIL:
+      case FieldTypes.PHONE:
+        const input = editor.querySelector('.field-modal-input');
+        if (input) input.value = value || '';
+        break;
+
+      case FieldTypes.LONG_TEXT:
+        const textarea = editor.querySelector('.field-modal-textarea');
+        if (textarea) {
+          textarea.value = value || '';
+          this._updateTextareaWordCount(editor, value);
+        }
+        break;
+
+      case FieldTypes.NUMBER:
+        const numInput = editor.querySelector('.field-modal-number-input');
+        if (numInput) numInput.value = value ?? '';
+        break;
+
+      case FieldTypes.CHECKBOX:
+        const checkbox = editor.querySelector('.field-modal-checkbox');
+        if (checkbox) {
+          checkbox.checked = !!value;
+          this._updateCheckboxVisual(editor, !!value);
+        }
+        break;
+
+      case FieldTypes.SELECT:
+        this._updateSelectValue(editor, field, value);
+        break;
+
+      case FieldTypes.DATE:
+        const dateInput = editor.querySelector('.field-modal-date-input');
+        if (dateInput && value) {
+          try {
+            const date = new Date(value);
+            dateInput.value = field.options?.includeTime
+              ? date.toISOString().slice(0, 16)
+              : date.toISOString().slice(0, 10);
+          } catch (e) {
+            dateInput.value = value;
+          }
+        }
+        break;
+
+      case FieldTypes.JSON:
+        const jsonTextarea = editor.querySelector('.field-modal-json-textarea');
+        if (jsonTextarea) {
+          try {
+            jsonTextarea.value = typeof value === 'string' ? value : JSON.stringify(value || {}, null, 2);
+          } catch (e) {
+            jsonTextarea.value = String(value || '{}');
+          }
+        }
+        break;
+    }
+  }
+
+  _updateTextareaWordCount(editor, value) {
+    const countEl = editor.querySelector('.field-modal-word-count');
+    if (countEl) {
+      const wordCount = value ? value.trim().split(/\s+/).filter(w => w).length : 0;
+      countEl.textContent = `${wordCount} words`;
+    }
+  }
+
+  _updateCheckboxVisual(editor, checked) {
+    const icon = editor.querySelector('.field-modal-checkbox-visual i');
+    const text = editor.querySelector('.field-modal-checkbox-text');
+    if (icon) {
+      icon.className = `ph ${checked ? 'ph-check-square-fill' : 'ph-square'}`;
+    }
+    if (text) {
+      text.textContent = checked ? 'Checked' : 'Unchecked';
+    }
+  }
+
+  _updateSelectValue(editor, field, value) {
+    const choices = field.options?.choices || [];
+    const currentChoice = choices.find(c => c.id === value);
+    const currentEl = editor.querySelector('.field-modal-select-current');
+
+    if (currentEl) {
+      currentEl.dataset.value = value || '';
+      currentEl.innerHTML = currentChoice
+        ? `<span class="select-tag color-${currentChoice.color || 'gray'}">${this._escapeHtml(currentChoice.name)}</span><i class="ph ph-caret-down"></i>`
+        : '<span class="field-modal-select-placeholder">Select an option...</span><i class="ph ph-caret-down"></i>';
+    }
+
+    // Update selected state in dropdown
+    editor.querySelectorAll('.field-modal-select-option').forEach(opt => {
+      const isSelected = opt.dataset.value === value;
+      opt.classList.toggle('selected', isSelected);
+      const check = opt.querySelector('.field-modal-select-check');
+      if (check) check.innerHTML = isSelected ? '<i class="ph ph-check"></i>' : '';
+    });
+  }
+
+  /**
+   * Attach type-specific event handlers for field modal
+   */
+  _attachFieldModalHandlers(modal, field, currentValue, recordId) {
+    const editor = modal.element.querySelector('.field-modal-editor');
+    if (!editor) return;
+
+    switch (field.type) {
+      case FieldTypes.LONG_TEXT:
+        const textarea = editor.querySelector('.field-modal-textarea');
+        textarea?.addEventListener('input', () => {
+          this._updateTextareaWordCount(editor, textarea.value);
+        });
+        break;
+
+      case FieldTypes.CHECKBOX:
+        const checkbox = editor.querySelector('.field-modal-checkbox');
+        checkbox?.addEventListener('change', () => {
+          this._updateCheckboxVisual(editor, checkbox.checked);
+        });
+        break;
+
+      case FieldTypes.SELECT:
+        this._attachSelectHandlers(editor, field);
+        break;
+
+      case FieldTypes.MULTI_SELECT:
+        this._attachMultiSelectHandlers(editor, field);
+        break;
+
+      case FieldTypes.LINK:
+        this._attachLinkEditorHandlers(editor, field, currentValue, recordId);
+        break;
+
+      case FieldTypes.JSON:
+        this._attachJsonEditorHandlers(editor);
+        break;
+    }
+  }
+
+  _attachSelectHandlers(editor, field) {
+    const current = editor.querySelector('.field-modal-select-current');
+    const dropdown = editor.querySelector('.field-modal-select-dropdown');
+    const searchInput = editor.querySelector('.field-modal-select-search-input');
+
+    // Toggle dropdown
+    current?.addEventListener('click', () => {
+      dropdown?.classList.toggle('open');
+      if (dropdown?.classList.contains('open')) {
+        searchInput?.focus();
+      }
+    });
+
+    // Search
+    searchInput?.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      editor.querySelectorAll('.field-modal-select-option:not(.field-modal-select-clear)').forEach(opt => {
+        const text = opt.textContent.toLowerCase();
+        opt.style.display = text.includes(term) ? '' : 'none';
+      });
+    });
+
+    // Select option
+    editor.querySelectorAll('.field-modal-select-option').forEach(opt => {
+      opt.addEventListener('click', () => {
+        const value = opt.dataset.value || null;
+        this._updateSelectValue(editor, field, value);
+        dropdown?.classList.remove('open');
+      });
+    });
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+      if (!editor.contains(e.target)) {
+        dropdown?.classList.remove('open');
+      }
+    });
+  }
+
+  _attachMultiSelectHandlers(editor, field) {
+    const searchInput = editor.querySelector('.field-modal-multiselect-search-input');
+    const selectedContainer = editor.querySelector('.field-modal-multiselect-selected');
+    const choices = field.options?.choices || [];
+
+    // Update selected display
+    const updateSelectedDisplay = () => {
+      const checked = editor.querySelectorAll('.field-modal-multiselect-option input:checked');
+      const selectedIds = Array.from(checked).map(cb => cb.value);
+
+      if (selectedIds.length > 0) {
+        selectedContainer.innerHTML = selectedIds.map(id => {
+          const choice = choices.find(c => c.id === id);
+          return choice ? `<span class="select-tag color-${choice.color || 'gray'}" data-id="${id}">${this._escapeHtml(choice.name)} <i class="ph ph-x remove-tag"></i></span>` : '';
+        }).join('');
+      } else {
+        selectedContainer.innerHTML = '<span class="field-modal-multiselect-placeholder">Select options...</span>';
+      }
+    };
+
+    // Checkbox change
+    editor.querySelectorAll('.field-modal-multiselect-option input').forEach(cb => {
+      cb.addEventListener('change', updateSelectedDisplay);
+    });
+
+    // Remove tag
+    selectedContainer?.addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('.remove-tag');
+      if (removeBtn) {
+        const tag = removeBtn.closest('.select-tag');
+        const id = tag?.dataset.id;
+        const checkbox = editor.querySelector(`.field-modal-multiselect-option input[value="${id}"]`);
+        if (checkbox) {
+          checkbox.checked = false;
+          updateSelectedDisplay();
+        }
+      }
+    });
+
+    // Search
+    searchInput?.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      editor.querySelectorAll('.field-modal-multiselect-option').forEach(opt => {
+        const text = opt.textContent.toLowerCase();
+        opt.style.display = text.includes(term) ? '' : 'none';
+      });
+    });
+  }
+
+  async _attachLinkEditorHandlers(editor, field, currentValue, recordId) {
+    const linkedSetId = field.options?.linkedSetId;
+    const linkedSet = linkedSetId ? this.sets.find(s => s.id === linkedSetId) : this.getCurrentSet();
+    const allowMultiple = field.options?.allowMultiple !== false;
+
+    if (!linkedSet) return;
+
+    // Ensure records are loaded
+    if (linkedSet._recordsInIndexedDB && (!linkedSet.records || linkedSet.records.length === 0)) {
+      await this._ensureSetRecords(linkedSet);
+    }
+
+    const optionsContainer = editor.querySelector('.field-modal-link-options');
+    const selectedContainer = editor.querySelector('.field-modal-link-selected');
+    const searchInput = editor.querySelector('.field-modal-link-search-input');
+
+    const displayField = field.options?.linkedFieldId
+      ? linkedSet.fields.find(f => f.id === field.options.linkedFieldId)
+      : (linkedSet.fields.find(f => f.isPrimary) || linkedSet.fields[0]);
+
+    // Track selected links
+    let selectedLinks = this._normalizeLinkValue(currentValue);
+
+    // Render options
+    const renderOptions = (filter = '') => {
+      const records = linkedSet.records || [];
+      const filteredRecords = filter
+        ? records.filter(r => {
+            const val = r.values?.[displayField?.id] || '';
+            return String(val).toLowerCase().includes(filter.toLowerCase());
+          })
+        : records;
+
+      if (filteredRecords.length === 0) {
+        optionsContainer.innerHTML = '<div class="field-modal-link-empty">No matching records</div>';
+        return;
+      }
+
+      optionsContainer.innerHTML = filteredRecords.map(record => {
+        const displayValue = record.values?.[displayField?.id] || 'Untitled';
+        const isSelected = selectedLinks.some(l => l.recordId === record.id);
+        return `
+          <div class="field-modal-link-option ${isSelected ? 'selected' : ''}" data-record-id="${record.id}">
+            <span class="field-modal-link-check">${isSelected ? '<i class="ph ph-check"></i>' : ''}</span>
+            <span class="field-modal-link-name">${this._escapeHtml(displayValue)}</span>
+          </div>
+        `;
+      }).join('');
+
+      // Attach option click handlers
+      optionsContainer.querySelectorAll('.field-modal-link-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+          const recordId = opt.dataset.recordId;
+          const isSelected = selectedLinks.some(l => l.recordId === recordId);
+
+          if (isSelected) {
+            selectedLinks = selectedLinks.filter(l => l.recordId !== recordId);
+          } else {
+            if (allowMultiple) {
+              selectedLinks.push({ recordId });
+            } else {
+              selectedLinks = [{ recordId }];
+            }
+          }
+
+          updateSelectedDisplay();
+          renderOptions(searchInput?.value || '');
+        });
+      });
+    };
+
+    // Update selected display
+    const updateSelectedDisplay = () => {
+      if (selectedLinks.length > 0) {
+        selectedContainer.innerHTML = selectedLinks.map(link => {
+          const linkedRecord = linkedSet.records?.find(r => r.id === link.recordId);
+          const displayValue = linkedRecord?.values?.[displayField?.id] || 'Unknown';
+          return `<span class="link-chip" data-linked-id="${link.recordId}">${this._escapeHtml(displayValue)} <i class="ph ph-x remove-link"></i></span>`;
+        }).join('');
+      } else {
+        selectedContainer.innerHTML = '<span class="field-modal-link-placeholder">Link records...</span>';
+      }
+    };
+
+    // Remove link
+    selectedContainer?.addEventListener('click', (e) => {
+      const removeBtn = e.target.closest('.remove-link');
+      if (removeBtn) {
+        const chip = removeBtn.closest('.link-chip');
+        const linkId = chip?.dataset.linkedId;
+        selectedLinks = selectedLinks.filter(l => l.recordId !== linkId);
+        updateSelectedDisplay();
+        renderOptions(searchInput?.value || '');
+      }
+    });
+
+    // Search
+    searchInput?.addEventListener('input', (e) => {
+      renderOptions(e.target.value);
+    });
+
+    // Initial render
+    optionsContainer.dataset.loading = 'false';
+    renderOptions();
+  }
+
+  _attachJsonEditorHandlers(editor) {
+    const modeButtons = editor.querySelectorAll('.field-modal-json-mode');
+
+    modeButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        modeButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        // Could add mode switching logic here
+      });
+    });
   }
 
   /**

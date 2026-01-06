@@ -7057,6 +7057,747 @@ tr.highlight-row {
   color: var(--text-quaternary);
 }
 
+/* ============================================================================
+   Field Modal - Universal field editing with history
+   ============================================================================ */
+
+.field-modal-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field-modal-record-context {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+/* Editor Section */
+.field-modal-editor-section {
+  min-height: 60px;
+}
+
+.field-modal-editor {
+  width: 100%;
+}
+
+.field-modal-editor-large {
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Input Styles */
+.field-modal-input {
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-fast);
+}
+
+.field-modal-input:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+.field-modal-input::placeholder {
+  color: var(--text-quaternary);
+}
+
+/* Number Input */
+.field-modal-number-input {
+  padding-right: 32px;
+}
+
+.field-modal-number-format {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Textarea Styles */
+.field-modal-textarea {
+  flex: 1;
+  min-height: 200px;
+  max-height: 50vh;
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  resize: vertical;
+  font-family: inherit;
+  transition: var(--transition-fast);
+}
+
+.field-modal-textarea:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+.field-modal-textarea-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+.field-modal-word-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Checkbox Styles */
+.field-modal-checkbox-editor {
+  padding: 12px 0;
+}
+
+.field-modal-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.field-modal-checkbox {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.field-modal-checkbox-visual {
+  font-size: 24px;
+  color: var(--text-secondary);
+  transition: var(--transition-fast);
+}
+
+.field-modal-checkbox:checked + .field-modal-checkbox-visual {
+  color: var(--primary-500);
+}
+
+.field-modal-checkbox-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* Select Styles */
+.field-modal-select-editor {
+  position: relative;
+}
+
+.field-modal-select-current {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.field-modal-select-current:hover {
+  border-color: var(--border-hover);
+}
+
+.field-modal-select-current i {
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+
+.field-modal-select-placeholder {
+  color: var(--text-quaternary);
+  font-size: 14px;
+}
+
+.field-modal-select-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  max-height: 300px;
+  overflow: hidden;
+}
+
+.field-modal-select-dropdown.open {
+  display: block;
+}
+
+.field-modal-select-dropdown.open + .field-modal-select-current i {
+  transform: rotate(180deg);
+}
+
+.field-modal-select-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.field-modal-select-search i {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.field-modal-select-search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.field-modal-select-options {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.field-modal-select-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.field-modal-select-option:hover {
+  background: var(--bg-hover);
+}
+
+.field-modal-select-option.selected {
+  background: var(--primary-50);
+}
+
+.field-modal-select-check {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-500);
+}
+
+.field-modal-select-clear {
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 4px;
+  padding-bottom: 10px;
+}
+
+.field-modal-select-clear:hover {
+  color: var(--danger-500);
+}
+
+/* Multi-Select Styles */
+.field-modal-multiselect-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-modal-multiselect-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.field-modal-multiselect-selected .select-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.field-modal-multiselect-selected .remove-tag {
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.field-modal-multiselect-selected .remove-tag:hover {
+  opacity: 1;
+}
+
+.field-modal-multiselect-placeholder {
+  color: var(--text-quaternary);
+  font-size: 14px;
+}
+
+.field-modal-multiselect-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.field-modal-multiselect-search i {
+  color: var(--text-muted);
+}
+
+.field-modal-multiselect-search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.field-modal-multiselect-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.field-modal-multiselect-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.field-modal-multiselect-option:hover {
+  background: var(--bg-hover);
+}
+
+.field-modal-multiselect-option input {
+  accent-color: var(--primary-500);
+}
+
+/* Date Input */
+.field-modal-date-input {
+  cursor: pointer;
+}
+
+/* Link Editor */
+.field-modal-link-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-modal-link-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 36px;
+  padding: 8px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.field-modal-link-selected .link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--primary-100);
+  color: var(--primary-700);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.field-modal-link-selected .link-chip .remove-link {
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.field-modal-link-selected .link-chip .remove-link:hover {
+  opacity: 1;
+}
+
+.field-modal-link-placeholder {
+  color: var(--text-quaternary);
+  font-size: 14px;
+}
+
+.field-modal-link-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.field-modal-link-search i {
+  color: var(--text-muted);
+}
+
+.field-modal-link-search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.field-modal-link-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.field-modal-link-options[data-loading="true"] {
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.field-modal-link-loading {
+  color: var(--text-muted);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-modal-link-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.field-modal-link-option:hover {
+  background: var(--bg-hover);
+}
+
+.field-modal-link-option.selected {
+  background: var(--primary-50);
+}
+
+.field-modal-link-check {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary-500);
+}
+
+.field-modal-link-name {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.field-modal-link-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.field-modal-link-error {
+  padding: 16px;
+  text-align: center;
+  color: var(--danger-500);
+  font-size: 13px;
+}
+
+/* JSON Editor */
+.field-modal-json-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-modal-json-toolbar {
+  display: flex;
+  gap: 4px;
+}
+
+.field-modal-json-mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.field-modal-json-mode:hover {
+  background: var(--bg-hover);
+}
+
+.field-modal-json-mode.active {
+  background: var(--primary-100);
+  border-color: var(--primary-300);
+  color: var(--primary-600);
+}
+
+.field-modal-json-textarea {
+  flex: 1;
+  min-height: 200px;
+  padding: 12px;
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  resize: vertical;
+}
+
+.field-modal-json-textarea:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+/* Read-only Fields */
+.field-modal-readonly {
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.field-modal-readonly-value {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.field-modal-formula-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.field-modal-info-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.field-modal-formula-info code {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+.field-modal-readonly-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* History Section */
+.field-modal-history-section {
+  border-top: 1px solid var(--border-light);
+  padding-top: 12px;
+}
+
+.field-modal-history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: var(--transition-fast);
+}
+
+.field-modal-history-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.field-modal-history-toggle .toggle-icon {
+  transition: transform 0.2s ease;
+}
+
+.field-modal-history-toggle.expanded .toggle-icon {
+  transform: rotate(90deg);
+}
+
+.field-modal-history-count {
+  margin-left: auto;
+  padding: 2px 8px;
+  background: var(--bg-secondary);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.field-modal-history-toggle.expanded .field-modal-history-count {
+  background: var(--primary-100);
+  color: var(--primary-600);
+}
+
+.field-modal-history-content {
+  display: none;
+  padding-top: 12px;
+}
+
+.field-modal-history-content.expanded {
+  display: block;
+}
+
+.field-modal-history-events {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.field-modal-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.field-modal-history-empty i {
+  font-size: 28px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.field-modal-history-empty span {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.field-modal-history-hint {
+  font-size: 11px;
+  margin-top: 4px;
+  opacity: 0.7;
+}
+
+.field-modal-history-show-more {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  margin-top: 8px;
+  border: 1px dashed var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.field-modal-history-show-more:hover {
+  border-color: var(--primary-400);
+  color: var(--primary-500);
+  background: var(--primary-50);
+}
+
+/* Modal Title with Icon */
+.eo-modal-title i {
+  margin-right: 8px;
+  color: var(--primary-500);
+}
+
+/* Dark Theme Adjustments */
+:root.dark-theme .field-modal-select-option.selected,
+.dark-theme .field-modal-select-option.selected,
+:root.dark-theme .field-modal-link-option.selected,
+.dark-theme .field-modal-link-option.selected {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+:root.dark-theme .field-modal-checkbox:checked + .field-modal-checkbox-visual,
+.dark-theme .field-modal-checkbox:checked + .field-modal-checkbox-visual {
+  color: var(--primary-400);
+}
+
+:root.dark-theme .field-modal-link-selected .link-chip,
+.dark-theme .field-modal-link-selected .link-chip {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--primary-400);
+}
+
+:root.dark-theme .field-modal-history-toggle.expanded .field-modal-history-count,
+.dark-theme .field-modal-history-toggle.expanded .field-modal-history-count {
+  background: rgba(59, 130, 246, 0.2);
+  color: var(--primary-400);
+}
+
 /* HTML Preview Modal */
 .html-preview-modal-content {
   padding: 8px 0;
