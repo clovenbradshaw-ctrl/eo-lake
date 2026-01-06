@@ -590,6 +590,19 @@ async function initApp(options = {}) {
     }
   }
 
+  // Load common definitions if available
+  if (window.EO?.loadCommonDefinitions && _dataWorkbench) {
+    try {
+      // Load common definitions from the JSON file
+      const result = await window.EO.loadCommonDefinitions(_dataWorkbench, 'common_definitions.json');
+      if (result.loaded > 0) {
+        console.log(`Lakṣaṇa: Loaded ${result.loaded} common definitions`);
+      }
+    } catch (error) {
+      console.warn('Lakṣaṇa: Could not load common definitions:', error.message);
+    }
+  }
+
   console.log('Lakṣaṇa: Application initialized');
 
   return _dataWorkbench;

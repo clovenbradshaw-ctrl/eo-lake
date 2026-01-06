@@ -24328,6 +24328,21 @@ class EODataWorkbench {
         this.sets.push(result.set);
         this._addSetToProject(result.set.id);
 
+        // Auto-link fields to common definitions if available
+        if (window.EO?.autoLinkSetToCommonDefinitions) {
+          try {
+            const linkResult = window.EO.autoLinkSetToCommonDefinitions(this, result.set.id, {
+              minConfidence: 0.8,  // High confidence for auto-linking
+              autoLink: true
+            });
+            if (linkResult.linked > 0) {
+              console.log(`Auto-linked ${linkResult.linked} fields to common definitions in set "${result.set.name}"`);
+            }
+          } catch (error) {
+            console.warn('Could not auto-link common definitions:', error);
+          }
+        }
+
         // Record activity for set creation from import
         const lensCount = result.set.lenses?.length || 0;
         const lensDetails = lensCount > 0 ? `, ${lensCount} lens${lensCount > 1 ? 'es' : ''}` : '';

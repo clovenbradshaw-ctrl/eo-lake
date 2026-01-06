@@ -1003,7 +1003,671 @@ function completePendingDefinitionLinks(setId, workbench) {
 }
 
 // ============================================================================
-// SECTION V: Exports
+// SECTION V: Common Definitions Registry
+// ============================================================================
+
+/**
+ * CommonDefinitionsRegistry - Manages hardcoded common definitions
+ *
+ * These are well-known field definitions (firstName, email, price, etc.)
+ * that are automatically suggested when matching keys are detected.
+ *
+ * Common definitions are loaded from common_definitions.json and provide:
+ * - Rich metadata (meaning, authority, sensitivity, interop URIs)
+ * - Automatic key matching with fuzzy normalization
+ * - Pre-linked semantic URIs for interoperability
+ */
+class CommonDefinitionsRegistry {
+  constructor() {
+    this._definitions = [];
+    this._keyIndex = new Map();  // normalized key -> definition
+    this._aliasIndex = new Map(); // alias -> definition IDs
+    this._loaded = false;
+  }
+
+  /**
+   * Load common definitions from JSON data
+   * @param {Object} jsonData - The parsed common_definitions.json content
+   */
+  loadFromJSON(jsonData) {
+    if (!jsonData?.definitions?.length) {
+      console.warn('CommonDefinitionsRegistry: No definitions found in JSON');
+      return;
+    }
+
+    this._definitions = jsonData.definitions;
+    this._buildIndices();
+    this._loaded = true;
+
+    console.log(`CommonDefinitionsRegistry: Loaded ${this._definitions.length} common definitions`);
+  }
+
+  /**
+   * Load common definitions from URL (browser) or file path (Node.js)
+   * @param {string} pathOrUrl - Path to common_definitions.json
+   */
+  async loadFromFile(pathOrUrl) {
+    try {
+      let jsonData;
+
+      if (typeof window !== 'undefined') {
+        // Browser: fetch from URL
+        const response = await fetch(pathOrUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch: ${response.status}`);
+        }
+        jsonData = await response.json();
+      } else if (typeof require !== 'undefined') {
+        // Node.js: read from file system
+        const fs = require('fs');
+        const content = fs.readFileSync(pathOrUrl, 'utf-8');
+        jsonData = JSON.parse(content);
+      }
+
+      this.loadFromJSON(jsonData);
+    } catch (error) {
+      console.error('CommonDefinitionsRegistry: Failed to load definitions:', error);
+    }
+  }
+
+  /**
+   * Build lookup indices for fast key matching
+   */
+  _buildIndices() {
+    this._keyIndex.clear();
+    this._aliasIndex.clear();
+
+    for (const def of this._definitions) {
+      // Extract the key from the id (e.g., "definition.firstName" -> "firstName")
+      const key = def.id.replace('definition.', '');
+      const normalizedKey = this._normalizeKey(key);
+
+      // Index by primary key
+      this._keyIndex.set(normalizedKey, def);
+
+      // Also index common variations
+      const variations = this._generateKeyVariations(key);
+      for (const variation of variations) {
+        if (!this._keyIndex.has(variation)) {
+          this._aliasIndex.set(variation, def.id);
+        }
+      }
+    }
+  }
+
+  /**
+   * Normalize a key for comparison
+   * Handles: camelCase, snake_case, kebab-case, spaces, and common abbreviations
+   */
+  _normalizeKey(key) {
+    return key
+      .toLowerCase()
+      // Convert camelCase to spaces
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      // Convert separators to spaces
+      .replace(/[-_]/g, ' ')
+      // Remove extra spaces
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
+   * Generate common variations of a key for fuzzy matching
+   */
+  _generateKeyVariations(key) {
+    const normalized = this._normalizeKey(key);
+    const variations = new Set();
+
+    // Original normalized
+    variations.add(normalized);
+
+    // Without spaces (concatenated)
+    variations.add(normalized.replace(/\s/g, ''));
+
+    // With underscores
+    variations.add(normalized.replace(/\s/g, '_'));
+
+    // With hyphens
+    variations.add(normalized.replace(/\s/g, '-'));
+
+    // Common abbreviations
+    const abbreviationMap = {
+      'first name': ['fname', 'firstname', 'first', 'given name', 'givenname'],
+      'last name': ['lname', 'lastname', 'last', 'surname', 'family name', 'familyname'],
+      'full name': ['name', 'fullname', 'display name', 'displayname'],
+      'middle name': ['mname', 'middlename', 'middle'],
+      'email': ['email address', 'emailaddress', 'e-mail', 'e mail', 'mail'],
+      'phone': ['telephone', 'phone number', 'phonenumber', 'tel'],
+      'mobile phone': ['mobile', 'cell', 'cellphone', 'cell phone'],
+      'street address': ['address', 'address1', 'address line 1', 'street'],
+      'address line 2': ['address2', 'address line2', 'apt', 'suite', 'unit'],
+      'postal code': ['zip', 'zipcode', 'zip code', 'postcode', 'post code'],
+      'date of birth': ['dob', 'birthdate', 'birth date', 'birthday'],
+      'social security number': ['ssn', 'social security', 'ss number'],
+      'drivers license number': ['dl', 'drivers license', 'license number'],
+      'created date': ['createdat', 'created at', 'created', 'creation date', 'datecreated'],
+      'modified date': ['updatedat', 'updated at', 'updated', 'modifiedat', 'modified at', 'last modified', 'datemodified'],
+      'start date': ['startdate', 'begin date', 'begindate', 'from date', 'fromdate'],
+      'end date': ['enddate', 'finish date', 'finishdate', 'to date', 'todate', 'expiry date', 'expirydate'],
+      'unique identifier': ['id', 'identifier', 'uid', 'guid', 'key', 'pk', 'primary key'],
+      'customer id': ['customerid', 'customer', 'cust id', 'custid'],
+      'user id': ['userid', 'user', 'uid'],
+      'account id': ['accountid', 'account', 'acct id', 'acctid'],
+      'order id': ['orderid', 'order', 'order number', 'ordernumber'],
+      'product id': ['productid', 'product', 'prod id', 'prodid', 'item id', 'itemid'],
+      'transaction id': ['transactionid', 'trans id', 'transid', 'txn id', 'txnid'],
+      'invoice number': ['invoicenumber', 'invoice', 'inv number', 'invnumber'],
+      'employee id': ['employeeid', 'employee', 'emp id', 'empid'],
+      'organization id': ['organizationid', 'orgid', 'org id', 'company id', 'companyid'],
+      'company name': ['companyname', 'company', 'org name', 'orgname', 'organization name'],
+      'job title': ['jobtitle', 'title', 'position'],
+      'hire date': ['hiredate', 'hired date', 'date hired', 'employment date'],
+      'termination date': ['terminationdate', 'term date', 'termdate', 'end date', 'separation date'],
+      'amount': ['amt', 'value', 'total'],
+      'price': ['cost', 'unit price', 'unitprice'],
+      'currency': ['curr', 'currency code', 'currencycode'],
+      'discount': ['disc', 'discount amount', 'discountamount'],
+      'tax amount': ['taxamount', 'tax', 'taxes'],
+      'description': ['desc', 'details', 'summary'],
+      'notes': ['note', 'comments', 'remarks'],
+      'status': ['state', 'condition'],
+      'type': ['kind', 'classification'],
+      'category': ['cat', 'group', 'class'],
+      'priority': ['pri', 'importance', 'urgency'],
+      'active': ['isactive', 'is active', 'enabled', 'isenabled'],
+      'approved': ['isapproved', 'is approved'],
+      'verified': ['isverified', 'is verified', 'confirmed'],
+      'url': ['link', 'href', 'web address', 'webaddress', 'uri'],
+      'image url': ['imageurl', 'image', 'img', 'photo', 'picture', 'pic'],
+      'file path': ['filepath', 'path', 'filename', 'file name'],
+      'ip address': ['ipaddress', 'ip', 'ipv4', 'ipv6'],
+      'latitude': ['lat'],
+      'longitude': ['lng', 'lon', 'long'],
+      'timestamp': ['ts', 'datetime', 'date time'],
+      'version': ['ver', 'v', 'revision', 'rev'],
+      'uuid': ['guid', 'unique id', 'uniqueid'],
+      'sku': ['stock keeping unit', 'item number', 'itemnumber'],
+      'barcode': ['upc', 'ean', 'gtin'],
+      'age': ['years old', 'yearsold'],
+      'gender': ['sex']
+    };
+
+    // Add abbreviations for this key
+    if (abbreviationMap[normalized]) {
+      for (const abbrev of abbreviationMap[normalized]) {
+        variations.add(abbrev);
+        variations.add(abbrev.replace(/\s/g, ''));
+        variations.add(abbrev.replace(/\s/g, '_'));
+      }
+    }
+
+    return variations;
+  }
+
+  /**
+   * Find a matching common definition for a field key
+   * @param {string} fieldKey - The field name/key to match
+   * @returns {Object|null} The matching definition or null
+   */
+  findMatch(fieldKey) {
+    if (!this._loaded || !fieldKey) return null;
+
+    const normalizedKey = this._normalizeKey(fieldKey);
+
+    // Direct match
+    if (this._keyIndex.has(normalizedKey)) {
+      return this._keyIndex.get(normalizedKey);
+    }
+
+    // Alias match
+    if (this._aliasIndex.has(normalizedKey)) {
+      const defId = this._aliasIndex.get(normalizedKey);
+      return this._definitions.find(d => d.id === defId);
+    }
+
+    // Fuzzy match: try removing common prefixes/suffixes
+    const strippedKey = normalizedKey
+      .replace(/^(fld_|col_|field_|column_)/, '')
+      .replace(/(_id|_key|_code|_num|_no|_number)$/, '');
+
+    if (strippedKey !== normalizedKey) {
+      if (this._keyIndex.has(strippedKey)) {
+        return this._keyIndex.get(strippedKey);
+      }
+      if (this._aliasIndex.has(strippedKey)) {
+        const defId = this._aliasIndex.get(strippedKey);
+        return this._definitions.find(d => d.id === defId);
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find all potential matches with confidence scores
+   * @param {string} fieldKey - The field name/key to match
+   * @param {Object} context - Optional context (sibling fields, sample values)
+   * @returns {Object[]} Array of matches with scores
+   */
+  findMatchesWithScores(fieldKey, context = {}) {
+    if (!this._loaded || !fieldKey) return [];
+
+    const normalizedKey = this._normalizeKey(fieldKey);
+    const matches = [];
+
+    for (const def of this._definitions) {
+      const defKey = def.id.replace('definition.', '');
+      const normalizedDefKey = this._normalizeKey(defKey);
+      const variations = this._generateKeyVariations(defKey);
+
+      let score = 0;
+      let matchType = null;
+
+      // Exact match
+      if (normalizedKey === normalizedDefKey) {
+        score = 1.0;
+        matchType = 'exact';
+      }
+      // Variation match
+      else if (variations.has(normalizedKey)) {
+        score = 0.9;
+        matchType = 'alias';
+      }
+      // Partial match (contains)
+      else if (normalizedDefKey.includes(normalizedKey) || normalizedKey.includes(normalizedDefKey)) {
+        const longer = normalizedKey.length > normalizedDefKey.length ? normalizedKey : normalizedDefKey;
+        const shorter = normalizedKey.length > normalizedDefKey.length ? normalizedDefKey : normalizedKey;
+        score = (shorter.length / longer.length) * 0.7;
+        matchType = 'partial';
+      }
+      // Levenshtein-like fuzzy match for close spellings
+      else {
+        const distance = this._levenshteinDistance(normalizedKey, normalizedDefKey);
+        const maxLen = Math.max(normalizedKey.length, normalizedDefKey.length);
+        if (distance <= 2 && maxLen > 4) {
+          score = (1 - distance / maxLen) * 0.6;
+          matchType = 'fuzzy';
+        }
+      }
+
+      if (score > 0.3) {
+        // Context boosting
+        if (context.fieldType && def.valueShape?.datatype) {
+          const typeMatch = this._matchDataType(context.fieldType, def.valueShape.datatype);
+          if (typeMatch) score = Math.min(1.0, score + 0.05);
+        }
+
+        matches.push({
+          definition: def,
+          score,
+          matchType,
+          key: defKey
+        });
+      }
+    }
+
+    // Sort by score descending
+    matches.sort((a, b) => b.score - a.score);
+
+    return matches.slice(0, 5);  // Top 5 matches
+  }
+
+  /**
+   * Simple Levenshtein distance for fuzzy matching
+   */
+  _levenshteinDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) {
+      matrix[i] = [i];
+    }
+    for (let j = 0; j <= a.length; j++) {
+      matrix[0][j] = j;
+    }
+
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        if (b.charAt(i - 1) === a.charAt(j - 1)) {
+          matrix[i][j] = matrix[i - 1][j - 1];
+        } else {
+          matrix[i][j] = Math.min(
+            matrix[i - 1][j - 1] + 1,
+            matrix[i][j - 1] + 1,
+            matrix[i - 1][j] + 1
+          );
+        }
+      }
+    }
+
+    return matrix[b.length][a.length];
+  }
+
+  /**
+   * Check if field type matches definition datatype
+   */
+  _matchDataType(fieldType, defDatatype) {
+    const typeMap = {
+      'text': ['string'],
+      'longText': ['string'],
+      'number': ['number', 'decimal', 'integer'],
+      'date': ['xsd:date', 'xsd:dateTime', 'date', 'datetime'],
+      'checkbox': ['boolean'],
+      'url': ['string', 'url', 'uri'],
+      'email': ['string'],
+      'phone': ['string']
+    };
+
+    const compatibleTypes = typeMap[fieldType] || [];
+    return compatibleTypes.some(t => defDatatype?.toLowerCase().includes(t.toLowerCase()));
+  }
+
+  /**
+   * Convert a common definition to a definition record
+   * @param {Object} commonDef - The common definition from JSON
+   * @returns {Object} A record suitable for the Definitions Set
+   */
+  toDefinitionRecord(commonDef) {
+    const key = commonDef.id.replace('definition.', '');
+
+    return {
+      id: `defrec_common_${key}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isCommonDefinition: true,
+      commonDefinitionId: commonDef.id,
+      values: {
+        fld_def_term: key,
+        fld_def_label: commonDef.meaning,
+        fld_def_meaning_uri: commonDef.interop?.preferredURI || null,
+        fld_def_definition: commonDef.plainLanguage,
+        fld_def_role: this._mapCategoryToRole(commonDef.category),
+        fld_def_status: 'verified',  // Common definitions are pre-verified
+        fld_def_aliases: this._extractAliases(key, commonDef),
+        fld_def_context_signature: {
+          domainHints: commonDef.refersTo || [],
+          siblingPatterns: [],
+          valuePatterns: commonDef.valueShape?.format ? [commonDef.valueShape.format] : [],
+          unitHints: []
+        },
+        fld_def_disambiguation: {
+          type: DisambiguationType.NONE,
+          alternativeMeanings: commonDef.interop?.alternativeURIs || [],
+          resolutionHistory: []
+        },
+        fld_def_authority: commonDef.authority || 'common',
+        fld_def_source_citation: 'Common Definitions Library',
+        fld_def_jurisdiction: null,
+        fld_def_linked_fields: [],
+        fld_def_usage_count: 0,
+        fld_def_discovered_from: {
+          source: 'common_definitions',
+          loadedAt: new Date().toISOString()
+        },
+        fld_def_api_suggestions: [],
+        // Additional metadata from common definition
+        fld_def_interop: commonDef.interop,
+        fld_def_value_shape: commonDef.valueShape,
+        fld_def_stability: commonDef.stability,
+        fld_def_time: commonDef.time,
+        fld_def_sensitivity: commonDef.sensitivity,
+        fld_def_risk: commonDef.risk,
+        fld_def_notes: commonDef.notes
+      }
+    };
+  }
+
+  /**
+   * Map category to definition role
+   */
+  _mapCategoryToRole(category) {
+    const roleMap = {
+      'identity': DefinitionRole.IDENTIFIER,
+      'contact': DefinitionRole.PROPERTY,
+      'temporal': DefinitionRole.TEMPORAL,
+      'financial': DefinitionRole.QUANTITY,
+      'status': DefinitionRole.CATEGORICAL,
+      'relational': DefinitionRole.IDENTIFIER,
+      'organizational': DefinitionRole.PROPERTY,
+      'descriptive': DefinitionRole.TEXTUAL,
+      'technical': DefinitionRole.IDENTIFIER
+    };
+    return roleMap[category] || DefinitionRole.PROPERTY;
+  }
+
+  /**
+   * Extract aliases from common definition
+   */
+  _extractAliases(key, commonDef) {
+    const aliases = [];
+
+    // Add the meaning as an alias if different from key
+    if (commonDef.meaning && commonDef.meaning.toLowerCase().replace(/\s/g, '') !== key.toLowerCase()) {
+      aliases.push({
+        term: commonDef.meaning,
+        confidence: 1.0,
+        source: 'common_definition'
+      });
+    }
+
+    return aliases;
+  }
+
+  /**
+   * Get all definitions by category
+   */
+  getByCategory(category) {
+    return this._definitions.filter(d => d.category === category);
+  }
+
+  /**
+   * Get all loaded definitions
+   */
+  getAll() {
+    return [...this._definitions];
+  }
+
+  /**
+   * Check if registry is loaded
+   */
+  isLoaded() {
+    return this._loaded;
+  }
+}
+
+// Singleton instance of the registry
+let _commonDefinitionsRegistry = null;
+
+/**
+ * Get the singleton CommonDefinitionsRegistry instance
+ */
+function getCommonDefinitionsRegistry() {
+  if (!_commonDefinitionsRegistry) {
+    _commonDefinitionsRegistry = new CommonDefinitionsRegistry();
+  }
+  return _commonDefinitionsRegistry;
+}
+
+/**
+ * Load common definitions and populate the Definitions Set
+ * @param {Object} workbench - The workbench instance
+ * @param {Object|string} jsonDataOrPath - JSON data or path to common_definitions.json
+ * @returns {Object} Result with count of loaded definitions
+ */
+async function loadCommonDefinitions(workbench, jsonDataOrPath) {
+  const registry = getCommonDefinitionsRegistry();
+  const manager = new DefinitionsSetManager(workbench);
+
+  // Load into registry
+  if (typeof jsonDataOrPath === 'string') {
+    await registry.loadFromFile(jsonDataOrPath);
+  } else {
+    registry.loadFromJSON(jsonDataOrPath);
+  }
+
+  if (!registry.isLoaded()) {
+    return { loaded: 0, error: 'Failed to load common definitions' };
+  }
+
+  // Ensure Definitions Set exists
+  const defSet = manager.ensureDefinitionsSet();
+
+  // Add common definitions to the set
+  let loaded = 0;
+  let skipped = 0;
+
+  for (const commonDef of registry.getAll()) {
+    const key = commonDef.id.replace('definition.', '');
+    const recordId = `defrec_common_${key}`;
+
+    // Check if already exists
+    const existing = defSet.records?.find(r => r.id === recordId || r.commonDefinitionId === commonDef.id);
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    const record = registry.toDefinitionRecord(commonDef);
+    if (!defSet.records) defSet.records = [];
+    defSet.records.push(record);
+    loaded++;
+  }
+
+  console.log(`loadCommonDefinitions: Loaded ${loaded} common definitions, skipped ${skipped} duplicates`);
+
+  return { loaded, skipped, total: registry.getAll().length };
+}
+
+/**
+ * Auto-link a field to a matching common definition
+ * @param {Object} workbench - The workbench instance
+ * @param {string} setId - The set containing the field
+ * @param {Object} field - The field to link
+ * @param {Object} options - Options including minConfidence threshold
+ * @returns {Object|null} Link result or null if no match
+ */
+function autoLinkToCommonDefinition(workbench, setId, field, options = {}) {
+  const { minConfidence = 0.7, autoLink = true } = options;
+  const registry = getCommonDefinitionsRegistry();
+
+  if (!registry.isLoaded()) {
+    console.warn('autoLinkToCommonDefinition: Common definitions not loaded');
+    return null;
+  }
+
+  // Find matches
+  const matches = registry.findMatchesWithScores(field.name, {
+    fieldType: field.type,
+    sampleValues: field.uniqueValues?.slice(0, 5)
+  });
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const bestMatch = matches[0];
+
+  // Return match info even if below threshold
+  const result = {
+    field: field.name,
+    bestMatch: {
+      key: bestMatch.key,
+      meaning: bestMatch.definition.meaning,
+      score: bestMatch.score,
+      matchType: bestMatch.matchType,
+      definitionId: bestMatch.definition.id,
+      uri: bestMatch.definition.interop?.preferredURI
+    },
+    alternatives: matches.slice(1).map(m => ({
+      key: m.key,
+      meaning: m.definition.meaning,
+      score: m.score
+    })),
+    autoLinked: false
+  };
+
+  // Auto-link if above threshold
+  if (autoLink && bestMatch.score >= minConfidence) {
+    const manager = new DefinitionsSetManager(workbench);
+    const recordId = `defrec_common_${bestMatch.key}`;
+
+    // Ensure the common definition record exists
+    const defSet = manager.getDefinitionsSet();
+    let record = defSet.records?.find(r => r.id === recordId);
+
+    if (!record) {
+      // Create the record if it doesn't exist
+      record = registry.toDefinitionRecord(bestMatch.definition);
+      if (!defSet.records) defSet.records = [];
+      defSet.records.push(record);
+    }
+
+    // Link the field
+    const linkResult = manager.linkFieldToDefinition(setId, field.id || field.name, recordId, {
+      type: 'auto_common_definition',
+      matchScore: bestMatch.score,
+      matchType: bestMatch.matchType
+    });
+
+    if (linkResult) {
+      result.autoLinked = true;
+      result.linkedRecordId = recordId;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Auto-link all fields in a set to matching common definitions
+ * @param {Object} workbench - The workbench instance
+ * @param {string} setId - The set to process
+ * @param {Object} options - Options including minConfidence threshold
+ * @returns {Object} Summary of linking results
+ */
+function autoLinkSetToCommonDefinitions(workbench, setId, options = {}) {
+  const set = workbench.sets?.find(s => s.id === setId);
+  if (!set) {
+    return { error: 'Set not found', linked: 0, suggestions: 0 };
+  }
+
+  const results = {
+    setId,
+    setName: set.name,
+    linked: 0,
+    suggestions: 0,
+    noMatch: 0,
+    fields: []
+  };
+
+  for (const field of set.fields || []) {
+    // Skip if already has a definition link
+    if (field.definitionId || field.semanticBinding) {
+      continue;
+    }
+
+    const linkResult = autoLinkToCommonDefinition(workbench, setId, field, options);
+
+    if (linkResult) {
+      if (linkResult.autoLinked) {
+        results.linked++;
+      } else if (linkResult.bestMatch.score >= 0.5) {
+        results.suggestions++;
+      }
+      results.fields.push(linkResult);
+    } else {
+      results.noMatch++;
+    }
+  }
+
+  console.log(`autoLinkSetToCommonDefinitions: Set "${set.name}" - linked ${results.linked}, suggestions ${results.suggestions}, no match ${results.noMatch}`);
+
+  return results;
+}
+
+// ============================================================================
+// SECTION VI: Exports
 // ============================================================================
 
 // Export for browser
@@ -1011,8 +1675,13 @@ if (typeof window !== 'undefined') {
   window.EO = window.EO || {};
   window.EO.DefinitionsSetManager = DefinitionsSetManager;
   window.EO.DisambiguationEngine = DisambiguationEngine;
+  window.EO.CommonDefinitionsRegistry = CommonDefinitionsRegistry;
   window.EO.createLinkedStubDefinitions = createLinkedStubDefinitions;
   window.EO.completePendingDefinitionLinks = completePendingDefinitionLinks;
+  window.EO.getCommonDefinitionsRegistry = getCommonDefinitionsRegistry;
+  window.EO.loadCommonDefinitions = loadCommonDefinitions;
+  window.EO.autoLinkToCommonDefinition = autoLinkToCommonDefinition;
+  window.EO.autoLinkSetToCommonDefinitions = autoLinkSetToCommonDefinitions;
   window.EO.DEFINITIONS_SET_ID = DEFINITIONS_SET_ID;
   window.EO.DisambiguationType = DisambiguationType;
   window.EO.DisambiguationMethod = DisambiguationMethod;
@@ -1024,8 +1693,13 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     DefinitionsSetManager,
     DisambiguationEngine,
+    CommonDefinitionsRegistry,
     createLinkedStubDefinitions,
     completePendingDefinitionLinks,
+    getCommonDefinitionsRegistry,
+    loadCommonDefinitions,
+    autoLinkToCommonDefinition,
+    autoLinkSetToCommonDefinitions,
     DEFINITIONS_SET_ID,
     DEFINITIONS_SET_SCHEMA,
     DisambiguationType,
