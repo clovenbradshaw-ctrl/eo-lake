@@ -131,7 +131,9 @@ class MergeEngine {
     }
 
     // Get output fields from set schema
+    // CRITICAL: Include field.id so _buildRecord can key values correctly for grid rendering
     const outputFields = (set.fields || []).map(f => ({
+      id: f.id,
       name: f.name,
       source: f.source,
       originalField: f.originalField || f.name,

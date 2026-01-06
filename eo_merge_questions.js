@@ -591,7 +591,9 @@ class MergeExecutor {
     for (const field of outputFields) {
       const sourceRec = field.source === 'left' ? leftRec : rightRec;
       const fieldName = field.originalField || field.name;
-      values[field.name] = sourceRec ? this._getValue(sourceRec, fieldName) : null;
+      // Use field.id as key for grid compatibility, fall back to field.name for preview
+      const valueKey = field.id || field.name;
+      values[valueKey] = sourceRec ? this._getValue(sourceRec, fieldName) : null;
     }
     return { values };
   }
