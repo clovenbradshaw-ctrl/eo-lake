@@ -6,6 +6,15 @@
  * Activity storage format:
  *   { id, ts, op, actor, target, field?, delta?, method?, source?, seq?, ctx? }
  *
+ * USER ATTRIBUTION:
+ * The 'actor' field should be in format:
+ *   - user:{userId} - for user-initiated actions (PREFERRED)
+ *   - agent:{agentId} - for agent-level actions
+ *   - session:{sessionId} - fallback for anonymous actions
+ *   - system - for system-initiated actions
+ *
+ * All activities should be traceable to a user account for complete provenance.
+ *
  * The 9 operators (INS, DES, SEG, CON, SYN, ALT, SUP, REC, NUL) are the vocabulary.
  * Context is referenced, not embedded (unless truly needed).
  *
@@ -63,7 +72,7 @@ function genId(prefix = 'act') {
  *
  * @param {string} op - Operator (INS, DES, SEG, CON, SYN, ALT, SUP, REC, NUL)
  * @param {string|Object} target - Entity ID or { id, field }
- * @param {string} actor - Who performed the action
+ * @param {string} actor - Who performed the action (user:{id}, agent:{id}, or session:{id})
  * @param {Object} options - Additional options
  * @returns {Object} Compact activity record
  */
@@ -71,6 +80,24 @@ function createActivity(op, target, actor, options = {}) {
   // Validate operator
   if (!OPERATORS[op]) {
     throw new Error(`Invalid operator: ${op}. Must be one of: ${Object.keys(OPERATORS).join(', ')}`);
+  }
+
+  // Normalize actor - prefer user:{userId} format
+  let normalizedActor = actor;
+  if (!actor) {
+    // Try to get from current user/session
+    if (typeof window !== 'undefined') {
+      if (window.getCurrentUserActor) {
+        normalizedActor = window.getCurrentUserActor();
+      } else if (window.getCurrentActor) {
+        normalizedActor = window.getCurrentActor();
+      }
+    }
+  }
+  // Warn if still no actor (provenance incomplete)
+  if (!normalizedActor) {
+    console.warn('Creating activity without actor - provenance incomplete');
+    normalizedActor = 'unknown';
   }
 
   // Normalize target
@@ -81,9 +108,14 @@ function createActivity(op, target, actor, options = {}) {
     id: options.id || genId('act'),
     ts: options.ts || Date.now(),
     op,
-    actor,
+    actor: normalizedActor,
     target: targetId
   };
+
+  // Extract userId from actor if in user:{id} format for direct indexing
+  if (normalizedActor.startsWith('user:')) {
+    activity.userId = normalizedActor.substring(5);
+  }
 
   // Optional fields - only include if present
   if (field) activity.field = field;
@@ -93,6 +125,9 @@ function createActivity(op, target, actor, options = {}) {
   if (options.seq) activity.seq = options.seq;
   if (options.ctx) activity.ctx = options.ctx;
   if (options.data) activity.data = options.data;  // Additional payload
+
+  // Delegation tracking
+  if (options.delegatedFrom) activity.delegatedFrom = options.delegatedFrom;
 
   return activity;
 }
@@ -513,10 +548,11 @@ class ActivityStore {
     this.byOp = new Map();
     this.byTarget = new Map();
     this.byActor = new Map();
+    this.byUserId = new Map(); // NEW: Index by user ID for efficient user queries
     this.byTime = [];
 
     this.dbName = 'eo_activity_store';
-    this.dbVersion = 2;  // Bumped for new schema
+    this.dbVersion = 3;  // Bumped for userId index
     this.db = null;
   }
 
@@ -664,6 +700,16 @@ class ActivityStore {
         this.byActor.set(activity.actor, new Set());
       }
       this.byActor.get(activity.actor).add(activity.id);
+    }
+
+    // By userId (extracted from actor or explicit)
+    const userId = activity.userId ||
+      (activity.actor?.startsWith('user:') ? activity.actor.substring(5) : null);
+    if (userId) {
+      if (!this.byUserId.has(userId)) {
+        this.byUserId.set(userId, new Set());
+      }
+      this.byUserId.get(userId).add(activity.id);
     }
 
     // By time
@@ -826,6 +872,16 @@ class ActivityStore {
   }
 
   /**
+   * Get activities by user ID
+   * This is the preferred method for querying user-specific activities
+   */
+  getByUserId(userId) {
+    const ids = this.byUserId.get(userId);
+    if (!ids) return [];
+    return Array.from(ids).map(id => this.activities.get(id));
+  }
+
+  /**
    * Get activities by time range
    */
   getByTimeRange(startTs, endTs) {
@@ -862,6 +918,15 @@ class ActivityStore {
       results = results.filter(a => a.actor === filters.actor);
     }
 
+    // Filter by userId (preferred over actor for user-specific queries)
+    if (filters.userId) {
+      results = results.filter(a => {
+        const activityUserId = a.userId ||
+          (a.actor?.startsWith('user:') ? a.actor.substring(5) : null);
+        return activityUserId === filters.userId;
+      });
+    }
+
     if (filters.method) {
       results = results.filter(a => a.method === filters.method);
     }
@@ -876,6 +941,14 @@ class ActivityStore {
 
     if (filters.endTs) {
       results = results.filter(a => a.ts <= filters.endTs);
+    }
+
+    // Filter by delegation
+    if (filters.delegatedFrom) {
+      results = results.filter(a => a.delegatedFrom === filters.delegatedFrom);
+    }
+    if (filters.isDelegated !== undefined) {
+      results = results.filter(a => (a.delegatedFrom != null) === filters.isDelegated);
     }
 
     // Sort

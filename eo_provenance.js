@@ -83,11 +83,23 @@ const ProvenanceLabels = Object.freeze({
   agent: {
     label: 'Interpreting Agent',
     question: 'Who is doing the interpreting?',
-    hint: 'Analyst, reviewer, synthesizer, or system making the interpretation',
+    hint: 'User account or system making the interpretation',
     icon: 'ph-user',
     triad: 'epistemic',
     required: true,
-    preserveFields: ['interpreting_agent_id', 'agent_type', 'epistemic_standing', 'role_relative_to_sources']
+    preserveFields: [
+      'userId',           // PRIMARY: User account ID (from eo_user.js)
+      'userDisplayName',  // User display name
+      'userRole',         // User role in the system
+      'agentId',          // Secondary: Agent ID (for non-user agents)
+      'agentType',        // Agent type classification
+      'sessionId',        // Session that created this
+      'delegatedFrom',    // If system action, who delegated it
+      'interpreting_agent_id', // Legacy field
+      'agent_type',       // Legacy field
+      'epistemic_standing',
+      'role_relative_to_sources'
+    ]
   },
   method: {
     label: 'Interpretive Method',
@@ -190,38 +202,116 @@ function createUploadContext(options = {}) {
 }
 
 /**
- * Create agent provenance from the current session
+ * Create agent provenance from the current session or user
  *
  * This populates the 'agent' element of the 9-element provenance schema
- * with identity information from the agent session.
+ * with identity information. USER ID is the PRIMARY attribution.
  *
  * Returns an object with:
- * - value: Display string for the agent (name or session ID)
+ * - value: Display string for the agent (user display name or session ID)
+ * - userId: PRIMARY - User account ID for provenance (from eo_user.js)
+ * - userDisplayName: User's display name
+ * - userRole: User's role in the system
+ * - agentId: Secondary agent ID (for non-user agents)
+ * - agentType: Agent type classification
+ * - sessionId: Session that created this
+ * - delegatedFrom: If delegated action, the originating userId
  * - agentSession: Full session metadata for auditing
  * - uploadContext: Upload context for compatibility
  */
 function createAgentProvenance(options = {}) {
+  // Try to get user from options or user store
+  let user = options.user;
+  if (!user && typeof window !== 'undefined' && window.getCurrentUser) {
+    user = window.getCurrentUser();
+  }
+
   // Get session from options or current session
   let session = options.session;
-
   if (!session && typeof window !== 'undefined' && window.getAgentSession) {
     session = window.getAgentSession();
   }
 
-  if (!session) {
-    // No session available - return minimal provenance
-    return {
-      value: options.agentName || options.agent || null,
-      uploadContext: createUploadContext(options)
-    };
+  // Build provenance with user as primary attribution
+  const prov = {
+    value: null,
+    userId: null,
+    userDisplayName: null,
+    userRole: null,
+    agentId: null,
+    agentType: null,
+    sessionId: null,
+    delegatedFrom: null,
+    agentSession: null,
+    uploadContext: createUploadContext(options)
+  };
+
+  // User takes precedence for attribution
+  if (user) {
+    prov.userId = user.id || user.userId;
+    prov.userDisplayName = user.displayName || user.getDisplayName?.();
+    prov.userRole = user.role;
+    prov.value = prov.userDisplayName || prov.userId;
   }
 
-  // Build the agent provenance from session
-  return {
-    value: session.getDisplayName(),
-    agentSession: session.toAgentProvenance(),
-    uploadContext: session.toUploadContext()
-  };
+  // Session provides additional context
+  if (session) {
+    // If session is bound to user but we don't have user object, use session's user data
+    if (!prov.userId && session.userId) {
+      prov.userId = session.userId;
+      prov.userDisplayName = session.userDisplayName;
+      prov.userRole = session.userRole;
+      prov.value = prov.userDisplayName || prov.userId;
+    }
+
+    prov.agentId = session.agentId;
+    prov.agentType = session.agentType;
+    prov.sessionId = session.sessionId;
+    prov.delegatedFrom = session.delegatedFrom;
+    prov.agentSession = session.toAgentProvenance();
+    prov.uploadContext = session.toUploadContext();
+
+    // Fallback display value
+    if (!prov.value) {
+      prov.value = session.getDisplayName?.() || session.agentName;
+    }
+  }
+
+  // Final fallback
+  if (!prov.value) {
+    prov.value = options.agentName || options.agent || null;
+  }
+
+  return prov;
+}
+
+/**
+ * Get user-centric provenance for an action
+ *
+ * This is a convenience function that ensures userId is always set
+ * when creating provenance for user-initiated actions.
+ *
+ * @param {Object} options - Options including user, session, or explicit userId
+ * @returns {Object} Provenance object with userId as primary attribution
+ */
+function createUserProvenance(options = {}) {
+  const prov = createAgentProvenance(options);
+
+  // Ensure we have a userId - this is required for user-initiated actions
+  if (!prov.userId) {
+    // Try to get from options
+    if (options.userId) {
+      prov.userId = options.userId;
+    } else if (typeof window !== 'undefined' && window.getCurrentUserActor) {
+      // Extract userId from actor string (format: user:{userId})
+      const actor = window.getCurrentUserActor();
+      if (actor.startsWith('user:')) {
+        prov.userId = actor.substring(5);
+      }
+    }
+  }
+
+  return prov;
 }
 
 /**
@@ -511,23 +601,32 @@ function getProvenanceIndicator(status) {
 function createDatasetProvenance(options = {}) {
   const now = new Date().toISOString();
 
-  // Get agent provenance from session if available
+  // Get agent provenance from session/user if available
   const agentProv = options.agentProvenance || createAgentProvenance({
     agent: options.agent,
     agentName: options.agentName,
-    session: options.session
+    session: options.session,
+    user: options.user,
+    userId: options.userId
   });
 
-  // Determine importedBy from agent session or options
+  // Determine importedBy from user/agent provenance or options
+  // Prefer userId for provenance tracking
   let importedBy = options.importedBy;
-  if (!importedBy && agentProv.value) {
-    importedBy = agentProv.value;
+  if (!importedBy) {
+    if (agentProv.userId) {
+      importedBy = agentProv.userDisplayName || agentProv.userId;
+    } else if (agentProv.value) {
+      importedBy = agentProv.value;
+    }
   }
 
   return {
     // Top-level import metadata (backwards compatible)
     importedAt: now,
     importedBy: importedBy,
+    // NEW: userId for direct user attribution
+    importedByUserId: agentProv.userId || null,
     originalFilename: options.originalFilename || null,
     originalFileSize: options.originalFileSize || null,
     originalFileType: options.originalFileType || null,
@@ -538,6 +637,16 @@ function createDatasetProvenance(options = {}) {
       // EPISTEMIC TRIAD
       agent: {
         value: agentProv.value,
+        // PRIMARY: User attribution
+        userId: agentProv.userId,
+        userDisplayName: agentProv.userDisplayName,
+        userRole: agentProv.userRole,
+        // Secondary: Agent/session context
+        agentId: agentProv.agentId,
+        agentType: agentProv.agentType,
+        sessionId: agentProv.sessionId,
+        delegatedFrom: agentProv.delegatedFrom,
+        // Full session metadata for auditing
         agentSession: agentProv.agentSession || null,
         uploadContext: agentProv.uploadContext || options.uploadContext || createUploadContext()
       },
@@ -1557,8 +1666,9 @@ if (typeof module !== 'undefined' && module.exports) {
     normalizeProvenance,
     flattenProvenance,
 
-    // Agent provenance (integrates with agent session)
+    // Agent/User provenance (integrates with user accounts and agent session)
     createAgentProvenance,
+    createUserProvenance,
 
     // Upload metadata factories
     createUploadContext,
@@ -1621,8 +1731,9 @@ if (typeof window !== 'undefined') {
     normalizeProvenance,
     flattenProvenance,
 
-    // Agent provenance (integrates with agent session)
+    // Agent/User provenance (integrates with user accounts and agent session)
     createAgentProvenance,
+    createUserProvenance,
 
     // Upload metadata factories
     createUploadContext,

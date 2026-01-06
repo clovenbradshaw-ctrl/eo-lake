@@ -179,6 +179,8 @@ class EOEventStore {
     this._byCategory = new Map();
     this._byOperator = new Map();
     this._byEntity = new Map();
+    this._byActor = new Map();           // actor string -> Set<eventId>
+    this._byUserId = new Map();          // userId -> Set<eventId> (PRIMARY for user queries)
     this._supersessionIndex = new Map(); // targetId -> superseding eventId
 
     // Initialize type indexes
@@ -392,6 +394,27 @@ class EOEventStore {
     if (event.supersession?.supersedes) {
       this._supersessionIndex.set(event.supersession.supersedes, event.id);
     }
+
+    // By actor
+    if (event.actor) {
+      if (!this._byActor.has(event.actor)) {
+        this._byActor.set(event.actor, new Set());
+      }
+      this._byActor.get(event.actor).add(event.id);
+
+      // By userId (extracted from actor string or explicit userId field)
+      // Format: user:{userId}
+      let userId = event.userId;
+      if (!userId && event.actor.startsWith('user:')) {
+        userId = event.actor.substring(5);
+      }
+      if (userId) {
+        if (!this._byUserId.has(userId)) {
+          this._byUserId.set(userId, new Set());
+        }
+        this._byUserId.get(userId).add(event.id);
+      }
+    }
   }
 
   /**
@@ -498,6 +521,89 @@ class EOEventStore {
     const ids = this._byEntity.get(entityId);
     if (!ids) return [];
     return ids.map(id => this._index.get(id)).filter(Boolean);
+  }
+
+  /**
+   * Get events by actor
+   * @param {string} actor - Actor string (e.g., user:{userId}, agent:{agentId})
+   */
+  getByActor(actor) {
+    const ids = this._byActor.get(actor);
+    if (!ids) return [];
+    return Array.from(ids).map(id => this._index.get(id)).filter(Boolean);
+  }
+
+  /**
+   * Get events by user ID (PRIMARY method for user-specific queries)
+   * This is the preferred method for querying events by user.
+   *
+   * @param {string} userId - User ID from eo_user.js
+   * @param {Object} options - Query options
+   * @param {string} options.category - Filter by category
+   * @param {string} options.epistemicType - Filter by type
+   * @param {number} options.limit - Max results
+   */
+  getByUserId(userId, options = {}) {
+    const ids = this._byUserId.get(userId);
+    if (!ids) return [];
+
+    let events = Array.from(ids).map(id => this._index.get(id)).filter(Boolean);
+
+    // Apply filters
+    if (options.category) {
+      events = events.filter(e => e.category === options.category);
+    }
+    if (options.epistemicType) {
+      events = events.filter(e => e.epistemicType === options.epistemicType);
+    }
+
+    // Sort by timestamp (newest first)
+    events.sort((a, b) =>
+      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+
+    // Apply limit
+    if (options.limit) {
+      events = events.slice(0, options.limit);
+    }
+
+    return events;
+  }
+
+  /**
+   * Get user's event history with summary statistics
+   * @param {string} userId - User ID
+   */
+  getUserEventHistory(userId) {
+    const events = this.getByUserId(userId);
+
+    const summary = {
+      totalEvents: events.length,
+      byCategory: {},
+      byEpistemicType: {},
+      firstEvent: null,
+      lastEvent: null
+    };
+
+    for (const event of events) {
+      // By category
+      summary.byCategory[event.category] =
+        (summary.byCategory[event.category] || 0) + 1;
+
+      // By epistemic type
+      summary.byEpistemicType[event.epistemicType] =
+        (summary.byEpistemicType[event.epistemicType] || 0) + 1;
+    }
+
+    if (events.length > 0) {
+      const sorted = [...events].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+      summary.firstEvent = sorted[0].timestamp;
+      summary.lastEvent = sorted[sorted.length - 1].timestamp;
+    }
+
+    return { events, summary };
   }
 
   /**
