@@ -44952,7 +44952,7 @@ html.light-theme .formula-explainer-fn-name.fn-slate { color: #475569; }
   white-space: nowrap;
 }
 
-.definitions-list-table.eo-aligned th.col-meaning { width: auto; }
+.definitions-list-table.eo-aligned th.col-meaning { width: 200px; }
 .definitions-list-table.eo-aligned th.col-scope { width: 100px; }
 .definitions-list-table.eo-aligned th.col-stability { width: 100px; }
 .definitions-list-table.eo-aligned th.col-time { width: 60px; text-align: center; }
