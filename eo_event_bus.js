@@ -63,7 +63,25 @@ const BusEventType = Object.freeze({
   HAUNT_DETECTED: 'haunt_detected',
   HAUNT_RESOLVED: 'haunt_resolved',
   GHOST_DORMANT: 'ghost_dormant',
-  GHOST_EXPIRED: 'ghost_expired'
+  GHOST_EXPIRED: 'ghost_expired',
+
+  // Typed edge events
+  EDGE_CREATED: 'edge_created',
+  EDGE_UPDATED: 'edge_updated',
+  EDGE_DELETED: 'edge_deleted',
+  EDGE_VALIDATED: 'edge_validated',
+  EDGE_VALIDATION_FAILED: 'edge_validation_failed',
+
+  // EO inference events
+  BEHAVIOR_PROFILE_COMPUTED: 'behavior_profile_computed',
+  EO_ROLE_INFERRED: 'eo_role_inferred',
+  EO_ROLE_ASSERTED: 'eo_role_asserted',
+  EO_ROLE_DRIFT_DETECTED: 'eo_role_drift_detected',
+
+  // Risk/interpretation events
+  RISK_COMPUTED: 'risk_computed',
+  IMPACT_SIMULATED: 'impact_simulated',
+  INTERACTION_INTERPRETED: 'interaction_interpreted'
 });
 
 /**
