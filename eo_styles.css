@@ -43939,3 +43939,721 @@ html.light-theme .formula-explainer-fn-name.fn-slate { color: #475569; }
     justify-content: center;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   EO-ALIGNED DEFINITION COMPONENTS
+   Emergent Ontology aligned table and detail view styles
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* === EO-Aligned Table View === */
+.definitions-list-table.eo-aligned {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.definitions-list-table.eo-aligned th {
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.definitions-list-table.eo-aligned th.col-meaning { width: 25%; min-width: 200px; }
+.definitions-list-table.eo-aligned th.col-scope { width: 100px; }
+.definitions-list-table.eo-aligned th.col-stability { width: 100px; }
+.definitions-list-table.eo-aligned th.col-time { width: 60px; text-align: center; }
+.definitions-list-table.eo-aligned th.col-authority { width: 100px; }
+.definitions-list-table.eo-aligned th.col-interop { width: 70px; text-align: center; }
+.definitions-list-table.eo-aligned th.col-usage { width: 70px; text-align: center; }
+.definitions-list-table.eo-aligned th.col-risk { width: 60px; text-align: center; }
+
+/* EO Row Styles */
+.def-list-row.eo-row {
+  border-bottom: 1px solid var(--border-primary);
+  transition: background 0.15s ease;
+}
+
+.def-list-row.eo-row:hover {
+  background: var(--bg-hover);
+  cursor: pointer;
+}
+
+.def-list-row.eo-row td {
+  padding: 12px;
+  vertical-align: middle;
+}
+
+/* Meaning Column */
+.def-meaning-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.def-meaning-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.def-meaning-desc {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+/* Scope Badge */
+.def-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.def-scope-badge i {
+  font-size: 12px;
+}
+
+.def-scope-badge .scope-label {
+  white-space: nowrap;
+}
+
+/* Stability Column */
+.col-stability {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.def-stability-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.def-stability-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Time Badge */
+.def-time-badge {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.def-time-badge i {
+  font-size: 16px;
+}
+
+/* Authority Badge */
+.def-authority-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.def-authority-badge i {
+  font-size: 14px;
+}
+
+.def-authority-badge .authority-type {
+  font-weight: 500;
+}
+
+/* Interop Badge */
+.def-interop-badge {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.def-interop-badge i {
+  font-size: 16px;
+}
+
+/* Usage Count */
+.def-usage-count {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+}
+
+.def-usage-count.has-usage {
+  color: #0ea5e9;
+  background: rgba(14, 165, 233, 0.15);
+}
+
+/* Risk Indicator */
+.def-risk-indicator {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.def-risk-indicator i {
+  font-size: 18px;
+}
+
+.def-risk-indicator.risk-safe i { color: #10b981; }
+.def-risk-indicator.risk-review i { color: #f59e0b; }
+.def-risk-indicator.risk-attention i { color: #ef4444; }
+
+/* === EO Stacked Cards Detail View === */
+.eo-stacked-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+/* EO Card Base */
+.eo-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.eo-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.eo-card-header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.eo-card-header-icon i {
+  font-size: 20px;
+}
+
+.eo-card-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.eo-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.eo-card-subtitle {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 2px 0 0 0;
+}
+
+.eo-card-content {
+  padding: 20px;
+}
+
+.eo-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* === Meaning Card === */
+.eo-card-meaning .eo-card-header {
+  padding: 20px;
+  border-bottom: none;
+}
+
+.eo-meaning-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  flex: 1;
+}
+
+.eo-card-meaning .eo-card-content {
+  padding-top: 0;
+}
+
+.eo-meaning-description {
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.eo-meaning-description.placeholder {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* === Scope Card === */
+.eo-scope-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.eo-scope-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.eo-scope-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
+.eo-scope-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.eo-scope-badge i {
+  font-size: 14px;
+}
+
+.eo-scope-detail {
+  flex-basis: 100%;
+}
+
+.eo-scope-detail-text {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* === Stability Card === */
+.eo-stability-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.eo-stability-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eo-stability-question {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.eo-stability-answer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.eo-stability-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.eo-stability-value {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.eo-stability-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* === Authority Card === */
+.eo-authority-display {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.eo-authority-type {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.eo-authority-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.eo-authority-badge i {
+  font-size: 14px;
+}
+
+.eo-authority-name {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.eo-authority-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.eo-authority-details {
+  padding: 12px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  margin-top: 4px;
+}
+
+.eo-authority-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.eo-authority-detail-row:not(:last-child) {
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.eo-authority-detail-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.eo-authority-detail-value {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* === Usage Card === */
+.eo-usage-total {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.eo-usage-count {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+}
+
+.eo-usage-count.has-usage {
+  color: #0ea5e9;
+}
+
+.eo-usage-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.eo-usage-breakdown {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.eo-usage-tier {
+  padding: 12px;
+  background: var(--bg-primary);
+  border-radius: 8px;
+  opacity: 0.5;
+}
+
+.eo-usage-tier.active {
+  opacity: 1;
+  background: rgba(14, 165, 233, 0.1);
+}
+
+.eo-usage-tier.active.external {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.eo-usage-tier-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.eo-usage-tier-header i {
+  font-size: 16px;
+  color: var(--text-tertiary);
+}
+
+.eo-usage-tier.active .eo-usage-tier-header i {
+  color: #0ea5e9;
+}
+
+.eo-usage-tier.active.external .eo-usage-tier-header i {
+  color: #ef4444;
+}
+
+.eo-usage-tier-label {
+  flex: 1;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.eo-usage-tier-count {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.eo-usage-tier.active .eo-usage-tier-count {
+  color: #0ea5e9;
+}
+
+.eo-usage-tier.active.external .eo-usage-tier-count {
+  color: #ef4444;
+}
+
+.eo-usage-details h4 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 12px 0;
+}
+
+.eo-usage-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.eo-usage-detail-item:last-child {
+  border-bottom: none;
+}
+
+.eo-usage-detail-item i {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+
+.eo-usage-set-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.eo-usage-field-list {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-left: auto;
+}
+
+.eo-usage-empty {
+  text-align: center;
+  padding: 20px;
+}
+
+.eo-usage-empty p {
+  font-size: 14px;
+  color: var(--text-tertiary);
+  margin: 0 0 16px 0;
+}
+
+/* === Interop Card === */
+.eo-interop-status-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.eo-interop-linked {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.eo-interop-uri {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent-color);
+  text-decoration: none;
+  font-size: 13px;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.eo-interop-uri:hover {
+  text-decoration: underline;
+}
+
+.eo-interop-unlinked {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.eo-interop-hint {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+.eo-interop-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* === Risk Card === */
+.eo-risk-level-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.eo-risk-reasons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.eo-risk-reason {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.eo-risk-reason:not(:last-child) {
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.eo-risk-reason i {
+  font-size: 16px;
+}
+
+.eo-card-risk-safe .eo-risk-reason i {
+  color: #10b981;
+}
+
+.eo-card-risk-review .eo-risk-reason i {
+  color: #f59e0b;
+}
+
+.eo-card-risk-attention .eo-risk-reason i {
+  color: #ef4444;
+}
+
+/* === Actions Bar === */
+.eo-actions-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+}
+
+/* === Responsive Adjustments === */
+@media (max-width: 768px) {
+  .eo-stacked-cards {
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .eo-card-header {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+  }
+
+  .eo-card-content {
+    padding: 16px;
+  }
+
+  .eo-meaning-title {
+    font-size: 20px;
+  }
+
+  .eo-stability-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .eo-usage-breakdown {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .eo-actions-bar {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .definitions-list-table.eo-aligned th.col-time,
+  .definitions-list-table.eo-aligned th.col-interop {
+    display: none;
+  }
+
+  .def-list-row.eo-row td.col-time,
+  .def-list-row.eo-row td.col-interop {
+    display: none;
+  }
+}

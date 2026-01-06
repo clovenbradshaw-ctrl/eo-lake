@@ -10750,8 +10750,430 @@ class EODataWorkbench {
   }
 
   /**
+   * Calculate semantic dependency usage for a definition.
+   * Usage is a roll-up of places that trust this definition enough to build on it.
+   *
+   * Usage Tiers:
+   * - Tier 1: Direct field bindings (lowest weight)
+   * - Tier 2: Interpretive surfaces - reports, dashboards, views (medium weight)
+   * - Tier 3: Operational logic - automations, validations, permissions (high weight)
+   * - Tier 4: External commitments - APIs, exports, integrations (maximum weight)
+   *
+   * @param {Object} definition - The definition object
+   * @returns {Object} { total: number, tiers: Object, breakdown: Object, details: Array }
+   */
+  _getDefinitionUsage(definition) {
+    const breakdown = {
+      fields: 0,
+      reports: 0,
+      automations: 0,
+      apis: 0,
+      exports: 0
+    };
+    const details = [];
+
+    // Tier 1: Count linked fields across all sets
+    this.sets.forEach(set => {
+      (set.fields || []).forEach(field => {
+        if (field.definitionRef?.definitionId === definition.id ||
+            field.semanticBinding?.definitionId === definition.id) {
+          breakdown.fields++;
+          details.push({
+            tier: 1,
+            type: 'field',
+            name: field.name || field.key,
+            context: set.name,
+            weight: 1
+          });
+        }
+      });
+    });
+
+    // Tier 2: Check if used in views/reports (check set views)
+    this.sets.forEach(set => {
+      (set.views || []).forEach(view => {
+        const viewFields = view.fields || view.columns || [];
+        const hasDefinition = viewFields.some(vf => {
+          const field = (set.fields || []).find(f => f.id === vf.fieldId || f.key === vf.fieldId);
+          return field?.definitionRef?.definitionId === definition.id ||
+                 field?.semanticBinding?.definitionId === definition.id;
+        });
+        if (hasDefinition) {
+          breakdown.reports++;
+          details.push({
+            tier: 2,
+            type: 'view',
+            name: view.name,
+            context: set.name,
+            weight: 2
+          });
+        }
+      });
+    });
+
+    // Tier 3: Check automations/pipelines
+    (this.pipelines || []).forEach(pipeline => {
+      const usesDefinition = (pipeline.steps || []).some(step => {
+        return step.definitionId === definition.id ||
+               step.fieldMappings?.some(fm => fm.definitionId === definition.id);
+      });
+      if (usesDefinition) {
+        breakdown.automations++;
+        details.push({
+          tier: 3,
+          type: 'pipeline',
+          name: pipeline.name,
+          context: 'Automation',
+          weight: 3
+        });
+      }
+    });
+
+    // Tier 4: Check exports
+    (this.exports || []).forEach(exp => {
+      const usesDefinition = (exp.fieldMappings || []).some(fm =>
+        fm.definitionId === definition.id
+      );
+      if (usesDefinition || exp.definitionIds?.includes(definition.id)) {
+        breakdown.exports++;
+        details.push({
+          tier: 4,
+          type: 'export',
+          name: exp.name,
+          context: 'External',
+          weight: 4
+        });
+      }
+    });
+
+    // Check if has external URI (implies API/external usage)
+    if (definition.sourceUri) {
+      breakdown.apis++;
+      details.push({
+        tier: 4,
+        type: 'uri',
+        name: 'External URI',
+        context: definition.sourceUri,
+        weight: 4
+      });
+    }
+
+    // Calculate weighted total
+    const total = breakdown.fields +
+                  breakdown.reports +
+                  breakdown.automations +
+                  breakdown.apis +
+                  breakdown.exports;
+
+    // Tier summary
+    const tiers = {
+      tier1: breakdown.fields,
+      tier2: breakdown.reports,
+      tier3: breakdown.automations,
+      tier4: breakdown.apis + breakdown.exports
+    };
+
+    return { total, tiers, breakdown, details };
+  }
+
+  /**
+   * Derive risk/attention level for a definition.
+   * Risk is derived from: Usage (breadth) × Stability (volatility) × Authority gaps × External commitments
+   *
+   * Risk Levels:
+   * - safe: Low usage or high stability with clear authority
+   * - review: Medium usage with contextual stability or unclear authority
+   * - attention: High usage with low stability or external commitments without authority
+   *
+   * @param {Object} definition - The definition object
+   * @returns {Object} { level: string, icon: string, color: string, reasons: Array }
+   */
+  _getDefinitionRisk(definition) {
+    const usage = this._getDefinitionUsage(definition);
+    const stability = this._getDefinitionStability(definition);
+    const hasAuthority = !!(definition.definitionSource?.authority?.name);
+    const hasUri = !!definition.sourceUri;
+    const isPending = this._isDefinitionPending(definition);
+
+    const reasons = [];
+    let riskScore = 0;
+
+    // High usage increases risk
+    if (usage.total >= 10) {
+      riskScore += 3;
+      reasons.push('High usage across system');
+    } else if (usage.total >= 5) {
+      riskScore += 1;
+      reasons.push('Moderate usage');
+    }
+
+    // External commitments (Tier 4) significantly increase risk
+    if (usage.tiers.tier4 > 0) {
+      riskScore += 2;
+      reasons.push('External dependencies');
+    }
+
+    // Operational usage (Tier 3) increases risk
+    if (usage.tiers.tier3 > 0) {
+      riskScore += 1;
+      reasons.push('Used in automations');
+    }
+
+    // Low stability with any usage is risky
+    if (stability.stability === 'Experimental') {
+      if (usage.total > 0) {
+        riskScore += 2;
+        reasons.push('Experimental with active usage');
+      }
+    } else if (stability.stability === 'Superseded') {
+      riskScore += 3;
+      reasons.push('Superseded definition still in use');
+    }
+
+    // Missing authority with high usage
+    if (!hasAuthority && usage.total >= 3) {
+      riskScore += 1;
+      reasons.push('Authority not established');
+    }
+
+    // Pending definitions that have usage need attention
+    if (isPending && usage.total > 0) {
+      riskScore += 2;
+      reasons.push('Pending definition has active usage');
+    }
+
+    // Determine level based on score
+    if (riskScore >= 4) {
+      return {
+        level: 'attention',
+        icon: 'ph-warning-circle',
+        color: '#ef4444',
+        reasons
+      };
+    } else if (riskScore >= 2) {
+      return {
+        level: 'review',
+        icon: 'ph-info',
+        color: '#f59e0b',
+        reasons
+      };
+    }
+
+    return {
+      level: 'safe',
+      icon: 'ph-check-circle',
+      color: '#10b981',
+      reasons: reasons.length > 0 ? reasons : ['No issues detected']
+    };
+  }
+
+  /**
+   * Determine time sensitivity of a definition.
+   * Time Sensitivity: Immutable, Evolves, Versioned
+   *
+   * @param {Object} definition - The definition object
+   * @returns {Object} { sensitivity: string, icon: string, color: string, description: string }
+   */
+  _getDefinitionTimeSensitivity(definition) {
+    const validity = definition.definitionSource?.validity;
+    const kindInfo = this._getDefinitionKind(definition);
+    const hasSupersession = validity?.supersededBy || validity?.supersedes;
+    const hasTemporalBounds = validity?.from || validity?.to;
+
+    // Check if this is an identifier type (typically immutable)
+    if (kindInfo.kind === 'Identifier') {
+      return {
+        sensitivity: 'Immutable',
+        icon: 'ph-lock-simple',
+        color: '#6366f1',
+        description: 'Identity-level meaning that should not change'
+      };
+    }
+
+    // Check for versioning indicators
+    if (hasSupersession) {
+      return {
+        sensitivity: 'Versioned',
+        icon: 'ph-git-branch',
+        color: '#8b5cf6',
+        description: 'Meaning changes through explicit versions'
+      };
+    }
+
+    // Check for lifecycle/temporal bounds
+    if (hasTemporalBounds) {
+      return {
+        sensitivity: 'Evolves',
+        icon: 'ph-arrows-clockwise',
+        color: '#f59e0b',
+        description: 'Meaning may change within lifecycle bounds'
+      };
+    }
+
+    // Temporal kinds naturally evolve
+    if (kindInfo.kind === 'Temporal' || kindInfo.kind === 'Administrative') {
+      return {
+        sensitivity: 'Evolves',
+        icon: 'ph-arrows-clockwise',
+        color: '#f59e0b',
+        description: 'Meaning may change over time'
+      };
+    }
+
+    // Default to immutable for stable definitions with URI
+    if (definition.sourceUri && definition.status === 'verified') {
+      return {
+        sensitivity: 'Immutable',
+        icon: 'ph-lock-simple',
+        color: '#6366f1',
+        description: 'Stable meaning anchored by external standard'
+      };
+    }
+
+    // Default to evolves for local/incomplete definitions
+    return {
+      sensitivity: 'Evolves',
+      icon: 'ph-arrows-clockwise',
+      color: '#f59e0b',
+      description: 'Meaning may evolve as understanding develops'
+    };
+  }
+
+  /**
+   * Determine the authority type for a definition.
+   * Authority: System, Process, Human, External
+   *
+   * @param {Object} definition - The definition object
+   * @returns {Object} { type: string, icon: string, color: string, description: string }
+   */
+  _getDefinitionAuthority(definition) {
+    const authorityData = definition.definitionSource?.authority;
+    const hasUri = !!definition.sourceUri;
+    const authorityType = authorityData?.type;
+    const populationMethod = definition.populationMethod;
+
+    // External authority (federal, state, standards body, international)
+    if (authorityType === 'federal_agency' ||
+        authorityType === 'state_agency' ||
+        authorityType === 'international' ||
+        authorityType === 'standards_body') {
+      return {
+        type: 'External',
+        icon: 'ph-globe',
+        color: '#6366f1',
+        name: authorityData?.name || authorityData?.shortName,
+        description: 'Defined by external regulatory authority'
+      };
+    }
+
+    // System authority (auto-generated, imported)
+    if (populationMethod === 'imported' || populationMethod === 'api_lookup') {
+      return {
+        type: 'System',
+        icon: 'ph-cpu',
+        color: '#64748b',
+        name: 'System Generated',
+        description: 'Auto-generated or imported definition'
+      };
+    }
+
+    // Process authority (organization, NGO)
+    if (authorityType === 'ngo' || authorityType === 'local_gov' || authorityType === 'academic') {
+      return {
+        type: 'Process',
+        icon: 'ph-buildings',
+        color: '#10b981',
+        name: authorityData?.name || authorityData?.shortName,
+        description: 'Defined by organizational process'
+      };
+    }
+
+    // Manual/Human authority
+    if (populationMethod === 'manual' || populationMethod === 'selected') {
+      return {
+        type: 'Human',
+        icon: 'ph-user',
+        color: '#0ea5e9',
+        name: 'User Defined',
+        description: 'Manually defined by user judgment'
+      };
+    }
+
+    // Default based on URI presence
+    if (hasUri) {
+      return {
+        type: 'External',
+        icon: 'ph-globe',
+        color: '#6366f1',
+        name: 'Linked Standard',
+        description: 'Linked to external vocabulary'
+      };
+    }
+
+    // Pending/Unknown
+    return {
+      type: 'Human',
+      icon: 'ph-user',
+      color: '#0ea5e9',
+      name: 'Not Established',
+      description: 'Authority not yet established'
+    };
+  }
+
+  /**
+   * Get interop status for a definition.
+   * Interop Status: Linked, Local, Deferred
+   *
+   * @param {Object} definition - The definition object
+   * @returns {Object} { status: string, icon: string, color: string, uri: string|null }
+   */
+  _getDefinitionInteropStatus(definition) {
+    const hasUri = !!definition.sourceUri;
+    const hasSuggestions = (definition.apiSuggestions || []).length > 0;
+    const isLocalOnly = definition.status === 'local_only';
+
+    if (hasUri) {
+      return {
+        status: 'Linked',
+        icon: 'ph-link',
+        color: '#10b981',
+        uri: definition.sourceUri,
+        description: 'Linked to external standard'
+      };
+    }
+
+    if (isLocalOnly) {
+      return {
+        status: 'Local',
+        icon: 'ph-house',
+        color: '#64748b',
+        uri: null,
+        description: 'Intentionally local, no external link needed'
+      };
+    }
+
+    if (hasSuggestions) {
+      return {
+        status: 'Deferred',
+        icon: 'ph-clock',
+        color: '#f59e0b',
+        uri: null,
+        description: 'External links available but not yet selected'
+      };
+    }
+
+    return {
+      status: 'Local',
+      icon: 'ph-house',
+      color: '#64748b',
+      uri: null,
+      description: 'Local definition, no external link'
+    };
+  }
+
+  /**
    * Determine the stability level of a definition.
-   * Stability: Stable, Contextual, Experimental
+   * Stability: Stable, Contextual, Experimental (now Interpretive)
    * @param {Object} definition - The definition object
    * @returns {Object} { stability: string, icon: string, color: string, description: string }
    */
@@ -11720,8 +12142,8 @@ class EODataWorkbench {
   }
 
   /**
-   * Render definition detail view in main content area
-   * Layout hierarchy: Identity → Meaning Contract → Impact → Structure → Provenance → Notes
+   * Render definition detail view in EO-aligned stacked cards layout
+   * Layout: Meaning → Scope → Stability & Time → Authority → Usage → Interop → Risk
    */
   _renderDefinitionDetailView(definition) {
     const contentArea = this.elements.contentArea;
@@ -11729,350 +12151,443 @@ class EODataWorkbench {
 
     const terms = definition.terms || definition.properties || [];
     const defSource = definition.definitionSource;
-    const uniqueTypes = this._getUniqueTermTypes(terms);
     const termLinkages = this._getTermSetLinkages(definition);
     const linkedSets = this._getLinkedSetsForDefinition(definition);
     const linkedSetsArray = Array.from(linkedSets.values());
     const isLocal = !definition.sourceUri;
 
-    // Get semantic metadata for the definition
+    // Get all EO-aligned metadata
     const kindInfo = this._getDefinitionKind(definition);
     const stabilityInfo = this._getDefinitionStability(definition);
+    const timeSensitivity = this._getDefinitionTimeSensitivity(definition);
+    const authorityInfo = this._getDefinitionAuthority(definition);
+    const interopStatus = this._getDefinitionInteropStatus(definition);
+    const usageInfo = this._getDefinitionUsage(definition);
+    const riskInfo = this._getDefinitionRisk(definition);
+    const scopeInfo = this._getDefinitionScope(definition);
 
-    // Count linked fields
-    let linkedFieldsCount = 0;
-    linkedSetsArray.forEach(({ fields }) => {
-      linkedFieldsCount += fields.length;
-    });
-
-    // Calculate unique pipelines/exports (placeholder for future implementation)
-    const linkedPipelinesCount = 0;
-    const linkedExportsCount = 0;
-    const hasUsage = linkedFieldsCount > 0 || linkedPipelinesCount > 0;
-
-    // Get source set/field info for display
-    const sourceSetName = definition.sourceSet || linkedSetsArray[0]?.set?.name || 'Unknown';
-    const sourceFieldName = definition.sourceField || terms[0]?.name || definition.name;
-
-    // Store current tab state (default to terms)
-    if (!this._definitionActiveTab) {
-      this._definitionActiveTab = 'terms';
-    }
+    // Build meaning text
+    const meaningName = definition.name || definition.term?.label || definition.term?.term || 'Unnamed';
+    const meaningText = definition.term?.definitionText || definition.description ||
+                        'No meaning description yet. Add a plain-language explanation of what this definition represents.';
 
     contentArea.innerHTML = `
-      <div class="definition-detail-view definition-profile-v2">
+      <div class="definition-detail-view eo-stacked-cards">
         <!-- ════════════════════════════════════════════════════════════════
-             COMPACT HEADER - All key info at a glance
+             SECTION 1: MEANING (Primary - Always First)
              ════════════════════════════════════════════════════════════════ -->
-        <div class="def-profile-header">
-          <div class="def-profile-header-main">
-            <!-- Icon -->
-            <div class="def-profile-icon" style="background: ${kindInfo.color}10; border-color: ${kindInfo.color}30;">
+        <div class="eo-card eo-card-meaning">
+          <div class="eo-card-header">
+            <h1 class="eo-meaning-title">${this._escapeHtml(meaningName)}</h1>
+            <div class="eo-card-actions">
+              <button class="btn btn-icon btn-sm" id="btn-edit-meaning" title="Edit meaning">
+                <i class="ph ph-pencil-simple"></i>
+              </button>
+            </div>
+          </div>
+          <div class="eo-card-content">
+            <p class="eo-meaning-description ${!definition.term?.definitionText ? 'placeholder' : ''}">
+              ${this._escapeHtml(meaningText)}
+            </p>
+          </div>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════════════════
+             SECTION 2: WHAT THIS REFERS TO (Scope)
+             ════════════════════════════════════════════════════════════════ -->
+        <div class="eo-card eo-card-scope">
+          <div class="eo-card-header">
+            <div class="eo-card-header-icon" style="background: ${kindInfo.color}15;">
               <i class="ph ${kindInfo.icon}" style="color: ${kindInfo.color};"></i>
             </div>
-
-            <!-- Main info -->
-            <div class="def-profile-info">
-              <div class="def-profile-title-row">
-                <h1 class="def-profile-name">${this._escapeHtml(definition.name)}</h1>
-                <span class="def-profile-badge def-badge-kind" style="background: ${kindInfo.color}15; color: ${kindInfo.color};">
+            <div class="eo-card-header-info">
+              <h3 class="eo-card-title">What This Refers To</h3>
+              <p class="eo-card-subtitle">The kind of thing this meaning is about</p>
+            </div>
+          </div>
+          <div class="eo-card-content">
+            <div class="eo-scope-cluster">
+              <div class="eo-scope-item">
+                <span class="eo-scope-label">Kind</span>
+                <span class="eo-scope-badge" style="background: ${kindInfo.color}15; color: ${kindInfo.color};">
+                  <i class="ph ${kindInfo.icon}"></i>
                   ${kindInfo.kind}
                 </span>
-                <span class="def-profile-badge def-badge-stability" style="background: ${stabilityInfo.color}15; color: ${stabilityInfo.color};">
-                  ${stabilityInfo.stability}
-                </span>
-                ${isLocal ? `<span class="def-profile-local-tag">Local</span>` : ''}
               </div>
-
-              <p class="def-profile-description">${this._escapeHtml(definition.description || 'Defines vocabulary terms that can be applied to data fields for semantic meaning.')}</p>
-
-              <div class="def-profile-meta">
-                ${definition.sourceUri ? `
-                  <code class="def-profile-uri">
-                    <a href="${this._escapeHtml(definition.sourceUri)}" target="_blank">${this._escapeHtml(definition.sourceUri)}</a>
-                  </code>
-                ` : `
-                  <span class="def-profile-no-uri">
-                    <i class="ph ph-warning-circle"></i> No URI defined
-                  </span>
-                `}
-                <span class="def-profile-sep">•</span>
-                <span class="def-profile-source">from ${this._escapeHtml(sourceSetName)}.${this._escapeHtml(sourceFieldName)}</span>
-                <span class="def-profile-sep">•</span>
-                <span class="def-profile-usage ${hasUsage ? 'has-usage' : ''}">
-                  ${linkedFieldsCount} field${linkedFieldsCount !== 1 ? 's' : ''}, ${linkedPipelinesCount} pipeline${linkedPipelinesCount !== 1 ? 's' : ''}
+              <div class="eo-scope-item">
+                <span class="eo-scope-label">Scope</span>
+                <span class="eo-scope-badge" style="background: #64748b15; color: #64748b;">
+                  <i class="ph ${scopeInfo.icon}"></i>
+                  ${scopeInfo.scope}
                 </span>
               </div>
-            </div>
-
-            <!-- Actions -->
-            <div class="def-profile-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-refresh-definition" title="Refresh from URI" ${isLocal ? 'disabled' : ''}>
-                <i class="ph ph-arrows-clockwise"></i> Refresh
-              </button>
-              <button class="btn btn-primary btn-sm" id="btn-apply-definition" title="Apply this definition to fields">
-                <i class="ph ph-arrow-right"></i> Apply to Fields
-              </button>
-              <button class="btn btn-icon btn-danger btn-sm" id="btn-delete-definition" title="Delete definition">
-                <i class="ph ph-trash"></i>
-              </button>
+              ${scopeInfo.scopeDetail ? `
+                <div class="eo-scope-detail">
+                  <span class="eo-scope-detail-text">${this._escapeHtml(scopeInfo.scopeDetail)}</span>
+                </div>
+              ` : ''}
             </div>
           </div>
         </div>
 
         <!-- ════════════════════════════════════════════════════════════════
-             HORIZONTAL TABS + CONTENT
+             SECTION 3: STABILITY & TIME
              ════════════════════════════════════════════════════════════════ -->
-        <div class="def-profile-tabs-container">
-          <!-- Tab bar -->
-          <div class="def-profile-tab-bar">
-            <button class="def-profile-tab ${this._definitionActiveTab === 'terms' ? 'active' : ''}" data-tab="terms">
-              Terms
-              <span class="def-profile-tab-count">${terms.length}</span>
-            </button>
-            <button class="def-profile-tab ${this._definitionActiveTab === 'usage' ? 'active' : ''}" data-tab="usage">
-              Usage
-            </button>
-            <button class="def-profile-tab ${this._definitionActiveTab === 'source' ? 'active' : ''}" data-tab="source">
-              Source & Origin
-            </button>
-            <button class="def-profile-tab ${this._definitionActiveTab === 'notes' ? 'active' : ''}" data-tab="notes">
-              Notes
-            </button>
+        <div class="eo-card eo-card-stability">
+          <div class="eo-card-header">
+            <div class="eo-card-header-icon" style="background: ${stabilityInfo.color}15;">
+              <i class="ph ${stabilityInfo.icon}" style="color: ${stabilityInfo.color};"></i>
+            </div>
+            <div class="eo-card-header-info">
+              <h3 class="eo-card-title">Stability & Time</h3>
+              <p class="eo-card-subtitle">How stable is this meaning and does it change over time?</p>
+            </div>
           </div>
-
-          <!-- Tab content -->
-          <div class="def-profile-tab-content">
-
-            <!-- TERMS TAB -->
-            <div class="def-profile-tab-pane ${this._definitionActiveTab === 'terms' ? 'active' : ''}" data-pane="terms">
-              ${terms.length === 0 ? `
-                <div class="def-profile-empty-state">
-                  <p>No terms defined yet</p>
-                  <button class="btn-link" id="btn-add-first-term">+ Add first term</button>
+          <div class="eo-card-content">
+            <div class="eo-stability-grid">
+              <div class="eo-stability-item">
+                <span class="eo-stability-question">How stable is this meaning?</span>
+                <div class="eo-stability-answer">
+                  <span class="eo-stability-dot" style="background: ${stabilityInfo.color};"></span>
+                  <span class="eo-stability-value" style="color: ${stabilityInfo.color};">${stabilityInfo.stability}</span>
                 </div>
-              ` : `
-                <div class="def-profile-terms-toolbar">
-                  <div class="terms-search-box">
-                    <i class="ph ph-magnifying-glass"></i>
-                    <input type="text" id="terms-search-input" placeholder="Search terms..." />
-                  </div>
-                  <button class="btn-link" id="btn-add-term">+ Add Term</button>
+                <p class="eo-stability-hint">${stabilityInfo.description}</p>
+              </div>
+              <div class="eo-stability-item">
+                <span class="eo-stability-question">Does this meaning change over time?</span>
+                <div class="eo-stability-answer">
+                  <i class="ph ${timeSensitivity.icon}" style="color: ${timeSensitivity.color};"></i>
+                  <span class="eo-stability-value" style="color: ${timeSensitivity.color};">${timeSensitivity.sensitivity}</span>
                 </div>
-
-                <table class="def-profile-terms-table">
-                  <thead>
-                    <tr>
-                      <th class="col-term">Term</th>
-                      <th class="col-label">Label</th>
-                      <th class="col-role">Role</th>
-                      <th class="col-notes">Notes</th>
-                      <th class="col-linked">Linked To</th>
-                      <th class="col-actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody id="terms-table-body">
-                    ${this._renderTermsTableRowsV2(terms, termLinkages, definition.id)}
-                  </tbody>
-                </table>
-              `}
+                <p class="eo-stability-hint">${timeSensitivity.description}</p>
+              </div>
             </div>
+          </div>
+        </div>
 
-            <!-- USAGE TAB -->
-            <div class="def-profile-tab-pane ${this._definitionActiveTab === 'usage' ? 'active' : ''}" data-pane="usage">
-              ${hasUsage ? `
-                <div class="def-profile-usage-content">
-                  <h3>Applied to Fields</h3>
-                  <div class="def-profile-usage-list">
-                    ${linkedSetsArray.map(({ set, fields }) => `
-                      <div class="def-profile-usage-item">
-                        <i class="ph ph-table"></i>
-                        <span class="usage-set-name">${this._escapeHtml(set.name)}</span>
-                        <span class="usage-field-count">${fields.length} field${fields.length !== 1 ? 's' : ''}</span>
-                        <span class="usage-fields">${fields.map(f => this._escapeHtml(f.fieldName)).join(', ')}</span>
-                      </div>
-                    `).join('')}
-                  </div>
-                </div>
-              ` : `
-                <div class="def-profile-empty-state centered">
-                  <div class="empty-state-icon">
-                    <i class="ph ph-clipboard-text"></i>
-                  </div>
-                  <p class="empty-state-title">Not applied to any fields yet</p>
-                  <p class="empty-state-desc">Apply this definition to fields to make their meanings clear and consistent</p>
-                  <button class="btn btn-primary btn-sm" id="btn-apply-to-fields-empty">
-                    <i class="ph ph-arrow-right"></i> Apply to Fields
-                  </button>
-                </div>
-              `}
+        <!-- ════════════════════════════════════════════════════════════════
+             SECTION 4: AUTHORITY & CONFIDENCE
+             ════════════════════════════════════════════════════════════════ -->
+        <div class="eo-card eo-card-authority">
+          <div class="eo-card-header">
+            <div class="eo-card-header-icon" style="background: ${authorityInfo.color}15;">
+              <i class="ph ${authorityInfo.icon}" style="color: ${authorityInfo.color};"></i>
             </div>
-
-            <!-- SOURCE TAB -->
-            <div class="def-profile-tab-pane ${this._definitionActiveTab === 'source' ? 'active' : ''}" data-pane="source">
-              ${definition.sourceUri ? `
-                <div class="def-source-content">
-                  <!-- Linked URI Section -->
-                  <div class="def-source-section def-source-uri-section">
-                    <div class="def-source-section-header">
-                      <div class="def-source-section-icon linked">
-                        <i class="ph ph-link"></i>
-                      </div>
-                      <div class="def-source-section-info">
-                        <h4 class="def-source-section-title">Linked Standard</h4>
-                        <p class="def-source-section-subtitle">This definition is linked to an external vocabulary</p>
-                      </div>
-                      <button class="btn btn-secondary btn-xs" id="btn-change-uri">
-                        <i class="ph ph-pencil-simple"></i> Change
-                      </button>
-                    </div>
-                    <div class="def-source-uri-display">
-                      <a href="${this._escapeHtml(definition.sourceUri)}" target="_blank" rel="noopener noreferrer" class="def-source-uri-link">
-                        <i class="ph ph-arrow-square-out"></i>
-                        <span>${this._escapeHtml(definition.sourceUri)}</span>
-                      </a>
-                    </div>
+            <div class="eo-card-header-info">
+              <h3 class="eo-card-title">Authority & Confidence</h3>
+              <p class="eo-card-subtitle">Who gets to decide what this means?</p>
+            </div>
+          </div>
+          <div class="eo-card-content">
+            <div class="eo-authority-display">
+              <div class="eo-authority-type">
+                <span class="eo-authority-badge" style="background: ${authorityInfo.color}15; color: ${authorityInfo.color};">
+                  <i class="ph ${authorityInfo.icon}"></i>
+                  ${authorityInfo.type}
+                </span>
+                ${authorityInfo.name ? `<span class="eo-authority-name">${this._escapeHtml(authorityInfo.name)}</span>` : ''}
+              </div>
+              <p class="eo-authority-hint">${authorityInfo.description}</p>
+              ${defSource?.authority?.name ? `
+                <div class="eo-authority-details">
+                  <div class="eo-authority-detail-row">
+                    <span class="eo-authority-detail-label">Organization</span>
+                    <span class="eo-authority-detail-value">${this._escapeHtml(defSource.authority.name)}</span>
                   </div>
-
-                  ${defSource?.authority || defSource?.source ? `
-                    <!-- Authority/Source Section -->
-                    <div class="def-source-section">
-                      <div class="def-source-section-header">
-                        <div class="def-source-section-icon">
-                          <i class="ph ph-buildings"></i>
-                        </div>
-                        <div class="def-source-section-info">
-                          <h4 class="def-source-section-title">Authority</h4>
-                          <p class="def-source-section-subtitle">Source of this definition</p>
-                        </div>
-                      </div>
-                      <div class="def-source-details-grid">
-                        ${defSource.authority?.name ? `
-                          <div class="def-source-detail">
-                            <span class="def-source-detail-label">Organization</span>
-                            <span class="def-source-detail-value">${this._escapeHtml(defSource.authority.name)}</span>
-                          </div>
-                        ` : ''}
-                        ${defSource.source?.title ? `
-                          <div class="def-source-detail">
-                            <span class="def-source-detail-label">Publication</span>
-                            <span class="def-source-detail-value">${this._escapeHtml(defSource.source.title)}</span>
-                          </div>
-                        ` : ''}
-                        ${defSource.source?.citation ? `
-                          <div class="def-source-detail">
-                            <span class="def-source-detail-label">Citation</span>
-                            <span class="def-source-detail-value">${this._escapeHtml(defSource.source.citation)}</span>
-                          </div>
-                        ` : ''}
-                      </div>
-                    </div>
-                  ` : ''}
-
-                  ${defSource?.validity ? `
-                    <!-- Validity Section -->
-                    <div class="def-source-section">
-                      <div class="def-source-section-header">
-                        <div class="def-source-section-icon">
-                          <i class="ph ph-calendar-check"></i>
-                        </div>
-                        <div class="def-source-section-info">
-                          <h4 class="def-source-section-title">Validity Period</h4>
-                          <p class="def-source-section-subtitle">When this definition applies</p>
-                        </div>
-                      </div>
-                      <div class="def-source-details-grid">
-                        ${defSource.validity.from ? `
-                          <div class="def-source-detail">
-                            <span class="def-source-detail-label">Effective From</span>
-                            <span class="def-source-detail-value">${this._escapeHtml(defSource.validity.from)}</span>
-                          </div>
-                        ` : ''}
-                        ${defSource.validity.to ? `
-                          <div class="def-source-detail">
-                            <span class="def-source-detail-label">Effective Until</span>
-                            <span class="def-source-detail-value">${this._escapeHtml(defSource.validity.to)}</span>
-                          </div>
-                        ` : ''}
-                      </div>
+                  ${defSource.source?.citation ? `
+                    <div class="eo-authority-detail-row">
+                      <span class="eo-authority-detail-label">Citation</span>
+                      <span class="eo-authority-detail-value">${this._escapeHtml(defSource.source.citation)}</span>
                     </div>
                   ` : ''}
                 </div>
-              ` : `
-                <div class="def-profile-empty-state centered">
-                  <div class="empty-state-icon">
-                    <i class="ph ph-globe"></i>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════════════════
+             SECTION 5: USAGE (Dependency Awareness)
+             ════════════════════════════════════════════════════════════════ -->
+        <div class="eo-card eo-card-usage">
+          <div class="eo-card-header">
+            <div class="eo-card-header-icon" style="background: #0ea5e915;">
+              <i class="ph ph-graph" style="color: #0ea5e9;"></i>
+            </div>
+            <div class="eo-card-header-info">
+              <h3 class="eo-card-title">Usage</h3>
+              <p class="eo-card-subtitle">If this meaning changes, what breaks?</p>
+            </div>
+            <div class="eo-usage-total">
+              <span class="eo-usage-count ${usageInfo.total > 0 ? 'has-usage' : ''}">${usageInfo.total}</span>
+              <span class="eo-usage-label">dependencies</span>
+            </div>
+          </div>
+          <div class="eo-card-content">
+            ${usageInfo.total > 0 ? `
+              <div class="eo-usage-breakdown">
+                <div class="eo-usage-tier ${usageInfo.breakdown.fields > 0 ? 'active' : ''}">
+                  <div class="eo-usage-tier-header">
+                    <i class="ph ph-columns"></i>
+                    <span class="eo-usage-tier-label">Fields</span>
+                    <span class="eo-usage-tier-count">${usageInfo.breakdown.fields}</span>
                   </div>
-                  <p class="empty-state-title">No provenance information</p>
-                  <p class="empty-state-desc">This is a locally-created definition. Link it to a standard URI for interoperability.</p>
+                </div>
+                <div class="eo-usage-tier ${usageInfo.breakdown.reports > 0 ? 'active' : ''}">
+                  <div class="eo-usage-tier-header">
+                    <i class="ph ph-chart-bar"></i>
+                    <span class="eo-usage-tier-label">Views & Reports</span>
+                    <span class="eo-usage-tier-count">${usageInfo.breakdown.reports}</span>
+                  </div>
+                </div>
+                <div class="eo-usage-tier ${usageInfo.breakdown.automations > 0 ? 'active' : ''}">
+                  <div class="eo-usage-tier-header">
+                    <i class="ph ph-lightning"></i>
+                    <span class="eo-usage-tier-label">Automations</span>
+                    <span class="eo-usage-tier-count">${usageInfo.breakdown.automations}</span>
+                  </div>
+                </div>
+                <div class="eo-usage-tier ${(usageInfo.breakdown.apis + usageInfo.breakdown.exports) > 0 ? 'active external' : ''}">
+                  <div class="eo-usage-tier-header">
+                    <i class="ph ph-arrow-square-out"></i>
+                    <span class="eo-usage-tier-label">APIs & Exports</span>
+                    <span class="eo-usage-tier-count">${usageInfo.breakdown.apis + usageInfo.breakdown.exports}</span>
+                  </div>
+                </div>
+              </div>
+              ${linkedSetsArray.length > 0 ? `
+                <div class="eo-usage-details">
+                  <h4>Applied to Fields</h4>
+                  ${linkedSetsArray.map(({ set, fields }) => `
+                    <div class="eo-usage-detail-item">
+                      <i class="ph ph-table"></i>
+                      <span class="eo-usage-set-name">${this._escapeHtml(set.name)}</span>
+                      <span class="eo-usage-field-list">${fields.map(f => this._escapeHtml(f.fieldName)).join(', ')}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : ''}
+            ` : `
+              <div class="eo-usage-empty">
+                <p>No dependencies yet. This definition is safe to modify.</p>
+                <button class="btn btn-primary btn-sm" id="btn-apply-to-fields-empty">
+                  <i class="ph ph-arrow-right"></i> Apply to Fields
+                </button>
+              </div>
+            `}
+          </div>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════════════════
+             SECTION 6: INTEROP & STANDARDS (Optional, Deferred)
+             ════════════════════════════════════════════════════════════════ -->
+        <div class="eo-card eo-card-interop">
+          <div class="eo-card-header">
+            <div class="eo-card-header-icon" style="background: ${interopStatus.color}15;">
+              <i class="ph ${interopStatus.icon}" style="color: ${interopStatus.color};"></i>
+            </div>
+            <div class="eo-card-header-info">
+              <h3 class="eo-card-title">Interoperability</h3>
+              <p class="eo-card-subtitle">Does this meaning align with an external standard?</p>
+            </div>
+            <span class="eo-interop-status-badge" style="background: ${interopStatus.color}15; color: ${interopStatus.color};">
+              ${interopStatus.status}
+            </span>
+          </div>
+          <div class="eo-card-content">
+            ${interopStatus.uri ? `
+              <div class="eo-interop-linked">
+                <a href="${this._escapeHtml(interopStatus.uri)}" target="_blank" rel="noopener noreferrer" class="eo-interop-uri">
+                  <i class="ph ph-arrow-square-out"></i>
+                  <span>${this._escapeHtml(interopStatus.uri)}</span>
+                </a>
+                <button class="btn btn-secondary btn-xs" id="btn-change-uri">
+                  <i class="ph ph-pencil-simple"></i> Change
+                </button>
+              </div>
+            ` : `
+              <div class="eo-interop-unlinked">
+                <p class="eo-interop-hint">${interopStatus.description}</p>
+                <div class="eo-interop-actions">
                   <button class="btn btn-secondary btn-sm" id="btn-link-to-uri">
-                    <i class="ph ph-link"></i> Link to URI
+                    <i class="ph ph-link"></i> Link to Standard
                   </button>
-                </div>
-              `}
-            </div>
-
-            <!-- NOTES TAB -->
-            <div class="def-profile-tab-pane ${this._definitionActiveTab === 'notes' ? 'active' : ''}" data-pane="notes">
-              <div class="def-profile-notes-content">
-                <div class="notes-scope-section">
-                  <label class="notes-label">Applies to:</label>
-                  <div class="notes-scope-options">
-                    <label class="scope-checkbox">
-                      <input type="checkbox" name="scope" value="individual" ${definition.interpretationScope?.includes('individual') ? 'checked' : ''}>
-                      <span>Individuals</span>
-                    </label>
-                    <label class="scope-checkbox">
-                      <input type="checkbox" name="scope" value="household" ${definition.interpretationScope?.includes('household') ? 'checked' : ''}>
-                      <span>Households</span>
-                    </label>
-                    <label class="scope-checkbox">
-                      <input type="checkbox" name="scope" value="community" ${definition.interpretationScope?.includes('community') ? 'checked' : ''}>
-                      <span>Communities</span>
-                    </label>
-                  </div>
-                </div>
-                <div class="notes-textarea-section">
-                  <label class="notes-label">Your notes:</label>
-                  <textarea id="interpretation-notes-text" placeholder="Why you chose this definition, how you're using it, any caveats...">${this._escapeHtml(definition.interpretationNotes || '')}</textarea>
-                </div>
-                <div class="notes-actions">
-                  <button class="btn btn-secondary btn-sm" id="btn-save-interpretation-notes">
-                    <i class="ph ph-floppy-disk"></i> Save Notes
+                  <button class="btn btn-ghost btn-sm" id="btn-mark-local">
+                    <i class="ph ph-house"></i> Keep Local
                   </button>
                 </div>
               </div>
-            </div>
+            `}
           </div>
         </div>
 
         <!-- ════════════════════════════════════════════════════════════════
-             CONTEXTUAL CTA - For incomplete definitions
+             SECTION 7: RISK / ATTENTION (Derived, Explained)
              ════════════════════════════════════════════════════════════════ -->
-        ${!definition.sourceUri ? `
-          <div class="def-profile-cta-banner">
-            <div class="cta-banner-content">
-              <span class="cta-banner-icon"><i class="ph ph-lightbulb"></i></span>
-              <div class="cta-banner-text">
-                <p class="cta-banner-title">This definition needs a URI</p>
-                <p class="cta-banner-desc">Link to a standard vocabulary for better interoperability</p>
-              </div>
+        <div class="eo-card eo-card-risk eo-card-risk-${riskInfo.level}">
+          <div class="eo-card-header">
+            <div class="eo-card-header-icon" style="background: ${riskInfo.color}15;">
+              <i class="ph ${riskInfo.icon}" style="color: ${riskInfo.color};"></i>
             </div>
-            <div class="cta-banner-actions">
-              <button class="btn btn-secondary btn-sm" id="btn-find-similar">
-                <i class="ph ph-magnifying-glass"></i> Find Similar
-              </button>
-              <button class="btn btn-primary btn-sm" id="btn-import-vocabulary">
-                <i class="ph ph-download"></i> Import from Vocabulary
-              </button>
+            <div class="eo-card-header-info">
+              <h3 class="eo-card-title">Risk Assessment</h3>
+              <p class="eo-card-subtitle">Current attention status</p>
             </div>
+            <span class="eo-risk-level-badge" style="background: ${riskInfo.color}15; color: ${riskInfo.color};">
+              ${riskInfo.level === 'safe' ? 'Safe' : riskInfo.level === 'review' ? 'Needs Review' : 'Needs Attention'}
+            </span>
           </div>
-        ` : ''}
+          <div class="eo-card-content">
+            <ul class="eo-risk-reasons">
+              ${riskInfo.reasons.map(reason => `
+                <li class="eo-risk-reason">
+                  <i class="ph ${riskInfo.level === 'safe' ? 'ph-check' : 'ph-warning'}"></i>
+                  ${this._escapeHtml(reason)}
+                </li>
+              `).join('')}
+            </ul>
+          </div>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════════════════
+             ACTIONS BAR
+             ════════════════════════════════════════════════════════════════ -->
+        <div class="eo-actions-bar">
+          <button class="btn btn-secondary btn-sm" id="btn-refresh-definition" title="Refresh from URI" ${isLocal ? 'disabled' : ''}>
+            <i class="ph ph-arrows-clockwise"></i> Refresh
+          </button>
+          <button class="btn btn-primary btn-sm" id="btn-apply-definition" title="Apply this definition to fields">
+            <i class="ph ph-arrow-right"></i> Apply to Fields
+          </button>
+          <button class="btn btn-icon btn-danger btn-sm" id="btn-delete-definition" title="Delete definition">
+            <i class="ph ph-trash"></i>
+          </button>
+        </div>
       </div>
     `;
 
     // Attach event handlers
-    this._attachDefinitionDetailHandlersV2(definition);
+    this._attachDefinitionDetailHandlersEO(definition);
+  }
+
+  /**
+   * Attach event handlers for the EO-aligned definition detail view
+   */
+  _attachDefinitionDetailHandlersEO(definition) {
+    const contentArea = this.elements.contentArea;
+
+    // Edit meaning button
+    const editMeaningBtn = contentArea.querySelector('#btn-edit-meaning');
+    if (editMeaningBtn) {
+      editMeaningBtn.addEventListener('click', () => this._openEditMeaningModal(definition));
+    }
+
+    // Apply to Fields buttons
+    const applyBtn = contentArea.querySelector('#btn-apply-definition');
+    const applyBtnEmpty = contentArea.querySelector('#btn-apply-to-fields-empty');
+    [applyBtn, applyBtnEmpty].forEach(btn => {
+      if (btn) {
+        btn.addEventListener('click', () => this._showApplyToFieldsModal(definition.id));
+      }
+    });
+
+    // Refresh button
+    const refreshBtn = contentArea.querySelector('#btn-refresh-definition');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => this._refreshDefinitionFromUri(definition));
+    }
+
+    // Delete button
+    const deleteBtn = contentArea.querySelector('#btn-delete-definition');
+    if (deleteBtn) {
+      deleteBtn.addEventListener('click', () => this._deleteDefinition(definition.id));
+    }
+
+    // Link to URI button
+    const linkUriBtn = contentArea.querySelector('#btn-link-to-uri');
+    if (linkUriBtn) {
+      linkUriBtn.addEventListener('click', () => this._openLinkToUriModal(definition));
+    }
+
+    // Change URI button
+    const changeUriBtn = contentArea.querySelector('#btn-change-uri');
+    if (changeUriBtn) {
+      changeUriBtn.addEventListener('click', () => this._openLinkToUriModal(definition));
+    }
+
+    // Mark as local button
+    const markLocalBtn = contentArea.querySelector('#btn-mark-local');
+    if (markLocalBtn) {
+      markLocalBtn.addEventListener('click', () => this._markDefinitionAsLocal(definition));
+    }
+  }
+
+  /**
+   * Open modal to edit the meaning/description of a definition
+   */
+  _openEditMeaningModal(definition) {
+    // Create a simple modal for editing the meaning
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+          <h3>Edit Meaning</h3>
+          <button class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="meaning-name">Name</label>
+            <input type="text" id="meaning-name" value="${this._escapeHtml(definition.name || '')}" />
+          </div>
+          <div class="form-group">
+            <label for="meaning-description">Plain-language meaning</label>
+            <textarea id="meaning-description" rows="4" placeholder="Describe what this definition represents in simple terms...">${this._escapeHtml(definition.term?.definitionText || definition.description || '')}</textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" id="btn-cancel-meaning">Cancel</button>
+          <button class="btn btn-primary" id="btn-save-meaning">Save</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Event handlers
+    const closeModal = () => modal.remove();
+    modal.querySelector('.modal-close-btn').addEventListener('click', closeModal);
+    modal.querySelector('#btn-cancel-meaning').addEventListener('click', closeModal);
+    modal.querySelector('.modal-overlay').addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    modal.querySelector('#btn-save-meaning').addEventListener('click', () => {
+      const newName = modal.querySelector('#meaning-name').value.trim();
+      const newDescription = modal.querySelector('#meaning-description').value.trim();
+
+      if (newName) {
+        definition.name = newName;
+      }
+      if (newDescription) {
+        if (!definition.term) definition.term = {};
+        definition.term.definitionText = newDescription;
+        definition.description = newDescription;
+      }
+
+      this._saveDefinition(definition);
+      closeModal();
+      this._renderDefinitionDetailView(definition);
+    });
+  }
+
+  /**
+   * Mark a definition as intentionally local (no external link needed)
+   */
+  _markDefinitionAsLocal(definition) {
+    definition.status = 'local_only';
+    this._saveDefinition(definition);
+    this._renderDefinitionDetailView(definition);
   }
 
   /**
@@ -18056,15 +18571,19 @@ class EODataWorkbench {
         <!-- Main Content Area -->
         <div class="definitions-explorer-content">
           ${activeDefinitions.length > 0 ? `
-            <!-- Table View (default) -->
+            <!-- Table View (default) - EO-aligned columns -->
             <div class="definitions-table-wrapper" id="definitions-table-view">
-              <table class="definitions-list-table">
+              <table class="definitions-list-table eo-aligned">
                 <thead>
                   <tr>
-                    <th class="col-definition">Definition</th>
-                    <th class="col-description">Description / Values</th>
-                    <th class="col-status">Status</th>
-                    <th class="col-usage">Used</th>
+                    <th class="col-meaning">Meaning</th>
+                    <th class="col-scope">Refers To</th>
+                    <th class="col-stability">Stability</th>
+                    <th class="col-time">Time</th>
+                    <th class="col-authority">Authority</th>
+                    <th class="col-interop">Interop</th>
+                    <th class="col-usage">Usage</th>
+                    <th class="col-risk">Risk</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -18105,109 +18624,106 @@ class EODataWorkbench {
   }
 
   /**
-   * Render a definition row in the new table format
-   * Two-line row: Name+Type on line 1, Description/Values on line 2
+   * Render a definition row in EO-aligned table format
+   * Columns: Meaning, Refers To, Stability, Time, Authority, Interop, Usage, Risk
    */
   _renderDefinitionListRow(def) {
-    const discovered = def.discoveredFrom || {};
     const isStub = def.status === 'stub' || def.populationMethod === 'pending';
-    const isPartial = def.status === 'partial' && !def.term?.definitionText;
     const hasDefinitionText = def.term?.definitionText;
 
-    // Get type info
-    const fieldType = discovered.fieldType || def.term?.type || 'text';
-    const typeLabel = this._getTypeLabel(fieldType);
-    const typeIcon = this._getTypeIcon(fieldType);
+    // Get EO-aligned metadata
+    const kindInfo = this._getDefinitionKind(def);
+    const stabilityInfo = this._getDefinitionStability(def);
+    const timeSensitivity = this._getDefinitionTimeSensitivity(def);
+    const authorityInfo = this._getDefinitionAuthority(def);
+    const interopStatus = this._getDefinitionInteropStatus(def);
+    const usageInfo = this._getDefinitionUsage(def);
+    const riskInfo = this._getDefinitionRisk(def);
 
-    // Count linked fields
-    let linkedFieldCount = 0;
-    this.sets.forEach(set => {
-      (set.fields || []).forEach(field => {
-        if (field.definitionRef?.definitionId === def.id ||
-            field.semanticBinding?.definitionId === def.id) {
-          linkedFieldCount++;
-        }
-      });
-    });
-
-    // Build description/values content
-    let descriptionContent = '';
-    let valuesContent = '';
-
-    if (hasDefinitionText) {
-      // Show definition text for complete definitions
-      const defText = def.term.definitionText;
-      const truncated = defText.length > 80 ? defText.slice(0, 77) + '…' : defText;
-      descriptionContent = `<span class="def-description">${this._escapeHtml(truncated)}</span>`;
-
-      // Show allowed values if it's a select type
-      if (discovered.fieldOptions || discovered.fieldUniqueValues) {
-        const values = discovered.fieldOptions?.choices || discovered.fieldUniqueValues || [];
-        if (values.length > 0 && values.length <= 10) {
-          valuesContent = `
-            <div class="def-values-row">
-              ${values.slice(0, 5).map(v => `<span class="def-value-chip">${this._escapeHtml(String(v).slice(0, 20))}</span>`).join('')}
-              ${values.length > 5 ? `<span class="def-values-more">+${values.length - 5}</span>` : ''}
-            </div>
-          `;
-        }
-      }
-    } else if (isStub || isPartial) {
-      // Show placeholder for stubs
-      descriptionContent = `<span class="def-description placeholder">No description yet</span>`;
-
-      // Show samples for stubs
-      const samples = discovered.fieldSamples || discovered.fieldUniqueValues || [];
-      if (samples.length > 0) {
-        valuesContent = `
-          <div class="def-samples-row">
-            <span class="samples-label">samples:</span>
-            ${samples.slice(0, 4).map(s => `<span class="def-sample-chip">"${this._escapeHtml(String(s).slice(0, 15))}"</span>`).join('')}
-            ${samples.length > 4 ? `<span class="def-samples-more">…</span>` : ''}
-          </div>
-        `;
-      }
-    }
-
-    // Status badge
-    let statusBadge = '';
-    if (hasDefinitionText) {
-      statusBadge = `<span class="def-status-icon complete" title="Complete"><i class="ph ph-check-circle"></i></span>`;
-    } else if (isPartial) {
-      statusBadge = `<span class="def-status-badge partial">Partial</span>`;
-    } else {
-      statusBadge = `<span class="def-status-badge stub">Stub</span>`;
-    }
-
-    // URI badge if available
-    const uriBadge = def.sourceUri
-      ? `<span class="def-uri-badge" title="${this._escapeHtml(def.sourceUri)}"><i class="ph ph-link"></i></span>`
+    // Build meaning column (primary anchor)
+    const meaningName = def.name || def.term?.label || def.term?.term || 'Unnamed';
+    const meaningDesc = hasDefinitionText
+      ? def.term.definitionText.slice(0, 60) + (def.term.definitionText.length > 60 ? '…' : '')
       : '';
 
+    // Scope/Refers To icons based on kind
+    const scopeIcons = {
+      'Identifier': { icon: 'ph-key', label: 'Identity', color: '#6366f1' },
+      'Measure': { icon: 'ph-chart-bar', label: 'Metric', color: '#10b981' },
+      'Temporal': { icon: 'ph-calendar', label: 'Time', color: '#f59e0b' },
+      'Descriptive': { icon: 'ph-tag', label: 'Property', color: '#0ea5e9' },
+      'Relational': { icon: 'ph-git-branch', label: 'Relation', color: '#8b5cf6' },
+      'Administrative': { icon: 'ph-gear', label: 'Admin', color: '#64748b' }
+    };
+    const scopeInfo = scopeIcons[kindInfo.kind] || scopeIcons['Descriptive'];
+
+    // Risk level icons
+    const riskIcons = {
+      'safe': { icon: 'ph-check-circle', class: 'risk-safe' },
+      'review': { icon: 'ph-info', class: 'risk-review' },
+      'attention': { icon: 'ph-warning-circle', class: 'risk-attention' }
+    };
+    const riskDisplay = riskIcons[riskInfo.level] || riskIcons['safe'];
+
     return `
-      <tr class="def-list-row${isStub ? ' is-stub' : ''}${hasDefinitionText ? ' is-complete' : ''}" data-definition-id="${def.id}">
-        <td class="col-definition">
-          <div class="def-name-cell">
-            <i class="ph ${typeIcon} def-type-icon" title="${typeLabel}"></i>
-            <div class="def-name-info">
-              <span class="def-name">${this._escapeHtml(def.name || def.term?.label || def.term?.term || 'Unnamed')}</span>
-              <span class="def-type-label">${typeLabel}</span>
-            </div>
+      <tr class="def-list-row eo-row${isStub ? ' is-stub' : ''}${hasDefinitionText ? ' is-complete' : ''}" data-definition-id="${def.id}">
+        <!-- Meaning (primary column) -->
+        <td class="col-meaning">
+          <div class="def-meaning-cell">
+            <span class="def-meaning-name">${this._escapeHtml(meaningName)}</span>
+            ${meaningDesc ? `<span class="def-meaning-desc">${this._escapeHtml(meaningDesc)}</span>` : ''}
           </div>
         </td>
-        <td class="col-description">
-          <div class="def-desc-cell">
-            ${descriptionContent}
-            ${valuesContent}
-          </div>
+
+        <!-- Refers To / Scope -->
+        <td class="col-scope">
+          <span class="def-scope-badge" style="background: ${scopeInfo.color}15; color: ${scopeInfo.color};" title="${scopeInfo.label}">
+            <i class="ph ${scopeInfo.icon}"></i>
+            <span class="scope-label">${scopeInfo.label}</span>
+          </span>
         </td>
-        <td class="col-status">
-          ${statusBadge}
-          ${uriBadge}
+
+        <!-- Stability -->
+        <td class="col-stability">
+          <span class="def-stability-dot" style="background: ${stabilityInfo.color};" title="${stabilityInfo.stability}: ${stabilityInfo.description}"></span>
+          <span class="def-stability-label" style="color: ${stabilityInfo.color};">${stabilityInfo.stability}</span>
         </td>
+
+        <!-- Time Sensitivity -->
+        <td class="col-time">
+          <span class="def-time-badge" title="${timeSensitivity.description}">
+            <i class="ph ${timeSensitivity.icon}" style="color: ${timeSensitivity.color};"></i>
+          </span>
+        </td>
+
+        <!-- Authority -->
+        <td class="col-authority">
+          <span class="def-authority-badge" title="${authorityInfo.description}">
+            <i class="ph ${authorityInfo.icon}" style="color: ${authorityInfo.color};"></i>
+            <span class="authority-type">${authorityInfo.type}</span>
+          </span>
+        </td>
+
+        <!-- Interop Status -->
+        <td class="col-interop">
+          <span class="def-interop-badge ${interopStatus.status.toLowerCase()}" title="${interopStatus.description}">
+            <i class="ph ${interopStatus.icon}" style="color: ${interopStatus.color};"></i>
+          </span>
+        </td>
+
+        <!-- Usage (clickable) -->
         <td class="col-usage">
-          <span class="def-usage-count${linkedFieldCount > 0 ? ' has-usage' : ''}" title="${linkedFieldCount} field${linkedFieldCount !== 1 ? 's' : ''} using this definition">
-            ${linkedFieldCount}
+          <span class="def-usage-count${usageInfo.total > 0 ? ' has-usage' : ''}"
+                title="${usageInfo.breakdown.fields} fields, ${usageInfo.breakdown.reports} views, ${usageInfo.breakdown.automations} automations"
+                data-usage-details='${JSON.stringify(usageInfo.breakdown)}'>
+            ${usageInfo.total}
+          </span>
+        </td>
+
+        <!-- Risk / Attention -->
+        <td class="col-risk">
+          <span class="def-risk-indicator ${riskDisplay.class}" title="${riskInfo.reasons.join(', ')}">
+            <i class="ph ${riskDisplay.icon}"></i>
           </span>
         </td>
       </tr>
