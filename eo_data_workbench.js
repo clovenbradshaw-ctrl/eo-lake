@@ -30807,7 +30807,7 @@ class EODataWorkbench {
         return;
       }
 
-      // Long text expand button click
+      // Long text expand button click - opens semantic triplet modal
       const expandBtn = target.closest('.cell-expand-btn:not(.cell-html-preview-btn)');
       if (expandBtn) {
         e.stopPropagation(); // Prevent row click and cell edit
@@ -30815,7 +30815,7 @@ class EODataWorkbench {
         const recordId = td?.closest('tr')?.dataset.recordId;
         const fieldId = td?.dataset.fieldId;
         if (recordId && fieldId) {
-          this._showLongTextModal(recordId, fieldId);
+          this._showCellEditModal(recordId, fieldId);
         }
         return;
       }
@@ -30874,14 +30874,14 @@ class EODataWorkbench {
         return;
       }
 
-      // Cell click - open field modal for editing with history
+      // Cell click - open semantic triplet modal for editing with history
       const cell = target.closest('td.cell-editable');
       if (cell && !cell.classList.contains('cell-editing')) {
         e.stopPropagation(); // Prevent row click
         const recordId = cell.closest('tr')?.dataset.recordId;
         const fieldId = cell.dataset.fieldId;
         if (recordId && fieldId) {
-          this._showFieldModal(recordId, fieldId);
+          this._showCellEditModal(recordId, fieldId);
         }
         return;
       }
@@ -32167,6 +32167,856 @@ class EODataWorkbench {
         btn.classList.add('active');
         // Could add mode switching logic here
       });
+    });
+  }
+
+  // ============================================================================
+  // Cell Edit Modal - Semantic Triplet Pattern
+  // Subject (record) → Predicate (column) → Object (value)
+  // ============================================================================
+
+  /**
+   * Show the semantic triplet cell-editing modal
+   * Displays: Subject (record name) → Predicate (column name) → Object (value)
+   * With info disclosure buttons for definitions and collapsible history
+   *
+   * @param {string} recordId - The record ID
+   * @param {string} fieldId - The field ID
+   */
+  _showCellEditModal(recordId, fieldId) {
+    const set = this.getCurrentSet();
+    const record = set?.records.find(r => r.id === recordId);
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!record || !field) return;
+
+    const value = record.values[fieldId];
+
+    // Get primary field for record name (subject)
+    const primaryField = set.fields.find(f => f.isPrimary) || set.fields[0];
+    const recordName = primaryField ? (record.values[primaryField.id] || 'Untitled') : 'Untitled';
+
+    // Get record definition (use a designated description/notes field if available)
+    const descriptionField = set.fields.find(f =>
+      f.type === FieldTypes.LONG_TEXT &&
+      (f.name.toLowerCase().includes('description') ||
+       f.name.toLowerCase().includes('notes') ||
+       f.name.toLowerCase() === 'about')
+    );
+    const recordDefinition = descriptionField ? record.values[descriptionField.id] : null;
+
+    // Get column/field definition
+    const columnDefinition = field.description || null;
+
+    // Check if field is editable
+    const isEditable = ![FieldTypes.FORMULA, FieldTypes.ROLLUP, FieldTypes.COUNT, FieldTypes.AUTONUMBER].includes(field.type);
+
+    // Get field history
+    const fieldHistory = this._getFieldHistory(recordId, fieldId);
+    const historyCount = fieldHistory.filter(event => {
+      const action = event.payload?.action;
+      return action === 'record_updated' || action === 'field_changed' || action === 'update';
+    }).length;
+
+    // Determine modal size based on field type
+    const modalSize = this._getCellEditModalSize(field.type);
+
+    // Render the editor content based on field type
+    const editorContent = this._renderCellEditModalEditor(field, value, recordId, isEditable);
+
+    // Render history section
+    const historyHtml = this._renderCellEditModalHistory(fieldHistory, field);
+
+    // Create modal with semantic triplet header
+    const modal = new EOModal({
+      id: `cell-edit-modal-${recordId}-${fieldId}`,
+      size: modalSize,
+      closable: true,
+      content: `
+        <div class="cell-edit-modal-container">
+          <!-- Header: Subject + Predicate -->
+          <div class="cell-edit-modal-header">
+            <!-- Subject (Record Name) - Primary, Bold -->
+            <div class="cell-edit-modal-subject">
+              <span class="cell-edit-modal-subject-name">${this._escapeHtml(recordName)}</span>
+              <button class="cell-edit-modal-info-btn"
+                      data-info-type="record"
+                      data-record-id="${recordId}"
+                      title="Record information">
+                <i class="ph ph-info"></i>
+              </button>
+            </div>
+
+            <!-- Predicate (Column Name) - Secondary, Muted -->
+            <div class="cell-edit-modal-predicate">
+              <span class="cell-edit-modal-predicate-name">${this._escapeHtml(field.name)}</span>
+              <button class="cell-edit-modal-info-btn"
+                      data-info-type="column"
+                      data-field-id="${fieldId}"
+                      title="Field definition">
+                <i class="ph ph-info"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Object (Value) -->
+          <div class="cell-edit-modal-object">
+            ${editorContent}
+          </div>
+
+          <!-- History Section -->
+          <div class="cell-edit-modal-history">
+            <button class="cell-edit-modal-history-toggle" data-expanded="false">
+              <i class="ph ph-caret-right toggle-icon"></i>
+              <span>History</span>
+              <span class="cell-edit-modal-history-count">${historyCount}</span>
+            </button>
+            <div class="cell-edit-modal-history-content">
+              ${historyHtml}
+            </div>
+          </div>
+        </div>
+      `,
+      buttons: isEditable ? [
+        {
+          label: 'Cancel',
+          secondary: true,
+          action: 'cancel',
+          onClick: () => modal.hide()
+        },
+        {
+          label: 'Save',
+          icon: 'ph-floppy-disk',
+          primary: true,
+          action: 'save',
+          onClick: () => {
+            const newValue = this._getCellEditModalValue(modal, field);
+            if (newValue !== undefined && newValue !== value) {
+              this._updateRecordValue(recordId, fieldId, newValue);
+              // Update the cell display
+              const cell = document.querySelector(`tr[data-record-id="${recordId}"] td[data-field-id="${fieldId}"]`);
+              if (cell) {
+                this._updateCellDisplay(cell, recordId, field);
+              }
+            }
+            modal.hide();
+          }
+        }
+      ] : [
+        {
+          label: 'Close',
+          primary: true,
+          action: 'close',
+          onClick: () => modal.hide()
+        }
+      ]
+    });
+
+    modal.show();
+
+    // Remove default title from modal header (we're using semantic triplet instead)
+    const titleEl = modal.element.querySelector('.eo-modal-title');
+    if (titleEl) titleEl.style.display = 'none';
+
+    // Attach event handlers
+    this._attachCellEditModalHandlers(modal, field, value, recordId, recordDefinition, columnDefinition);
+
+    // Focus the input element
+    setTimeout(() => {
+      const focusable = modal.element.querySelector('.cell-edit-modal-editor input, .cell-edit-modal-editor textarea');
+      if (focusable) {
+        focusable.focus();
+        if (focusable.select) focusable.select();
+      }
+    }, 100);
+  }
+
+  /**
+   * Get modal size based on field type
+   */
+  _getCellEditModalSize(fieldType) {
+    switch (fieldType) {
+      case FieldTypes.LONG_TEXT:
+      case FieldTypes.JSON:
+        return 'large';
+      case FieldTypes.MULTI_SELECT:
+      case FieldTypes.LINK:
+        return 'medium';
+      default:
+        return 'medium';
+    }
+  }
+
+  /**
+   * Render the appropriate editor for the cell edit modal
+   */
+  _renderCellEditModalEditor(field, value, recordId, isEditable) {
+    if (!isEditable) {
+      return this._renderCellEditModalReadOnly(field, value);
+    }
+
+    switch (field.type) {
+      case FieldTypes.TEXT:
+      case FieldTypes.URL:
+      case FieldTypes.EMAIL:
+      case FieldTypes.PHONE:
+        return this._renderCellEditModalTextInput(field, value);
+
+      case FieldTypes.LONG_TEXT:
+        return this._renderCellEditModalTextarea(field, value);
+
+      case FieldTypes.NUMBER:
+        return this._renderCellEditModalNumberInput(field, value);
+
+      case FieldTypes.CHECKBOX:
+        return this._renderCellEditModalCheckbox(field, value);
+
+      case FieldTypes.SELECT:
+        return this._renderCellEditModalSelect(field, value);
+
+      case FieldTypes.MULTI_SELECT:
+        return this._renderCellEditModalMultiSelect(field, value);
+
+      case FieldTypes.DATE:
+        return this._renderCellEditModalDateInput(field, value);
+
+      default:
+        return this._renderCellEditModalTextInput(field, value);
+    }
+  }
+
+  _renderCellEditModalReadOnly(field, value) {
+    let displayValue = value !== null && value !== undefined ? String(value) : '(empty)';
+    return `
+      <div class="cell-edit-modal-editor cell-edit-modal-readonly">
+        <div class="cell-edit-modal-readonly-value">${this._escapeHtml(displayValue)}</div>
+        <div class="cell-edit-modal-readonly-notice">
+          <i class="ph ph-lock-simple"></i>
+          <span>This field is computed automatically</span>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCellEditModalTextInput(field, value) {
+    const placeholder = field.type === FieldTypes.URL ? 'https://...' :
+                        field.type === FieldTypes.EMAIL ? 'email@example.com' :
+                        field.type === FieldTypes.PHONE ? '+1 (555) 000-0000' : '';
+    return `
+      <div class="cell-edit-modal-editor">
+        <input type="text"
+               class="cell-edit-modal-input"
+               value="${this._escapeHtml(value || '')}"
+               placeholder="${placeholder}"
+               data-field-type="${field.type}">
+      </div>
+    `;
+  }
+
+  _renderCellEditModalTextarea(field, value) {
+    return `
+      <div class="cell-edit-modal-editor">
+        <div class="cell-edit-modal-textarea-wrapper">
+          <textarea class="cell-edit-modal-textarea">${this._escapeHtml(value || '')}</textarea>
+          <span class="cell-edit-modal-textarea-resize"><i class="ph ph-arrows-out-simple"></i></span>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCellEditModalNumberInput(field, value) {
+    const format = field.options?.format || 'number';
+    const precision = field.options?.precision ?? 2;
+    return `
+      <div class="cell-edit-modal-editor">
+        <div class="cell-edit-modal-number-wrapper">
+          <input type="number"
+                 class="cell-edit-modal-number-input"
+                 value="${value ?? ''}"
+                 step="${format === 'percent' ? '0.01' : Math.pow(10, -precision)}"
+                 data-format="${format}">
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCellEditModalDateInput(field, value) {
+    const includeTime = field.options?.includeTime;
+    const inputType = includeTime ? 'datetime-local' : 'date';
+    let formattedValue = '';
+
+    if (value) {
+      try {
+        const date = new Date(value);
+        if (includeTime) {
+          formattedValue = date.toISOString().slice(0, 16);
+        } else {
+          formattedValue = date.toISOString().slice(0, 10);
+        }
+      } catch (e) {
+        formattedValue = value;
+      }
+    }
+
+    return `
+      <div class="cell-edit-modal-editor">
+        <div class="cell-edit-modal-date-wrapper">
+          <input type="${inputType}"
+                 class="cell-edit-modal-date-input"
+                 value="${formattedValue}">
+          <span class="cell-edit-modal-date-icon"><i class="ph ph-calendar"></i></span>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCellEditModalCheckbox(field, value) {
+    return `
+      <div class="cell-edit-modal-editor">
+        <div class="cell-edit-modal-checkbox-wrapper">
+          <div class="cell-edit-modal-checkbox-control ${value ? 'checked' : ''}" data-checked="${!!value}">
+            <span class="cell-edit-modal-checkbox-visual">
+              <i class="ph ${value ? 'ph-check-square-fill' : 'ph-square'}"></i>
+            </span>
+            <span class="cell-edit-modal-checkbox-label">${value ? 'Yes' : 'No'}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCellEditModalSelect(field, value) {
+    const choices = field.options?.choices || [];
+    const currentChoice = choices.find(c => c.id === value);
+
+    return `
+      <div class="cell-edit-modal-editor">
+        <div class="cell-edit-modal-select-wrapper" data-value="${value || ''}">
+          <div class="cell-edit-modal-select-trigger" tabindex="0">
+            <div class="cell-edit-modal-select-value">
+              ${currentChoice
+                ? `<span class="select-tag color-${currentChoice.color || 'gray'}">${this._escapeHtml(currentChoice.name)}</span>`
+                : '<span class="cell-edit-modal-select-placeholder">Select an option...</span>'
+              }
+            </div>
+            <div class="cell-edit-modal-select-icons">
+              ${currentChoice && currentChoice.description ? `
+                <button class="cell-edit-modal-info-btn"
+                        data-info-type="value"
+                        data-choice-id="${currentChoice.id}"
+                        title="Option definition">
+                  <i class="ph ph-info"></i>
+                </button>
+              ` : ''}
+              <i class="ph ph-caret-down cell-edit-modal-select-caret"></i>
+            </div>
+          </div>
+          <div class="cell-edit-modal-select-dropdown">
+            ${choices.map(choice => `
+              <div class="cell-edit-modal-select-option ${choice.id === value ? 'selected' : ''}"
+                   data-value="${choice.id}">
+                <span class="cell-edit-modal-select-radio"></span>
+                <span class="cell-edit-modal-select-option-label">
+                  <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+                </span>
+                ${choice.description ? `
+                  <button class="cell-edit-modal-info-btn"
+                          data-info-type="value"
+                          data-choice-id="${choice.id}"
+                          title="Option definition">
+                    <i class="ph ph-info"></i>
+                  </button>
+                ` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  _renderCellEditModalMultiSelect(field, value) {
+    const choices = field.options?.choices || [];
+    const selectedIds = Array.isArray(value) ? value : (value ? [value] : []);
+
+    return `
+      <div class="cell-edit-modal-editor">
+        <div class="cell-edit-modal-multiselect-wrapper" data-value="${JSON.stringify(selectedIds)}">
+          <div class="cell-edit-modal-multiselect-selected">
+            ${selectedIds.length > 0
+              ? selectedIds.map(id => {
+                  const choice = choices.find(c => c.id === id);
+                  if (!choice) return '';
+                  return `
+                    <span class="cell-edit-modal-multiselect-chip select-tag color-${choice.color || 'gray'}" data-id="${id}">
+                      ${this._escapeHtml(choice.name)}
+                      ${choice.description ? `
+                        <button class="cell-edit-modal-info-btn"
+                                data-info-type="value"
+                                data-choice-id="${choice.id}"
+                                title="Option definition">
+                          <i class="ph ph-info"></i>
+                        </button>
+                      ` : ''}
+                      <button class="cell-edit-modal-multiselect-chip-remove" data-id="${id}">
+                        <i class="ph ph-x"></i>
+                      </button>
+                    </span>
+                  `;
+                }).join('')
+              : ''
+            }
+            <button class="cell-edit-modal-multiselect-add-btn">
+              <i class="ph ph-plus"></i> Add
+            </button>
+          </div>
+          <div class="cell-edit-modal-multiselect-dropdown">
+            ${choices.map(choice => {
+              const isSelected = selectedIds.includes(choice.id);
+              return `
+                <div class="cell-edit-modal-multiselect-option ${isSelected ? 'selected' : ''}"
+                     data-value="${choice.id}">
+                  <span class="cell-edit-modal-multiselect-checkbox">
+                    ${isSelected ? '<i class="ph ph-check"></i>' : ''}
+                  </span>
+                  <span class="cell-edit-modal-multiselect-option-label">
+                    <span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>
+                  </span>
+                  ${choice.description ? `
+                    <button class="cell-edit-modal-info-btn"
+                            data-info-type="value"
+                            data-choice-id="${choice.id}"
+                            title="Option definition">
+                      <i class="ph ph-info"></i>
+                    </button>
+                  ` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render history section for cell edit modal
+   */
+  _renderCellEditModalHistory(fieldHistory, field) {
+    const changes = fieldHistory.filter(event => {
+      const action = event.payload?.action;
+      return action === 'record_updated' || action === 'field_changed' || action === 'update';
+    });
+
+    if (changes.length === 0) {
+      return `
+        <div class="cell-edit-modal-history-empty">
+          <i class="ph ph-clock-afternoon"></i>
+          <span>No changes yet</span>
+        </div>
+      `;
+    }
+
+    // Show last 5 changes
+    const visibleChanges = changes.slice().reverse().slice(0, 5);
+
+    return `
+      <div class="cell-edit-modal-history-events">
+        ${visibleChanges.map(event => {
+          const timestamp = event.timestamp ? new Date(event.timestamp).toLocaleString() : 'Unknown time';
+          const agent = event.payload?.actor || event.actor || 'User';
+          const oldValue = event.payload?.previousValue ?? event.payload?.oldValue ?? '(empty)';
+          const newValue = event.payload?.newValue ?? event.payload?.value ?? '(empty)';
+
+          // Format values for display
+          const formatValue = (val) => {
+            if (val === null || val === undefined || val === '') return '(empty)';
+            if (typeof val === 'object') return JSON.stringify(val).substring(0, 50);
+            return String(val).substring(0, 50);
+          };
+
+          return `
+            <div class="cell-edit-modal-history-event">
+              <span class="cell-edit-modal-history-event-icon">
+                <i class="ph ph-pencil-simple"></i>
+              </span>
+              <div class="cell-edit-modal-history-event-content">
+                <div class="cell-edit-modal-history-event-meta">
+                  <span class="cell-edit-modal-history-event-agent">${this._escapeHtml(agent)}</span>
+                  <span class="cell-edit-modal-history-event-time">${timestamp}</span>
+                </div>
+                <div class="cell-edit-modal-history-event-change">
+                  <span class="cell-edit-modal-history-event-old">${this._escapeHtml(formatValue(oldValue))}</span>
+                  <span class="cell-edit-modal-history-event-arrow">→</span>
+                  <span class="cell-edit-modal-history-event-new">${this._escapeHtml(formatValue(newValue))}</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * Get value from cell edit modal
+   */
+  _getCellEditModalValue(modal, field) {
+    const editor = modal.element.querySelector('.cell-edit-modal-editor');
+    if (!editor) return undefined;
+
+    switch (field.type) {
+      case FieldTypes.TEXT:
+      case FieldTypes.URL:
+      case FieldTypes.EMAIL:
+      case FieldTypes.PHONE:
+        return editor.querySelector('.cell-edit-modal-input')?.value || '';
+
+      case FieldTypes.LONG_TEXT:
+        return editor.querySelector('.cell-edit-modal-textarea')?.value || '';
+
+      case FieldTypes.NUMBER:
+        const numValue = editor.querySelector('.cell-edit-modal-number-input')?.value;
+        return numValue === '' ? null : parseFloat(numValue);
+
+      case FieldTypes.CHECKBOX:
+        return editor.querySelector('.cell-edit-modal-checkbox-control')?.dataset.checked === 'true';
+
+      case FieldTypes.SELECT:
+        return editor.querySelector('.cell-edit-modal-select-wrapper')?.dataset.value || null;
+
+      case FieldTypes.MULTI_SELECT:
+        try {
+          return JSON.parse(editor.querySelector('.cell-edit-modal-multiselect-wrapper')?.dataset.value || '[]');
+        } catch (e) {
+          return [];
+        }
+
+      case FieldTypes.DATE:
+        const dateValue = editor.querySelector('.cell-edit-modal-date-input')?.value;
+        return dateValue ? new Date(dateValue).toISOString() : null;
+
+      default:
+        return editor.querySelector('input, textarea')?.value;
+    }
+  }
+
+  /**
+   * Attach event handlers for cell edit modal
+   */
+  _attachCellEditModalHandlers(modal, field, currentValue, recordId, recordDefinition, columnDefinition) {
+    const container = modal.element.querySelector('.cell-edit-modal-container');
+    if (!container) return;
+
+    // History toggle
+    const historyToggle = container.querySelector('.cell-edit-modal-history-toggle');
+    historyToggle?.addEventListener('click', () => {
+      const isExpanded = historyToggle.classList.contains('expanded');
+      historyToggle.classList.toggle('expanded', !isExpanded);
+    });
+
+    // Info button popovers
+    container.querySelectorAll('.cell-edit-modal-info-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._showCellEditInfoPopover(btn, field, recordId, recordDefinition, columnDefinition);
+      });
+    });
+
+    // Field type specific handlers
+    switch (field.type) {
+      case FieldTypes.CHECKBOX:
+        this._attachCellEditCheckboxHandlers(container);
+        break;
+
+      case FieldTypes.SELECT:
+        this._attachCellEditSelectHandlers(container, field);
+        break;
+
+      case FieldTypes.MULTI_SELECT:
+        this._attachCellEditMultiSelectHandlers(container, field);
+        break;
+    }
+  }
+
+  /**
+   * Show info popover for record, column, or value definition
+   */
+  _showCellEditInfoPopover(btn, field, recordId, recordDefinition, columnDefinition) {
+    // Remove any existing popover
+    document.querySelectorAll('.cell-edit-modal-info-popover').forEach(p => p.remove());
+
+    const infoType = btn.dataset.infoType;
+    let title = '';
+    let content = '';
+
+    switch (infoType) {
+      case 'record':
+        title = 'Record Information';
+        content = recordDefinition
+          ? `<div class="cell-edit-modal-info-popover-content">${this._escapeHtml(recordDefinition).substring(0, 200)}${recordDefinition.length > 200 ? '...' : ''}</div>`
+          : '<div class="cell-edit-modal-info-popover-empty">No description available for this record.</div>';
+        break;
+
+      case 'column':
+        title = `${field.name} Definition`;
+        content = columnDefinition
+          ? `<div class="cell-edit-modal-info-popover-content">${this._escapeHtml(columnDefinition)}</div>`
+          : '<div class="cell-edit-modal-info-popover-empty">No definition set for this field.</div>';
+        break;
+
+      case 'value':
+        const choiceId = btn.dataset.choiceId;
+        const choice = field.options?.choices?.find(c => c.id === choiceId);
+        title = choice ? `${choice.name} Definition` : 'Value Definition';
+        content = choice?.description
+          ? `<div class="cell-edit-modal-info-popover-content">${this._escapeHtml(choice.description)}</div>`
+          : '<div class="cell-edit-modal-info-popover-empty">No definition set for this option.</div>';
+        break;
+    }
+
+    // Create popover
+    const popover = document.createElement('div');
+    popover.className = 'cell-edit-modal-info-popover';
+    popover.innerHTML = `
+      <div class="cell-edit-modal-info-popover-title">${title}</div>
+      ${content}
+    `;
+
+    // Position popover below the button
+    const btnRect = btn.getBoundingClientRect();
+    popover.style.position = 'fixed';
+    popover.style.top = `${btnRect.bottom + 8}px`;
+    popover.style.left = `${btnRect.left - 8}px`;
+
+    document.body.appendChild(popover);
+
+    // Close on outside click
+    const closePopover = (e) => {
+      if (!popover.contains(e.target) && e.target !== btn) {
+        popover.remove();
+        document.removeEventListener('click', closePopover);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', closePopover);
+    }, 10);
+  }
+
+  /**
+   * Attach checkbox handlers for cell edit modal
+   */
+  _attachCellEditCheckboxHandlers(container) {
+    const control = container.querySelector('.cell-edit-modal-checkbox-control');
+    control?.addEventListener('click', () => {
+      const isChecked = control.dataset.checked === 'true';
+      const newChecked = !isChecked;
+      control.dataset.checked = newChecked.toString();
+      control.classList.toggle('checked', newChecked);
+
+      const icon = control.querySelector('.cell-edit-modal-checkbox-visual i');
+      if (icon) {
+        icon.className = `ph ${newChecked ? 'ph-check-square-fill' : 'ph-square'}`;
+      }
+
+      const label = control.querySelector('.cell-edit-modal-checkbox-label');
+      if (label) {
+        label.textContent = newChecked ? 'Yes' : 'No';
+      }
+    });
+  }
+
+  /**
+   * Attach select handlers for cell edit modal
+   */
+  _attachCellEditSelectHandlers(container, field) {
+    const wrapper = container.querySelector('.cell-edit-modal-select-wrapper');
+    const trigger = container.querySelector('.cell-edit-modal-select-trigger');
+    const dropdown = container.querySelector('.cell-edit-modal-select-dropdown');
+
+    // Toggle dropdown
+    trigger?.addEventListener('click', (e) => {
+      if (e.target.closest('.cell-edit-modal-info-btn')) return;
+      wrapper?.classList.toggle('open');
+    });
+
+    // Select option
+    container.querySelectorAll('.cell-edit-modal-select-option').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        if (e.target.closest('.cell-edit-modal-info-btn')) return;
+
+        const value = opt.dataset.value;
+        wrapper.dataset.value = value;
+
+        // Update selection visual
+        container.querySelectorAll('.cell-edit-modal-select-option').forEach(o => {
+          o.classList.toggle('selected', o.dataset.value === value);
+        });
+
+        // Update trigger display
+        const choice = field.options?.choices?.find(c => c.id === value);
+        const valueDisplay = trigger.querySelector('.cell-edit-modal-select-value');
+        if (valueDisplay) {
+          valueDisplay.innerHTML = choice
+            ? `<span class="select-tag color-${choice.color || 'gray'}">${this._escapeHtml(choice.name)}</span>`
+            : '<span class="cell-edit-modal-select-placeholder">Select an option...</span>';
+        }
+
+        // Update info button visibility
+        const iconsDiv = trigger.querySelector('.cell-edit-modal-select-icons');
+        if (iconsDiv) {
+          const existingInfoBtn = iconsDiv.querySelector('.cell-edit-modal-info-btn');
+          if (choice && choice.description && !existingInfoBtn) {
+            const infoBtn = document.createElement('button');
+            infoBtn.className = 'cell-edit-modal-info-btn';
+            infoBtn.dataset.infoType = 'value';
+            infoBtn.dataset.choiceId = choice.id;
+            infoBtn.title = 'Option definition';
+            infoBtn.innerHTML = '<i class="ph ph-info"></i>';
+            iconsDiv.insertBefore(infoBtn, iconsDiv.querySelector('.cell-edit-modal-select-caret'));
+          } else if (existingInfoBtn && (!choice || !choice.description)) {
+            existingInfoBtn.remove();
+          } else if (existingInfoBtn && choice) {
+            existingInfoBtn.dataset.choiceId = choice.id;
+          }
+        }
+
+        wrapper.classList.remove('open');
+      });
+    });
+
+    // Close on outside click
+    document.addEventListener('click', (e) => {
+      if (!wrapper.contains(e.target)) {
+        wrapper.classList.remove('open');
+      }
+    });
+  }
+
+  /**
+   * Attach multi-select handlers for cell edit modal
+   */
+  _attachCellEditMultiSelectHandlers(container, field) {
+    const wrapper = container.querySelector('.cell-edit-modal-multiselect-wrapper');
+    const selectedContainer = container.querySelector('.cell-edit-modal-multiselect-selected');
+    const dropdown = container.querySelector('.cell-edit-modal-multiselect-dropdown');
+    const addBtn = container.querySelector('.cell-edit-modal-multiselect-add-btn');
+    const choices = field.options?.choices || [];
+
+    // Get current selected IDs
+    const getSelectedIds = () => {
+      try {
+        return JSON.parse(wrapper.dataset.value || '[]');
+      } catch (e) {
+        return [];
+      }
+    };
+
+    // Update the selected chips display
+    const updateSelectedDisplay = (selectedIds) => {
+      wrapper.dataset.value = JSON.stringify(selectedIds);
+
+      // Rebuild chips
+      const chipsHtml = selectedIds.map(id => {
+        const choice = choices.find(c => c.id === id);
+        if (!choice) return '';
+        return `
+          <span class="cell-edit-modal-multiselect-chip select-tag color-${choice.color || 'gray'}" data-id="${id}">
+            ${this._escapeHtml(choice.name)}
+            ${choice.description ? `
+              <button class="cell-edit-modal-info-btn"
+                      data-info-type="value"
+                      data-choice-id="${choice.id}"
+                      title="Option definition">
+                <i class="ph ph-info"></i>
+              </button>
+            ` : ''}
+            <button class="cell-edit-modal-multiselect-chip-remove" data-id="${id}">
+              <i class="ph ph-x"></i>
+            </button>
+          </span>
+        `;
+      }).join('');
+
+      selectedContainer.innerHTML = `
+        ${chipsHtml}
+        <button class="cell-edit-modal-multiselect-add-btn">
+          <i class="ph ph-plus"></i> Add
+        </button>
+      `;
+
+      // Update dropdown options
+      container.querySelectorAll('.cell-edit-modal-multiselect-option').forEach(opt => {
+        const isSelected = selectedIds.includes(opt.dataset.value);
+        opt.classList.toggle('selected', isSelected);
+        const checkbox = opt.querySelector('.cell-edit-modal-multiselect-checkbox');
+        if (checkbox) {
+          checkbox.innerHTML = isSelected ? '<i class="ph ph-check"></i>' : '';
+        }
+      });
+
+      // Re-attach add button handler
+      const newAddBtn = selectedContainer.querySelector('.cell-edit-modal-multiselect-add-btn');
+      newAddBtn?.addEventListener('click', () => {
+        wrapper.classList.toggle('open');
+      });
+
+      // Re-attach remove handlers
+      selectedContainer.querySelectorAll('.cell-edit-modal-multiselect-chip-remove').forEach(removeBtn => {
+        removeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const idToRemove = removeBtn.dataset.id;
+          const newIds = getSelectedIds().filter(id => id !== idToRemove);
+          updateSelectedDisplay(newIds);
+        });
+      });
+
+      // Re-attach info button handlers
+      selectedContainer.querySelectorAll('.cell-edit-modal-info-btn').forEach(infoBtn => {
+        infoBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._showCellEditInfoPopover(infoBtn, field, null, null, null);
+        });
+      });
+    };
+
+    // Toggle dropdown
+    addBtn?.addEventListener('click', () => {
+      wrapper.classList.toggle('open');
+    });
+
+    // Option click
+    container.querySelectorAll('.cell-edit-modal-multiselect-option').forEach(opt => {
+      opt.addEventListener('click', (e) => {
+        if (e.target.closest('.cell-edit-modal-info-btn')) return;
+
+        const value = opt.dataset.value;
+        let selectedIds = getSelectedIds();
+
+        if (selectedIds.includes(value)) {
+          selectedIds = selectedIds.filter(id => id !== value);
+        } else {
+          selectedIds.push(value);
+        }
+
+        updateSelectedDisplay(selectedIds);
+      });
+    });
+
+    // Remove chip
+    selectedContainer?.querySelectorAll('.cell-edit-modal-multiselect-chip-remove').forEach(removeBtn => {
+      removeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idToRemove = removeBtn.dataset.id;
+        const newIds = getSelectedIds().filter(id => id !== idToRemove);
+        updateSelectedDisplay(newIds);
+      });
+    });
+
+    // Close dropdown on outside click
+    document.addEventListener('click', (e) => {
+      if (!wrapper.contains(e.target)) {
+        wrapper.classList.remove('open');
+      }
     });
   }
 

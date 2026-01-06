@@ -7875,6 +7875,746 @@ tr.highlight-row {
   color: var(--primary-400);
 }
 
+/* ============================================================================
+   Cell Edit Modal - Semantic Triplet Pattern
+   Subject (record) → Predicate (column) → Object (value)
+   ============================================================================ */
+
+.cell-edit-modal-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* Header Section - Subject and Predicate */
+.cell-edit-modal-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 0 16px 0;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 16px;
+}
+
+/* Subject (Record Name) - Primary, Bold */
+.cell-edit-modal-subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cell-edit-modal-subject-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.cell-edit-modal-info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  font-size: 14px;
+  transition: var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.cell-edit-modal-info-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--primary-500);
+}
+
+.cell-edit-modal-info-btn:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-200);
+}
+
+/* Predicate (Column Name) - Secondary, Muted */
+.cell-edit-modal-predicate {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.cell-edit-modal-predicate::before {
+  content: '\2508';
+  color: var(--text-quaternary);
+  font-size: 14px;
+  margin-right: 2px;
+}
+
+.cell-edit-modal-predicate-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.cell-edit-modal-predicate .cell-edit-modal-info-btn {
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+}
+
+/* Object (Value) Section */
+.cell-edit-modal-object {
+  padding: 0 0 16px 0;
+}
+
+/* Value Editor Wrapper */
+.cell-edit-modal-editor {
+  width: 100%;
+}
+
+/* Text Input */
+.cell-edit-modal-input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 15px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-input:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+.cell-edit-modal-input::placeholder {
+  color: var(--text-quaternary);
+}
+
+/* Textarea for Long Text */
+.cell-edit-modal-textarea-wrapper {
+  position: relative;
+}
+
+.cell-edit-modal-textarea {
+  width: 100%;
+  min-height: 180px;
+  max-height: 50vh;
+  padding: 14px 16px;
+  font-size: 15px;
+  line-height: 1.65;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  resize: vertical;
+  font-family: inherit;
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-textarea:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+.cell-edit-modal-textarea-resize {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  color: var(--text-quaternary);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* Number Input */
+.cell-edit-modal-number-wrapper {
+  display: inline-flex;
+  position: relative;
+  max-width: 200px;
+}
+
+.cell-edit-modal-number-input {
+  width: 100%;
+  padding: 12px 16px;
+  font-size: 15px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-fast);
+  text-align: left;
+  font-feature-settings: 'tnum';
+}
+
+.cell-edit-modal-number-input:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+/* Date Input */
+.cell-edit-modal-date-wrapper {
+  position: relative;
+  display: inline-flex;
+  max-width: 300px;
+}
+
+.cell-edit-modal-date-input {
+  width: 100%;
+  padding: 12px 40px 12px 16px;
+  font-size: 15px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-date-input:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+.cell-edit-modal-date-icon {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+  font-size: 16px;
+}
+
+/* Single Select */
+.cell-edit-modal-select-wrapper {
+  position: relative;
+}
+
+.cell-edit-modal-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-select-trigger:hover {
+  border-color: var(--border-hover);
+}
+
+.cell-edit-modal-select-trigger:focus {
+  outline: none;
+  border-color: var(--primary-400);
+  box-shadow: 0 0 0 3px var(--primary-100);
+}
+
+.cell-edit-modal-select-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.cell-edit-modal-select-placeholder {
+  color: var(--text-quaternary);
+  font-size: 15px;
+}
+
+.cell-edit-modal-select-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cell-edit-modal-select-icons .cell-edit-modal-info-btn {
+  margin-right: 4px;
+}
+
+.cell-edit-modal-select-caret {
+  color: var(--text-muted);
+  font-size: 14px;
+  transition: transform 0.2s ease;
+}
+
+.cell-edit-modal-select-wrapper.open .cell-edit-modal-select-caret {
+  transform: rotate(180deg);
+}
+
+/* Select Dropdown */
+.cell-edit-modal-select-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+  max-height: 280px;
+  overflow: hidden;
+  display: none;
+}
+
+.cell-edit-modal-select-wrapper.open .cell-edit-modal-select-dropdown {
+  display: flex;
+  flex-direction: column;
+}
+
+.cell-edit-modal-select-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-select-option:hover {
+  background: var(--bg-tertiary);
+}
+
+.cell-edit-modal-select-option.selected {
+  background: var(--primary-50);
+}
+
+.cell-edit-modal-select-radio {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-primary);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-select-option.selected .cell-edit-modal-select-radio {
+  border-color: var(--primary-500);
+}
+
+.cell-edit-modal-select-option.selected .cell-edit-modal-select-radio::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary-500);
+}
+
+.cell-edit-modal-select-option-label {
+  flex: 1;
+}
+
+.cell-edit-modal-select-option .cell-edit-modal-info-btn {
+  opacity: 0.6;
+}
+
+.cell-edit-modal-select-option:hover .cell-edit-modal-info-btn {
+  opacity: 1;
+}
+
+/* Multi-Select */
+.cell-edit-modal-multiselect-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cell-edit-modal-multiselect-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 36px;
+  align-items: center;
+}
+
+.cell-edit-modal-multiselect-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 10px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-multiselect-chip .cell-edit-modal-info-btn {
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  margin: 0;
+}
+
+.cell-edit-modal-multiselect-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: rgba(0, 0, 0, 0.1);
+  color: inherit;
+  cursor: pointer;
+  border-radius: 50%;
+  font-size: 10px;
+  transition: var(--transition-fast);
+  margin-left: 2px;
+}
+
+.cell-edit-modal-multiselect-chip-remove:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.cell-edit-modal-multiselect-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  border: 1px dashed var(--border-primary);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-multiselect-add-btn:hover {
+  border-color: var(--primary-400);
+  color: var(--primary-500);
+  background: var(--primary-50);
+}
+
+.cell-edit-modal-multiselect-dropdown {
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  max-height: 240px;
+  overflow-y: auto;
+  display: none;
+}
+
+.cell-edit-modal-multiselect-wrapper.open .cell-edit-modal-multiselect-dropdown {
+  display: block;
+}
+
+.cell-edit-modal-multiselect-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-multiselect-option:hover {
+  background: var(--bg-tertiary);
+}
+
+.cell-edit-modal-multiselect-checkbox {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-primary);
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: var(--transition-fast);
+  color: white;
+  font-size: 11px;
+}
+
+.cell-edit-modal-multiselect-option.selected .cell-edit-modal-multiselect-checkbox {
+  background: var(--primary-500);
+  border-color: var(--primary-500);
+}
+
+.cell-edit-modal-multiselect-option-label {
+  flex: 1;
+}
+
+/* Checkbox */
+.cell-edit-modal-checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.cell-edit-modal-checkbox-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.cell-edit-modal-checkbox-visual {
+  font-size: 24px;
+  color: var(--text-muted);
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-checkbox-control.checked .cell-edit-modal-checkbox-visual {
+  color: var(--primary-500);
+}
+
+.cell-edit-modal-checkbox-label {
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+/* Info Popover */
+.cell-edit-modal-info-popover {
+  position: absolute;
+  z-index: 200;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 12px 16px;
+  max-width: 320px;
+  min-width: 200px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+
+.cell-edit-modal-info-popover::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 16px;
+  width: 10px;
+  height: 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-right: none;
+  border-bottom: none;
+  transform: rotate(45deg);
+}
+
+.cell-edit-modal-info-popover-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.cell-edit-modal-info-popover-content {
+  color: var(--text-secondary);
+}
+
+.cell-edit-modal-info-popover-empty {
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+/* History Section */
+.cell-edit-modal-history {
+  border-top: 1px solid var(--border-light);
+  padding-top: 12px;
+}
+
+.cell-edit-modal-history-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.cell-edit-modal-history-toggle:hover {
+  color: var(--text-primary);
+}
+
+.cell-edit-modal-history-toggle .toggle-icon {
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.cell-edit-modal-history-toggle.expanded .toggle-icon {
+  transform: rotate(90deg);
+}
+
+.cell-edit-modal-history-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.cell-edit-modal-history-content {
+  display: none;
+  padding-top: 8px;
+}
+
+.cell-edit-modal-history-toggle.expanded + .cell-edit-modal-history-content {
+  display: block;
+}
+
+.cell-edit-modal-history-events {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cell-edit-modal-history-event {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.cell-edit-modal-history-event-icon {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-top: 1px;
+}
+
+.cell-edit-modal-history-event-content {
+  flex: 1;
+}
+
+.cell-edit-modal-history-event-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.cell-edit-modal-history-event-agent {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.cell-edit-modal-history-event-time {
+  color: var(--text-quaternary);
+}
+
+.cell-edit-modal-history-event-change {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cell-edit-modal-history-event-old {
+  text-decoration: line-through;
+  color: var(--text-muted);
+  background: var(--danger-50);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.cell-edit-modal-history-event-arrow {
+  color: var(--text-quaternary);
+  font-size: 11px;
+}
+
+.cell-edit-modal-history-event-new {
+  color: var(--text-primary);
+  background: var(--success-50);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.cell-edit-modal-history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.cell-edit-modal-history-empty i {
+  font-size: 24px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+/* Readonly State */
+.cell-edit-modal-readonly {
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+}
+
+.cell-edit-modal-readonly-value {
+  font-size: 15px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.cell-edit-modal-readonly-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.cell-edit-modal-readonly-notice i {
+  font-size: 14px;
+}
+
+/* Dark Theme Adjustments */
+:root.dark-theme .cell-edit-modal-select-option.selected,
+.dark-theme .cell-edit-modal-select-option.selected {
+  background: rgba(59, 130, 246, 0.15);
+}
+
+:root.dark-theme .cell-edit-modal-multiselect-chip-remove,
+.dark-theme .cell-edit-modal-multiselect-chip-remove {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+:root.dark-theme .cell-edit-modal-multiselect-chip-remove:hover,
+.dark-theme .cell-edit-modal-multiselect-chip-remove:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+:root.dark-theme .cell-edit-modal-history-event-old,
+.dark-theme .cell-edit-modal-history-event-old {
+  background: rgba(239, 68, 68, 0.15);
+}
+
+:root.dark-theme .cell-edit-modal-history-event-new,
+.dark-theme .cell-edit-modal-history-event-new {
+  background: rgba(34, 197, 94, 0.15);
+}
+
 /* HTML Preview Modal */
 .html-preview-modal-content {
   padding: 8px 0;
