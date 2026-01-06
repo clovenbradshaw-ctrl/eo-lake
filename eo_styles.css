@@ -24004,15 +24004,15 @@ body.has-picked-up .browser-tab:hover {
 
 /* Modal Sizes */
 .eo-modal-small {
-  width: 360px;
+  width: 420px;
 }
 
 .eo-modal-medium {
-  width: 480px;
+  width: 560px;
 }
 
 .eo-modal-large {
-  width: 640px;
+  width: 720px;
 }
 
 /* Extra large modal for formula editor */
