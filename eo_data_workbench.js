@@ -3792,7 +3792,8 @@ class EODataWorkbench {
   _loadSetRecords(setId) {
     // First check for IndexedDB storage (takes priority over legacy lazy loading)
     const set = this.sets.find(s => s.id === setId);
-    if (set && set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+    // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+    if (set && set._recordsInIndexedDB && set.records === undefined) {
       // Load from IndexedDB asynchronously and re-render when done
       this._ensureSetRecords(set).then(() => {
         this._renderView();
@@ -3825,7 +3826,8 @@ class EODataWorkbench {
     // Priority 1: Load current set records first (user sees this immediately)
     if (this.currentSetId) {
       const currentSet = this.sets.find(s => s.id === this.currentSetId);
-      if (currentSet && currentSet._recordsInIndexedDB && (!currentSet.records || currentSet.records.length === 0)) {
+      // Check for undefined specifically - empty array means already loaded (no records in IndexedDB)
+      if (currentSet && currentSet._recordsInIndexedDB && currentSet.records === undefined) {
         console.log(`[IndexedDB] Loading current set records: ${currentSet.name}`);
         loadingPromises.push(
           this._ensureSetRecords(currentSet).then(() => {
@@ -3839,7 +3841,8 @@ class EODataWorkbench {
 
     // Priority 2: Load all other sets with _recordsInIndexedDB flag (background)
     for (const set of this.sets) {
-      if (set.id !== this.currentSetId && set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+      // Check for undefined specifically - empty array means already loaded (no records in IndexedDB)
+      if (set.id !== this.currentSetId && set._recordsInIndexedDB && set.records === undefined) {
         loadingPromises.push(
           this._ensureSetRecords(set).then(() => {
             console.log(`[IndexedDB] Background loaded ${set.records?.length || 0} records for set: ${set.name}`);
@@ -3850,7 +3853,8 @@ class EODataWorkbench {
 
     // Priority 3: Load all sources with _recordsInIndexedDB flag
     for (const source of (this.sources || [])) {
-      if (source._recordsInIndexedDB && (!source.records || source.records.length === 0)) {
+      // Check for undefined specifically - empty array means already loaded (no records in IndexedDB)
+      if (source._recordsInIndexedDB && source.records === undefined) {
         loadingPromises.push(
           this._ensureSourceRecords(source).then(() => {
             console.log(`[IndexedDB] Loaded ${source.records?.length || 0} records for source: ${source.name}`);
@@ -4227,7 +4231,8 @@ class EODataWorkbench {
     }
 
     // Check if records need to be loaded from IndexedDB
-    if (set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+    // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+    if (set._recordsInIndexedDB && set.records === undefined) {
       return this._loadSetRecordsFromIndexedDB(set);
     }
 
@@ -4259,7 +4264,8 @@ class EODataWorkbench {
         }
 
         // Check if records are in IndexedDB
-        if (source._recordsInIndexedDB && (!source.records || source.records.length === 0)) {
+        // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+        if (source._recordsInIndexedDB && source.records === undefined) {
           return this._loadSourceRecordsFromIndexedDB(source);
         }
 
@@ -4352,7 +4358,8 @@ class EODataWorkbench {
     if (!source) return [];
 
     // Check if records need to be loaded from IndexedDB
-    if (source._recordsInIndexedDB && (!source.records || source.records.length === 0)) {
+    // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+    if (source._recordsInIndexedDB && source.records === undefined) {
       return this._loadSourceRecordsFromIndexedDB(source);
     }
 
@@ -4367,7 +4374,8 @@ class EODataWorkbench {
 
     // Safety check: If records are in IndexedDB but not loaded, trigger async load
     // This should rarely happen if _loadRecordsFromIndexedDBOnStartup and _selectSet work correctly
-    if (set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+    // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+    if (set._recordsInIndexedDB && set.records === undefined) {
       console.warn('[DATA INTEGRITY] Records in IndexedDB not yet loaded - triggering background load');
       this._ensureSetRecords(set).then(() => {
         // Re-render once records are loaded
@@ -33112,7 +33120,8 @@ class EODataWorkbench {
     if (!linkedSet) return;
 
     // Ensure records are loaded
-    if (linkedSet._recordsInIndexedDB && (!linkedSet.records || linkedSet.records.length === 0)) {
+    // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+    if (linkedSet._recordsInIndexedDB && linkedSet.records === undefined) {
       await this._ensureSetRecords(linkedSet);
     }
 
@@ -34437,7 +34446,8 @@ class EODataWorkbench {
 
     // CRITICAL: Ensure linked set records are loaded from IndexedDB before rendering
     // This fixes the issue where linking across sets showed empty dropdown
-    if (linkedSet._recordsInIndexedDB && (!linkedSet.records || linkedSet.records.length === 0)) {
+    // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+    if (linkedSet._recordsInIndexedDB && linkedSet.records === undefined) {
       cell.innerHTML = '<div class="link-editor-loading"><i class="ph ph-spinner ph-spin"></i> Loading records...</div>';
       await this._ensureSetRecords(linkedSet);
     }
@@ -35233,7 +35243,8 @@ class EODataWorkbench {
 
     // Safety check: If records are in IndexedDB but not loaded, this is a bug
     // The records should have been loaded by _loadRecordsFromIndexedDBOnStartup or _selectSet
-    if (set && set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+    // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+    if (set && set._recordsInIndexedDB && set.records === undefined) {
       console.error('[DATA LOSS PREVENTION] Attempted to update record but records not loaded from IndexedDB. Loading now...');
       this._ensureSetRecords(set).then(() => {
         // Retry the update after records are loaded
@@ -41403,7 +41414,8 @@ class EODataWorkbench {
 
       // CRITICAL: Ensure records are loaded from IndexedDB before displaying preview
       // This fixes the issue where linking to sets stored in IndexedDB showed no records
-      if (set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+      // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+      if (set._recordsInIndexedDB && set.records === undefined) {
         previewContainer.innerHTML = `
           <div class="link-preview-loading" style="color: var(--text-muted); font-size: 12px;">
             <i class="ph ph-spinner ph-spin" style="margin-right: 6px;"></i>Loading records...
@@ -43518,7 +43530,8 @@ class EODataWorkbench {
     }
 
     // CRITICAL: Ensure linked set records are loaded from IndexedDB before rendering
-    if (linkedSet._recordsInIndexedDB && (!linkedSet.records || linkedSet.records.length === 0)) {
+    // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+    if (linkedSet._recordsInIndexedDB && linkedSet.records === undefined) {
       el.innerHTML = '<div class="detail-link-loading"><i class="ph ph-spinner ph-spin"></i> Loading records...</div>';
       await this._ensureSetRecords(linkedSet);
     }
@@ -47941,7 +47954,8 @@ class EODataWorkbench {
       }
 
       // Ensure records are loaded from IndexedDB if needed
-      if (set._recordsInIndexedDB && (!set.records || set.records.length === 0)) {
+      // Use undefined check specifically - empty array means already loaded (no records in IndexedDB)
+      if (set._recordsInIndexedDB && set.records === undefined) {
         await this._ensureSetRecords(set);
       }
 
