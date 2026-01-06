@@ -3199,7 +3199,7 @@ class EODataWorkbench {
       if (!e.target.closest('.context-menu')) {
         this.elements.contextMenu?.classList.remove('active');
       }
-      if (!e.target.closest('.field-type-picker') && !e.target.closest('.col-add') && !e.target.closest('.context-menu')) {
+      if (!e.target.closest('.field-type-picker') && !e.target.closest('.col-add') && !e.target.closest('.context-menu') && !e.target.closest('#fields-panel-add-field') && !e.target.closest('#fields-panel-empty-add')) {
         this.elements.fieldTypePicker?.classList.remove('active');
       }
       // Close New action dropdown when clicking outside
