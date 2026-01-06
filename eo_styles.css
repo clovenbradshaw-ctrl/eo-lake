@@ -45015,8 +45015,8 @@ html.light-theme .formula-explainer-fn-name.fn-slate { color: #475569; }
   white-space: nowrap;
 }
 
-/* Stability Column */
-.col-stability {
+/* Stability Column - use wrapper inside td, not td itself (display:flex on td breaks table-layout) */
+.def-stability-cell {
   display: flex;
   align-items: center;
   gap: 6px;

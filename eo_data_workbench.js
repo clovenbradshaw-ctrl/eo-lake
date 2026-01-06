@@ -19195,8 +19195,10 @@ class EODataWorkbench {
 
         <!-- Stability -->
         <td class="col-stability">
-          <span class="def-stability-dot" style="background: ${stabilityInfo.color};" title="${stabilityInfo.stability}: ${stabilityInfo.description}"></span>
-          <span class="def-stability-label" style="color: ${stabilityInfo.color};">${stabilityInfo.stability}</span>
+          <div class="def-stability-cell">
+            <span class="def-stability-dot" style="background: ${stabilityInfo.color};" title="${stabilityInfo.stability}: ${stabilityInfo.description}"></span>
+            <span class="def-stability-label" style="color: ${stabilityInfo.color};">${stabilityInfo.stability}</span>
+          </div>
         </td>
 
         <!-- Time Sensitivity -->
