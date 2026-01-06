@@ -4,16 +4,29 @@
  * Implements agent declaration for the Experience Engine.
  * An agent is the entity making claims/observations in the system.
  *
+ * IMPORTANT: User vs Agent vs Session
+ * - User: Persistent identity (from eo_user.js) - the account holder
+ * - Agent: The entity performing an action (usually the user, but can be system)
+ * - Session: A temporal binding of a user to a working context
+ *
+ * Every session SHOULD be bound to a User. Anonymous sessions are temporary
+ * and should prompt for user identification for provenance completeness.
+ *
  * Agent identity flows into:
  * - The 'agent' element of the 9-element provenance schema
- * - The 'actor' field of all events
+ * - The 'actor' field of all events (format: user:{userId} or agent:{agentId})
  * - The uploadContext for imports
  *
  * Session lifecycle:
  * 1. Session created at app startup (anonymous by default)
- * 2. Agent can be "declared" with identity information
- * 3. Session ID persists across page reloads (localStorage)
- * 4. New sessions can be started explicitly
+ * 2. User logs in → session bound to userId
+ * 3. Agent can be further "declared" with metadata
+ * 4. Session ID persists across page reloads (localStorage)
+ * 5. New sessions can be started explicitly
+ *
+ * Delegation:
+ * System operations can be "delegated" from a user, creating a clear
+ * chain of attribution: user → delegated action → system execution
  */
 
 // ============================================================================
@@ -63,13 +76,24 @@ const SessionStatus = Object.freeze({
  *
  * A session binds an agent identity to a time window of activity.
  * All events created during the session are attributed to this agent.
+ *
+ * User Binding:
+ * Sessions should be bound to a User for complete provenance.
+ * The userId takes precedence over agentId for attribution.
  */
 class AgentSession {
   constructor(options = {}) {
     // Session identity
     this.sessionId = options.sessionId || this._generateSessionId();
 
-    // Agent identity (can be declared later)
+    // USER BINDING (primary attribution)
+    // When bound to a user, this takes precedence for provenance
+    this.userId = options.userId || null;
+    this.userDisplayName = options.userDisplayName || null;
+    this.userRole = options.userRole || null;
+
+    // Agent identity (secondary, can be declared later)
+    // Used for non-user agents or when operating without user binding
     this.agentId = options.agentId || null;
     this.agentType = options.agentType || AgentType.ANONYMOUS;
     this.agentName = options.agentName || null;
@@ -79,9 +103,15 @@ class AgentSession {
     this.institution = options.institution || null;
     this.role = options.role || null;
 
+    // Delegation tracking
+    // When system acts on behalf of user, track the delegation chain
+    this.delegatedFrom = options.delegatedFrom || null; // userId who initiated
+    this.delegationReason = options.delegationReason || null;
+
     // Session metadata
     this.createdAt = options.createdAt || new Date().toISOString();
     this.declaredAt = options.declaredAt || null;
+    this.boundAt = options.boundAt || null; // When bound to user
     this.expiresAt = options.expiresAt || null;
     this.status = options.status || SessionStatus.ACTIVE;
 
@@ -214,10 +244,94 @@ class AgentSession {
   }
 
   /**
+   * Bind session to a User (from eo_user.js)
+   *
+   * This is the preferred method for establishing provenance.
+   * Once bound, all actions in this session are attributed to the user.
+   *
+   * @param {Object|string} user - User object or userId
+   * @param {Object} options - Additional binding options
+   */
+  bindToUser(user, options = {}) {
+    const previousState = this.toIdentity();
+
+    if (typeof user === 'string') {
+      // Just userId provided
+      this.userId = user;
+    } else if (user && typeof user === 'object') {
+      // User object provided
+      this.userId = user.id || user.userId;
+      this.userDisplayName = user.displayName || user.getDisplayName?.() || null;
+      this.userRole = user.role || null;
+      this.email = this.email || user.email || null;
+
+      // If user has a name but agent doesn't, use it
+      if (!this.agentName && this.userDisplayName) {
+        this.agentName = this.userDisplayName;
+      }
+    }
+
+    // Update agent type if was anonymous
+    if (this.agentType === AgentType.ANONYMOUS) {
+      this.agentType = AgentType.PERSON;
+    }
+
+    this.boundAt = new Date().toISOString();
+
+    // Persist changes
+    this.save();
+
+    // Notify subscribers
+    this._notify('bound', { previous: previousState, current: this.toIdentity(), userId: this.userId });
+
+    return this;
+  }
+
+  /**
+   * Check if session is bound to a user
+   */
+  isBoundToUser() {
+    return this.userId !== null;
+  }
+
+  /**
+   * Get the bound userId
+   */
+  getUserId() {
+    return this.userId;
+  }
+
+  /**
+   * Create a delegated session for system operations
+   *
+   * When the system needs to perform an action on behalf of a user
+   * (e.g., scheduled sync, background processing), create a delegated session.
+   *
+   * @param {string} reason - Why this delegation is happening
+   * @returns {AgentSession} A new session for the delegated operation
+   */
+  createDelegatedSession(reason) {
+    return new AgentSession({
+      agentType: AgentType.SYSTEM,
+      agentName: 'System (delegated)',
+      delegatedFrom: this.userId || this.agentId,
+      delegationReason: reason
+    });
+  }
+
+  /**
+   * Check if this is a delegated session
+   */
+  isDelegated() {
+    return this.delegatedFrom !== null;
+  }
+
+  /**
    * Check if the session is declared (agent identity known)
    */
   isDeclared() {
-    return this.declaredAt !== null && this.agentType !== AgentType.ANONYMOUS;
+    return (this.declaredAt !== null && this.agentType !== AgentType.ANONYMOUS) ||
+           this.isBoundToUser();
   }
 
   /**
@@ -235,20 +349,66 @@ class AgentSession {
   /**
    * Get the actor string for events
    * This is what goes into the 'actor' field of events
+   *
+   * Priority:
+   * 1. user:{userId} - if bound to a user (preferred)
+   * 2. agent:{agentId} - if agent ID declared
+   * 3. session:{sessionId} - fallback
+   *
+   * For delegated sessions, includes delegation info
    */
   getActor() {
+    // User binding takes precedence
+    if (this.userId) {
+      return `user:${this.userId}`;
+    }
     if (this.agentId) {
-      return this.agentId;
+      return `agent:${this.agentId}`;
     }
     if (this.agentName) {
-      return this.agentName;
+      // Generate a consistent agent ID from name
+      return `agent:${this._generateAgentId(this.agentName)}`;
     }
     // Fall back to session-based actor
     return `session:${this.sessionId}`;
   }
 
   /**
+   * Get full attribution object for detailed provenance
+   * Includes delegation chain if applicable
+   */
+  getAttribution() {
+    const attribution = {
+      actor: this.getActor(),
+      sessionId: this.sessionId,
+      timestamp: new Date().toISOString()
+    };
+
+    if (this.userId) {
+      attribution.userId = this.userId;
+      attribution.userDisplayName = this.userDisplayName;
+      attribution.userRole = this.userRole;
+    }
+
+    if (this.agentId) {
+      attribution.agentId = this.agentId;
+      attribution.agentType = this.agentType;
+      attribution.agentName = this.agentName;
+    }
+
+    if (this.delegatedFrom) {
+      attribution.delegatedFrom = this.delegatedFrom;
+      attribution.delegationReason = this.delegationReason;
+    }
+
+    return attribution;
+  }
+
+  /**
    * Get agent identity for the 'agent' provenance element
+   *
+   * IMPORTANT: When bound to a user, userId is the primary identifier
+   * for provenance tracking. All other fields are supplementary.
    */
   toAgentProvenance() {
     const prov = {
@@ -256,12 +416,27 @@ class AgentSession {
       declaredAt: this.declaredAt
     };
 
+    // User binding is primary for provenance
+    if (this.userId) {
+      prov.userId = this.userId;
+      prov.userDisplayName = this.userDisplayName;
+      prov.userRole = this.userRole;
+      prov.boundAt = this.boundAt;
+    }
+
+    // Agent identity (secondary)
     if (this.agentId) prov.agentId = this.agentId;
     if (this.agentType) prov.agentType = this.agentType;
     if (this.agentName) prov.agentName = this.agentName;
     if (this.email) prov.email = this.email;
     if (this.institution) prov.institution = this.institution;
     if (this.role) prov.role = this.role;
+
+    // Delegation chain
+    if (this.delegatedFrom) {
+      prov.delegatedFrom = this.delegatedFrom;
+      prov.delegationReason = this.delegationReason;
+    }
 
     return prov;
   }
@@ -285,12 +460,22 @@ class AgentSession {
   toIdentity() {
     return {
       sessionId: this.sessionId,
+      // User binding
+      userId: this.userId,
+      userDisplayName: this.userDisplayName,
+      userRole: this.userRole,
+      boundAt: this.boundAt,
+      // Agent identity
       agentId: this.agentId,
       agentType: this.agentType,
       agentName: this.agentName,
       email: this.email,
       institution: this.institution,
       role: this.role,
+      // Delegation
+      delegatedFrom: this.delegatedFrom,
+      delegationReason: this.delegationReason,
+      // Session metadata
       createdAt: this.createdAt,
       declaredAt: this.declaredAt,
       expiresAt: this.expiresAt,
@@ -419,6 +604,7 @@ class AgentSessionManager {
   constructor() {
     this._session = null;
     this._systemSession = null;
+    this._delegatedSessions = new Map(); // Track delegated sessions
   }
 
   /**
@@ -430,7 +616,8 @@ class AgentSessionManager {
       const restored = AgentSession.load();
       if (restored) {
         this._session = restored;
-        console.log('AgentSession: Restored session', this._session.sessionId);
+        console.log('AgentSession: Restored session', this._session.sessionId,
+          restored.userId ? `(user: ${restored.userId})` : '(unbound)');
         return this._session;
       }
     }
@@ -462,10 +649,70 @@ class AgentSessionManager {
         agentId: 'system',
         agentType: AgentType.SYSTEM,
         agentName: 'Lakṣaṇa System',
-        sessionId: 'system'
+        sessionId: 'system',
+        userId: 'user_system' // Link to system user
       });
     }
     return this._systemSession;
+  }
+
+  /**
+   * Bind current session to a user
+   *
+   * This is the primary way to establish user attribution for a session.
+   * Should be called after user login.
+   *
+   * @param {Object|string} user - User object or userId
+   */
+  bindToUser(user) {
+    return this.get().bindToUser(user);
+  }
+
+  /**
+   * Check if current session is bound to a user
+   */
+  isBoundToUser() {
+    return this.get().isBoundToUser();
+  }
+
+  /**
+   * Get the current user ID from the session
+   */
+  getUserId() {
+    return this.get().getUserId();
+  }
+
+  /**
+   * Create a delegated session for background/system operations
+   *
+   * Use this when the system needs to perform actions that were
+   * initiated by a user but are executed asynchronously.
+   *
+   * @param {string} reason - Why this delegation is happening
+   * @returns {AgentSession} A session for delegated operations
+   */
+  createDelegatedSession(reason) {
+    const delegated = this.get().createDelegatedSession(reason);
+    this._delegatedSessions.set(delegated.sessionId, delegated);
+    return delegated;
+  }
+
+  /**
+   * Get a delegated session by ID
+   */
+  getDelegatedSession(sessionId) {
+    return this._delegatedSessions.get(sessionId);
+  }
+
+  /**
+   * Complete a delegated session
+   */
+  completeDelegatedSession(sessionId) {
+    const session = this._delegatedSessions.get(sessionId);
+    if (session) {
+      session.terminate();
+      this._delegatedSessions.delete(sessionId);
+    }
   }
 
   /**
@@ -480,6 +727,13 @@ class AgentSessionManager {
    */
   getActor() {
     return this.get().getActor();
+  }
+
+  /**
+   * Get full attribution for detailed provenance
+   */
+  getAttribution() {
+    return this.get().getAttribution();
   }
 
   /**
@@ -553,6 +807,42 @@ function getCurrentActor() {
  */
 function getSystemActor() {
   return getSessionManager().getSystemSession().getActor();
+}
+
+/**
+ * Bind current session to a user
+ * @param {Object|string} user - User object or userId
+ */
+function bindSessionToUser(user) {
+  return getSessionManager().bindToUser(user);
+}
+
+/**
+ * Check if current session is bound to a user
+ */
+function isSessionBoundToUser() {
+  return getSessionManager().isBoundToUser();
+}
+
+/**
+ * Get current user ID from session
+ */
+function getSessionUserId() {
+  return getSessionManager().getUserId();
+}
+
+/**
+ * Get full attribution for detailed provenance
+ */
+function getCurrentAttribution() {
+  return getSessionManager().getAttribution();
+}
+
+/**
+ * Create a delegated session for background operations
+ */
+function createDelegatedSession(reason) {
+  return getSessionManager().createDelegatedSession(reason);
 }
 
 // ============================================================================
@@ -808,13 +1098,20 @@ if (typeof module !== 'undefined' && module.exports) {
     AgentSession,
     AgentSessionManager,
 
-    // Functions
+    // Core functions
     getSessionManager,
     initAgentSession,
     getAgentSession,
     declareAgent,
     getCurrentActor,
     getSystemActor,
+
+    // User binding functions
+    bindSessionToUser,
+    isSessionBoundToUser,
+    getSessionUserId,
+    getCurrentAttribution,
+    createDelegatedSession,
 
     // UI
     createAgentDeclarationForm,
@@ -832,13 +1129,20 @@ if (typeof window !== 'undefined') {
     AgentSession,
     AgentSessionManager,
 
-    // Functions
+    // Core functions
     getSessionManager,
     initAgentSession,
     getAgentSession,
     declareAgent,
     getCurrentActor,
     getSystemActor,
+
+    // User binding functions
+    bindSessionToUser,
+    isSessionBoundToUser,
+    getSessionUserId,
+    getCurrentAttribution,
+    createDelegatedSession,
 
     // UI
     createAgentDeclarationForm,
@@ -850,4 +1154,6 @@ if (typeof window !== 'undefined') {
   window.getAgentSession = getAgentSession;
   window.declareAgent = declareAgent;
   window.getCurrentActor = getCurrentActor;
+  window.bindSessionToUser = bindSessionToUser;
+  window.getCurrentAttribution = getCurrentAttribution;
 }
