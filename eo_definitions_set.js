@@ -142,6 +142,7 @@ class DefinitionsSetManager {
         name: 'Column Definitions',
         icon: 'ph-book-open',
         isSystemSet: true,
+        displayNameFieldId: null, // Defaults to first column (Term)
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         fields: DEFINITIONS_SET_SCHEMA.fields.map(f => ({

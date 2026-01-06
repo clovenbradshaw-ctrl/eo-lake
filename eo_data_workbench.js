@@ -3567,6 +3567,11 @@ class EODataWorkbench {
             set.fields = set.fields.map(field => ensureValidField(field));
           }
 
+          // Migration: Ensure displayNameFieldId property exists (defaults to null for first column fallback)
+          if (set.displayNameFieldId === undefined) {
+            set.displayNameFieldId = null;
+          }
+
           // TABLE RULE 5: Validate and auto-repair field ID consistency
           // This catches issues from legacy data or corrupted imports
           const validation = validateFieldIdConsistency(set);
