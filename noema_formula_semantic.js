@@ -5,7 +5,7 @@
  * Semantic functions that manage meaning, not just compute values.
  *
  * These functions are inspired by Advaita Vedanta (AV) philosophy and
- * represent the unique differentiators of the Lakṣaṇa formula system.
+ * represent the unique differentiators of the noema formula system.
  *
  * PRINCIPLES:
  * - Values carry epistemological metadata

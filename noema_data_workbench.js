@@ -1,5 +1,5 @@
 /**
- * Lakṣaṇa - Data Workbench
+ * noema - Data Workbench
  * Airtable-style data management with EO sync principles
  *
  * Core Concepts (Nine Rules-Compliant Hierarchy):
@@ -1745,7 +1745,7 @@ class EODataWorkbench {
           <div class="settings-section">
             <h2>About</h2>
             <div class="settings-about">
-              <p><strong>Lakṣaṇa</strong></p>
+              <p><strong>noema</strong></p>
               <p>Version 1.0.0</p>
               <p class="settings-about-desc">A data workbench for organizing and transforming your data.</p>
             </div>
@@ -3448,7 +3448,7 @@ class EODataWorkbench {
         };
         // Only save if we have data to prevent overwriting with empty state
         if (this.sets?.length > 0 || this.browserTabs?.length > 0) {
-          localStorage.setItem('eo_lake_backup', JSON.stringify(quickSave));
+          localStorage.setItem('noema_backup', JSON.stringify(quickSave));
         }
       } catch (err) {
         console.warn('Failed to create backup on unload:', err);
@@ -3462,10 +3462,10 @@ class EODataWorkbench {
 
   _loadData() {
     try {
-      const data = localStorage.getItem('eo_lake_data');
+      const data = localStorage.getItem('noema_data');
 
       // Check for backup data - this helps recover from interrupted saves
-      const backupData = localStorage.getItem('eo_lake_backup');
+      const backupData = localStorage.getItem('noema_backup');
       if (backupData && !data) {
         // Main data was lost but backup exists - try to recover
         console.log('[Recovery] Main data missing, attempting recovery from backup...');
@@ -3482,7 +3482,7 @@ class EODataWorkbench {
               tabs: this.browserTabs.length
             });
             // Clear backup after successful recovery
-            localStorage.removeItem('eo_lake_backup');
+            localStorage.removeItem('noema_backup');
             return; // Skip normal loading since we recovered
           }
         } catch (backupErr) {
@@ -3495,7 +3495,7 @@ class EODataWorkbench {
 
         // Clear old backup if main data is intact
         if (backupData) {
-          localStorage.removeItem('eo_lake_backup');
+          localStorage.removeItem('noema_backup');
         }
 
         // Load projects (super objects containing sources, sets, definitions, exports)
@@ -3944,7 +3944,7 @@ class EODataWorkbench {
     for (let trimLevel = 0; trimLevel <= 4; trimLevel++) {
       try {
         const dataToSave = prepareDataForSave(trimLevel);
-        localStorage.setItem('eo_lake_data', JSON.stringify(dataToSave));
+        localStorage.setItem('noema_data', JSON.stringify(dataToSave));
 
         // If we had to trim data, update our in-memory state to match
         if (trimLevel > 0) {
@@ -47290,14 +47290,14 @@ function getDataWorkbench() {
 // Debug helper function to reset demo data
 function resetDemoData() {
   console.log('[Debug] Clearing localStorage and reloading...');
-  localStorage.removeItem('eo_lake_data');
+  localStorage.removeItem('noema_data');
   console.log('[Debug] LocalStorage cleared. Refreshing page to recreate demo data...');
   window.location.reload();
 }
 
 // Debug helper function to diagnose demo data issues
 function debugDemoData() {
-  const data = localStorage.getItem('eo_lake_data');
+  const data = localStorage.getItem('noema_data');
   if (!data) {
     console.log('[Debug] No data in localStorage');
     return;

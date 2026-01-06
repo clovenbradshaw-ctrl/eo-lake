@@ -1,5 +1,5 @@
 /**
- * Lakṣaṇa Shared Utilities
+ * noema Shared Utilities
  * Consolidated utility functions to avoid code duplication across modules.
  */
 

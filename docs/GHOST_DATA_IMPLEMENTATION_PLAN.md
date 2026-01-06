@@ -2,7 +2,7 @@
 
 ## Overview
 
-This plan introduces "Ghost Data" - deleted records that continue to "haunt" the system by influencing behavior, providing audit trails, and enabling recovery. Based on patterns from eo-activibase's tombstone and supersession mechanisms, adapted for eo-lake's Nine Rules architecture.
+This plan introduces "Ghost Data" - deleted records that continue to "haunt" the system by influencing behavior, providing audit trails, and enabling recovery. Based on patterns from eo-activibase's tombstone and supersession mechanisms, adapted for noema's Nine Rules architecture.
 
 ## Philosophy: Ghosts Are First-Class Citizens
 
@@ -15,10 +15,10 @@ In the EO framework, deletion is not erasure - it's a transformation. Ghost data
 
 ---
 
-## Current State in eo-lake
+## Current State in noema
 
 ### Already Implemented
-- **Tombstone events** in `eo_event_store.js` - deletion recorded as GIVEN events
+- **Tombstone events** in `noema_event_store.js` - deletion recorded as GIVEN events
 - **Supersession** for MEANT events - old interpretations replaced, not deleted
 - **`tombstoned: true` flag** on derived entities
 - **NUL operator** in activity recording
@@ -38,7 +38,7 @@ In the EO framework, deletion is not erasure - it's a transformation. Ghost data
 
 ### Phase 1: Ghost Data Registry
 
-**New Module: `eo_ghost_registry.js`**
+**New Module: `noema_ghost_registry.js`**
 
 ```javascript
 /**
@@ -99,7 +99,7 @@ class EOGhostRegistry {
 When a deleted entity was referenced by other entities:
 
 ```javascript
-// In eo_state_derivation.js
+// In noema_state_derivation.js
 deriveEntity(entityId) {
   const entity = this._computeEntity(entityId);
 
@@ -243,7 +243,7 @@ renderResurrectionDialog(ghost) {
 **New Events:**
 
 ```javascript
-// Add to eo_event_bus.js EVENT_TYPES
+// Add to noema_event_bus.js EVENT_TYPES
 ENTITY_GHOSTED: 'entity:ghosted',
 ENTITY_RESURRECTED: 'entity:resurrected',
 HAUNT_DETECTED: 'ghost:haunt_detected',
@@ -280,7 +280,7 @@ eventBus.on('ENTITY_UPDATED', (event) => {
 **Extend Activity Atoms for Ghost Operations:**
 
 ```javascript
-// In eo_activity.js
+// In noema_activity.js
 const GHOST_ACTIVITIES = {
   ghost: (entityId, reason) => ({
     operator: 'NUL',
@@ -312,7 +312,7 @@ const GHOST_ACTIVITIES = {
 **Add Ghost Data Rules to Compliance Checker:**
 
 ```javascript
-// In eo_compliance.js
+// In noema_compliance.js
 GHOST_COMPLIANCE_RULES = {
   // Ghosts must have valid tombstone events
   GHOST_GROUNDED: (ghost) => {
@@ -350,7 +350,7 @@ GHOST_COMPLIANCE_RULES = {
 **IndexedDB Schema Extension:**
 
 ```javascript
-// Add to eo_persistence.js
+// Add to noema_persistence.js
 const GHOST_STORE = {
   name: 'ghosts',
   keyPath: 'id',
@@ -380,17 +380,17 @@ const HAUNT_STORE = {
 
 | File | Changes |
 |------|---------|
-| **NEW: `eo_ghost_registry.js`** | Core ghost data management module |
-| `eo_event_store.js` | Hook ghost registration on tombstone creation |
-| `eo_state_derivation.js` | Add haunt detection to entity derivation |
-| `eo_event_bus.js` | Add ghost-related event types |
-| `eo_activity.js` | Add ghost activity recording |
-| `eo_compliance.js` | Add ghost compliance rules |
-| `eo_persistence.js` | Add ghost and haunt IndexedDB stores |
-| `eo_data_workbench.js` | Add ghost UI components, trash view |
-| `eo_view_hierarchy.js` | Add ghost-view type |
-| `eo_horizon.js` | Add ghost visibility configuration |
-| `eo_principles_transparency.js` | Show ghost operations in transparency panel |
+| **NEW: `noema_ghost_registry.js`** | Core ghost data management module |
+| `noema_event_store.js` | Hook ghost registration on tombstone creation |
+| `noema_state_derivation.js` | Add haunt detection to entity derivation |
+| `noema_event_bus.js` | Add ghost-related event types |
+| `noema_activity.js` | Add ghost activity recording |
+| `noema_compliance.js` | Add ghost compliance rules |
+| `noema_persistence.js` | Add ghost and haunt IndexedDB stores |
+| `noema_data_workbench.js` | Add ghost UI components, trash view |
+| `noema_view_hierarchy.js` | Add ghost-view type |
+| `noema_horizon.js` | Add ghost visibility configuration |
+| `noema_principles_transparency.js` | Show ghost operations in transparency panel |
 
 ---
 
@@ -452,13 +452,13 @@ const HAUNT_STORE = {
 
 ## Implementation Order
 
-1. `eo_ghost_registry.js` - Core module (foundation)
+1. `noema_ghost_registry.js` - Core module (foundation)
 2. Event bus integration - Ghost events
-3. `eo_event_store.js` hooks - Auto-register ghosts
-4. `eo_state_derivation.js` - Haunt detection
-5. `eo_persistence.js` - Ghost storage
-6. `eo_activity.js` - Ghost activity recording
-7. `eo_compliance.js` - Ghost rules
+3. `noema_event_store.js` hooks - Auto-register ghosts
+4. `noema_state_derivation.js` - Haunt detection
+5. `noema_persistence.js` - Ghost storage
+6. `noema_activity.js` - Ghost activity recording
+7. `noema_compliance.js` - Ghost rules
 8. UI components - Indicators, trash view, resurrection
 9. Horizon integration - Visibility controls
 10. Transparency panel - Ghost operation display

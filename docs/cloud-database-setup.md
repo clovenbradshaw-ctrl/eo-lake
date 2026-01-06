@@ -1,6 +1,6 @@
 # Cloud Database Setup
 
-This document explains how to set up the cloud database for EO Lake sync.
+This document explains how to set up the cloud database for noema sync.
 
 ## Architecture
 
@@ -280,14 +280,14 @@ WHERE timestamp < NOW() - INTERVAL '1 year';
 ### Development (SQLite)
 
 ```bash
-sqlite3 eo_lake.db < schema.sql
+sqlite3 noema.db < schema.sql
 ```
 
 ### Production (PostgreSQL)
 
 ```bash
-psql -d eo_lake -f schema.sql
-psql -d eo_lake -f indexes.sql
+psql -d noema -f schema.sql
+psql -d noema -f indexes.sql
 ```
 
 ### Docker Compose Example
@@ -297,7 +297,7 @@ services:
   db:
     image: postgres:16
     environment:
-      POSTGRES_DB: eo_lake
+      POSTGRES_DB: noema
       POSTGRES_USER: eo
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:

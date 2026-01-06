@@ -2,7 +2,7 @@
 
 > **Canonical Reference**: How all 6 layers track activities using EO operators.
 >
-> Every user action in EO Lake is recorded as an activity using a composition of the 9 canonical operators.
+> Every user action in noema is recorded as an activity using a composition of the 9 canonical operators.
 
 ---
 

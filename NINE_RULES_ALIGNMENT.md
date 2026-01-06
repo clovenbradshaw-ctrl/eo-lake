@@ -1,12 +1,12 @@
-# EO Lake - Nine Rules Alignment
+# noema - Nine Rules Alignment
 
-This document details how EO Lake aligns with the **Nine Rules of Experience Engines** — a rigorous philosophical framework for building trustworthy, transparent data systems that prevent fabrication, erasure, and dogmatic thinking.
+This document details how noema aligns with the **Nine Rules of Experience Engines** — a rigorous philosophical framework for building trustworthy, transparent data systems that prevent fabrication, erasure, and dogmatic thinking.
 
 ---
 
 ## Overview
 
-EO Lake is an Airtable-style data workbench built from the ground up on Experience Engine principles. Every architectural decision, from the append-only event log to the horizon-gated access layer, directly implements one or more of the Nine Rules.
+noema is an Airtable-style data workbench built from the ground up on Experience Engine principles. Every architectural decision, from the append-only event log to the horizon-gated access layer, directly implements one or more of the Nine Rules.
 
 ### The Fundamental Axiom
 
@@ -37,10 +37,10 @@ The Nine Rules are organized into three philosophical parts:
 
 **Violation Prevented:** Categorical Confusion
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_event_store.js
+// noema_event_store.js
 const EventType = Object.freeze({
   GIVEN: 'given',
   MEANT: 'meant'
@@ -56,7 +56,7 @@ if (!event.type || !Object.values(EventType).includes(event.type)) {
 }
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ All events carry an explicit `type` field
 - ✅ Event types are frozen enums — no runtime modification
 - ✅ Validation rejects any event without proper classification
@@ -70,10 +70,10 @@ if (!event.type || !Object.values(EventType).includes(event.type)) {
 
 **Violation Prevented:** Confabulation (making up experiences)
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_event_store.js - Parent chain validation
+// noema_event_store.js - Parent chain validation
 if (event.type === EventType.GIVEN && event.parents) {
   for (const parentId of event.parents) {
     const parent = this._index.get(parentId);
@@ -95,7 +95,7 @@ const GivenMode = Object.freeze({
 });
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ Given events trace only to external sources or other Given events
 - ✅ The compliance checker validates derivation chains
 - ✅ Import operations produce Given events with `mode: RECEIVED`
@@ -110,10 +110,10 @@ const GivenMode = Object.freeze({
 
 **Violation Prevented:** Gaslighting (erasing or altering history)
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_event_store.js - Append-only enforcement
+// noema_event_store.js - Append-only enforcement
 append(event) {
   // Events are frozen to prevent mutation
   Object.freeze(finalEvent);
@@ -145,7 +145,7 @@ createTombstone(targetId, actor, reason, context) {
 }
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ No `delete()` or `update()` methods exist on the event store
 - ✅ All events are `Object.freeze()`-ed on append
 - ✅ "Deletion" creates tombstone events, preserving the original
@@ -164,10 +164,10 @@ createTombstone(targetId, actor, reason, context) {
 
 **Violation Prevented:** Context Collapse (treating partial views as complete)
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_horizon.js - HorizonGate mediates ALL access
+// noema_horizon.js - HorizonGate mediates ALL access
 class HorizonGate {
   constructor(horizon, eventStore) {
     this.horizon = horizon;
@@ -199,7 +199,7 @@ class Horizon {
 }
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ All data retrieval goes through `HorizonGate`
 - ✅ Different users/contexts see different data
 - ✅ No global "see everything" endpoint (except auditing)
@@ -215,10 +215,10 @@ class Horizon {
 
 **Violation Prevented:** Foreclosure Violation (gaining access by narrowing scope)
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_horizon.js - Refinement only restricts
+// noema_horizon.js - Refinement only restricts
 refine(refinements) {
   return new Horizon({
     // Workspaces: intersection only
@@ -243,7 +243,7 @@ refine(refinements) {
 Verification is built in:
 
 ```javascript
-// eo_horizon.js - Verify restrictivity
+// noema_horizon.js - Verify restrictivity
 verifyRestrictivity(parentId, childId, eventStore) {
   const parentAvailable = parentGate.getAvailable();
   const childAvailable = childGate.getAvailable();
@@ -258,7 +258,7 @@ verifyRestrictivity(parentId, childId, eventStore) {
 }
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ `Horizon.refine()` mathematically enforces intersection
 - ✅ Focuses can only filter, never expand parent Lens
 - ✅ Compliance checker runs `verifyRestrictivity()` on all horizon pairs
@@ -273,10 +273,10 @@ verifyRestrictivity(parentId, childId, eventStore) {
 
 **Violation Prevented:** Coherence Failure (contradicting yourself at different scopes)
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_compliance.js - Coherence checking
+// noema_compliance.js - Coherence checking
 checkRule6_Coherence() {
   for (const meant of meantEvents) {
     for (const broad of validHorizons) {
@@ -299,7 +299,7 @@ checkRule6_Coherence() {
 }
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ Derivation validity is checked at all horizon levels
 - ✅ Interpretations with provenance available broadly remain valid narrowly
 - ✅ The horizon lattice forms a proper meet-semilattice
@@ -317,10 +317,10 @@ checkRule6_Coherence() {
 
 **Violation Prevented:** Groundlessness (free-floating interpretations)
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_event_store.js - Meant events require provenance
+// noema_event_store.js - Meant events require provenance
 if (event.type === EventType.MEANT) {
   if (!event.provenance || event.provenance.length === 0) {
     errors.push('RULE_7: Meant event must have non-empty provenance');
@@ -343,7 +343,7 @@ verifyGrounding(event, visited = new Set()) {
 }
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ Every Meant event has a non-empty `provenance` array
 - ✅ Provenance chains are transitively verified
 - ✅ Circular provenance is detected and rejected
@@ -359,17 +359,17 @@ verifyGrounding(event, visited = new Set()) {
 
 **Violation Prevented:** Premature Determinacy (claiming universal meaning)
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_event_store.js - Meant events require frames
+// noema_event_store.js - Meant events require frames
 if (!event.frame) {
   errors.push('RULE_8: Meant event must have frame');
 } else if (!event.frame.purpose) {
   errors.push('RULE_8: Frame must have purpose');
 }
 
-// eo_compliance.js - Check for universalization
+// noema_compliance.js - Check for universalization
 if (meant.frame?.universal === true) {
   violations.push({
     error: 'Frame claims universal validity (Platonic error)'
@@ -387,7 +387,7 @@ const EpistemicStatus = Object.freeze({
 });
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ Every Meant event has a `frame` with explicit `purpose`
 - ✅ Interpretations are contextualized, not universal
 - ✅ Views specify their purpose (workflow, analytics, etc.)
@@ -403,10 +403,10 @@ const EpistemicStatus = Object.freeze({
 
 **Violation Prevented:** Dogmatism (immutable, unchallengeable claims)
 
-**Implementation in EO Lake:**
+**Implementation in noema:**
 
 ```javascript
-// eo_event_store.js - Supersession, not deletion
+// noema_event_store.js - Supersession, not deletion
 createSupersession(targetId, newInterpretation, actor, frame, provenance, context, supersessionType = 'refinement') {
   const supersession = {
     type: EventType.MEANT,
@@ -419,7 +419,7 @@ createSupersession(targetId, newInterpretation, actor, frame, provenance, contex
 ```
 
 ```javascript
-// eo_compliance.js - Check for dogmatic markers
+// noema_compliance.js - Check for dogmatic markers
 if (meant.immutable === true || meant.final === true) {
   violations.push({ error: 'Meant event claims immutability (dogmatism)' });
 }
@@ -434,7 +434,7 @@ if (meant.supersessionScope === 'global') {
 }
 ```
 
-**How EO Lake Aligns:**
+**How noema Aligns:**
 - ✅ `supersedes` field chains interpretations
 - ✅ Old views marked superseded, not deleted
 - ✅ No `immutable` or `final` flags allowed on Meant events
@@ -451,12 +451,12 @@ if (meant.supersessionScope === 'global') {
 
 | Module | Primary Rules | Purpose |
 |--------|--------------|---------|
-| `eo_event_store.js` | 1, 2, 3, 7, 8, 9 | Append-only log, event validation |
-| `eo_horizon.js` | 4, 5, 6 | Perspectival access control |
-| `eo_compliance.js` | All | Continuous validation & auditing |
-| `eo_view_hierarchy.js` | 4, 5, 7, 8, 9 | Views as Meant events |
-| `eo_state_derivation.js` | 4, 6, 7 | Derive state respecting horizons |
-| `eo_principles_transparency.js` | All | Real-time principle visibility |
+| `noema_event_store.js` | 1, 2, 3, 7, 8, 9 | Append-only log, event validation |
+| `noema_horizon.js` | 4, 5, 6 | Perspectival access control |
+| `noema_compliance.js` | All | Continuous validation & auditing |
+| `noema_view_hierarchy.js` | 4, 5, 7, 8, 9 | Views as Meant events |
+| `noema_state_derivation.js` | 4, 6, 7 | Derive state respecting horizons |
+| `noema_principles_transparency.js` | All | Real-time principle visibility |
 
 ### The View Hierarchy as Rule Implementation
 
@@ -478,7 +478,7 @@ SNAPSHOTS (Rule 9: crystallized but supersedable)
 
 ## Compliance Auditing
 
-EO Lake includes built-in compliance auditing that checks all Nine Rules:
+noema includes built-in compliance auditing that checks all Nine Rules:
 
 ```javascript
 // Run a full compliance audit
@@ -503,7 +503,7 @@ audit.conformanceLevel;
 
 ## Real-World Impact
 
-By implementing all Nine Rules, EO Lake prevents:
+By implementing all Nine Rules, noema prevents:
 
 | What's Prevented | How | Rules |
 |------------------|-----|-------|
@@ -519,7 +519,7 @@ By implementing all Nine Rules, EO Lake prevents:
 
 ## Conclusion
 
-EO Lake is not just a data workbench — it's a philosophical statement implemented in code. Every event, every view, every access check enforces the Nine Rules. The result is a system where:
+noema is not just a data workbench — it's a philosophical statement implemented in code. Every event, every view, every access check enforces the Nine Rules. The result is a system where:
 
 - **You cannot lie about the past** (Rules 1-3)
 - **You cannot claim to see everything** (Rules 4-6)
@@ -537,5 +537,5 @@ This creates a foundation for trustworthy, auditable, and transparent data manag
 
 - `VIEW_HIERARCHY_DESIGN.md` — Detailed view system architecture
 - `IMPORT_SYSTEM_DESIGN.md` — CSV/JSON import with rule compliance
-- `eo_compliance.js` — Source code for compliance checking
-- `eo_principles_transparency.js` — Real-time transparency panel
+- `noema_compliance.js` — Source code for compliance checking
+- `noema_principles_transparency.js` — Real-time transparency panel

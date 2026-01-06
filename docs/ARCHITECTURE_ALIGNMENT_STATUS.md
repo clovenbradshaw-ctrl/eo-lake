@@ -8,16 +8,16 @@
 
 ## Compliance Overview
 
-The EO Lake codebase implements a 6-component hierarchy per CORE_ARCHITECTURE.md:
+The noema codebase implements a 6-component hierarchy per CORE_ARCHITECTURE.md:
 
 | Component | Status | Implementation File(s) |
 |-----------|--------|----------------------|
-| **PROJECT** | ✅ Complete | `eo_view_hierarchy.js:ProjectConfig` |
-| **SOURCE** | ✅ Complete | `eo_source_join.js:SourceStore` |
-| **DEFINITION** | ✅ Complete | `eo_definition_source.js`, `eo_interpretation_binding.js` |
-| **SET** | ✅ Complete | `eo_view_hierarchy.js:SetConfig` |
-| **LENS** | ✅ Complete | `eo_view_hierarchy.js:LensConfig` |
-| **VIEW** | ✅ Complete | `eo_view_hierarchy.js:ViewConfig` |
+| **PROJECT** | ✅ Complete | `noema_view_hierarchy.js:ProjectConfig` |
+| **SOURCE** | ✅ Complete | `noema_source_join.js:SourceStore` |
+| **DEFINITION** | ✅ Complete | `noema_definition_source.js`, `noema_interpretation_binding.js` |
+| **SET** | ✅ Complete | `noema_view_hierarchy.js:SetConfig` |
+| **LENS** | ✅ Complete | `noema_view_hierarchy.js:LensConfig` |
+| **VIEW** | ✅ Complete | `noema_view_hierarchy.js:ViewConfig` |
 
 ---
 
@@ -28,23 +28,23 @@ The EO Lake codebase implements a 6-component hierarchy per CORE_ARCHITECTURE.md
 **Original Issue**: `LensConfig` contained view types (Grid, Cards, Kanban).
 
 **Resolution**:
-- Created separate `ViewConfig` class for visualization (`eo_view_hierarchy.js:835-954`)
+- Created separate `ViewConfig` class for visualization (`noema_view_hierarchy.js:835-954`)
 - `LensConfig` now properly handles data slicing (pivot, includedFields)
 - Legacy `lensType` field marked deprecated with JSDoc comment
-- `ViewType` and `PivotType` added to `eo_types.js:622-642`
+- `ViewType` and `PivotType` added to `noema_types.js:622-642`
 
 **Files Modified**:
-- `eo_view_hierarchy.js` - Added `ViewConfig`, deprecated `LensType`
-- `eo_types.js` - Added `ViewType`, `PivotType`
+- `noema_view_hierarchy.js` - Added `ViewConfig`, deprecated `LensType`
+- `noema_types.js` - Added `ViewType`, `PivotType`
 
 ### Gap 2: Missing Default Lens Auto-Creation ✅ RESOLVED
 
 **Original Issue**: Sets didn't auto-create a default Lens.
 
 **Resolution**:
-- `ViewRegistry.createSet()` now auto-creates default Lens and View (`eo_view_hierarchy.js:1486-1494`)
-- `ViewRegistry.createDefaultLensAndView()` method added (`eo_view_hierarchy.js:1503-1538`)
-- `ViewRegistry.createLens()` auto-creates default View (`eo_view_hierarchy.js:1603-1613`)
+- `ViewRegistry.createSet()` now auto-creates default Lens and View (`noema_view_hierarchy.js:1486-1494`)
+- `ViewRegistry.createDefaultLensAndView()` method added (`noema_view_hierarchy.js:1503-1538`)
+- `ViewRegistry.createLens()` auto-creates default View (`noema_view_hierarchy.js:1603-1613`)
 
 **Flow**:
 ```
@@ -56,8 +56,8 @@ createSet() → createDefaultLensAndView() → { set, defaultLens, defaultView }
 **Original Issue**: `FocusConfig` existed as separate level.
 
 **Resolution**:
-- `FocusConfig` marked deprecated (`eo_view_hierarchy.js:962-964`)
-- `ViewConfig.config.filters` handles temporary filtering (`eo_view_hierarchy.js:893`)
+- `FocusConfig` marked deprecated (`noema_view_hierarchy.js:962-964`)
+- `ViewConfig.config.filters` handles temporary filtering (`noema_view_hierarchy.js:893`)
 - Focus features absorbed into View-level configuration
 
 ### Gap 4: Null Source Not Formalized ✅ RESOLVED
@@ -65,9 +65,9 @@ createSet() → createDefaultLensAndView() → { set, defaultLens, defaultView }
 **Original Issue**: Blank tables used `origin: 'manual'` instead of `sourceType: 'null'`.
 
 **Resolution**:
-- `SourceStore.createEmptySource()` sets `sourceType: 'null'` (`eo_source_join.js:264`)
-- `SourceType.NULL` added to `eo_types.js:653`
-- Legacy `origin: 'manual'` kept for backward compatibility (`eo_source_join.js:266-267`)
+- `SourceStore.createEmptySource()` sets `sourceType: 'null'` (`noema_source_join.js:264`)
+- `SourceType.NULL` added to `noema_types.js:653`
+- Legacy `origin: 'manual'` kept for backward compatibility (`noema_source_join.js:266-267`)
 
 **Event Format**:
 ```javascript
@@ -88,8 +88,8 @@ createSet() → createDefaultLensAndView() → { set, defaultLens, defaultView }
 **Original Issue**: `SetConfig` didn't track explicit Source → Set relationships.
 
 **Resolution**:
-- `SetConfig.sourceBindings` property added (`eo_view_hierarchy.js:424-426`)
-- `provenance.derivedFrom` auto-populated from sourceBindings (`eo_view_hierarchy.js:448-451`)
+- `SetConfig.sourceBindings` property added (`noema_view_hierarchy.js:424-426`)
+- `provenance.derivedFrom` auto-populated from sourceBindings (`noema_view_hierarchy.js:448-451`)
 
 **Schema**:
 ```javascript
@@ -101,10 +101,10 @@ sourceBindings: [{ sourceId: "src_001", mapping: "direct" }]
 **Original Issue**: Sets didn't support `semanticBinding` per field.
 
 **Resolution**:
-- `SetConfig.schema.fields[].semanticBinding` added (`eo_view_hierarchy.js:430-438`)
-- `SetConfig.bindField(target, context, frame)` method added (`eo_view_hierarchy.js:509-531`)
-- `SetConfig.unbindField(target, context, frame)` method added (`eo_view_hierarchy.js:542-557`)
-- `SetConfig.getBoundFields()` and `getBindingCount()` for sidebar display (`eo_view_hierarchy.js:564-590`)
+- `SetConfig.schema.fields[].semanticBinding` added (`noema_view_hierarchy.js:430-438`)
+- `SetConfig.bindField(target, context, frame)` method added (`noema_view_hierarchy.js:509-531`)
+- `SetConfig.unbindField(target, context, frame)` method added (`noema_view_hierarchy.js:542-557`)
+- `SetConfig.getBoundFields()` and `getBindingCount()` for sidebar display (`noema_view_hierarchy.js:564-590`)
 
 **Binding Schema**:
 ```javascript
@@ -125,7 +125,7 @@ sourceBindings: [{ sourceId: "src_001", mapping: "direct" }]
 **Original Issue**: Event categories didn't match CORE_ARCHITECTURE.md spec.
 
 **Resolution**:
-- All required categories added to `eo_types.js:517-596`
+- All required categories added to `noema_types.js:517-596`
 - Categories now include: `project_created`, `source_created`, `source_schema_modified`, `record_created`, `record_updated`, `definition_created`, `semantic_binding_created`, `set_created`, `lens_created`, `view_created`
 
 **Event Categories**:
@@ -156,7 +156,7 @@ const EventCategory = Object.freeze({
 - `ViewRegistry` provides hierarchical access to all entities
 
 **Implementation Notes**:
-- UI sidebar rendering in `index.html` and `eo_data_workbench.js` can use these methods
+- UI sidebar rendering in `index.html` and `noema_data_workbench.js` can use these methods
 - Binding icons (🌐📋📐) can be derived from `semanticBinding.definitionId`
 
 ### Gap 9: Missing Lens/View Nesting ✅ RESOLVED
@@ -164,16 +164,16 @@ const EventCategory = Object.freeze({
 **Original Issue**: Sidebar didn't show hierarchical nesting.
 
 **Resolution**:
-- `SetConfig.lensIds` tracks child Lenses (`eo_view_hierarchy.js:468`)
-- `LensConfig.viewIds` tracks child Views (`eo_view_hierarchy.js:723`)
-- `ViewRegistry.getLensesForSet(setId)` returns Lenses for a Set (`eo_view_hierarchy.js:1623-1626`)
-- `ViewRegistry.getViewsForLens(lensId)` returns Views for a Lens (`eo_view_hierarchy.js:1682-1686`)
+- `SetConfig.lensIds` tracks child Lenses (`noema_view_hierarchy.js:468`)
+- `LensConfig.viewIds` tracks child Views (`noema_view_hierarchy.js:723`)
+- `ViewRegistry.getLensesForSet(setId)` returns Lenses for a Set (`noema_view_hierarchy.js:1623-1626`)
+- `ViewRegistry.getViewsForLens(lensId)` returns Views for a Lens (`noema_view_hierarchy.js:1682-1686`)
 
 ---
 
 ## Type System Compliance
 
-### eo_types.js (CORE_ARCHITECTURE.md Compliant)
+### noema_types.js (CORE_ARCHITECTURE.md Compliant)
 
 | Type | Status | Purpose |
 |------|--------|---------|
@@ -182,7 +182,7 @@ const EventCategory = Object.freeze({
 | `SourceType` | ✅ | Source origins: file, api, scrape, null |
 | `EventCategory` | ✅ | All 10 CORE_ARCHITECTURE.md categories defined |
 
-### eo_view_hierarchy.js (CORE_ARCHITECTURE.md Compliant)
+### noema_view_hierarchy.js (CORE_ARCHITECTURE.md Compliant)
 
 | Class | Status | Purpose |
 |-------|--------|---------|
@@ -201,7 +201,7 @@ const EventCategory = Object.freeze({
 | Rule | Status | Implementation |
 |------|--------|----------------|
 | **Rule 1**: Given/Meant Partition | ✅ | `EpistemicType` enforced at event store level |
-| **Rule 2**: Impenetrability | ✅ | Grounding validation in `eo_types.js:418-426` |
+| **Rule 2**: Impenetrability | ✅ | Grounding validation in `noema_types.js:418-426` |
 | **Rule 3**: Ineliminable | ✅ | Append-only event store, tombstones for deletion |
 | **Rule 4**: Perspectivality | ✅ | `HorizonGate` mediates all access |
 | **Rule 5**: Restrictivity | ✅ | `Horizon.refine()` enforces intersection |
@@ -311,9 +311,9 @@ User lands in Grid View with data
 
 | File | Status | Changes |
 |------|--------|---------|
-| `eo_view_hierarchy.js` | ✅ Updated | ViewConfig, SetConfig enhancements, auto-creation |
-| `eo_types.js` | ✅ Updated | ViewType, PivotType, SourceType, EventCategory |
-| `eo_source_join.js` | ✅ Updated | sourceType: 'null' for manual sources |
+| `noema_view_hierarchy.js` | ✅ Updated | ViewConfig, SetConfig enhancements, auto-creation |
+| `noema_types.js` | ✅ Updated | ViewType, PivotType, SourceType, EventCategory |
+| `noema_source_join.js` | ✅ Updated | sourceType: 'null' for manual sources |
 | `docs/CORE_ARCHITECTURE.md` | ✅ Reference | Canonical architecture specification |
 | `docs/ARCHITECTURE_COMPLIANCE_ANALYSIS.md` | ✅ Reference | Gap analysis (gaps now resolved) |
 | `docs/LAYER_ACTIVITY_TRACKING_RULES.md` | ✅ Reference | EO operator usage per layer |
@@ -322,7 +322,7 @@ User lands in Grid View with data
 
 ## Summary
 
-The EO Lake codebase is **fully aligned** with CORE_ARCHITECTURE.md specifications:
+The noema codebase is **fully aligned** with CORE_ARCHITECTURE.md specifications:
 
 1. **6-Component Hierarchy**: PROJECT → SOURCE → SET → LENS → VIEW with DEFINITIONS
 2. **Proper Separation**: Lens (data slice) vs View (visualization)

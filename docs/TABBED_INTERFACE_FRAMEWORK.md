@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document defines the framework for a browser-like tabbed interface in EO Lake. Every view, panel, or content that can be opened should behave as a closeable tab, similar to how browser tabs work.
+This document defines the framework for a browser-like tabbed interface in noema. Every view, panel, or content that can be opened should behave as a closeable tab, similar to how browser tabs work.
 
 ---
 

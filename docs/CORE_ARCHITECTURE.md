@@ -1,4 +1,4 @@
-# EO Lake: Complete Architecture
+# noema: Complete Architecture
 
 > **Canonical Reference**: All production code must align to this specification.
 >
@@ -8,7 +8,7 @@
 
 ## The Core Idea
 
-EO Lake is a data workbench built on a single principle: **raw data and interpretation must remain separate, and you must always be able to trace any conclusion back to its source.**
+noema is a data workbench built on a single principle: **raw data and interpretation must remain separate, and you must always be able to trace any conclusion back to its source.**
 
 This comes from Emergent Ontology's distinction between:
 

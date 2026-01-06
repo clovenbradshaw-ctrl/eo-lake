@@ -413,7 +413,7 @@ class EOFormulaEditor {
               <div class="formula-guide-content" id="formula-guide-content">
                 <div class="formula-guide-placeholder">
                   <i class="ph ph-book-open" style="font-size: 32px; opacity: 0.5; margin-bottom: 12px;"></i>
-                  <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">Learn about the Lakṣaṇa formula language</p>
+                  <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 12px;">Learn about the noema formula language</p>
                   <button type="button" class="btn btn-secondary formula-open-guide-btn" onclick="showFormulaExplainer()">
                     <i class="ph ph-arrow-square-out"></i> Open Full Guide
                   </button>

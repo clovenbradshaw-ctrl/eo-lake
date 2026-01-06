@@ -1,8 +1,8 @@
-# EO Lake - Compliant View Hierarchy Design
+# noema - Compliant View Hierarchy Design
 
 ## Overview
 
-This document defines a **Nine Rules-compliant** hierarchy for organizing data views in EO Lake. Views are interpretations of raw experience data - they are MEANT events, not sources of truth.
+This document defines a **Nine Rules-compliant** hierarchy for organizing data views in noema. Views are interpretations of raw experience data - they are MEANT events, not sources of truth.
 
 ---
 
@@ -481,7 +481,7 @@ const snapshot = registry.createSnapshot({
 
 ---
 
-## Integration with EO Lake
+## Integration with noema
 
 ### View Events in the Log
 

@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-EO-Lake's event-sourced, local-first architecture provides unique advantages for linked record viewing that sidestep traditional schema-first limitations.
+noema's event-sourced, local-first architecture provides unique advantages for linked record viewing that sidestep traditional schema-first limitations.
 
 ---
 
@@ -17,7 +17,7 @@ SELECT * FROM orders;           -- 1 query
 SELECT * FROM customers WHERE id = ?;  -- N queries
 ```
 
-**Why EO-Lake is Different:**
+**Why noema is Different:**
 - All data is local (IndexedDB) - no network latency
 - Entities are derived from event log in memory
 - Can resolve unlimited links in O(1) per link via index lookups
@@ -30,7 +30,7 @@ SELECT * FROM customers WHERE id = ?;  -- N queries
 - Changing relationship type requires data migration
 - Breaking changes require coordinated deploys
 
-**Why EO-Lake is Different:**
+**Why noema is Different:**
 - Event sourcing preserves historical interpretations
 - Schema is a "Meant" (interpretation) not a constraint
 - Old events don't break when schema evolves
@@ -44,8 +44,8 @@ SELECT * FROM customers WHERE id = ?;  -- N queries
 user.posts.author.posts.author... // Stack overflow
 ```
 
-**Why EO-Lake is Different:**
-- Graph system already handles cycles (eo_graph.js)
+**Why noema is Different:**
+- Graph system already handles cycles (noema_graph.js)
 - Visited-set tracking in traversal (getProvenanceChain)
 - Visualization layouts designed for cycles
 - Max-depth controls prevent infinite expansion
@@ -57,7 +57,7 @@ user.posts.author.posts.author... // Stack overflow
 - 5+ level joins become prohibitively slow
 - Must denormalize or use graph databases
 
-**Why EO-Lake is Different:**
+**Why noema is Different:**
 - Local storage = O(1) access per entity
 - No JOIN operation - direct ID lookup
 - Can traverse 100+ levels without network cost
@@ -70,7 +70,7 @@ user.posts.author.posts.author... // Stack overflow
 - Cross-database relationships require federation
 - Schema boundaries create query silos
 
-**Why EO-Lake is Different:**
+**Why noema is Different:**
 - All Sets live in same entity namespace
 - LINK field simply references any Set by ID
 - Entity derivation doesn't care about Set boundaries
@@ -83,7 +83,7 @@ user.posts.author.posts.author... // Stack overflow
 - Changing cardinality requires schema migration
 - Orphaned references cause errors
 
-**Why EO-Lake is Different:**
+**Why noema is Different:**
 - LINK field's `allowMultiple` is interpretive, not enforced
 - Orphaned links gracefully show ID as fallback
 - Can change cardinality without data loss
@@ -96,7 +96,7 @@ user.posts.author.posts.author... // Stack overflow
 - "Can see order but not customer" requires views
 - Cascading permissions need recursive checks
 
-**Why EO-Lake is Different:**
+**Why noema is Different:**
 - Horizon Lattice provides natural scope boundaries
 - Link visibility respects horizon inclusion
 - Perspectival views automatically filter
@@ -169,7 +169,7 @@ function findBacklinks(recordId, targetSetId) {
 
 ### 3. **Relationship Graph View**
 
-Leverage existing `eo_graph.js` for linked record visualization:
+Leverage existing `noema_graph.js` for linked record visualization:
 
 ```
                     ┌──────────────┐
@@ -243,7 +243,7 @@ function traverseLinks(record, depth = 2, visited = new Set()) {
 
 ### 5. **Provenance-Traced Relationships**
 
-Show WHY records are linked (unique to EO-Lake):
+Show WHY records are linked (unique to noema):
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -360,13 +360,13 @@ Visual indicators for link status:
 | Provenance Display | Medium | Medium | P2 |
 | Aggregate Rollups | High | Medium | P2 |
 
-*Low because eo_graph.js already exists
+*Low because noema_graph.js already exists
 
 ---
 
 ## Key Advantages Summary
 
-| Traditional Schema-First | EO-Lake Approach |
+| Traditional Schema-First | noema Approach |
 |--------------------------|------------------|
 | Network-bound queries | Local-first, instant |
 | Rigid cardinality | Flexible interpretation |

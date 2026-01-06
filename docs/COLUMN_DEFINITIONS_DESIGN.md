@@ -400,6 +400,6 @@ When user clicks on an undefined field:
 
 ## Related Files
 
-- `eo_schema_semantic.js` - Current SchemaSemantic implementation (will become Definition record source)
-- `eo_interpretation_binding.js` - InterpretationBinding & ColumnBinding classes
-- `eo_data_workbench.js` - Main UI (add Set-level panel, Field Manager)
+- `noema_schema_semantic.js` - Current SchemaSemantic implementation (will become Definition record source)
+- `noema_interpretation_binding.js` - InterpretationBinding & ColumnBinding classes
+- `noema_data_workbench.js` - Main UI (add Set-level panel, Field Manager)

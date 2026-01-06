@@ -2016,7 +2016,7 @@ class ImportOrchestrator {
     } else if (data.records && Array.isArray(data.records)) {
       records = data.records;
     } else if (data.sets && Array.isArray(data.sets)) {
-      // Lakṣaṇa export format - use first set's records
+      // noema export format - use first set's records
       if (data.sets.length > 0 && data.sets[0].records) {
         return this._convertEOLakeExport(data.sets[0]);
       }
@@ -2081,7 +2081,7 @@ class ImportOrchestrator {
   }
 
   /**
-   * Convert Lakṣaṇa export format
+   * Convert noema export format
    */
   _convertEOLakeExport(set) {
     const headers = set.fields.map(f => f.name);

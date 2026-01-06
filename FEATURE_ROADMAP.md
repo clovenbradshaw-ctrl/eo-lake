@@ -1,14 +1,14 @@
-# EO Lake Feature Roadmap
+# noema Feature Roadmap
 
 ## Overview
 
-This roadmap identifies features from the [eo-activibase](https://github.com/clovenbradshaw-ctrl/eo-activibase) reference implementation that are not yet present in EO Lake, organized by priority and complexity.
+This roadmap identifies features from the [eo-activibase](https://github.com/clovenbradshaw-ctrl/eo-activibase) reference implementation that are not yet present in noema, organized by priority and complexity.
 
 ---
 
 ## Current Capabilities (Already Implemented)
 
-EO Lake currently includes:
+noema currently includes:
 - Event Sourcing with Given/Meant distinction
 - Append-only event log with compliance checking (9 Rules)
 - Horizon-based perspectival access control
@@ -36,7 +36,7 @@ A transparent window showing how all app operations work according to the Nine R
 - [x] **Rule Touch Tracking**: Animated feedback when rules are invoked
 - [x] **Compliance Checking**: Run audits and see violations per-rule
 
-**File:** `eo_principles_transparency.js`
+**File:** `noema_principles_transparency.js`
 
 ---
 
@@ -57,7 +57,7 @@ The lean context system provides memory-efficient context management:
 - [ ] **Stability Tracking**: Cache stability tags (emerging/forming/stable)
 - [ ] **Storage Metrics**: Estimate memory consumption across templates
 
-**New File:** `eo_lean_context.js`
+**New File:** `noema_lean_context.js`
 
 ### 1.2 Memory Optimization Module
 **Status:** Not Implemented
@@ -72,7 +72,7 @@ Advanced memory management applying EO theory operators:
 - [ ] **MemoryMonitor**: Heap tracking with cleanup callbacks at thresholds
 - [ ] **Debounce/Throttle Utilities**: Performance helpers
 
-**New File:** `eo_memory_optimization.js`
+**New File:** `noema_memory_optimization.js`
 
 ---
 
@@ -93,7 +93,7 @@ Efficient storage with automatic deduplication:
 - [ ] **Cross-Import Analysis**: Identify duplicates spanning multiple imports
 - [ ] **Import/Export State**: Persist and restore storage state
 
-**New File:** `eo_content_store.js`
+**New File:** `noema_content_store.js`
 
 ### 2.2 Deduplication UI
 **Status:** Not Implemented
@@ -107,7 +107,7 @@ Visual feedback for deduplication effectiveness:
 - [ ] **Import-Level Stats**: Per-import compression and efficiency badges
 - [ ] **Global Storage Panel**: Aggregate statistics across all imports
 
-**New File:** `eo_deduplication_ui.js`
+**New File:** `noema_deduplication_ui.js`
 
 ---
 
@@ -128,7 +128,7 @@ Content surfacing without user queries:
 - [ ] **Comprehensive Search**: Cross-entity search with category filtering
 - [ ] **Browsable Categories**: Type-specific browsing with pagination
 
-**New File:** `eo_discovery.js`
+**New File:** `noema_discovery.js`
 
 ---
 
@@ -156,7 +156,7 @@ Record and field-level operations with provenance:
 - [ ] **Resolution Strategies**: First, last, longest, concatenate, numeric ops, date-based
 - [ ] **Operation Reversal**: Support for undoing structural operations
 
-**New File:** `eo_structural_operations.js`
+**New File:** `noema_structural_operations.js`
 
 ---
 
@@ -194,7 +194,7 @@ Record and field-level operations with provenance:
 - [ ] Value Shape Analysis (cardinality, types, patterns)
 - [ ] Confidence Scoring (0-1 scale)
 
-**New File:** `eo_provenance_extractor.js`
+**New File:** `noema_provenance_extractor.js`
 
 ---
 
@@ -215,7 +215,7 @@ Performance and interaction improvements:
 - [ ] **25-Position EO Framework**: Full realm and operator visualization
 - [ ] **Enhanced Info Panel**: Detailed node/edge metadata display
 
-**Update File:** `eo_graph.js` + new `eo_graph_visualization.js`
+**Update File:** `noema_graph.js` + new `noema_graph_visualization.js`
 
 ---
 
@@ -236,7 +236,7 @@ Sophisticated workspace layouts:
 - [ ] **Focus Management**: Track active pane and portal windows
 - [ ] **Auto-Collapse**: Remove empty panes automatically
 
-**New File:** `eo_layout_management.js`
+**New File:** `noema_layout_management.js`
 
 ---
 
@@ -256,7 +256,7 @@ Additional sync-specific rules:
 - [ ] **Validation Helpers**: Origin completeness and Meant event checks
 - [ ] **Rule Query Tools**: Lookup by ID, category, or severity
 
-**New File:** `eo_sync_rules.js`
+**New File:** `noema_sync_rules.js`
 
 ---
 

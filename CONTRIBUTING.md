@@ -1,4 +1,4 @@
-# Contributing to EO Lake - Experience Engine
+# Contributing to noema - Experience Engine
 
 This guide ensures all contributions maintain compliance with the **Nine Rules of Experience Engines**.
 
@@ -100,20 +100,20 @@ const allEvents = eventStore.getAll();  // Only use for admin/compliance
 ## File Structure and Responsibilities
 
 ```
-eo-lake/
-├── eo_event_store.js     # Rules 1, 2, 3, 8, 9 - Core append-only log
-├── eo_horizon.js         # Rules 4, 5, 6 - Perspectival access
-├── eo_compliance.js      # All 9 rules - Audit and validation
-├── eo_state_derivation.js # Derived views (NEVER authoritative)
-├── eo_persistence.js     # Local storage (mirrors log)
-├── eo_sync.js            # Cloud sync (respects all rules)
-├── eo_event_bus.js       # Reactive updates
-├── eo_graph.js           # Graph visualization
-├── eo_views.js           # View management
-├── eo_data_workbench.js  # Data manipulation UI
-├── eo_app.js             # Main controller
-├── eo_workbench.js       # UI controller
-├── eo_styles.css         # Styling
+noema/
+├── noema_event_store.js     # Rules 1, 2, 3, 8, 9 - Core append-only log
+├── noema_horizon.js         # Rules 4, 5, 6 - Perspectival access
+├── noema_compliance.js      # All 9 rules - Audit and validation
+├── noema_state_derivation.js # Derived views (NEVER authoritative)
+├── noema_persistence.js     # Local storage (mirrors log)
+├── noema_sync.js            # Cloud sync (respects all rules)
+├── noema_event_bus.js       # Reactive updates
+├── noema_graph.js           # Graph visualization
+├── noema_views.js           # View management
+├── noema_data_workbench.js  # Data manipulation UI
+├── noema_app.js             # Main controller
+├── noema_workbench.js       # UI controller
+├── noema_styles.css         # Styling
 └── index.html            # Entry point
 ```
 

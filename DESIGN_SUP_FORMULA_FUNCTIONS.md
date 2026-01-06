@@ -4,7 +4,7 @@
 
 This specification defines formula functions for working with **superpositions** (SUP) - values that hold multiple possible states simultaneously without forcing resolution until explicitly requested.
 
-These functions extend the existing formula system (`eo_formula_editor.js`) to integrate with the superposition display system (`eo_superposition_display.js`).
+These functions extend the existing formula system (`noema_formula_editor.js`) to integrate with the superposition display system (`noema_superposition_display.js`).
 
 ## Design Principles
 

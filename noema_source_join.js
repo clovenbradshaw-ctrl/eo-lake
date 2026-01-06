@@ -5681,7 +5681,7 @@ class FolderStore {
 
   _loadFromStorage() {
     try {
-      const data = localStorage.getItem('eo_lake_folders');
+      const data = localStorage.getItem('noema_folders');
       if (data) {
         const parsed = JSON.parse(data);
 
@@ -5706,7 +5706,7 @@ class FolderStore {
 
   _save() {
     try {
-      localStorage.setItem('eo_lake_folders', JSON.stringify({
+      localStorage.setItem('noema_folders', JSON.stringify({
         folders: Array.from(this.folders.values()),
         tags: Array.from(this.tags.values())
       }));

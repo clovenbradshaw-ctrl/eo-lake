@@ -29,7 +29,7 @@ Elevate to SET (MEANT interpretation)
 
 ## Implementation
 
-### Source Creation (`eo_import.js`)
+### Source Creation (`noema_import.js`)
 
 When importing JSON with a type field, the Source stores analysis:
 
@@ -45,7 +45,7 @@ multiRecordAnalysis: {
 }
 ```
 
-### Set Elevation (`eo_source_join.js`)
+### Set Elevation (`noema_source_join.js`)
 
 `SetCreator.createSetFromSource()` checks for `multiRecordAnalysis` and creates views:
 
@@ -134,8 +134,8 @@ Set: data (2 records)
 
 | File | Changes |
 |------|---------|
-| `eo_import.js` | Stores `multiRecordAnalysis` in Source during import |
-| `eo_source_join.js` | `SetCreator._createRecordTypeViews()` and helper methods |
+| `noema_import.js` | Stores `multiRecordAnalysis` in Source during import |
+| `noema_source_join.js` | `SetCreator._createRecordTypeViews()` and helper methods |
 
 ## Benefits
 

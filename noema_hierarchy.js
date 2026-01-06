@@ -1,7 +1,7 @@
 /**
  * EO Hierarchy - Clean Implementation of SOURCE → SET → LENS → VIEW
  *
- * Based on CORE_ARCHITECTURE.md - The canonical reference for Lakṣaṇa.
+ * Based on CORE_ARCHITECTURE.md - The canonical reference for noema.
  *
  * The Core Principle:
  * - GIVEN: What actually happened. Immutable. Cannot be edited, only appended.

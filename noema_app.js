@@ -559,12 +559,12 @@ function getApp() {
 }
 
 async function initApp(options = {}) {
-  console.log('Lakṣaṇa: Initializing application...');
+  console.log('noema: Initializing application...');
 
   // Initialize the EOApp instance (core Experience Engine)
   _app = new EOApp();
   await _app.init(options);
-  console.log('Lakṣaṇa: EOApp core initialized');
+  console.log('noema: EOApp core initialized');
 
   // Initialize the data workbench (the main UI)
   _dataWorkbench = initDataWorkbench('content-area', _app);
@@ -578,7 +578,7 @@ async function initApp(options = {}) {
   // Connect the event bus to the app (enables reactive updates)
   if (window.connectEventBus) {
     window.connectEventBus(_app);
-    console.log('Lakṣaṇa: Event bus connected to EOApp');
+    console.log('noema: Event bus connected to EOApp');
   }
 
   // Connect transparency panel to the app
@@ -586,11 +586,11 @@ async function initApp(options = {}) {
     const transparency = window.getTransparencyPanel();
     if (transparency) {
       transparency.connect(_app);
-      console.log('Lakṣaṇa: Transparency panel connected to EOApp');
+      console.log('noema: Transparency panel connected to EOApp');
     }
   }
 
-  console.log('Lakṣaṇa: Application initialized');
+  console.log('noema: Application initialized');
 
   return _dataWorkbench;
 }
@@ -643,7 +643,7 @@ function setupGlobalHandlers() {
 
   // Listen for storage changes (cross-tab sync)
   window.addEventListener('storage', (e) => {
-    if (e.key === 'eo_lake_data') {
+    if (e.key === 'noema_data') {
       console.log('Data changed in another tab, refreshing...');
       _dataWorkbench?._loadData();
       _dataWorkbench?.refresh();
@@ -1658,12 +1658,12 @@ function showSettingsModal() {
         </button>
       </div>
       <p style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-        Learn about Lakṣaṇa's formula syntax, EO operators, and semantic functions.
+        Learn about noema's formula syntax, EO operators, and semantic functions.
       </p>
     </div>
     <div class="form-group">
       <label class="form-label"><i class="ph ph-info"></i> About</label>
-      <div style="font-size: 12px; color: var(--text-muted);">Lakṣaṇa v1.0.0<br>Data Workbench with EO Sync</div>
+      <div style="font-size: 12px; color: var(--text-muted);">noema v1.0.0<br>Data Workbench with EO Sync</div>
     </div>
   `;
   modalFooter.innerHTML = '<button class="btn btn-secondary" onclick="closeModal()">Close</button>';
@@ -1785,7 +1785,7 @@ function importData() {
 
 function clearAllData() {
   if (!confirm('Clear all data? This cannot be undone.')) return;
-  localStorage.removeItem('eo_lake_data');
+  localStorage.removeItem('noema_data');
   window.location.reload();
 }
 

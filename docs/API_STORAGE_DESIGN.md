@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This document proposes an API storage layer for EO Lake that leverages the 9 EO operators as the semantic foundation for intelligent, demand-driven data synchronization. Instead of "download everything" or "manual fetch," we implement **operator-driven streaming** where the activity stream itself describes what data is needed and when.
+This document proposes an API storage layer for noema that leverages the 9 EO operators as the semantic foundation for intelligent, demand-driven data synchronization. Instead of "download everything" or "manual fetch," we implement **operator-driven streaming** where the activity stream itself describes what data is needed and when.
 
 ---
 

@@ -1,8 +1,8 @@
-# EO Lake Export Format Design
+# noema Export Format Design
 
 ## Overview
 
-EO Lake's export system provides granular control over what data to export, enabling use cases from full system backup to lightweight data sharing. The design follows EO principles: exports are **Given** events that preserve provenance and enable reconstruction.
+noema's export system provides granular control over what data to export, enabling use cases from full system backup to lightweight data sharing. The design follows EO principles: exports are **Given** events that preserve provenance and enable reconstruction.
 
 ---
 
@@ -43,7 +43,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-archive",
+  format: "noema-archive",
   version: "1.0",
   exported_at: "2025-12-30T10:00:00Z",
   exported_by: "user@example.com",
@@ -117,7 +117,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-workspace",
+  format: "noema-workspace",
   version: "1.0",
   workspace_id: string,
   workspace_name: string,
@@ -159,7 +159,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-set",
+  format: "noema-set",
   version: "1.0",
 
   set: {
@@ -214,7 +214,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-view",
+  format: "noema-view",
   version: "1.0",
 
   view: {
@@ -258,7 +258,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-selection",
+  format: "noema-selection",
   version: "1.0",
 
   selection: {
@@ -296,7 +296,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-definitions",
+  format: "noema-definitions",
   version: "1.0",
 
   schema_semantics: [{
@@ -357,7 +357,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-audit",
+  format: "noema-audit",
   version: "1.0",
 
   audit_scope: {
@@ -439,7 +439,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-delta",
+  format: "noema-delta",
   version: "1.0",
 
   delta: {
@@ -488,7 +488,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-snapshot",
+  format: "noema-snapshot",
   version: "1.0",
   snapshot_time: ISO8601,
 
@@ -605,7 +605,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
 │  FORMAT                                                        │
-│  ○ EO Lake Native (.eolake)  - Full fidelity                  │
+│  ○ noema Native (.eolake)  - Full fidelity                  │
 │  ○ JSON                       - Structured data                │
 │  ○ CSV                        - Tabular data                   │
 │  ○ Excel                      - Spreadsheet                    │
@@ -613,7 +613,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 │                                                                │
 ├────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  INCLUDE                                     [EO Lake only]    │
+│  INCLUDE                                     [noema only]    │
 │  ☑ Definitions (semantic vocabulary)                          │
 │  ☑ History ────────────────────────────────────────────        │
 │       ○ Full history                                           │
@@ -669,11 +669,11 @@ Each export format must support clean import:
 
 ## Export Metadata Header
 
-All EO Lake native exports include a standard header:
+All noema native exports include a standard header:
 
 ```javascript
 {
-  _eo_lake_export: {
+  _noema_export: {
     format: string,            // Format identifier
     version: string,           // Format version
 
@@ -682,7 +682,7 @@ All EO Lake native exports include a standard header:
     export_method: string,     // "ui" | "api" | "scheduled"
 
     source_system: {
-      version: string,         // EO Lake version
+      version: string,         // noema version
       instance_id?: string,
     },
 
