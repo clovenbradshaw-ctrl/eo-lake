@@ -33267,12 +33267,20 @@ class EODataWorkbench {
 
   /**
    * Show info popover for record, column, or value definition
+   * For column definitions, opens a proper modal instead of popover
    */
   _showCellEditInfoPopover(btn, field, recordId, recordDefinition, columnDefinition) {
+    const infoType = btn.dataset.infoType;
+
+    // For column definitions, show a proper modal instead of popover
+    if (infoType === 'column') {
+      this._showDefinitionDetailModal(field, columnDefinition);
+      return;
+    }
+
     // Remove any existing popover
     document.querySelectorAll('.cell-edit-modal-info-popover').forEach(p => p.remove());
 
-    const infoType = btn.dataset.infoType;
     let title = '';
     let content = '';
 
@@ -33282,13 +33290,6 @@ class EODataWorkbench {
         content = recordDefinition
           ? `<div class="cell-edit-modal-info-popover-content">${this._escapeHtml(recordDefinition).substring(0, 200)}${recordDefinition.length > 200 ? '...' : ''}</div>`
           : '<div class="cell-edit-modal-info-popover-empty">No description available for this record.</div>';
-        break;
-
-      case 'column':
-        title = `${field.name} Definition`;
-        content = columnDefinition
-          ? `<div class="cell-edit-modal-info-popover-content">${this._escapeHtml(columnDefinition)}</div>`
-          : '<div class="cell-edit-modal-info-popover-empty">No definition set for this field.</div>';
         break;
 
       case 'value':
@@ -33327,6 +33328,152 @@ class EODataWorkbench {
     setTimeout(() => {
       document.addEventListener('click', closePopover);
     }, 10);
+  }
+
+  /**
+   * Show a definition detail modal that appears above other modals
+   * Provides a first-class UX for viewing and editing definitions
+   */
+  _showDefinitionDetailModal(field, columnDefinition) {
+    // Check if field has a linked definition
+    const definitionRef = field.definitionRef || field.semanticBinding;
+    const definition = definitionRef?.definitionId
+      ? this.definitions?.find(d => d.id === definitionRef.definitionId)
+      : null;
+
+    // Get definition details
+    const defName = field.name || 'Field';
+    const defText = columnDefinition || definition?.term?.definitionText || definition?.description || '';
+    const authority = definition?.authority;
+    const source = definition?.source;
+    const uri = definition?.sourceUri || definition?.term?.uri || definitionRef?.uri || '';
+
+    // Check if this is a stub definition
+    const isStub = !defText && !uri;
+
+    // Create the modal backdrop with high z-index
+    const modalBackdrop = document.createElement('div');
+    modalBackdrop.className = 'definition-detail-modal-backdrop';
+    modalBackdrop.innerHTML = `
+      <div class="definition-detail-modal">
+        <div class="definition-detail-modal-header">
+          <div class="definition-detail-modal-title">
+            <i class="ph ph-book-open"></i>
+            <span>${this._escapeHtml(defName)}</span>
+          </div>
+          <button class="definition-detail-modal-close" title="Close">
+            <i class="ph ph-x"></i>
+          </button>
+        </div>
+
+        <div class="definition-detail-modal-body">
+          ${isStub ? `
+            <div class="definition-detail-empty">
+              <div class="definition-detail-empty-icon">
+                <i class="ph ph-book-open-text"></i>
+              </div>
+              <div class="definition-detail-empty-text">No definition set for this field</div>
+              <div class="definition-detail-empty-hint">
+                Link this field to a definition to provide semantic meaning and enable better data understanding.
+              </div>
+            </div>
+          ` : `
+            <div class="definition-detail-section">
+              <div class="definition-detail-label">Definition</div>
+              <div class="definition-detail-text">${this._escapeHtml(defText)}</div>
+            </div>
+
+            ${authority ? `
+              <div class="definition-detail-section">
+                <div class="definition-detail-label">Authority</div>
+                <div class="definition-detail-authority">
+                  <i class="ph ph-seal-check"></i>
+                  <span>${this._escapeHtml(authority.name || authority.shortName || 'Unknown')}</span>
+                </div>
+              </div>
+            ` : ''}
+
+            ${uri ? `
+              <div class="definition-detail-section">
+                <div class="definition-detail-label">Source URI</div>
+                <div class="definition-detail-uri">
+                  <i class="ph ph-link"></i>
+                  <a href="${this._escapeHtml(uri)}" target="_blank" rel="noopener noreferrer">${this._escapeHtml(uri)}</a>
+                </div>
+              </div>
+            ` : ''}
+
+            ${source ? `
+              <div class="definition-detail-section">
+                <div class="definition-detail-label">Citation</div>
+                <div class="definition-detail-citation">${this._escapeHtml(source.citation || source.title || '')}</div>
+              </div>
+            ` : ''}
+          `}
+        </div>
+
+        <div class="definition-detail-modal-footer">
+          ${definition ? `
+            <button class="definition-detail-btn definition-detail-btn-secondary" data-action="view-full">
+              <i class="ph ph-arrow-square-out"></i>
+              <span>View Full Definition</span>
+            </button>
+          ` : `
+            <button class="definition-detail-btn definition-detail-btn-secondary" data-action="link">
+              <i class="ph ph-link"></i>
+              <span>Link Definition</span>
+            </button>
+          `}
+          <button class="definition-detail-btn definition-detail-btn-primary" data-action="close">
+            <span>Close</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modalBackdrop);
+
+    // Animate in
+    requestAnimationFrame(() => {
+      modalBackdrop.classList.add('visible');
+    });
+
+    // Event handlers
+    const closeModal = () => {
+      modalBackdrop.classList.remove('visible');
+      setTimeout(() => modalBackdrop.remove(), 200);
+    };
+
+    modalBackdrop.querySelector('.definition-detail-modal-close')?.addEventListener('click', closeModal);
+    modalBackdrop.querySelector('[data-action="close"]')?.addEventListener('click', closeModal);
+
+    // Click backdrop to close
+    modalBackdrop.addEventListener('click', (e) => {
+      if (e.target === modalBackdrop) closeModal();
+    });
+
+    // Escape key to close
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        closeModal();
+        document.removeEventListener('keydown', handleEscape);
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+
+    // View full definition action
+    modalBackdrop.querySelector('[data-action="view-full"]')?.addEventListener('click', () => {
+      closeModal();
+      if (definition) {
+        this._showDefinitionDetail(definition.id);
+      }
+    });
+
+    // Link definition action
+    modalBackdrop.querySelector('[data-action="link"]')?.addEventListener('click', () => {
+      closeModal();
+      this._showDefinitionLinkModal(field.id);
+    });
   }
 
   /**
