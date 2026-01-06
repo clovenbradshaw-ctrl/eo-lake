@@ -31358,7 +31358,7 @@ class EODataWorkbench {
           onClick: () => {
             const newValue = this._getFieldModalValue(modal, field);
             if (newValue !== undefined && newValue !== value) {
-              this._updateCellValue(recordId, fieldId, newValue);
+              this._updateRecordValue(recordId, fieldId, newValue);
             }
             modal.hide();
           }
