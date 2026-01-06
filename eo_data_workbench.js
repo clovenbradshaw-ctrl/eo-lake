@@ -17362,16 +17362,10 @@ class EODataWorkbench {
       return this._renderJsonKeyValue(value);
     }
     const str = String(value);
-    // For long text, add expand button to allow viewing full content
+    // For long text, truncate and show tooltip
     if (str.length > 50) {
-      const fieldName = options.fieldName || 'Field';
-      const encodedValue = this._escapeHtml(str).replace(/"/g, '&quot;');
-      return `<div class="source-cell-longtext-wrapper">
-        <span class="source-cell-longtext-content">${this._escapeHtml(str.substring(0, 50))}...</span>
-        <button class="source-cell-expand-btn" data-field-name="${this._escapeHtml(fieldName)}" data-full-value="${encodedValue}" title="Click to view full content">
-          <i class="ph ph-arrows-out-simple"></i>
-        </button>
-      </div>`;
+      const escapedStr = this._escapeHtml(str);
+      return `<span class="source-cell-longtext-content" title="${escapedStr}">${this._escapeHtml(str.substring(0, 50))}...</span>`;
     }
     return this._escapeHtml(str);
   }
@@ -30343,15 +30337,9 @@ class EODataWorkbench {
     switch (field.type) {
       case FieldTypes.TEXT:
         if (value) {
-          const hasHtml = /<[a-z][\s\S]*>/i.test(value);
           const escapedValue = this._escapeHtml(String(value));
           const truncatedTitle = value.length > 50 ? escapedValue : ''; // Only show tooltip if content is long
-          content = `<div class="cell-text-wrapper">
-            <span class="cell-text-content" ${truncatedTitle ? `title="${truncatedTitle}"` : ''}>${this._highlightText(value, searchTerm)}</span>
-            <button class="cell-expand-btn cell-html-preview-btn" data-field-id="${field.id}" data-has-html="${hasHtml}" title="${hasHtml ? 'Click to preview HTML' : 'Click to expand'}">
-              <i class="ph ${hasHtml ? 'ph-code' : 'ph-arrows-out-simple'}"></i>
-            </button>
-          </div>`;
+          content = `<span class="cell-text-content" ${truncatedTitle ? `title="${truncatedTitle}"` : ''}>${this._highlightText(value, searchTerm)}</span>`;
         } else {
           content = '<span class="cell-empty">Empty</span>';
         }
@@ -30360,12 +30348,7 @@ class EODataWorkbench {
         if (value) {
           const escapedLongText = this._escapeHtml(String(value));
           const truncatedLongTitle = value.length > 100 ? escapedLongText.substring(0, 200) + '...' : ''; // Show preview in tooltip
-          content = `<div class="cell-longtext-wrapper">
-            <span class="cell-longtext-content" ${truncatedLongTitle ? `title="${truncatedLongTitle}"` : ''}>${this._highlightText(value, searchTerm)}</span>
-            <button class="cell-expand-btn" data-field-id="${field.id}" title="Click to expand">
-              <i class="ph ph-arrows-out-simple"></i>
-            </button>
-          </div>`;
+          content = `<span class="cell-longtext-content" ${truncatedLongTitle ? `title="${truncatedLongTitle}"` : ''}>${this._highlightText(value, searchTerm)}</span>`;
         } else {
           content = '<span class="cell-empty">Empty</span>';
         }
@@ -46814,9 +46797,6 @@ class EODataWorkbench {
       html += `<tr class="nested-more-row"><td colspan="${displayHeaders.length + (hasMoreCols ? 1 : 0)}">+${objects.length - 5} more rows</td></tr>`;
     }
     html += '</tbody></table>';
-
-    // Add expand button for full view
-    html += `<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(arr))})"><i class="ph ph-arrows-out-simple"></i></button>`;
     html += '</div>';
 
     return html;
@@ -46855,9 +46835,6 @@ class EODataWorkbench {
       html += `<div class="nested-object-more">+${keys.length - 4} more fields</div>`;
     }
     html += '</div>';
-
-    // Add expand button
-    html += `<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(obj))})"><i class="ph ph-arrows-out-simple"></i></button>`;
     html += '</div>';
 
     return html;
@@ -46925,11 +46902,6 @@ class EODataWorkbench {
     }
 
     html += '</div>';
-
-    // Add expand button for larger objects
-    if (keys.length > 2) {
-      html = `<div class="json-kv-wrapper">${html}<button class="nested-expand-btn" onclick="event.stopPropagation(); window.eoWorkbench._showNestedDataModal(${this._escapeHtml(JSON.stringify(data))})"><i class="ph ph-arrows-out-simple"></i></button></div>`;
-    }
 
     return html;
   }
