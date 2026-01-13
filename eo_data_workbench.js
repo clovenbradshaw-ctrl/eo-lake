@@ -10724,58 +10724,150 @@ class EODataWorkbench {
   }
 
   /**
-   * Infer the identity type of a definition - what kind of thing does this meaning refer to?
-   * Identity: Identifier, Descriptor, Relationship
+   * Determine the Identity of a definition - how is this meaning stabilized in the world?
+   * Identity: Declared, Stabilized, Contested
+   *
+   * The validation question: "If this meaning were challenged tomorrow, would it collapse, bend, or hold?"
+   * - Collapse → Declared (meaning exists because authority asserts it)
+   * - Bend but persist → Stabilized (meaning persists because systems agree and reinforce it)
+   * - Already bending → Contested (meaning is disputed, provisional, or actively evolving)
    *
    * @param {Object} definition - The definition object
-   * @returns {Object} { identity: string, icon: string, color: string }
+   * @returns {Object} { identity: string, icon: string, color: string, description: string, authoritySource?: string }
    */
   _getDefinitionIdentity(definition) {
-    // Check for user override first (support both new 'identity' and legacy 'kind')
-    const overrideValue = definition.overrides?.identity || definition.overrides?.kind;
+    // Check for user override first (support new identity values, legacy kind, and legacy governance)
+    const overrideValue = definition.overrides?.identity;
     if (overrideValue) {
-      // Migration map from old kind values to new identity values
+      // Migration map from old values to new identity values
       const migrationMap = {
         // New identity values (pass through)
-        'Identifier': 'Identifier',
-        'Descriptor': 'Descriptor',
-        'Relationship': 'Relationship',
-        // Legacy kind values mapped to new identity values
-        'Temporal': 'Descriptor',
-        'Measure': 'Descriptor',
-        'Relational': 'Relationship',
-        'Administrative': 'Descriptor',
-        'Descriptive': 'Descriptor'
+        'Declared': 'Declared',
+        'Stabilized': 'Stabilized',
+        'Contested': 'Contested',
+        // Legacy kind values mapped to new identity values (absorbing governance)
+        'Identifier': 'Stabilized',
+        'Descriptor': 'Stabilized',
+        'Relationship': 'Stabilized'
       };
-      const mappedValue = migrationMap[overrideValue] || 'Descriptor';
+      const mappedValue = migrationMap[overrideValue] || 'Stabilized';
       const identityMap = {
-        'Identifier': { identity: 'Identifier', icon: 'ph-key', color: '#6366f1' },
-        'Descriptor': { identity: 'Descriptor', icon: 'ph-tag', color: '#0ea5e9' },
-        'Relationship': { identity: 'Relationship', icon: 'ph-link', color: '#8b5cf6' }
+        'Declared': {
+          identity: 'Declared',
+          icon: 'ph-stamp',
+          color: '#6366f1',
+          description: 'Meaning exists because an authority asserts it'
+        },
+        'Stabilized': {
+          identity: 'Stabilized',
+          icon: 'ph-check-circle',
+          color: '#10b981',
+          description: 'Meaning persists because systems agree and reinforce it'
+        },
+        'Contested': {
+          identity: 'Contested',
+          icon: 'ph-warning',
+          color: '#f59e0b',
+          description: 'Meaning is disputed, provisional, or actively evolving'
+        }
       };
-      return identityMap[mappedValue];
+      const result = identityMap[mappedValue];
+      // Include optional authority source annotation if present
+      const authoritySource = definition.overrides?.authoritySource ||
+                              definition.overrides?.governance?.authorityName ||
+                              definition.definitionSource?.authority?.name;
+      if (authoritySource) {
+        result.authoritySource = authoritySource;
+      }
+      return result;
     }
 
-    const name = (definition.name || '').toLowerCase();
-    const desc = (definition.description || '').toLowerCase();
-    const terms = definition.terms || definition.properties || [];
-    const termNames = terms.map(t => (t.name || t.label || '').toLowerCase()).join(' ');
-    const combined = `${name} ${desc} ${termNames}`;
-
-    // Identifier patterns - points to a specific entity
-    const identifierPatterns = /\b(id|identifier|key|code|uuid|guid|sku|ean|upc|ssn|ein|reference|ref|primary|unique)\b/;
-    if (identifierPatterns.test(combined)) {
-      return { identity: 'Identifier', icon: 'ph-key', color: '#6366f1' };
+    // Check legacy governance.confidence override and map to new identity
+    const legacyConfidence = definition.overrides?.governance?.confidence || definition.overrides?.stability;
+    if (legacyConfidence) {
+      const confidenceToIdentity = {
+        'Established': 'Stabilized',
+        'Provisional': 'Contested',
+        'Contested': 'Contested',
+        'Stable': 'Stabilized',
+        'Contextual': 'Contested',
+        'Experimental': 'Contested',
+        'Superseded': 'Contested'
+      };
+      const mappedIdentity = confidenceToIdentity[legacyConfidence] || 'Stabilized';
+      return this._getIdentityInfo(mappedIdentity, definition);
     }
 
-    // Relationship patterns - connects entities to each other
-    const relationshipPatterns = /\b(parent|child|related|link|association|relationship|belongs|has|owns|references|foreign|fk|join|lookup|mapping|connects|linked|associated)\b/;
-    if (relationshipPatterns.test(combined)) {
-      return { identity: 'Relationship', icon: 'ph-link', color: '#8b5cf6' };
+    // Infer identity from definition properties
+    const hasUri = !!definition.sourceUri;
+    const hasAuthority = !!(definition.definitionSource?.authority?.name);
+    const isVerified = definition.status === 'verified' || definition.status === 'complete';
+    const isPending = this._isDefinitionPending(definition);
+    const validity = definition.definitionSource?.validity;
+    const isSuperseded = validity?.supersededBy;
+
+    // Contested: superseded, pending, or explicitly marked as disputed
+    if (isSuperseded || isPending) {
+      return this._getIdentityInfo('Contested', definition);
     }
 
-    // Default to Descriptor - characterizes qualities or attributes
-    return { identity: 'Descriptor', icon: 'ph-tag', color: '#0ea5e9' };
+    // Declared: has clear authority but limited system reinforcement
+    const authorityType = definition.definitionSource?.authority?.type;
+    const isOfficialAuthority = authorityType === 'federal_agency' ||
+                                 authorityType === 'state_agency' ||
+                                 authorityType === 'standards_body' ||
+                                 authorityType === 'international';
+    if (isOfficialAuthority && !hasUri) {
+      return this._getIdentityInfo('Declared', definition);
+    }
+
+    // Stabilized: verified with URI or system-reinforced
+    if (hasUri && isVerified) {
+      return this._getIdentityInfo('Stabilized', definition);
+    }
+
+    // Default based on verification status
+    if (isVerified || hasAuthority) {
+      return this._getIdentityInfo('Stabilized', definition);
+    }
+
+    // Unverified definitions are contested by default
+    return this._getIdentityInfo('Contested', definition);
+  }
+
+  /**
+   * Helper to build identity info object
+   */
+  _getIdentityInfo(identity, definition) {
+    const identityMap = {
+      'Declared': {
+        identity: 'Declared',
+        icon: 'ph-stamp',
+        color: '#6366f1',
+        description: 'Meaning exists because an authority asserts it'
+      },
+      'Stabilized': {
+        identity: 'Stabilized',
+        icon: 'ph-check-circle',
+        color: '#10b981',
+        description: 'Meaning persists because systems agree and reinforce it'
+      },
+      'Contested': {
+        identity: 'Contested',
+        icon: 'ph-warning',
+        color: '#f59e0b',
+        description: 'Meaning is disputed, provisional, or actively evolving'
+      }
+    };
+    const result = { ...identityMap[identity] };
+    // Include optional authority source annotation if present
+    const authoritySource = definition?.overrides?.authoritySource ||
+                            definition?.overrides?.governance?.authorityName ||
+                            definition?.definitionSource?.authority?.name;
+    if (authoritySource) {
+      result.authoritySource = authoritySource;
+    }
+    return result;
   }
 
   /**
@@ -11111,6 +11203,9 @@ class EODataWorkbench {
   }
 
   /**
+   * @deprecated Governance has been absorbed into Identity. Use _getDefinitionIdentity instead.
+   * This method is kept for backwards compatibility but Identity now handles meaning stabilization.
+   *
    * Determine who maintains this meaning - the authority for a definition.
    * Authority (Governance): Human, Process, System
    *
@@ -11209,6 +11304,10 @@ class EODataWorkbench {
   }
 
   /**
+   * @deprecated Governance has been absorbed into Identity. Use _getDefinitionIdentity instead.
+   * This method is kept for backwards compatibility. The Confidence dimension (Established/Provisional/Contested)
+   * has been replaced by Identity (Declared/Stabilized/Contested) in the new schema.
+   *
    * Determine how established the authority is for this definition.
    * Confidence (Governance): Established, Provisional, Contested
    *
@@ -12336,12 +12435,10 @@ class EODataWorkbench {
     const linkedSetsArray = Array.from(linkedSets.values());
     const isLocal = !definition.sourceUri;
 
-    // Get all EO-aligned metadata (new schema)
+    // Get all EO-aligned metadata (new three-dimensional schema: Identity, Space, Time)
     const identityInfo = this._getDefinitionIdentity(definition);
     const spaceInfo = this._getDefinitionSpace(definition);
     const timeInfo = this._getDefinitionTime(definition);
-    const governanceAuthority = this._getDefinitionGovernanceAuthority(definition);
-    const governanceConfidence = this._getDefinitionGovernanceConfidence(definition);
     const interopStatus = this._getDefinitionInteropStatus(definition);
     const usageInfo = this._getDefinitionUsage(definition);
     const riskInfo = this._getDefinitionRisk(definition);
@@ -12399,12 +12496,13 @@ class EODataWorkbench {
               </div>
             </div>
             <div class="eo-card-content">
-              <p class="eo-ontological-question">What kind of thing does this meaning refer to?</p>
+              <p class="eo-ontological-question">How is this meaning stabilized in the world?</p>
               <div class="eo-ontological-value">
                 <span class="eo-ontological-badge" style="background: ${identityInfo.color}15; color: ${identityInfo.color};">
                   <i class="ph ${identityInfo.icon}"></i>
                   ${identityInfo.identity}
                 </span>
+                ${identityInfo.authoritySource ? `<span class="eo-authority-source">${this._escapeHtml(identityInfo.authoritySource)}</span>` : ''}
               </div>
             </div>
           </div>
@@ -12463,46 +12561,7 @@ class EODataWorkbench {
         </div>
 
         <!-- ════════════════════════════════════════════════════════════════
-             SECTION 4: GOVERNANCE (Authority + Confidence)
-             ════════════════════════════════════════════════════════════════ -->
-        <div class="eo-card eo-card-governance">
-          <div class="eo-card-header">
-            <div class="eo-card-header-icon" style="background: ${governanceAuthority.color}15;">
-              <i class="ph ${governanceAuthority.icon}" style="color: ${governanceAuthority.color};"></i>
-            </div>
-            <div class="eo-card-header-info">
-              <h3 class="eo-card-title">Governance</h3>
-              <p class="eo-card-subtitle">Who maintains this meaning and how established is that?</p>
-            </div>
-            <div class="eo-card-actions">
-              <button class="btn btn-icon btn-sm" id="btn-edit-governance" title="Edit governance">
-                <i class="ph ph-pencil-simple"></i>
-              </button>
-            </div>
-          </div>
-          <div class="eo-card-content">
-            <div class="eo-governance-cluster">
-              <div class="eo-governance-item">
-                <span class="eo-governance-badge" style="background: ${governanceAuthority.color}15; color: ${governanceAuthority.color};">
-                  <i class="ph ${governanceAuthority.icon}"></i>
-                  ${governanceAuthority.authority} Authority
-                </span>
-                ${governanceAuthority.name ? `<span class="eo-governance-name">${this._escapeHtml(governanceAuthority.name)}</span>` : ''}
-              </div>
-              <span class="eo-governance-separator">•</span>
-              <div class="eo-governance-item">
-                <span class="eo-governance-badge" style="background: ${governanceConfidence.color}15; color: ${governanceConfidence.color};">
-                  <i class="ph ${governanceConfidence.icon}"></i>
-                  ${governanceConfidence.confidence}
-                </span>
-              </div>
-            </div>
-            <p class="eo-governance-hint">${governanceAuthority.description}</p>
-          </div>
-        </div>
-
-        <!-- ════════════════════════════════════════════════════════════════
-             SECTION 5: USAGE (Dependency Awareness)
+             SECTION 4: USAGE (Dependency Awareness)
              ════════════════════════════════════════════════════════════════ -->
         <div class="eo-card eo-card-usage">
           <div class="eo-card-header">
@@ -12740,10 +12799,10 @@ class EODataWorkbench {
       editTimeBtn.addEventListener('click', () => this._openEditTimeModal(definition));
     }
 
-    // Edit Governance button (new schema)
+    // Legacy: Edit Governance button - now redirects to Identity (governance absorbed into Identity)
     const editGovernanceBtn = contentArea.querySelector('#btn-edit-governance');
     if (editGovernanceBtn) {
-      editGovernanceBtn.addEventListener('click', () => this._openEditGovernanceModal(definition));
+      editGovernanceBtn.addEventListener('click', () => this._openEditIdentityModal(definition));
     }
 
     // Legacy: Edit scope button (What This Refers To) - for backwards compatibility
@@ -12758,10 +12817,10 @@ class EODataWorkbench {
       editStabilityBtn.addEventListener('click', () => this._openEditTimeModal(definition));
     }
 
-    // Legacy: Edit authority button (Authority & Confidence) - for backwards compatibility
+    // Legacy: Edit authority button (Authority & Confidence) - now redirects to Identity
     const editAuthorityBtn = contentArea.querySelector('#btn-edit-authority');
     if (editAuthorityBtn) {
-      editAuthorityBtn.addEventListener('click', () => this._openEditGovernanceModal(definition));
+      editAuthorityBtn.addEventListener('click', () => this._openEditIdentityModal(definition));
     }
   }
 
@@ -12913,29 +12972,38 @@ class EODataWorkbench {
 
   /**
    * Open modal to edit the Identity of a definition
-   * Identity: Identifier, Descriptor, Relationship
+   * Identity: Declared, Stabilized, Contested
+   *
+   * Question: "How is this meaning stabilized in the world?"
+   * - Declared: Meaning exists because an authority asserts it
+   * - Stabilized: Meaning persists because systems agree and reinforce it
+   * - Contested: Meaning is disputed, provisional, or actively evolving
    */
   _openEditIdentityModal(definition) {
     const identityInfo = this._getDefinitionIdentity(definition);
     const currentIdentity = definition.overrides?.identity || identityInfo.identity;
+    const currentAuthoritySource = definition.overrides?.authoritySource ||
+                                    definition.overrides?.governance?.authorityName ||
+                                    definition.definitionSource?.authority?.name || '';
 
     const identityOptions = [
-      { value: 'Identifier', icon: 'ph-key', color: '#6366f1', description: 'Points to a specific entity' },
-      { value: 'Descriptor', icon: 'ph-tag', color: '#0ea5e9', description: 'Characterizes qualities or attributes' },
-      { value: 'Relationship', icon: 'ph-link', color: '#8b5cf6', description: 'Connects entities to each other' }
+      { value: 'Declared', icon: 'ph-stamp', color: '#6366f1', description: 'Meaning exists because an authority asserts it' },
+      { value: 'Stabilized', icon: 'ph-check-circle', color: '#10b981', description: 'Meaning persists because systems agree and reinforce it' },
+      { value: 'Contested', icon: 'ph-warning', color: '#f59e0b', description: 'Meaning is disputed, provisional, or actively evolving' }
     ];
 
     const modal = document.createElement('div');
     modal.className = 'modal-overlay';
     modal.innerHTML = `
-      <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-content" style="max-width: 480px;">
         <div class="modal-header">
           <h3>Edit Identity</h3>
           <button class="modal-close-btn">&times;</button>
         </div>
         <div class="modal-body">
           <div class="form-group">
-            <label>What kind of thing does this meaning refer to?</label>
+            <label>How is this meaning stabilized in the world?</label>
+            <p class="form-hint" style="margin-bottom: 12px; color: #64748b; font-size: 0.85rem;">If this meaning were challenged tomorrow, would it collapse, bend, or hold?</p>
             <div class="radio-card-group">
               ${identityOptions.map(opt => `
                 <label class="radio-card ${currentIdentity === opt.value ? 'selected' : ''}">
@@ -12948,6 +13016,11 @@ class EODataWorkbench {
                 </label>
               `).join('')}
             </div>
+          </div>
+          <div class="form-group" style="margin-top: 16px;">
+            <label for="authority-source">Authority Source <span style="color: #94a3b8; font-weight: normal;">(optional)</span></label>
+            <input type="text" id="authority-source" value="${this._escapeHtml(currentAuthoritySource)}" placeholder="e.g., ISO, USDA, Company Policy" />
+            <p class="form-hint" style="margin-top: 4px; color: #94a3b8; font-size: 0.8rem;">Who or what asserts this meaning?</p>
           </div>
         </div>
         <div class="modal-footer">
@@ -12976,8 +13049,14 @@ class EODataWorkbench {
 
     modal.querySelector('#btn-save-identity').addEventListener('click', () => {
       const selectedIdentity = modal.querySelector('input[name="edit-identity"]:checked')?.value;
+      const authoritySource = modal.querySelector('#authority-source').value.trim();
       if (!definition.overrides) definition.overrides = {};
       if (selectedIdentity) definition.overrides.identity = selectedIdentity;
+      if (authoritySource) {
+        definition.overrides.authoritySource = authoritySource;
+      } else {
+        delete definition.overrides.authoritySource;
+      }
       this._saveDefinition(definition);
       closeModal();
       this._renderDefinitionDetailView(definition);
@@ -13131,123 +13210,12 @@ class EODataWorkbench {
   }
 
   /**
-   * Open modal to edit the Governance of a definition
-   * Authority: Human, Process, System
-   * Confidence: Established, Provisional, Contested
+   * @deprecated Governance has been absorbed into Identity.
+   * Use _openEditIdentityModal instead. This modal is kept for backwards compatibility.
    */
   _openEditGovernanceModal(definition) {
-    const govAuthority = this._getDefinitionGovernanceAuthority(definition);
-    const govConfidence = this._getDefinitionGovernanceConfidence(definition);
-    const defSource = definition.definitionSource || {};
-
-    const currentAuthority = definition.overrides?.governance?.authority || govAuthority.authority;
-    const currentConfidence = definition.overrides?.governance?.confidence || govConfidence.confidence;
-    const currentName = definition.overrides?.governance?.authorityName || definition.overrides?.authorityName || defSource.authority?.name || '';
-    const currentCitation = definition.overrides?.citation || defSource.source?.citation || '';
-
-    const authorityOptions = [
-      { value: 'Human', icon: 'ph-user', color: '#0ea5e9', description: 'Requires subjective judgment' },
-      { value: 'Process', icon: 'ph-gear', color: '#10b981', description: 'Emerges from defined workflow' },
-      { value: 'System', icon: 'ph-cpu', color: '#64748b', description: 'Computed automatically' }
-    ];
-
-    const confidenceOptions = [
-      { value: 'Established', icon: 'ph-seal-check', color: '#10b981', description: 'Authority is clear and accepted' },
-      { value: 'Provisional', icon: 'ph-clock', color: '#f59e0b', description: 'Accepted for now, subject to review' },
-      { value: 'Contested', icon: 'ph-warning', color: '#ef4444', description: 'Authority is disputed or unclear' }
-    ];
-
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-      <div class="modal-content" style="max-width: 500px;">
-        <div class="modal-header">
-          <h3>Edit Governance</h3>
-          <button class="modal-close-btn">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>Authority</label>
-            <p class="form-hint">Who maintains this meaning?</p>
-            <div class="radio-card-group">
-              ${authorityOptions.map(opt => `
-                <label class="radio-card ${currentAuthority === opt.value ? 'selected' : ''}">
-                  <input type="radio" name="edit-authority" value="${opt.value}" ${currentAuthority === opt.value ? 'checked' : ''}>
-                  <div class="radio-card-content">
-                    <i class="ph ${opt.icon}" style="color: ${opt.color};"></i>
-                    <span class="radio-card-label">${opt.value}</span>
-                    <span class="radio-card-desc">${opt.description}</span>
-                  </div>
-                </label>
-              `).join('')}
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Confidence</label>
-            <p class="form-hint">How established is that authority?</p>
-            <div class="radio-card-group">
-              ${confidenceOptions.map(opt => `
-                <label class="radio-card ${currentConfidence === opt.value ? 'selected' : ''}">
-                  <input type="radio" name="edit-confidence" value="${opt.value}" ${currentConfidence === opt.value ? 'checked' : ''}>
-                  <div class="radio-card-content">
-                    <i class="ph ${opt.icon}" style="color: ${opt.color};"></i>
-                    <span class="radio-card-label">${opt.value}</span>
-                    <span class="radio-card-desc">${opt.description}</span>
-                  </div>
-                </label>
-              `).join('')}
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="governance-name">Organization / Authority Name</label>
-            <input type="text" id="governance-name" value="${this._escapeHtml(currentName)}" placeholder="e.g., ISO, USDA, Company Policy" />
-          </div>
-          <div class="form-group">
-            <label for="governance-citation">Citation / Source Reference</label>
-            <input type="text" id="governance-citation" value="${this._escapeHtml(currentCitation)}" placeholder="e.g., ISO 8601:2019, Internal Style Guide v2" />
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" id="btn-cancel-governance">Cancel</button>
-          <button class="btn btn-primary" id="btn-save-governance">Save</button>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    modal.querySelectorAll('.radio-card input').forEach(radio => {
-      radio.addEventListener('change', () => {
-        const group = radio.closest('.radio-card-group');
-        group.querySelectorAll('.radio-card').forEach(card => card.classList.remove('selected'));
-        radio.closest('.radio-card').classList.add('selected');
-      });
-    });
-
-    const closeModal = () => modal.remove();
-    modal.querySelector('.modal-close-btn').addEventListener('click', closeModal);
-    modal.querySelector('#btn-cancel-governance').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) closeModal();
-    });
-
-    modal.querySelector('#btn-save-governance').addEventListener('click', () => {
-      const selectedAuthority = modal.querySelector('input[name="edit-authority"]:checked')?.value;
-      const selectedConfidence = modal.querySelector('input[name="edit-confidence"]:checked')?.value;
-      const authorityName = modal.querySelector('#governance-name').value.trim();
-      const citation = modal.querySelector('#governance-citation').value.trim();
-
-      if (!definition.overrides) definition.overrides = {};
-      if (!definition.overrides.governance) definition.overrides.governance = {};
-      if (selectedAuthority) definition.overrides.governance.authority = selectedAuthority;
-      if (selectedConfidence) definition.overrides.governance.confidence = selectedConfidence;
-      if (authorityName) definition.overrides.governance.authorityName = authorityName;
-      if (citation) definition.overrides.citation = citation;
-
-      this._saveDefinition(definition);
-      closeModal();
-      this._renderDefinitionDetailView(definition);
-    });
+    // Redirect to Identity modal - governance is now part of Identity
+    this._openEditIdentityModal(definition);
   }
 
   /**
@@ -13269,12 +13237,12 @@ class EODataWorkbench {
   }
 
   /**
-   * @deprecated Legacy modal - use _openEditGovernanceModal instead
+   * @deprecated Legacy modal - use _openEditIdentityModal instead
    * Open modal to edit the Authority of a definition
    */
   _openEditAuthorityModal(definition) {
-    // Redirect to new Governance modal
-    this._openEditGovernanceModal(definition);
+    // Redirect to Identity modal - authority is now an annotation within Identity
+    this._openEditIdentityModal(definition);
   }
 
   /**
