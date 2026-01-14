@@ -10822,6 +10822,84 @@ class EODataWorkbench {
   }
 
   /**
+   * Render identity options as clickable badges
+   * @param {string} currentIdentity - The currently selected identity value
+   * @returns {string} HTML string with all identity options
+   */
+  _renderIdentityOptions(currentIdentity) {
+    const options = [
+      { value: 'Declared', icon: 'ph-stamp', color: '#6366f1' },
+      { value: 'Stabilized', icon: 'ph-check-circle', color: '#10b981' },
+      { value: 'Contested', icon: 'ph-warning', color: '#f59e0b' }
+    ];
+
+    return options.map(opt => {
+      const isSelected = currentIdentity === opt.value;
+      const selectedClass = isSelected ? 'selected' : '';
+      const style = isSelected
+        ? `background: ${opt.color}15; color: ${opt.color}; border-color: ${opt.color};`
+        : `background: transparent; color: #64748b; border-color: #e2e8f0;`;
+
+      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="identity" data-value="${opt.value}" style="${style}">
+        <i class="ph ${opt.icon}"></i>
+        ${opt.value}
+      </button>`;
+    }).join('');
+  }
+
+  /**
+   * Render space options as clickable badges
+   * @param {string} currentSpace - The currently selected space value
+   * @returns {string} HTML string with all space options
+   */
+  _renderSpaceOptions(currentSpace) {
+    const options = [
+      { value: 'Local', icon: 'ph-house', color: '#64748b' },
+      { value: 'Federated', icon: 'ph-handshake', color: '#10b981' },
+      { value: 'Universal', icon: 'ph-globe', color: '#6366f1' }
+    ];
+
+    return options.map(opt => {
+      const isSelected = currentSpace === opt.value;
+      const selectedClass = isSelected ? 'selected' : '';
+      const style = isSelected
+        ? `background: ${opt.color}15; color: ${opt.color}; border-color: ${opt.color};`
+        : `background: transparent; color: #64748b; border-color: #e2e8f0;`;
+
+      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="space" data-value="${opt.value}" style="${style}">
+        <i class="ph ${opt.icon}"></i>
+        ${opt.value}
+      </button>`;
+    }).join('');
+  }
+
+  /**
+   * Render time options as clickable badges
+   * @param {string} currentTime - The currently selected time value
+   * @returns {string} HTML string with all time options
+   */
+  _renderTimeOptions(currentTime) {
+    const options = [
+      { value: 'Immutable', icon: 'ph-lock-simple', color: '#6366f1' },
+      { value: 'Versioned', icon: 'ph-clock-counter-clockwise', color: '#8b5cf6' },
+      { value: 'Evolving', icon: 'ph-arrows-clockwise', color: '#f59e0b' }
+    ];
+
+    return options.map(opt => {
+      const isSelected = currentTime === opt.value;
+      const selectedClass = isSelected ? 'selected' : '';
+      const style = isSelected
+        ? `background: ${opt.color}15; color: ${opt.color}; border-color: ${opt.color};`
+        : `background: transparent; color: #64748b; border-color: #e2e8f0;`;
+
+      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="time" data-value="${opt.value}" style="${style}">
+        <i class="ph ${opt.icon}"></i>
+        ${opt.value}
+      </button>`;
+    }).join('');
+  }
+
+  /**
    * Determine the Identity of a definition - how is this meaning stabilized in the world?
    * Identity: Declared, Stabilized, Contested
    *
@@ -12598,12 +12676,8 @@ class EODataWorkbench {
             </div>
             <div class="eo-card-content">
               <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="identityQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.identityQuestion || 'How is this meaning stabilized in the world?')}</p>
-              <div class="eo-ontological-value">
-                <span class="eo-ontological-badge" style="background: ${identityInfo.color}15; color: ${identityInfo.color};">
-                  <i class="ph ${identityInfo.icon}"></i>
-                  ${identityInfo.identity}
-                </span>
-                ${identityInfo.authoritySource ? `<span class="eo-authority-source">${this._escapeHtml(identityInfo.authoritySource)}</span>` : ''}
+              <div class="eo-ontological-options">
+                ${this._renderIdentityOptions(identityInfo.identity)}
               </div>
             </div>
           </div>
@@ -12625,11 +12699,8 @@ class EODataWorkbench {
             </div>
             <div class="eo-card-content">
               <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="spaceQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.spaceQuestion || 'Where does this meaning apply?')}</p>
-              <div class="eo-ontological-value">
-                <span class="eo-ontological-badge" style="background: ${spaceInfo.color}15; color: ${spaceInfo.color};">
-                  <i class="ph ${spaceInfo.icon}"></i>
-                  ${spaceInfo.space}
-                </span>
+              <div class="eo-ontological-options">
+                ${this._renderSpaceOptions(spaceInfo.space)}
               </div>
             </div>
           </div>
@@ -12651,11 +12722,8 @@ class EODataWorkbench {
             </div>
             <div class="eo-card-content">
               <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="timeQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.timeQuestion || 'How does this meaning change?')}</p>
-              <div class="eo-ontological-value">
-                <span class="eo-ontological-badge" style="background: ${timeInfo.color}15; color: ${timeInfo.color};">
-                  <i class="ph ${timeInfo.icon}"></i>
-                  ${timeInfo.time}
-                </span>
+              <div class="eo-ontological-options">
+                ${this._renderTimeOptions(timeInfo.time)}
               </div>
             </div>
           </div>
@@ -12924,8 +12992,121 @@ class EODataWorkbench {
       editAuthorityBtn.addEventListener('click', () => this._openEditIdentityModal(definition));
     }
 
+    // Ontological option selection buttons (direct selection)
+    const optionButtons = contentArea.querySelectorAll('.eo-ontological-option');
+    optionButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const dimension = btn.dataset.dimension;
+        const value = btn.dataset.value;
+        this._selectOntologicalOption(definition, dimension, value, btn);
+      });
+    });
+
     // Inline editable elements
     this._setupInlineEditing(contentArea, definition);
+  }
+
+  /**
+   * Handle direct selection of an ontological option (identity, space, or time)
+   * @param {Object} definition - The definition object
+   * @param {string} dimension - The dimension being changed ('identity', 'space', or 'time')
+   * @param {string} value - The new value for the dimension
+   * @param {HTMLElement} clickedBtn - The button that was clicked
+   */
+  _selectOntologicalOption(definition, dimension, value, clickedBtn) {
+    // Initialize overrides if needed
+    if (!definition.overrides) {
+      definition.overrides = {};
+    }
+
+    // Update the override value
+    definition.overrides[dimension] = value;
+
+    // Save the definition
+    this._saveDefinition(definition);
+
+    // Update visual state of all buttons in this dimension's container
+    const container = clickedBtn.closest('.eo-ontological-options');
+    const allButtons = container.querySelectorAll('.eo-ontological-option');
+
+    // Color maps for each dimension
+    const colorMaps = {
+      identity: {
+        'Declared': '#6366f1',
+        'Stabilized': '#10b981',
+        'Contested': '#f59e0b'
+      },
+      space: {
+        'Local': '#64748b',
+        'Federated': '#10b981',
+        'Universal': '#6366f1'
+      },
+      time: {
+        'Immutable': '#6366f1',
+        'Versioned': '#8b5cf6',
+        'Evolving': '#f59e0b'
+      }
+    };
+
+    allButtons.forEach(btn => {
+      const btnValue = btn.dataset.value;
+      const color = colorMaps[dimension][btnValue];
+      const isSelected = btnValue === value;
+
+      btn.classList.toggle('selected', isSelected);
+
+      if (isSelected) {
+        btn.style.background = `${color}15`;
+        btn.style.color = color;
+        btn.style.borderColor = color;
+      } else {
+        btn.style.background = 'transparent';
+        btn.style.color = '#64748b';
+        btn.style.borderColor = '#e2e8f0';
+      }
+    });
+
+    // Update the header icon to match the new selection
+    this._updateOntologicalPanelHeader(dimension, value);
+  }
+
+  /**
+   * Update the ontological panel header icon and color based on selection
+   */
+  _updateOntologicalPanelHeader(dimension, value) {
+    const contentArea = this.elements.contentArea;
+    const card = contentArea.querySelector(`.eo-card-${dimension}`);
+    if (!card) return;
+
+    const headerIcon = card.querySelector('.eo-card-header-icon');
+    const iconElement = headerIcon?.querySelector('i');
+    if (!headerIcon || !iconElement) return;
+
+    // Get the metadata for the new value
+    const metaMap = {
+      identity: {
+        'Declared': { icon: 'ph-stamp', color: '#6366f1' },
+        'Stabilized': { icon: 'ph-check-circle', color: '#10b981' },
+        'Contested': { icon: 'ph-warning', color: '#f59e0b' }
+      },
+      space: {
+        'Local': { icon: 'ph-house', color: '#64748b' },
+        'Federated': { icon: 'ph-handshake', color: '#10b981' },
+        'Universal': { icon: 'ph-globe', color: '#6366f1' }
+      },
+      time: {
+        'Immutable': { icon: 'ph-lock-simple', color: '#6366f1' },
+        'Versioned': { icon: 'ph-clock-counter-clockwise', color: '#8b5cf6' },
+        'Evolving': { icon: 'ph-arrows-clockwise', color: '#f59e0b' }
+      }
+    };
+
+    const meta = metaMap[dimension]?.[value];
+    if (meta) {
+      headerIcon.style.background = `${meta.color}15`;
+      iconElement.className = `ph ${meta.icon}`;
+      iconElement.style.color = meta.color;
+    }
   }
 
   /**

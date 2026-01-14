@@ -45492,6 +45492,43 @@ html.light-theme .formula-explainer-fn-name.fn-slate { color: #475569; }
   font-size: 16px;
 }
 
+/* === Ontological Options (selectable dimension values) === */
+.eo-ontological-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.eo-ontological-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1.5px solid #e2e8f0;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.eo-ontological-option:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+.eo-ontological-option.selected {
+  font-weight: 600;
+}
+
+.eo-ontological-option i {
+  font-size: 15px;
+}
+
 /* Authority source annotation (optional, shown below Identity badge) */
 .eo-authority-source {
   display: block;
