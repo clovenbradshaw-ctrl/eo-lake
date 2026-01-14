@@ -744,14 +744,14 @@ class EODataWorkbench {
   // Initialization
   // --------------------------------------------------------------------------
 
-  init(eoApp = null) {
+  async init(eoApp = null) {
     this.eoApp = eoApp;
 
     // Initialize View Hierarchy Registry
     this._initViewHierarchy();
 
-    // Load persisted data
-    this._loadData();
+    // Load persisted data (includes awaiting IndexedDB records - GIVEN before MEANT)
+    await this._loadData();
 
     // Ensure sources array is initialized
     if (!Array.isArray(this.sources)) {
@@ -3507,7 +3507,7 @@ class EODataWorkbench {
   // Data Persistence
   // --------------------------------------------------------------------------
 
-  _loadData() {
+  async _loadData() {
     try {
       const data = localStorage.getItem('eo_lake_data');
 
@@ -3530,6 +3530,8 @@ class EODataWorkbench {
             });
             // Clear backup after successful recovery
             localStorage.removeItem('eo_lake_backup');
+            // Still need to load IndexedDB records for recovered data
+            await this._loadRecordsFromIndexedDBOnStartup();
             return; // Skip normal loading since we recovered
           }
         } catch (backupErr) {
@@ -3601,7 +3603,8 @@ class EODataWorkbench {
 
         // CRITICAL: Load records from IndexedDB for current set/sources that have _recordsInIndexedDB flag
         // This ensures data persists across page refresh
-        this._loadRecordsFromIndexedDBOnStartup();
+        // EO principle: GIVEN (records) must be present before MEANT (views) can render
+        await this._loadRecordsFromIndexedDBOnStartup();
 
         // Migration: Validate all fields to ensure proper rendering (TABLE RULES 1, 3 & 5)
         // This fixes any legacy data that might have missing width, type, or other properties
@@ -50767,12 +50770,18 @@ class EODataWorkbench {
 
 let _workbench = null;
 
-function initDataWorkbench(container = 'content-area', eoApp = null) {
+async function initDataWorkbench(container = 'content-area', eoApp = null) {
   _workbench = new EODataWorkbench(container);
-  _workbench.init(eoApp);
+  // Wait for data to load from IndexedDB before rendering (EO: GIVEN before MEANT)
+  await _workbench.init(eoApp);
   // Expose workbench instance globally for onclick handlers
   if (typeof window !== 'undefined') {
     window.eoWorkbench = _workbench;
+  }
+  // Hide loading state now that data is ready
+  const loadingState = document.getElementById('app-loading-state');
+  if (loadingState) {
+    loadingState.classList.add('hidden');
   }
   return _workbench;
 }

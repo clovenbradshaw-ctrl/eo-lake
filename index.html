@@ -8,17 +8,17 @@
   <!-- Phosphor Icons -->
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
-  <!-- Cytoscape.js Graph Visualization -->
-  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
-  <!-- Cytoscape Layout Extensions -->
-  <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
-  <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+  <!-- Cytoscape.js Graph Visualization - deferred (only needed for graph view) -->
+  <script defer src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <!-- Cytoscape Layout Extensions - deferred -->
+  <script defer src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
+  <script defer src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 
-  <!-- SheetJS for Excel export -->
-  <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- SheetJS for Excel export - deferred (only needed for export) -->
+  <script defer src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-  <!-- Fuse.js for fuzzy search -->
-  <script src="https://unpkg.com/fuse.js@7.0.0/dist/fuse.min.js"></script>
+  <!-- Fuse.js for fuzzy search - deferred (has fallback) -->
+  <script defer src="https://unpkg.com/fuse.js@7.0.0/dist/fuse.min.js"></script>
 
   <link rel="stylesheet" href="noema_styles.css">
   <link rel="stylesheet" href="noema_integration_styles.css">
@@ -386,7 +386,14 @@
 
       <!-- Content Area -->
       <div class="content-area" id="content-area">
-        <!-- Workbench rendered here -->
+        <!-- Initial loading state - hidden once app initializes -->
+        <div class="app-loading-state" id="app-loading-state">
+          <div class="app-loading-content">
+            <i class="ph ph-database app-loading-icon"></i>
+            <div class="app-loading-text">Loading workspace...</div>
+            <div class="app-loading-subtext">Restoring your data</div>
+          </div>
+        </div>
       </div>
 
       <!-- Status Bar -->

@@ -567,7 +567,8 @@ async function initApp(options = {}) {
   console.log('Noema: EOApp core initialized');
 
   // Initialize the data workbench (the main UI)
-  _dataWorkbench = initDataWorkbench('content-area', _app);
+  // Await to ensure IndexedDB records are loaded before rendering (EO: GIVEN before MEANT)
+  _dataWorkbench = await initDataWorkbench('content-area', _app);
 
   // Set up global event handlers
   setupGlobalHandlers();

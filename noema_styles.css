@@ -46119,3 +46119,55 @@ html.light-theme .formula-explainer-fn-name.fn-slate { color: #475569; }
     margin-left: 36px;
   }
 }
+
+/* ===== App Loading State ===== */
+/* Shown during initial data hydration from IndexedDB */
+.app-loading-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-primary, #0f172a);
+  z-index: 100;
+}
+
+.app-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  animation: app-loading-fade-in 0.3s ease-out;
+}
+
+.app-loading-icon {
+  font-size: 48px;
+  color: var(--primary-500, #3b82f6);
+  animation: app-loading-pulse 1.5s ease-in-out infinite;
+}
+
+.app-loading-text {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #f1f5f9);
+}
+
+.app-loading-subtext {
+  font-size: 13px;
+  color: var(--text-secondary, #94a3b8);
+}
+
+@keyframes app-loading-fade-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes app-loading-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+/* Hide loading state once app is ready */
+.app-loading-state.hidden {
+  display: none;
+}
