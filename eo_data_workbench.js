@@ -783,6 +783,9 @@ class EODataWorkbench {
     // Attach event listeners
     this._attachEventListeners();
 
+    // Add beforeunload handler to ensure data persists on page close/refresh
+    this._setupPersistenceHandlers();
+
     // Initialize browser tab keyboard shortcuts
     this._initTabKeyboardShortcuts();
 
@@ -3466,6 +3469,41 @@ class EODataWorkbench {
   }
 
   // --------------------------------------------------------------------------
+  // Persistence Event Handlers
+  // --------------------------------------------------------------------------
+
+  /**
+   * Setup persistence handlers to ensure data survives page refresh/close
+   */
+  _setupPersistenceHandlers() {
+    // Track pending save state
+    this._pendingSave = null;
+    this._lastSaveTime = null;
+
+    // beforeunload - ensure data is saved before page closes
+    window.addEventListener('beforeunload', (e) => {
+      // Always do a sync save on page close to ensure data persists
+      // This handles the case where async save hasn't completed yet
+      this._saveDataSync();
+    });
+
+    // visibilitychange - save when tab becomes hidden (user switches tabs or minimizes)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        // When tab is hidden, ensure data is saved
+        this._saveDataSync();
+      }
+    });
+
+    // pagehide - additional handler for mobile Safari and some browsers
+    window.addEventListener('pagehide', () => {
+      this._saveDataSync();
+    });
+
+    console.log('[Persistence] Event handlers registered');
+  }
+
+  // --------------------------------------------------------------------------
   // Data Persistence
   // --------------------------------------------------------------------------
 
@@ -3882,7 +3920,67 @@ class EODataWorkbench {
 
   _saveData() {
     // Use hybrid storage: metadata in localStorage, records in IndexedDB
-    this._saveDataHybrid();
+    // Track pending save for beforeunload handler
+    this._pendingSave = this._saveDataHybrid();
+    return this._pendingSave;
+  }
+
+  /**
+   * Synchronous save fallback - saves metadata to localStorage immediately
+   * Used by beforeunload to ensure data persists even if async save is pending
+   */
+  _saveDataSync() {
+    try {
+      // Serialize projects (strip helper methods)
+      const projectsToSave = (this.projects || []).map(p => {
+        const { getItemCount, ...cleanProject } = p;
+        return cleanProject;
+      });
+
+      // For sync save, include records inline (skip IndexedDB)
+      const sourcesToSave = (this.sources || []).map(source => {
+        const sourceData = { ...source };
+        // Keep records inline for sync save to ensure persistence
+        return sourceData;
+      });
+
+      const setsToSave = (this.sets || []).map(set => {
+        // For virtual sets, don't include records
+        if (set.isVirtual || set.derivation?.operator === 'relational_merge') {
+          const { records, ...setMetadata } = set;
+          setMetadata.isVirtual = true;
+          setMetadata.recordCount = set.recordCount || null;
+          return setMetadata;
+        }
+        // Keep records inline for sync save
+        const { _recordsLoaded, _recordCount, ...setData } = set;
+        return setData;
+      });
+
+      const dataToSave = {
+        projects: projectsToSave,
+        currentProjectId: this.currentProjectId,
+        sources: sourcesToSave,
+        definitions: this.definitions || [],
+        exports: this.exports || [],
+        sets: setsToSave,
+        currentSetId: this.currentSetId,
+        currentViewId: this.currentViewId,
+        lastViewPerSet: this.lastViewPerSet,
+        tossedItems: (this.tossedItems || []).slice(0, 50), // Limit for quota
+        activityLog: (this.activityLog || []).slice(0, 50), // Limit for quota
+        browserTabs: this.browserTabs || [],
+        activeTabId: this.activeTabId,
+        recentlyClosedTabs: [],
+        _storageVersion: 2,
+        _syncSave: true // Mark as sync save
+      };
+
+      localStorage.setItem('eo_lake_data', JSON.stringify(dataToSave));
+      console.log('[Persistence] Sync save completed');
+    } catch (e) {
+      console.error('[Persistence] Sync save failed:', e);
+    }
   }
 
   /**
