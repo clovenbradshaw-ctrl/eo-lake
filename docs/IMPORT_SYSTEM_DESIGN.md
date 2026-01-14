@@ -185,7 +185,7 @@ JSON files can include metadata that creates views automatically:
 
 ```json
 {
-  "_eo_meta": {
+  "_noema_meta": {
     "set": {
       "name": "Customer Orders",
       "description": "Q4 2024 orders"
@@ -242,12 +242,12 @@ JSON files can include metadata that creates views automatically:
 ### 3.2 View Generation Flow
 
 ```
-JSON with _eo_meta
+JSON with _noema_meta
        │
        ▼
 ┌──────────────────────────┐
 │  Extract View Hints      │
-│  - Parse _eo_meta        │
+│  - Parse _noema_meta        │
 │  - Validate view configs │
 └───────────┬──────────────┘
             │
@@ -285,7 +285,7 @@ JSON with _eo_meta
 
 ### 3.3 Default View Generation
 
-If no `_eo_meta` is provided, generate sensible defaults:
+If no `_noema_meta` is provided, generate sensible defaults:
 
 ```javascript
 function generateDefaultViews(schema) {
@@ -410,7 +410,7 @@ class ImportOrchestrator {
 ### 4.3 UI Subscription for Live Updates
 
 ```javascript
-// In eo_data_workbench.js
+// In noema_data_workbench.js
 eventBus.on('IMPORT_STARTED', (data) => {
   showProgressBar(data.totalRecords);
 });
@@ -772,7 +772,7 @@ function getRecordProvenance(recordId) {
 - [ ] UI refresh subscriptions
 
 ### Phase 3: View Generation (Priority: HIGH)
-- [ ] `_eo_meta` parser for JSON
+- [ ] `_noema_meta` parser for JSON
 - [ ] Default view generator
 - [ ] View MEANT event creation with provenance
 
@@ -791,7 +791,7 @@ function getRecordProvenance(recordId) {
 ### Phase 6: Advanced Features (Priority: LOW)
 - [ ] Import history view
 - [ ] Undo/rollback import
-- [ ] Export with `_eo_meta` preservation
+- [ ] Export with `_noema_meta` preservation
 - [ ] Import templates
 
 ---
@@ -799,13 +799,13 @@ function getRecordProvenance(recordId) {
 ## File Structure
 
 ```
-eo-lake/
-├── eo_import_orchestrator.js    # Main coordinator
-├── eo_csv_parser.js             # CSV parsing
-├── eo_json_parser.js            # JSON parsing
-├── eo_schema_inferrer.js        # Type detection
-├── eo_field_mapper.js           # Schema mapping
-├── eo_import_ui.js              # Modal and progress UI
+noema/
+├── noema_import_orchestrator.js    # Main coordinator
+├── noema_csv_parser.js             # CSV parsing
+├── noema_json_parser.js            # JSON parsing
+├── noema_schema_inferrer.js        # Type detection
+├── noema_field_mapper.js           # Schema mapping
+├── noema_import_ui.js              # Modal and progress UI
 └── ... (existing files)
 ```
 

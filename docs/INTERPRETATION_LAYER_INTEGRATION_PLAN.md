@@ -2,15 +2,15 @@
 
 ## Overview
 
-This plan outlines the integration of a formal **Interpretation Layer** into eo-lake that binds dataset columns to versioned semantic URIs. The layer enforces the EO principle:
+This plan outlines the integration of a formal **Interpretation Layer** into noema that binds dataset columns to versioned semantic URIs. The layer enforces the EO principle:
 
 > **Datasets never "contain" meaning. They reference interpretation records, which reference semantic URIs.**
 
-This builds on eo-lake's existing architecture:
-- `StructuralSchema` / `SemanticSchema` split in `eo_ontology.js`
-- 9-element provenance system in `eo_provenance.js`
-- Append-only event store in `eo_event_store.js`
-- Import system in `eo_import.js`
+This builds on noema's existing architecture:
+- `StructuralSchema` / `SemanticSchema` split in `noema_ontology.js`
+- 9-element provenance system in `noema_provenance.js`
+- Append-only event store in `noema_event_store.js`
+- Import system in `noema_import.js`
 
 ---
 
@@ -52,11 +52,11 @@ This builds on eo-lake's existing architecture:
 
 ## Phase 1: Core Entities
 
-### 1.1 Create `eo_schema_semantic.js`
+### 1.1 Create `noema_schema_semantic.js`
 
 **Purpose**: Define and manage versioned semantic definitions for columns.
 
-**Location**: `/home/user/eo-lake/eo_schema_semantic.js`
+**Location**: `/home/user/noema/noema_schema_semantic.js`
 
 **Entity Structure**:
 ```javascript
@@ -105,7 +105,7 @@ parseSemanticUri(uri) → { term: string, version: number }
 isValidSemanticUri(uri) → boolean
 ```
 
-**Event Categories** (add to `eo_event_store.js`):
+**Event Categories** (add to `noema_event_store.js`):
 ```javascript
 EventCategory = {
   // ... existing categories
@@ -117,11 +117,11 @@ EventCategory = {
 
 ---
 
-### 1.2 Create `eo_interpretation_binding.js`
+### 1.2 Create `noema_interpretation_binding.js`
 
 **Purpose**: Bind dataset columns to semantic meanings with interpretive context.
 
-**Location**: `/home/user/eo-lake/eo_interpretation_binding.js`
+**Location**: `/home/user/noema/noema_interpretation_binding.js`
 
 **Entity Structure**:
 ```javascript
@@ -196,7 +196,7 @@ EventCategory = {
 
 ### 1.3 Update Dataset Metadata Schema
 
-**Location**: Update `eo_ontology.js` and `eo_import.js`
+**Location**: Update `noema_ontology.js` and `noema_import.js`
 
 **Extended Dataset Metadata**:
 ```javascript
@@ -216,7 +216,7 @@ EventCategory = {
  */
 ```
 
-**Update SourceConfig** (in `eo_ontology.js`):
+**Update SourceConfig** (in `noema_ontology.js`):
 ```javascript
 class SourceConfig {
   // ... existing fields
@@ -228,11 +228,11 @@ class SourceConfig {
 
 ## Phase 2: Suggestion Services
 
-### 2.1 Create `eo_semantic_suggestions.js`
+### 2.1 Create `noema_semantic_suggestions.js`
 
 **Purpose**: Non-binding lookup services for external semantic URIs.
 
-**Location**: `/home/user/eo-lake/eo_semantic_suggestions.js`
+**Location**: `/home/user/noema/noema_semantic_suggestions.js`
 
 **Suggestion Response Structure**:
 ```javascript
@@ -298,7 +298,7 @@ const SuggestionWarnings = {
 
 ## Phase 3: Import System Updates
 
-### 3.1 Update `eo_import.js`
+### 3.1 Update `noema_import.js`
 
 **New Import Format Support**:
 ```javascript
@@ -316,7 +316,7 @@ const SuggestionWarnings = {
 ```javascript
 // Import parsing
 parseEOAwareJSON(content) → EOAwareImport
-detectImportFormat(content) → 'eo_aware' | 'standard' | 'csv' | 'xlsx'
+detectImportFormat(content) → 'noema_aware' | 'standard' | 'csv' | 'xlsx'
 
 // Validation
 validateEOAwareImport(parsed) → { valid: boolean, errors: string[], warnings: string[] }
@@ -350,14 +350,14 @@ const ImportValidationRules = {
 
 ### 3.2 Update Import Workflow
 
-**Modified `processImport()` in `eo_import.js`**:
+**Modified `processImport()` in `noema_import.js`**:
 
 ```javascript
 async function processImport(file, options) {
   const content = await readFile(file);
   const format = detectImportFormat(content);
 
-  if (format === 'eo_aware') {
+  if (format === 'noema_aware') {
     return processEOAwareImport(content, options);
   }
 
@@ -409,11 +409,11 @@ async function processEOAwareImport(content, options) {
 
 ## Phase 4: UI Components
 
-### 4.1 Create `eo_interpretation_panel.js`
+### 4.1 Create `noema_interpretation_panel.js`
 
 **Purpose**: UI for viewing and editing column interpretations.
 
-**Location**: `/home/user/eo-lake/eo_interpretation_panel.js`
+**Location**: `/home/user/noema/noema_interpretation_panel.js`
 
 **Panel Structure**:
 ```
@@ -472,11 +472,11 @@ handleCreateSemantic(term, definition, options) → Promise<SchemaSemantic>
 
 ---
 
-### 4.2 Create `eo_semantic_browser.js`
+### 4.2 Create `noema_semantic_browser.js`
 
 **Purpose**: Browse and manage schema semantics.
 
-**Location**: `/home/user/eo-lake/eo_semantic_browser.js`
+**Location**: `/home/user/noema/noema_semantic_browser.js`
 
 **Browser Structure**:
 ```
@@ -528,7 +528,7 @@ exportSemanticAsJSON(semantic) → string
 
 ### 4.3 Update Import Modal
 
-**Location**: Update `eo_import.js` modal components
+**Location**: Update `noema_import.js` modal components
 
 **New Import Workflow UI**:
 
@@ -576,7 +576,7 @@ exportSemanticAsJSON(semantic) → string
 
 ## Phase 5: Event Store Updates
 
-### 5.1 Update `eo_event_store.js`
+### 5.1 Update `noema_event_store.js`
 
 **New Event Categories**:
 ```javascript
@@ -613,7 +613,7 @@ eventStore.createIndex('interpretation_id', 'payload.interpretation_id', { uniqu
 
 ---
 
-### 5.2 Update `eo_grounding.js`
+### 5.2 Update `noema_grounding.js`
 
 **New Grounding Kind**:
 ```javascript
@@ -646,7 +646,7 @@ const GroundingKind = {
 
 ## Phase 6: Integration Points
 
-### 6.1 Update `eo_provenance.js`
+### 6.1 Update `noema_provenance.js`
 
 **Link 9-Element Provenance to Interpretation**:
 
@@ -684,7 +684,7 @@ interpretationToProvenance(binding, semantics) → ProvenanceData {
 
 ---
 
-### 6.2 Update `eo_source_provenance.js`
+### 6.2 Update `noema_source_provenance.js`
 
 **Link Source Provenance to Semantics**:
 
@@ -706,7 +706,7 @@ class SourceProvenance {
 
 ---
 
-### 6.3 Update `eo_compliance.js`
+### 6.3 Update `noema_compliance.js`
 
 **New Compliance Rules**:
 
@@ -751,7 +751,7 @@ const InterpretationComplianceRules = {
 
 ## Phase 7: Export Updates
 
-### 7.1 Update `eo_export.js`
+### 7.1 Update `noema_export.js`
 
 **New Export Format**:
 ```javascript
@@ -780,37 +780,37 @@ async function exportEOAwareJSON(datasetId, options) {
 ## Implementation Order
 
 ### Week 1: Core Entities
-1. [ ] Create `eo_schema_semantic.js` with full entity and storage
-2. [ ] Create `eo_interpretation_binding.js` with full entity and storage
-3. [ ] Update `eo_event_store.js` with new event categories
+1. [ ] Create `noema_schema_semantic.js` with full entity and storage
+2. [ ] Create `noema_interpretation_binding.js` with full entity and storage
+3. [ ] Update `noema_event_store.js` with new event categories
 4. [ ] Add IndexedDB indexes for semantic queries
 5. [ ] Write unit tests for validation functions
 
 ### Week 2: Suggestion Services
-1. [ ] Create `eo_semantic_suggestions.js`
+1. [ ] Create `noema_semantic_suggestions.js`
 2. [ ] Implement Wikidata search integration
 3. [ ] Implement QUDT SPARQL integration
 4. [ ] Add response caching
 5. [ ] Write integration tests for APIs
 
 ### Week 3: Import System
-1. [ ] Update `eo_import.js` with EO-aware format detection
+1. [ ] Update `noema_import.js` with EO-aware format detection
 2. [ ] Implement `parseEOAwareJSON()` and validation
 3. [ ] Implement `processEOAwareImport()` workflow
 4. [ ] Update import modal UI with interpretation step
 5. [ ] Write end-to-end import tests
 
 ### Week 4: UI Components
-1. [ ] Create `eo_interpretation_panel.js`
-2. [ ] Create `eo_semantic_browser.js`
+1. [ ] Create `noema_interpretation_panel.js`
+2. [ ] Create `noema_semantic_browser.js`
 3. [ ] Update import modal with suggestion UI
 4. [ ] Add interpretation panel to data workbench
 5. [ ] Polish UI and add loading states
 
 ### Week 5: Integration & Testing
-1. [ ] Update `eo_provenance.js` integration
-2. [ ] Update `eo_compliance.js` with new rules
-3. [ ] Update `eo_export.js` with EO-aware format
+1. [ ] Update `noema_provenance.js` integration
+2. [ ] Update `noema_compliance.js` with new rules
+3. [ ] Update `noema_export.js` with EO-aware format
 4. [ ] Update `index.html` with new script includes
 5. [ ] End-to-end testing and bug fixes
 
@@ -819,22 +819,22 @@ async function exportEOAwareJSON(datasetId, options) {
 ## File Changes Summary
 
 ### New Files
-- `eo_schema_semantic.js` - Schema semantic entity and storage
-- `eo_interpretation_binding.js` - Interpretation binding entity and storage
-- `eo_semantic_suggestions.js` - External API integrations
-- `eo_interpretation_panel.js` - Column interpretation UI
-- `eo_semantic_browser.js` - Schema semantics browser UI
+- `noema_schema_semantic.js` - Schema semantic entity and storage
+- `noema_interpretation_binding.js` - Interpretation binding entity and storage
+- `noema_semantic_suggestions.js` - External API integrations
+- `noema_interpretation_panel.js` - Column interpretation UI
+- `noema_semantic_browser.js` - Schema semantics browser UI
 
 ### Modified Files
-- `eo_event_store.js` - New event categories
-- `eo_persistence.js` - New IndexedDB indexes
-- `eo_ontology.js` - Dataset semantic metadata
-- `eo_import.js` - EO-aware import format
-- `eo_export.js` - EO-aware export format
-- `eo_provenance.js` - Interpretation to provenance mapping
-- `eo_compliance.js` - Interpretation compliance rules
-- `eo_grounding.js` - Interpretation grounding pattern
-- `eo_styles.css` - New component styles
+- `noema_event_store.js` - New event categories
+- `noema_persistence.js` - New IndexedDB indexes
+- `noema_ontology.js` - Dataset semantic metadata
+- `noema_import.js` - EO-aware import format
+- `noema_export.js` - EO-aware export format
+- `noema_provenance.js` - Interpretation to provenance mapping
+- `noema_compliance.js` - Interpretation compliance rules
+- `noema_grounding.js` - Interpretation grounding pattern
+- `noema_styles.css` - New component styles
 - `index.html` - Script includes for new modules
 
 ---

@@ -45,7 +45,7 @@ user.posts.author.posts.author... // Stack overflow
 ```
 
 **Why EO-Lake is Different:**
-- Graph system already handles cycles (eo_graph.js)
+- Graph system already handles cycles (noema_graph.js)
 - Visited-set tracking in traversal (getProvenanceChain)
 - Visualization layouts designed for cycles
 - Max-depth controls prevent infinite expansion
@@ -169,7 +169,7 @@ function findBacklinks(recordId, targetSetId) {
 
 ### 3. **Relationship Graph View**
 
-Leverage existing `eo_graph.js` for linked record visualization:
+Leverage existing `noema_graph.js` for linked record visualization:
 
 ```
                     ┌──────────────┐
@@ -360,7 +360,7 @@ Visual indicators for link status:
 | Provenance Display | Medium | Medium | P2 |
 | Aggregate Rollups | High | Medium | P2 |
 
-*Low because eo_graph.js already exists
+*Low because noema_graph.js already exists
 
 ---
 

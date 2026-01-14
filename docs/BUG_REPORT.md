@@ -22,7 +22,7 @@ Schema inference was not working correctly when importing data files. The system
 - Date parsing didn't validate month/day values
 
 **Fix Applied:**
-- Improved regex patterns in `eo_import.js`:
+- Improved regex patterns in `noema_import.js`:
   - Email: now requires 2+ char TLD
   - Phone: stricter digit group pattern
   - Date: added end anchor and optional timezone
@@ -208,7 +208,7 @@ After editing data and refreshing the page, changes were sometimes lost. This wa
 
 **Fix Applied:**
 - Added `beforeunload` event handler to commit pending cell edits before page unload
-- Created backup save mechanism that stores critical data in `eo_lake_backup` localStorage key
+- Created backup save mechanism that stores critical data in `noema_lake_backup` localStorage key
 - Added recovery logic in `_loadData()` to restore from backup if main data is missing
 - Backup is automatically cleared after successful recovery or when main data is intact
 
@@ -233,9 +233,9 @@ After editing data and refreshing the page, changes were sometimes lost. This wa
 
 ## Files Modified
 
-- `eo_import.js` - Schema inference regex patterns and type detection logic
-- `eo_data_workbench.js` - View creation, field creation, cell rendering, large dataset handling, link field IndexedDB loading, tab navigation edit commit, selection state management, beforeunload backup, data recovery
-- `eo_styles.css` - Modal responsiveness, expand button visibility
+- `noema_import.js` - Schema inference regex patterns and type detection logic
+- `noema_data_workbench.js` - View creation, field creation, cell rendering, large dataset handling, link field IndexedDB loading, tab navigation edit commit, selection state management, beforeunload backup, data recovery
+- `noema_styles.css` - Modal responsiveness, expand button visibility
 
 ---
 
