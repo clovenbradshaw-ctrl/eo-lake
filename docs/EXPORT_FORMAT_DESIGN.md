@@ -43,7 +43,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-archive",
+  format: "noema-archive",
   version: "1.0",
   exported_at: "2025-12-30T10:00:00Z",
   exported_by: "user@example.com",
@@ -117,7 +117,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-workspace",
+  format: "noema-workspace",
   version: "1.0",
   workspace_id: string,
   workspace_name: string,
@@ -159,7 +159,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-set",
+  format: "noema-set",
   version: "1.0",
 
   set: {
@@ -214,7 +214,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-view",
+  format: "noema-view",
   version: "1.0",
 
   view: {
@@ -258,7 +258,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-selection",
+  format: "noema-selection",
   version: "1.0",
 
   selection: {
@@ -296,7 +296,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-definitions",
+  format: "noema-definitions",
   version: "1.0",
 
   schema_semantics: [{
@@ -357,7 +357,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-audit",
+  format: "noema-audit",
   version: "1.0",
 
   audit_scope: {
@@ -439,7 +439,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-delta",
+  format: "noema-delta",
   version: "1.0",
 
   delta: {
@@ -488,7 +488,7 @@ Cross-cutting concerns (can be included/excluded at any scope):
 
 ```javascript
 {
-  format: "eo-lake-snapshot",
+  format: "noema-snapshot",
   version: "1.0",
   snapshot_time: ISO8601,
 
@@ -673,7 +673,7 @@ All EO Lake native exports include a standard header:
 
 ```javascript
 {
-  _eo_lake_export: {
+  _noema_lake_export: {
     format: string,            // Format identifier
     version: string,           // Format version
 

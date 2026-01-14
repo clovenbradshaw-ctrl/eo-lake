@@ -31,7 +31,7 @@ The canonical architecture defines a **6-component hierarchy** that the codebase
 
 ### 1. Hierarchy Level Mismatch
 
-**Current (eo_view_hierarchy.js):**
+**Current (noema_view_hierarchy.js):**
 ```
 ProjectConfig    → Level 0 (organizational container)
 WorkspaceConfig  → Level 1 (contextual boundary) — DEPRECATED
@@ -52,15 +52,15 @@ PROJECT (wrapper - contains all below)
 ```
 
 **Files to modify:**
-- `eo_view_hierarchy.js` - Major restructuring needed
-- `eo_data_workbench.js` - UI and state management updates
-- `eo_source_join.js` - Source/Set creation flow
+- `noema_view_hierarchy.js` - Major restructuring needed
+- `noema_data_workbench.js` - UI and state management updates
+- `noema_source_join.js` - Source/Set creation flow
 
 ---
 
 ### 2. Lens vs View Conflation
 
-**Current Problem (eo_view_hierarchy.js:441-554):**
+**Current Problem (noema_view_hierarchy.js:441-554):**
 ```javascript
 class LensConfig {
   constructor(options) {
@@ -129,7 +129,7 @@ const ViewType = Object.freeze({
 ### 3. Missing Definition Component Integration
 
 **Current State:**
-Definition-related code exists in `eo_definition_source.js` and `eo_schema_semantic.js`, but Sets don't properly track semantic bindings per field.
+Definition-related code exists in `noema_definition_source.js` and `noema_schema_semantic.js`, but Sets don't properly track semantic bindings per field.
 
 **Required (per CORE_ARCHITECTURE.md):**
 
@@ -164,9 +164,9 @@ Fields in Set schema should support `semanticBinding`:
 ```
 
 **Files to modify:**
-- `eo_view_hierarchy.js:SetConfig` - Add semanticBinding to field schema
-- `eo_interpretation_binding.js` - Align with new binding format
-- `eo_data_workbench.js` - UI for binding suggestions
+- `noema_view_hierarchy.js:SetConfig` - Add semanticBinding to field schema
+- `noema_interpretation_binding.js` - Align with new binding format
+- `noema_data_workbench.js` - UI for binding suggestions
 
 ---
 
@@ -201,15 +201,15 @@ function createSet(sourceId, name, schema) {
 ```
 
 **Files to modify:**
-- `eo_source_join.js:SetCreator.createSetFromSource()` - Add auto-creation
-- `eo_data_workbench.js:createSet()` - Add auto-creation
-- `eo_view_hierarchy.js` - Add factory methods
+- `noema_source_join.js:SetCreator.createSetFromSource()` - Add auto-creation
+- `noema_data_workbench.js:createSet()` - Add auto-creation
+- `noema_view_hierarchy.js` - Add factory methods
 
 ---
 
 ### 5. Null Source Not Formalized
 
-**Current State (eo_source_join.js:213-299):**
+**Current State (noema_source_join.js:213-299):**
 The `createEmptySource()` method exists but:
 - Uses `origin: 'manual'` instead of `sourceType: 'null'`
 - Doesn't match the event schema in CORE_ARCHITECTURE.md
@@ -231,14 +231,14 @@ The `createEmptySource()` method exists but:
 ```
 
 **Files to modify:**
-- `eo_source_join.js:createEmptySource()` - Update sourceType
-- `eo_data_workbench.js` - Ensure "New Table" uses null Source flow
+- `noema_source_join.js:createEmptySource()` - Update sourceType
+- `noema_data_workbench.js` - Ensure "New Table" uses null Source flow
 
 ---
 
 ### 6. Set Missing sourceBindings
 
-**Current (eo_view_hierarchy.js:347-435):**
+**Current (noema_view_hierarchy.js:347-435):**
 ```javascript
 class SetConfig {
   constructor(options) {
@@ -262,14 +262,14 @@ class SetConfig {
 ```
 
 **Files to modify:**
-- `eo_view_hierarchy.js:SetConfig` - Add sourceBindings property
-- `eo_source_join.js:SetCreator` - Populate sourceBindings on creation
+- `noema_view_hierarchy.js:SetConfig` - Add sourceBindings property
+- `noema_source_join.js:SetCreator` - Populate sourceBindings on creation
 
 ---
 
 ### 7. Focus Should Be Absorbed into View
 
-**Current (eo_view_hierarchy.js:560-659):**
+**Current (noema_view_hierarchy.js:560-659):**
 `FocusConfig` is a separate level that applies restrictions on top of a Lens.
 
 **Target Architecture:**
@@ -293,14 +293,14 @@ class ViewConfig {
 ```
 
 **Files to modify:**
-- `eo_view_hierarchy.js` - Remove or deprecate FocusConfig
-- `eo_data_workbench.js` - Migrate Focus UI to View UI
+- `noema_view_hierarchy.js` - Remove or deprecate FocusConfig
+- `noema_data_workbench.js` - Migrate Focus UI to View UI
 
 ---
 
 ### 8. Sidebar Structure Must Include Definitions (now "Meaning")
 
-**Current (eo_data_workbench.js / index.html):**
+**Current (noema_data_workbench.js / index.html):**
 ```
 PROJECTS (ORG)
 SOURCES (GIVEN)
@@ -341,13 +341,13 @@ EXPORTS (SNAPSHOT)
 
 **Files to modify:**
 - `index.html` - Sidebar panel structure
-- `eo_data_workbench.js` - Sidebar rendering (`renderSidebar()`)
+- `noema_data_workbench.js` - Sidebar rendering (`renderSidebar()`)
 
 ---
 
 ### 9. Event Categories Alignment
 
-**Current (eo_event_store.js):**
+**Current (noema_event_store.js):**
 Various event categories exist but don't match CORE_ARCHITECTURE.md spec.
 
 **Required Categories:**
@@ -365,8 +365,8 @@ Various event categories exist but don't match CORE_ARCHITECTURE.md spec.
 | `view_created` | meant | Visualization config for a Lens |
 
 **Files to modify:**
-- `eo_event_store.js` - Ensure these categories exist
-- `eo_types.js` - Add any missing event category constants
+- `noema_event_store.js` - Ensure these categories exist
+- `noema_types.js` - Add any missing event category constants
 
 ---
 
@@ -374,43 +374,43 @@ Various event categories exist but don't match CORE_ARCHITECTURE.md spec.
 
 ### Phase 1: Core Data Model (Critical)
 
-1. **Split LensConfig into Lens + View** (`eo_view_hierarchy.js`)
+1. **Split LensConfig into Lens + View** (`noema_view_hierarchy.js`)
    - Create new `ViewConfig` class
    - Refactor `LensConfig` to be data-slice only
    - Rename `LensType` to `ViewType`
 
-2. **Add sourceBindings to SetConfig** (`eo_view_hierarchy.js`)
+2. **Add sourceBindings to SetConfig** (`noema_view_hierarchy.js`)
    - Add property to class
    - Update all Set creation paths
 
-3. **Formalize null Source** (`eo_source_join.js`)
+3. **Formalize null Source** (`noema_source_join.js`)
    - Update `createEmptySource()` to use `sourceType: 'null'`
 
-4. **Add semanticBinding to field schema** (`eo_view_hierarchy.js`)
+4. **Add semanticBinding to field schema** (`noema_view_hierarchy.js`)
    - Support Definition bindings per field in SetConfig
 
 ### Phase 2: Auto-Creation Flow
 
-5. **Auto-create default Lens when Set is created** (`eo_source_join.js`, `eo_data_workbench.js`)
+5. **Auto-create default Lens when Set is created** (`noema_source_join.js`, `noema_data_workbench.js`)
 
 6. **Auto-create default View when Lens is created**
 
 ### Phase 3: UI Alignment
 
-7. **Update sidebar to show nested structure** (`eo_data_workbench.js`)
+7. **Update sidebar to show nested structure** (`noema_data_workbench.js`)
    - Sets → Lenses → Views hierarchy
    - Binding indicators on Sets
    - URI warnings on Definitions
 
-8. **Migrate Focus to View** (`eo_view_hierarchy.js`, `eo_data_workbench.js`)
+8. **Migrate Focus to View** (`noema_view_hierarchy.js`, `noema_data_workbench.js`)
 
-9. **Add Definition binding suggestions** (`eo_data_workbench.js`)
+9. **Add Definition binding suggestions** (`noema_data_workbench.js`)
    - When adding/editing fields, suggest matching URIs
    - "Create custom definition" option
 
 ### Phase 4: Event Store
 
-10. **Align event categories** (`eo_event_store.js`, `eo_types.js`)
+10. **Align event categories** (`noema_event_store.js`, `noema_types.js`)
 
 ---
 
@@ -418,14 +418,14 @@ Various event categories exist but don't match CORE_ARCHITECTURE.md spec.
 
 | File | Priority | Changes |
 |------|----------|---------|
-| `eo_view_hierarchy.js` | P1 | Split Lens/View, add ViewConfig, update SetConfig, add semanticBinding |
-| `eo_source_join.js` | P1 | Null source, sourceBindings, auto-creation |
-| `eo_data_workbench.js` | P1-P3 | State management, sidebar, auto-creation, binding UI |
-| `eo_event_store.js` | P4 | Event categories |
-| `eo_types.js` | P1 | ViewType enum, PivotType enum |
+| `noema_view_hierarchy.js` | P1 | Split Lens/View, add ViewConfig, update SetConfig, add semanticBinding |
+| `noema_source_join.js` | P1 | Null source, sourceBindings, auto-creation |
+| `noema_data_workbench.js` | P1-P3 | State management, sidebar, auto-creation, binding UI |
+| `noema_event_store.js` | P4 | Event categories |
+| `noema_types.js` | P1 | ViewType enum, PivotType enum |
 | `index.html` | P3 | Sidebar structure |
-| `eo_interpretation_binding.js` | P2 | Align with new binding format |
-| `eo_schema_semantic.js` | P2 | Ensure term structure matches spec |
+| `noema_interpretation_binding.js` | P2 | Align with new binding format |
+| `noema_schema_semantic.js` | P2 | Ensure term structure matches spec |
 
 ---
 

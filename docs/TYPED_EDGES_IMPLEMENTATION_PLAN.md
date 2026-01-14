@@ -29,7 +29,7 @@ This separation keeps the system:
 
 ## Phase 1: Edge Registry & Type System
 
-### 1.1 New File: `eo_edge_registry.js`
+### 1.1 New File: `noema_edge_registry.js`
 
 The edge registry defines:
 - All valid edge types
@@ -99,7 +99,7 @@ Minimal canonical node types:
 
 ## Phase 2: EO Operators Layer
 
-### 2.1 New File: `eo_operators.js`
+### 2.1 New File: `noema_operators.js`
 
 Operators are **pure functions** that:
 1. Read edges and node properties from the graph
@@ -199,7 +199,7 @@ eoBehaviorProfileOperator(definition, edges) {
 
 ### 3.1 New Event Types
 
-Add to `eo_event_store.js`:
+Add to `noema_event_store.js`:
 ```javascript
 // Edge lifecycle events
 BusEventType.EDGE_CREATED
@@ -239,14 +239,14 @@ BusEventType.EO_PROFILE_COMPUTED
 
 ## Phase 4: Graph System Updates
 
-### 4.1 Updates to `eo_graph.js`
+### 4.1 Updates to `noema_graph.js`
 
 - Import edge registry
 - Validate edges against registry on creation
 - Support edge type filtering in visualization
 - Add edge property display
 
-### 4.2 Updates to `eo_graph_cytoscape.js`
+### 4.2 Updates to `noema_graph_cytoscape.js`
 
 - Edge styling by type category:
   - Semantic edges: Purple (#7856ff)
@@ -260,7 +260,7 @@ BusEventType.EO_PROFILE_COMPUTED
 
 ## Phase 5: Inference Engine Integration
 
-### 5.1 New File: `eo_inference_engine.js`
+### 5.1 New File: `noema_inference_engine.js`
 
 Orchestrates operator execution:
 ```javascript
@@ -326,7 +326,7 @@ Add edge type definitions:
 }
 ```
 
-### 6.2 Updates to `eo_definitions_set.js`
+### 6.2 Updates to `noema_definitions_set.js`
 
 - Add edge type registry loading
 - Add edge creation/validation methods
@@ -336,13 +336,13 @@ Add edge type definitions:
 
 ## Implementation Order
 
-1. **eo_edge_registry.js** - Core edge type definitions
-2. **eo_operators.js** - Pure operator functions
-3. **eo_event_store.js updates** - Edge event types
-4. **eo_inference_engine.js** - Operator orchestration
-5. **eo_graph.js updates** - Graph visualization
+1. **noema_edge_registry.js** - Core edge type definitions
+2. **noema_operators.js** - Pure operator functions
+3. **noema_event_store.js updates** - Edge event types
+4. **noema_inference_engine.js** - Operator orchestration
+5. **noema_graph.js updates** - Graph visualization
 6. **common_definitions.json updates** - Edge type definitions
-7. **eo_definitions_set.js updates** - Integration
+7. **noema_definitions_set.js updates** - Integration
 
 ---
 

@@ -100,7 +100,7 @@ const allEvents = eventStore.getAll();  // Only use for admin/compliance
 ## File Structure and Responsibilities
 
 ```
-eo-lake/
+noema/
 ├── eo_event_store.js     # Rules 1, 2, 3, 8, 9 - Core append-only log
 ├── eo_horizon.js         # Rules 4, 5, 6 - Perspectival access
 ├── eo_compliance.js      # All 9 rules - Audit and validation

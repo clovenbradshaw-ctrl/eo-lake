@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Lakṣaṇa - Data Workbench</title>
+  <title>Noema - Data Workbench</title>
 
   <!-- Phosphor Icons -->
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
@@ -20,13 +20,13 @@
   <!-- Fuse.js for fuzzy search -->
   <script src="https://unpkg.com/fuse.js@7.0.0/dist/fuse.min.js"></script>
 
-  <link rel="stylesheet" href="eo_styles.css">
-  <link rel="stylesheet" href="eo_integration_styles.css">
+  <link rel="stylesheet" href="noema_styles.css">
+  <link rel="stylesheet" href="noema_integration_styles.css">
 
   <!-- Theme initialization - runs before body to prevent flash -->
   <script>
     (function() {
-      const savedTheme = localStorage.getItem('eo-lake-theme');
+      const savedTheme = localStorage.getItem('noema-theme');
       if (savedTheme === 'light') {
         document.documentElement.classList.add('light-theme');
       } else if (savedTheme === 'dark') {
@@ -45,7 +45,7 @@
           <div class="logo-icon">
             <i class="ph ph-database"></i>
           </div>
-          <span class="logo-text">Lakṣaṇa</span>
+          <span class="logo-text">Noema</span>
         </div>
         <button class="sidebar-collapse-btn" id="sidebar-collapse">
           <i class="ph ph-caret-left"></i>
@@ -1020,85 +1020,85 @@
   <div id="principles-panel" class="principles-panel"></div>
 
   <!-- Scripts - Core EO Modules (Strict EO-Aligned) -->
-  <script src="eo_types.js"></script>         <!-- Core Types: EpistemicType, GroundingKind, Frame, Supersession -->
-  <script src="eo_operators.js"></script>     <!-- EO Operators: Entry, Restrictive, Shape, Compute, etc. -->
-  <script src="eo_grounding.js"></script>     <!-- Typed Grounding System: External, Structural, Semantic, Computational -->
-  <script src="eo_ontology.js"></script>      <!-- Ontology: Source/Set separation, Schema Split (Structural/Semantic) -->
-  <script src="eo_activity.js"></script>      <!-- Activity System: Operator × Target × Context -->
-  <script src="eo_event_store.js"></script>   <!-- Event Store: given/meant/derived_value with typed grounding -->
-  <script src="eo_derived_values.js"></script> <!-- Derived Values: Aggregations, Confidence as first-class artifacts -->
-  <script src="eo_horizon.js"></script>
-  <script src="eo_compliance.js"></script>    <!-- Compliance: Strict EO rule enforcement -->
-  <script src="eo_ghost_registry.js"></script>  <!-- Ghost Registry: Deleted data that haunts -->
-  <script src="eo_state_derivation.js"></script>
-  <script src="eo_persistence.js"></script>
-  <script src="eo_sync.js"></script>
-  <script src="eo_sync_api.js"></script>
-  <script src="eo_modal.js"></script>          <!-- Reusable Modal Component System -->
-  <script src="eo_sync_wizard.js"></script>    <!-- Step-by-step Sync Configuration Wizard -->
-  <script src="eo_pipeline_graph.js"></script>       <!-- Pipeline Graph: Dependency tracking & caching -->
-  <script src="eo_formula_semantic.js"></script>     <!-- Semantic Functions: AV-inspired epistemics -->
-  <script src="eo_formula_functions.js"></script>    <!-- Function Library with EO Decomposition -->
-  <script src="eo_formula_parser.js"></script>       <!-- Enhanced Parser for Custom Syntax -->
-  <script src="eo_formula_editor.js"></script>       <!-- Formula Field Creation/Editing Module -->
-  <script src="eo_formula_editor_v3.js"></script>    <!-- EO-Native Formula Workbench: Vertical epistemic flow -->
-  <script src="eo_sup_formula_functions.js"></script> <!-- SUP Formula Functions: Superposition-aware formulas -->
-  <script src="eo_formula_engine.js"></script>       <!-- Formula Engine: Pipeline-based formula evaluation -->
-  <script src="eo_formula_explainer.js"></script>    <!-- Formula Explainer: Interactive documentation -->
+  <script src="noema_types.js"></script>         <!-- Core Types: EpistemicType, GroundingKind, Frame, Supersession -->
+  <script src="noema_operators.js"></script>     <!-- EO Operators: Entry, Restrictive, Shape, Compute, etc. -->
+  <script src="noema_grounding.js"></script>     <!-- Typed Grounding System: External, Structural, Semantic, Computational -->
+  <script src="noema_ontology.js"></script>      <!-- Ontology: Source/Set separation, Schema Split (Structural/Semantic) -->
+  <script src="noema_activity.js"></script>      <!-- Activity System: Operator × Target × Context -->
+  <script src="noema_event_store.js"></script>   <!-- Event Store: given/meant/derived_value with typed grounding -->
+  <script src="noema_derived_values.js"></script> <!-- Derived Values: Aggregations, Confidence as first-class artifacts -->
+  <script src="noema_horizon.js"></script>
+  <script src="noema_compliance.js"></script>    <!-- Compliance: Strict EO rule enforcement -->
+  <script src="noema_ghost_registry.js"></script>  <!-- Ghost Registry: Deleted data that haunts -->
+  <script src="noema_state_derivation.js"></script>
+  <script src="noema_persistence.js"></script>
+  <script src="noema_sync.js"></script>
+  <script src="noema_sync_api.js"></script>
+  <script src="noema_modal.js"></script>          <!-- Reusable Modal Component System -->
+  <script src="noema_sync_wizard.js"></script>    <!-- Step-by-step Sync Configuration Wizard -->
+  <script src="noema_pipeline_graph.js"></script>       <!-- Pipeline Graph: Dependency tracking & caching -->
+  <script src="noema_formula_semantic.js"></script>     <!-- Semantic Functions: AV-inspired epistemics -->
+  <script src="noema_formula_functions.js"></script>    <!-- Function Library with EO Decomposition -->
+  <script src="noema_formula_parser.js"></script>       <!-- Enhanced Parser for Custom Syntax -->
+  <script src="noema_formula_editor.js"></script>       <!-- Formula Field Creation/Editing Module -->
+  <script src="noema_formula_editor_v3.js"></script>    <!-- EO-Native Formula Workbench: Vertical epistemic flow -->
+  <script src="noema_sup_formula_functions.js"></script> <!-- SUP Formula Functions: Superposition-aware formulas -->
+  <script src="noema_formula_engine.js"></script>       <!-- Formula Engine: Pipeline-based formula evaluation -->
+  <script src="noema_formula_explainer.js"></script>    <!-- Formula Explainer: Interactive documentation -->
 
   <!-- Scripts - Feature Modules -->
-  <script src="eo_event_bus.js"></script>
-  <script src="eo_view_hierarchy.js"></script>
-  <script src="eo_graph_cytoscape.js"></script>
-  <script src="eo_graph.js"></script>
-  <script src="eo_agent.js"></script>           <!-- Agent Session: Identity & Provenance -->
-  <script src="eo_provenance.js"></script>      <!-- Interpretation Parameters: 9-element schema for Sets -->
-  <script src="eo_source_provenance.js"></script>  <!-- Source Provenance: Identity/Space/Time for raw data -->
+  <script src="noema_event_bus.js"></script>
+  <script src="noema_view_hierarchy.js"></script>
+  <script src="noema_graph_cytoscape.js"></script>
+  <script src="noema_graph.js"></script>
+  <script src="noema_agent.js"></script>           <!-- Agent Session: Identity & Provenance -->
+  <script src="noema_provenance.js"></script>      <!-- Interpretation Parameters: 9-element schema for Sets -->
+  <script src="noema_source_provenance.js"></script>  <!-- Source Provenance: Identity/Space/Time for raw data -->
 
   <!-- Scripts - Interpretation Layer -->
-  <script src="eo_schema_semantic.js"></script>     <!-- Schema Semantics: Versioned column meanings -->
-  <script src="eo_interpretation_binding.js"></script> <!-- Interpretation Bindings: Column-to-semantic mappings -->
-  <script src="eo_semantic_suggestions.js"></script>   <!-- Semantic Suggestions: Wikidata/QUDT integration -->
-  <script src="eo_interpretation_panel.js"></script>   <!-- Interpretation Panel UI -->
-  <script src="eo_semantic_browser.js"></script>       <!-- Semantic Browser UI -->
-  <script src="eo_definition_api.js"></script>         <!-- Definition API: Wikidata, eCFR, LOV, etc. -->
-  <script src="eo_definition_source.js"></script>      <!-- Definition Source Schema -->
-  <script src="eo_key_definition_lookup.js"></script>  <!-- Key Definition Lookup: API calls for imported keys -->
-  <script src="eo_key_suggestion_panel.js"></script>  <!-- Key Suggestion Panel: Auto-import suggestions UI -->
-  <script src="eo_definition_builder.js"></script>     <!-- Definition Builder: 9-parameter EO definition construction -->
+  <script src="noema_schema_semantic.js"></script>     <!-- Schema Semantics: Versioned column meanings -->
+  <script src="noema_interpretation_binding.js"></script> <!-- Interpretation Bindings: Column-to-semantic mappings -->
+  <script src="noema_semantic_suggestions.js"></script>   <!-- Semantic Suggestions: Wikidata/QUDT integration -->
+  <script src="noema_interpretation_panel.js"></script>   <!-- Interpretation Panel UI -->
+  <script src="noema_semantic_browser.js"></script>       <!-- Semantic Browser UI -->
+  <script src="noema_definition_api.js"></script>         <!-- Definition API: Wikidata, eCFR, LOV, etc. -->
+  <script src="noema_definition_source.js"></script>      <!-- Definition Source Schema -->
+  <script src="noema_key_definition_lookup.js"></script>  <!-- Key Definition Lookup: API calls for imported keys -->
+  <script src="noema_key_suggestion_panel.js"></script>  <!-- Key Suggestion Panel: Auto-import suggestions UI -->
+  <script src="noema_definition_builder.js"></script>     <!-- Definition Builder: 9-parameter EO definition construction -->
 
   <!-- Scripts - Value Vocabulary & Schema-Tracked Export Layer -->
-  <script src="eo_value_vocabulary.js"></script>       <!-- Value Vocabularies: Definitions for values not just keys -->
-  <script src="eo_schema_tracked_export.js"></script>  <!-- Schema-Tracked Export: Full semantic layer in exports -->
-  <script src="eo_export_viewer.js"></script>          <!-- Export Viewer: Navigate schema-tracked exports -->
+  <script src="noema_value_vocabulary.js"></script>       <!-- Value Vocabularies: Definitions for values not just keys -->
+  <script src="noema_schema_tracked_export.js"></script>  <!-- Schema-Tracked Export: Full semantic layer in exports -->
+  <script src="noema_export_viewer.js"></script>          <!-- Export Viewer: Navigate schema-tracked exports -->
 
-  <script src="eo_import.js"></script>
-  <script src="eo_export.js"></script>
-  <script src="eo_query_language.js"></script> <!-- Query Language Parser for SQL/EOQL -->
-  <script src="eo_sql_query.js"></script>     <!-- SQL Query Interface with EO-IR Provenance -->
-  <script src="eo_storage.js"></script>       <!-- IndexedDB Storage for Large Data -->
-  <script src="eo_merge_questions.js"></script>  <!-- 3-Questions Framework for Merge Operations -->
-  <script src="eo_merge_engine.js"></script>  <!-- Lazy Merge Computation Engine -->
-  <script src="eo_source_join.js"></script>   <!-- Source Storage & No-Code Join Builder -->
-  <script src="eo_relational_merge.js"></script>   <!-- Phase-Space Relational Merge UI -->
-  <script src="eo_pipeline.js"></script>          <!-- Pipeline Engine for Set Transformations -->
+  <script src="noema_import.js"></script>
+  <script src="noema_export.js"></script>
+  <script src="noema_query_language.js"></script> <!-- Query Language Parser for SQL/EOQL -->
+  <script src="noema_sql_query.js"></script>     <!-- SQL Query Interface with EO-IR Provenance -->
+  <script src="noema_storage.js"></script>       <!-- IndexedDB Storage for Large Data -->
+  <script src="noema_merge_questions.js"></script>  <!-- 3-Questions Framework for Merge Operations -->
+  <script src="noema_merge_engine.js"></script>  <!-- Lazy Merge Computation Engine -->
+  <script src="noema_source_join.js"></script>   <!-- Source Storage & No-Code Join Builder -->
+  <script src="noema_relational_merge.js"></script>   <!-- Phase-Space Relational Merge UI -->
+  <script src="noema_pipeline.js"></script>          <!-- Pipeline Engine for Set Transformations -->
 
   <!-- EO Integration Layer -->
-  <script src="eo_nine_operators.js"></script>       <!-- The 9 Canonical Operators -->
-  <script src="eo_language.js"></script>             <!-- EO-Aligned Labels & Tooltips -->
-  <script src="eo_explanation_panel.js"></script>    <!-- "Why/How" Explanation UI -->
-  <script src="eo_lens_inspector.js"></script>       <!-- Lens Pipeline Visualization -->
-  <script src="eo_restriction_messages.js"></script> <!-- EO-Grounded Restriction Messages -->
-  <script src="eo_definition_behavior.js"></script>  <!-- Definition-Aware Operations -->
-  <script src="eo_definitions_set.js"></script>       <!-- Definitions Set Infrastructure & Linking -->
-  <script src="eo_disambiguation_panel.js"></script>  <!-- Disambiguation UI for Keys -->
-  <script src="eo_superposition_display.js"></script> <!-- SUP Visual Indicators -->
-  <script src="eo_integration.js"></script>          <!-- Integration Manager -->
+  <script src="noema_nine_operators.js"></script>       <!-- The 9 Canonical Operators -->
+  <script src="noema_language.js"></script>             <!-- EO-Aligned Labels & Tooltips -->
+  <script src="noema_explanation_panel.js"></script>    <!-- "Why/How" Explanation UI -->
+  <script src="noema_lens_inspector.js"></script>       <!-- Lens Pipeline Visualization -->
+  <script src="noema_restriction_messages.js"></script> <!-- EO-Grounded Restriction Messages -->
+  <script src="noema_definition_behavior.js"></script>  <!-- Definition-Aware Operations -->
+  <script src="noema_definitions_set.js"></script>       <!-- Definitions Set Infrastructure & Linking -->
+  <script src="noema_disambiguation_panel.js"></script>  <!-- Disambiguation UI for Keys -->
+  <script src="noema_superposition_display.js"></script> <!-- SUP Visual Indicators -->
+  <script src="noema_integration.js"></script>          <!-- Integration Manager -->
 
-  <script src="eo_data_workbench.js"></script>
+  <script src="noema_data_workbench.js"></script>
 
   <!-- Scripts - UI Controllers -->
-  <script src="eo_app.js"></script>
+  <script src="noema_app.js"></script>
 
   <!-- Initialize Application -->
   <script>
@@ -1117,7 +1117,7 @@
       } else {
         document.documentElement.classList.add('dark-theme');
       }
-      localStorage.setItem('eo-lake-theme', theme);
+      localStorage.setItem('noema-theme', theme);
       updateThemeToggleUI(theme);
     }
 

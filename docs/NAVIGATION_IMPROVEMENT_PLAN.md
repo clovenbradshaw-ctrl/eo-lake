@@ -78,7 +78,7 @@ The fundamental EO partition must be visible in navigation:
 └─────────────────────────────────┘
 ```
 
-The icons (◉ full, ◐ partial, ○ none) from `eo_provenance.js` can indicate provenance completeness at each level.
+The icons (◉ full, ◐ partial, ○ none) from `noema_provenance.js` can indicate provenance completeness at each level.
 
 ### Structural Principle 2: Hierarchy = Horizon Restriction (Rule 5)
 
@@ -178,7 +178,7 @@ scale:team                   ← SITUATIONAL: at what level
 
 ### Structural Principle 6: Navigation as Activity (Operator × Target × Context)
 
-From `eo_activity.js`, all actions follow: **Operator(Target) ⟨in Context⟩**
+From `noema_activity.js`, all actions follow: **Operator(Target) ⟨in Context⟩**
 
 Navigation actions map to EO operators:
 
@@ -220,7 +220,7 @@ Rule 4 (Perspectivality) says: "There is no view from nowhere."
 └─────────────────────────────────────────────┘
 ```
 
-This transparency panel (from `eo_principles_transparency.js`) should be part of navigation, not hidden.
+This transparency panel (from `noema_principles_transparency.js`) should be part of navigation, not hidden.
 
 ### Summary: EO-Native Navigation Principles
 
@@ -252,7 +252,7 @@ Add visual badges showing provenance directly on set items:
 └─────────────────────────────────────────────┘
 ```
 
-**Implementation** (`eo_data_workbench.js`):
+**Implementation** (`noema_data_workbench.js`):
 - Modify `_renderSetsNav()` (~line 1066) to include source badges
 - Add CSS classes for `.source-badge`, `.provenance-date`
 - Color-code by source type (CSV=green, JSON=blue, ICS=purple, Manual=gray)
@@ -297,7 +297,7 @@ Convert breadcrumb from display-only to interactive navigation:
    Show workspace     Show set      Show all lens items
 ```
 
-**Implementation** (`eo_data_workbench.js`):
+**Implementation** (`noema_data_workbench.js`):
 - Modify `_updateBreadcrumb()` (~line 139) to add click handlers
 - Each segment navigates to that hierarchy level
 - Add hover states and visual affordances
@@ -577,11 +577,11 @@ All changes maintain compliance with Experience Ontology Nine Rules:
 
 | File | Changes |
 |------|---------|
-| `eo_data_workbench.js` | Navigation methods, breadcrumb, source tree |
-| `eo_styles.css` | New component styles |
+| `noema_data_workbench.js` | Navigation methods, breadcrumb, source tree |
+| `noema_styles.css` | New component styles |
 | `index.html` | Provenance panel container, filter chips |
-| `eo_view_hierarchy.js` | Provenance chain queries |
-| `eo_provenance.js` | Export methods, edit validation |
+| `noema_view_hierarchy.js` | Provenance chain queries |
+| `noema_provenance.js` | Export methods, edit validation |
 
 ---
 
