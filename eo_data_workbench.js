@@ -12928,6 +12928,25 @@ class EODataWorkbench {
   }
 
   /**
+   * Save a definition to storage
+   * Since the definition is passed by reference and already modified,
+   * this function ensures the changes are persisted to storage
+   */
+  _saveDefinition(definition) {
+    if (!definition || !definition.id) return;
+
+    // Ensure the definition exists in our definitions array
+    const index = this.definitions.findIndex(d => d.id === definition.id);
+    if (index !== -1) {
+      // Update the definition in the array (should already be updated via reference, but ensure it)
+      this.definitions[index] = definition;
+    }
+
+    // Persist to storage
+    this._saveData();
+  }
+
+  /**
    * Open modal to browse available URI API sources
    */
   _openUriApisBrowserModal(definition) {
