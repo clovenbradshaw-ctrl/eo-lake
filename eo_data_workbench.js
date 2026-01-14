@@ -12462,7 +12462,10 @@ class EODataWorkbench {
              ════════════════════════════════════════════════════════════════ -->
         <div class="eo-card eo-card-meaning">
           <div class="eo-card-header">
-            <h1 class="eo-meaning-title">${this._escapeHtml(meaningName)}</h1>
+            <div class="eo-meaning-header-content">
+              <h1 class="eo-meaning-title eo-editable" contenteditable="true" data-field="name" data-placeholder="Enter name...">${this._escapeHtml(meaningName)}</h1>
+              <p class="eo-meaning-source eo-editable" contenteditable="true" data-field="source" data-placeholder="Enter source...">${this._escapeHtml(definition.sourceLabel || definition.definitionSource?.source?.title || '')}</p>
+            </div>
             <div class="eo-card-actions">
               <button class="btn btn-icon btn-sm" id="btn-edit-meaning" title="Edit meaning">
                 <i class="ph ph-pencil-simple"></i>
@@ -12487,7 +12490,7 @@ class EODataWorkbench {
                 <i class="ph ${identityInfo.icon}" style="color: ${identityInfo.color};"></i>
               </div>
               <div class="eo-card-header-info">
-                <h3 class="eo-card-title">Identity</h3>
+                <h3 class="eo-card-title eo-editable" contenteditable="true" data-field="identityTitle" data-placeholder="Title...">${this._escapeHtml(definition.overrides?.identityTitle || 'Identity')}</h3>
               </div>
               <div class="eo-card-actions">
                 <button class="btn btn-icon btn-sm" id="btn-edit-identity" title="Edit identity">
@@ -12496,7 +12499,7 @@ class EODataWorkbench {
               </div>
             </div>
             <div class="eo-card-content">
-              <p class="eo-ontological-question">How is this meaning stabilized in the world?</p>
+              <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="identityQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.identityQuestion || 'How is this meaning stabilized in the world?')}</p>
               <div class="eo-ontological-value">
                 <span class="eo-ontological-badge" style="background: ${identityInfo.color}15; color: ${identityInfo.color};">
                   <i class="ph ${identityInfo.icon}"></i>
@@ -12514,7 +12517,7 @@ class EODataWorkbench {
                 <i class="ph ${spaceInfo.icon}" style="color: ${spaceInfo.color};"></i>
               </div>
               <div class="eo-card-header-info">
-                <h3 class="eo-card-title">Space</h3>
+                <h3 class="eo-card-title eo-editable" contenteditable="true" data-field="spaceTitle" data-placeholder="Title...">${this._escapeHtml(definition.overrides?.spaceTitle || 'Space')}</h3>
               </div>
               <div class="eo-card-actions">
                 <button class="btn btn-icon btn-sm" id="btn-edit-space" title="Edit space">
@@ -12523,7 +12526,7 @@ class EODataWorkbench {
               </div>
             </div>
             <div class="eo-card-content">
-              <p class="eo-ontological-question">Where does this meaning apply?</p>
+              <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="spaceQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.spaceQuestion || 'Where does this meaning apply?')}</p>
               <div class="eo-ontological-value">
                 <span class="eo-ontological-badge" style="background: ${spaceInfo.color}15; color: ${spaceInfo.color};">
                   <i class="ph ${spaceInfo.icon}"></i>
@@ -12540,7 +12543,7 @@ class EODataWorkbench {
                 <i class="ph ${timeInfo.icon}" style="color: ${timeInfo.color};"></i>
               </div>
               <div class="eo-card-header-info">
-                <h3 class="eo-card-title">Time</h3>
+                <h3 class="eo-card-title eo-editable" contenteditable="true" data-field="timeTitle" data-placeholder="Title...">${this._escapeHtml(definition.overrides?.timeTitle || 'Time')}</h3>
               </div>
               <div class="eo-card-actions">
                 <button class="btn btn-icon btn-sm" id="btn-edit-time" title="Edit time">
@@ -12549,7 +12552,7 @@ class EODataWorkbench {
               </div>
             </div>
             <div class="eo-card-content">
-              <p class="eo-ontological-question">How does this meaning change?</p>
+              <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="timeQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.timeQuestion || 'How does this meaning change?')}</p>
               <div class="eo-ontological-value">
                 <span class="eo-ontological-badge" style="background: ${timeInfo.color}15; color: ${timeInfo.color};">
                   <i class="ph ${timeInfo.icon}"></i>
@@ -12822,6 +12825,106 @@ class EODataWorkbench {
     if (editAuthorityBtn) {
       editAuthorityBtn.addEventListener('click', () => this._openEditIdentityModal(definition));
     }
+
+    // Inline editable elements
+    this._setupInlineEditing(contentArea, definition);
+  }
+
+  /**
+   * Setup inline editing for all editable elements in the definition detail view
+   */
+  _setupInlineEditing(contentArea, definition) {
+    const editableElements = contentArea.querySelectorAll('.eo-editable');
+
+    editableElements.forEach(element => {
+      const field = element.dataset.field;
+      const placeholder = element.dataset.placeholder || '';
+
+      // Show placeholder when empty
+      const updatePlaceholder = () => {
+        const text = element.textContent.trim();
+        if (!text) {
+          element.classList.add('eo-editable-empty');
+        } else {
+          element.classList.remove('eo-editable-empty');
+        }
+      };
+      updatePlaceholder();
+
+      // Handle focus - select all text
+      element.addEventListener('focus', () => {
+        element.classList.add('eo-editable-focused');
+        // Store original value for potential cancel
+        element.dataset.originalValue = element.textContent;
+      });
+
+      // Handle blur - save changes
+      element.addEventListener('blur', () => {
+        element.classList.remove('eo-editable-focused');
+        const newValue = element.textContent.trim();
+        const originalValue = element.dataset.originalValue;
+
+        if (newValue !== originalValue) {
+          this._saveInlineEdit(definition, field, newValue);
+        }
+        updatePlaceholder();
+      });
+
+      // Handle Enter key - save and blur
+      element.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          element.blur();
+        }
+        // Handle Escape - cancel editing
+        if (e.key === 'Escape') {
+          element.textContent = element.dataset.originalValue || '';
+          element.blur();
+        }
+      });
+
+      // Handle input - update placeholder state
+      element.addEventListener('input', updatePlaceholder);
+    });
+  }
+
+  /**
+   * Save an inline edit to the definition
+   */
+  _saveInlineEdit(definition, field, value) {
+    if (!definition.overrides) definition.overrides = {};
+
+    switch (field) {
+      case 'name':
+        definition.name = value;
+        break;
+      case 'source':
+        definition.sourceLabel = value;
+        if (!definition.definitionSource) definition.definitionSource = {};
+        if (!definition.definitionSource.source) definition.definitionSource.source = {};
+        definition.definitionSource.source.title = value;
+        break;
+      case 'identityTitle':
+        definition.overrides.identityTitle = value;
+        break;
+      case 'identityQuestion':
+        definition.overrides.identityQuestion = value;
+        break;
+      case 'spaceTitle':
+        definition.overrides.spaceTitle = value;
+        break;
+      case 'spaceQuestion':
+        definition.overrides.spaceQuestion = value;
+        break;
+      case 'timeTitle':
+        definition.overrides.timeTitle = value;
+        break;
+      case 'timeQuestion':
+        definition.overrides.timeQuestion = value;
+        break;
+    }
+
+    this._saveDefinition(definition);
   }
 
   /**

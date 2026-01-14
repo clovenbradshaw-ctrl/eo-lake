@@ -45211,6 +45211,67 @@ html.light-theme .formula-explainer-fn-name.fn-slate { color: #475569; }
   font-style: italic;
 }
 
+/* === Editable Elements === */
+.eo-editable {
+  cursor: text;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+  outline: none;
+  min-width: 40px;
+}
+
+.eo-editable:hover {
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}
+
+.eo-editable:focus,
+.eo-editable.eo-editable-focused {
+  background-color: var(--bg-surface, #fff);
+  box-shadow: 0 0 0 2px var(--primary-color, #6366f1);
+}
+
+.eo-editable.eo-editable-empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-tertiary, #94a3b8);
+  font-style: italic;
+  pointer-events: none;
+}
+
+.eo-editable.eo-editable-empty:focus::before {
+  opacity: 0.5;
+}
+
+/* Meaning header layout */
+.eo-meaning-header-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eo-meaning-source {
+  font-size: 14px;
+  font-style: italic;
+  color: var(--text-secondary, #64748b);
+  margin: 0;
+}
+
+.eo-meaning-source.eo-editable-empty::before {
+  content: attr(data-placeholder);
+}
+
+/* Card title editable */
+.eo-card-title.eo-editable {
+  text-transform: uppercase;
+}
+
+/* Ontological question editable */
+.eo-ontological-question.eo-editable {
+  display: block;
+}
+
 /* === Scope Card === */
 .eo-scope-cluster {
   display: flex;
