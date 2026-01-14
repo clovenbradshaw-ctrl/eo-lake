@@ -10828,9 +10828,9 @@ class EODataWorkbench {
    */
   _renderIdentityOptions(currentIdentity) {
     const options = [
-      { value: 'Declared', icon: 'ph-stamp', color: '#6366f1' },
-      { value: 'Stabilized', icon: 'ph-check-circle', color: '#10b981' },
-      { value: 'Contested', icon: 'ph-warning', color: '#f59e0b' }
+      { value: 'Declared', icon: 'ph-stamp', color: '#6366f1', description: 'Meaning exists because an authority asserts it' },
+      { value: 'Stabilized', icon: 'ph-check-circle', color: '#10b981', description: 'Meaning persists because systems agree and reinforce it' },
+      { value: 'Contested', icon: 'ph-warning', color: '#f59e0b', description: 'Meaning is disputed, provisional, or actively evolving' }
     ];
 
     return options.map(opt => {
@@ -10840,7 +10840,7 @@ class EODataWorkbench {
         ? `background: ${opt.color}15; color: ${opt.color}; border-color: ${opt.color};`
         : `background: transparent; color: #64748b; border-color: #e2e8f0;`;
 
-      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="identity" data-value="${opt.value}" style="${style}">
+      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="identity" data-value="${opt.value}" style="${style}" title="${opt.description}">
         <i class="ph ${opt.icon}"></i>
         ${opt.value}
       </button>`;
@@ -10854,9 +10854,9 @@ class EODataWorkbench {
    */
   _renderSpaceOptions(currentSpace) {
     const options = [
-      { value: 'Local', icon: 'ph-house', color: '#64748b' },
-      { value: 'Federated', icon: 'ph-handshake', color: '#10b981' },
-      { value: 'Universal', icon: 'ph-globe', color: '#6366f1' }
+      { value: 'Local', icon: 'ph-house', color: '#64748b', description: 'Bounded to this workspace/project' },
+      { value: 'Federated', icon: 'ph-handshake', color: '#10b981', description: 'Travels with explicit translation rules' },
+      { value: 'Universal', icon: 'ph-globe', color: '#6366f1', description: 'Same meaning everywhere (linked to standard URI)' }
     ];
 
     return options.map(opt => {
@@ -10866,7 +10866,7 @@ class EODataWorkbench {
         ? `background: ${opt.color}15; color: ${opt.color}; border-color: ${opt.color};`
         : `background: transparent; color: #64748b; border-color: #e2e8f0;`;
 
-      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="space" data-value="${opt.value}" style="${style}">
+      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="space" data-value="${opt.value}" style="${style}" title="${opt.description}">
         <i class="ph ${opt.icon}"></i>
         ${opt.value}
       </button>`;
@@ -10880,9 +10880,9 @@ class EODataWorkbench {
    */
   _renderTimeOptions(currentTime) {
     const options = [
-      { value: 'Immutable', icon: 'ph-lock-simple', color: '#6366f1' },
-      { value: 'Versioned', icon: 'ph-clock-counter-clockwise', color: '#8b5cf6' },
-      { value: 'Evolving', icon: 'ph-arrows-clockwise', color: '#f59e0b' }
+      { value: 'Immutable', icon: 'ph-lock-simple', color: '#6366f1', description: 'Fixed at creation, should not change' },
+      { value: 'Versioned', icon: 'ph-clock-counter-clockwise', color: '#8b5cf6', description: 'Changes at defined epochs (v1 → v2)' },
+      { value: 'Evolving', icon: 'ph-arrows-clockwise', color: '#f59e0b', description: 'Continuously updating' }
     ];
 
     return options.map(opt => {
@@ -10892,7 +10892,7 @@ class EODataWorkbench {
         ? `background: ${opt.color}15; color: ${opt.color}; border-color: ${opt.color};`
         : `background: transparent; color: #64748b; border-color: #e2e8f0;`;
 
-      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="time" data-value="${opt.value}" style="${style}">
+      return `<button class="eo-ontological-option ${selectedClass}" data-dimension="time" data-value="${opt.value}" style="${style}" title="${opt.description}">
         <i class="ph ${opt.icon}"></i>
         ${opt.value}
       </button>`;
@@ -12669,7 +12669,7 @@ class EODataWorkbench {
                 <h3 class="eo-card-title eo-editable" contenteditable="true" data-field="identityTitle" data-placeholder="Title...">${this._escapeHtml(definition.overrides?.identityTitle || 'Identity')}</h3>
               </div>
               <div class="eo-card-actions">
-                <button class="btn btn-icon btn-sm" id="btn-edit-identity" title="Edit identity">
+                <button class="btn btn-icon btn-sm" id="btn-edit-identity" title="Edit identity settings and authority source">
                   <i class="ph ph-pencil-simple"></i>
                 </button>
               </div>
@@ -12692,7 +12692,7 @@ class EODataWorkbench {
                 <h3 class="eo-card-title eo-editable" contenteditable="true" data-field="spaceTitle" data-placeholder="Title...">${this._escapeHtml(definition.overrides?.spaceTitle || 'Space')}</h3>
               </div>
               <div class="eo-card-actions">
-                <button class="btn btn-icon btn-sm" id="btn-edit-space" title="Edit space">
+                <button class="btn btn-icon btn-sm" id="btn-edit-space" title="Edit where this meaning applies">
                   <i class="ph ph-pencil-simple"></i>
                 </button>
               </div>
@@ -12715,7 +12715,7 @@ class EODataWorkbench {
                 <h3 class="eo-card-title eo-editable" contenteditable="true" data-field="timeTitle" data-placeholder="Title...">${this._escapeHtml(definition.overrides?.timeTitle || 'Time')}</h3>
               </div>
               <div class="eo-card-actions">
-                <button class="btn btn-icon btn-sm" id="btn-edit-time" title="Edit time">
+                <button class="btn btn-icon btn-sm" id="btn-edit-time" title="Edit how this meaning changes over time">
                   <i class="ph ph-pencil-simple"></i>
                 </button>
               </div>
