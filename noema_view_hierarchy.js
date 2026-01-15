@@ -57,7 +57,8 @@ const LensType = Object.freeze({
   KANBAN: 'kanban',       // Status-based columns
   TIMELINE: 'timeline',   // Chronological ordering
   CALENDAR: 'calendar',   // Date-positioned events
-  GRAPH: 'graph'          // Relationship networks
+  GRAPH: 'graph',         // Relationship networks
+  PIPELINE: 'pipeline'    // Visual pipeline with time-travel
 });
 
 /**
@@ -69,7 +70,8 @@ const LensTypeInfo = {
   [LensType.KANBAN]: { icon: 'ph-kanban', label: 'Kanban', description: 'Status-based columns' },
   [LensType.TIMELINE]: { icon: 'ph-timeline', label: 'Timeline', description: 'Chronological ordering' },
   [LensType.CALENDAR]: { icon: 'ph-calendar-blank', label: 'Calendar', description: 'Date-positioned events' },
-  [LensType.GRAPH]: { icon: 'ph-graph', label: 'Graph', description: 'Relationship networks' }
+  [LensType.GRAPH]: { icon: 'ph-graph', label: 'Graph', description: 'Relationship networks' },
+  [LensType.PIPELINE]: { icon: 'ph-cooking-pot', label: 'Pipeline', description: 'Visual pipeline with time-travel' }
 };
 
 // ============================================================================
@@ -93,7 +95,8 @@ const ViewTypeInfo = {
   kanban: { icon: 'ph-kanban', label: 'Kanban', description: 'Columns by status field' },
   calendar: { icon: 'ph-calendar-blank', label: 'Calendar', description: 'Events on date grid' },
   graph: { icon: 'ph-graph', label: 'Graph', description: 'Nodes and edges for relationships' },
-  timeline: { icon: 'ph-timeline', label: 'Timeline', description: 'Chronological ordering' }
+  timeline: { icon: 'ph-timeline', label: 'Timeline', description: 'Chronological ordering' },
+  pipeline: { icon: 'ph-cooking-pot', label: 'Pipeline', description: 'Visual data transformation with time-travel' }
 };
 
 /**
