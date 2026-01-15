@@ -5967,7 +5967,8 @@ class EODataWorkbench {
       { type: 'kanban', icon: 'ph-kanban', label: 'Kanban' },
       { type: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar' },
       { type: 'graph', icon: 'ph-graph', label: 'Graph' },
-      { type: 'timeline', icon: 'ph-clock-countdown', label: 'Timeline' }
+      { type: 'timeline', icon: 'ph-clock-countdown', label: 'Timeline' },
+      { type: 'pipeline', icon: 'ph-cooking-pot', label: 'Pipeline' }
     ];
 
     const picker = document.createElement('div');
@@ -27437,6 +27438,9 @@ class EODataWorkbench {
       case 'graph':
         this._renderGraphView();
         break;
+      case 'pipeline':
+        this._renderPipelineView();
+        break;
       case 'filesystem':
         this._renderFilesystemView();
         break;
@@ -37380,6 +37384,74 @@ class EODataWorkbench {
       node.removeClass('size-small size-medium size-large');
       node.addClass(`size-${nodeSize}`);
     });
+  }
+
+  // --------------------------------------------------------------------------
+  // Pipeline View - Visual Pipeline Editor with Time-Travel
+  // --------------------------------------------------------------------------
+
+  _renderPipelineView() {
+    const set = this.getCurrentSet();
+
+    // Create container
+    this.elements.contentArea.innerHTML = `
+      <div class="pipeline-view-container" id="pipeline-view-container">
+        <!-- Temporal Pipeline Canvas will be mounted here -->
+      </div>
+    `;
+
+    const container = document.getElementById('pipeline-view-container');
+
+    // Initialize or reuse pipeline for this set
+    if (!this._pipelineInstances) {
+      this._pipelineInstances = new Map();
+    }
+
+    let pipeline = this._pipelineInstances.get(set?.id);
+
+    if (!pipeline) {
+      // Create new pipeline
+      pipeline = new TemporalPipeline({
+        id: `pipeline_${set?.id || 'default'}`,
+        name: `${set?.name || 'Data'} Pipeline`,
+        eventStore: this.eventStore,
+        workbench: this
+      });
+
+      // Add a source node for the current set if we have one
+      if (set) {
+        const sourceNode = pipeline.addNode(TemporalNodeType.SOURCE, {
+          x: 100,
+          y: 200,
+          config: {
+            setId: set.id,
+            setName: set.name
+          }
+        });
+      }
+
+      // Detect keyframes from event store
+      pipeline.detectKeyframes();
+
+      this._pipelineInstances.set(set?.id, pipeline);
+    }
+
+    // Create the visual canvas
+    this._currentPipelineCanvas = new TemporalPipelineCanvas(container, pipeline, {
+      onNodeSelect: (node) => {
+        console.log('Node selected:', node);
+      },
+      onNodeConfigure: (node) => {
+        console.log('Configure node:', node);
+      },
+      onPipelineChange: (pipeline) => {
+        // Could save pipeline state here
+        console.log('Pipeline changed:', pipeline.toFormula());
+      }
+    });
+
+    // Initial cook
+    pipeline.cookAll();
   }
 
   // --------------------------------------------------------------------------
