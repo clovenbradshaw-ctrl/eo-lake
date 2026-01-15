@@ -398,8 +398,104 @@ This could enable automation workflows while maintaining provenance (every actio
 The highest-impact changes would be:
 1. **Visual formula builder** with live previews at each stage
 2. **Instanced rendering** for large datasets in Cards/Graph views
+3. **Temporal pipeline cooking** - scrub through time and watch data transform
 
 Both maintain Noema's philosophical integrity while borrowing TD's excellent UX patterns.
+
+---
+
+### 9. Cook + Loop: Time-Travel Through Data
+
+**The Core Insight**: TouchDesigner's "cook" model (operators process inputs → produce output) combined with Noema's immutable event log enables something neither tool has alone: **scrubbing through time while watching pipelines transform**.
+
+**TouchDesigner's Cook Model**:
+- Operators "cook" when inputs change or timeline advances
+- Playhead scrubs through time; everything re-evaluates
+- You see data transform frame-by-frame
+
+**Noema's Temporal Foundation**:
+- Every event is timestamped and immutable (Rule 3: Ineliminability)
+- ALT operator reconstructs state at any point: `AS_OF(timestamp)`
+- Full audit trail means you can replay history exactly
+
+**The Synthesis - Temporal Pipeline Cooking**:
+
+```
+Timeline Scrubber
+     ↓ AS_OF(t)
+┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+│ Orders  │───▶│  CON    │───▶│  SEG    │───▶│  SYN    │
+│ @t=Jan  │    │ 45 cust │    │ 12 done │    │ $3,200  │
+└─────────┘    └─────────┘    └─────────┘    └─────────┘
+     ↓ scrub forward
+┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+│ Orders  │───▶│  CON    │───▶│  SEG    │───▶│  SYN    │
+│ @t=Mar  │    │ 67 cust │    │ 42 done │    │ $12,450 │
+└─────────┘    └─────────┘    └─────────┘    └─────────┘
+```
+
+**What This Enables**:
+
+1. **Replay History**: Scrub timeline to watch how your data evolved
+   - "What did our pipeline show on March 15th?"
+   - See exactly what any user saw at any moment
+
+2. **Loop Detection**: Run pipeline at t, t+1, t+2... detect cycles or drift
+   - "Are these values converging or diverging?"
+   - Spot feedback loops in linked data
+
+3. **Provenance Animation**: Watch the grounding chain build over time
+   - Records appear as they're imported
+   - Interpretations layer on top
+   - See which MEANT events derive from which GIVEN
+
+4. **Comparative Cooking**: Run same pipeline at two timepoints side-by-side
+   - "Before/after this import"
+   - "Q1 vs Q2 with same formula"
+
+5. **Hypothesis Testing**: Fork at a timestamp, make changes, compare trajectories
+   - "What if we had classified this differently?"
+   - Branch timelines diverge visually
+
+**Implementation Concept**:
+
+```javascript
+// Pipeline node evaluates at horizon's timestamp
+function cookNode(node, horizon) {
+  const asOfData = eventStore.query({
+    ...horizon,
+    asOf: horizon.timestamp  // ALT operator
+  });
+
+  return node.operator.evaluate(asOfData);
+}
+
+// Timeline scrubber triggers re-cook
+function onTimelineScrub(newTimestamp) {
+  const horizon = { ...currentHorizon, timestamp: newTimestamp };
+  pipeline.nodes.forEach(node => {
+    node.output = cookNode(node, horizon);
+    node.renderPreview();  // Live update
+  });
+}
+```
+
+**Why This Is Unique**:
+
+| Tool | Has Cooking | Has Time-Travel | Has Both |
+|------|-------------|-----------------|----------|
+| TouchDesigner | ✓ | ✗ (real-time only) | ✗ |
+| Airtable | ✗ | ✗ | ✗ |
+| Git | ✗ | ✓ (commits) | ✗ |
+| Noema + TD patterns | ✓ | ✓ | **✓** |
+
+No existing tool lets you visually scrub through a data transformation pipeline's history. This would be a genuine innovation - making Noema's philosophical commitment to temporal integrity into an interactive, visual experience.
+
+**Key Alignment with Nine Rules**:
+- **Rule 3 (Ineliminability)**: Nothing erased, so full history available to cook
+- **Rule 6 (Coherence)**: Pipeline valid at t stays valid at t' when narrowing
+- **Rule 7 (Groundedness)**: Watch provenance chains form in real-time
+- **Rule 8 (Determinacy)**: See how meaning crystallizes at specific timestamps
 
 ---
 
