@@ -235,16 +235,171 @@ Web DAT (fetch CSV) → Table DAT → Insert DAT (headers) → Instancing
 
 ---
 
-## Relevant Concepts for Noema Integration
+## Lessons for Noema Data Workbench
 
-TouchDesigner's paradigms that could inform Noema's data visualization:
+After analyzing both TouchDesigner's approach and Noema's architecture, here are specific learnings:
 
-1. **Node-based Data Flow**: Left-to-right data transformation pipelines
-2. **Operator Families**: Specialized representations for different data types
-3. **Instancing**: Efficient rendering of data-driven visual elements
-4. **Table Structure**: Rows/columns with typed cells for structured data
-5. **GPU Acceleration**: Keeping computation on GPU for performance
-6. **Python Scripting**: Automation and custom behavior hooks
+### 1. Visual Pipeline Builder for Formulas
+
+**TouchDesigner**: Node-based visual programming where data flows left-to-right through connected operators.
+
+**Noema Currently**: Formula pipelines are text-based: `{Orders} → CON(Customer) → SEG(Status="Complete") → SYN(SUM Amount)`
+
+**Opportunity**: Build a visual formula editor where users drag-and-drop the Nine Operators (CON, SEG, SYN, ALT, DES, NUL, etc.) as nodes and wire them together. Each node shows a live preview of intermediate results.
+
+```
+┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+│ Orders  │───▶│  CON    │───▶│  SEG    │───▶│  SYN    │
+│  (Set)  │    │Customer │    │Complete │    │SUM Amt  │
+│ 150 rec │    │ 150 rec │    │  42 rec │    │ $12,450 │
+└─────────┘    └─────────┘    └─────────┘    └─────────┘
+```
+
+This mirrors TouchDesigner's core UX while staying true to the Nine Operators.
+
+---
+
+### 2. Operator Family Metaphor for View Types
+
+**TouchDesigner**: Different operator families (TOPs, CHOPs, SOPs, DATs) represent the same underlying numeric data in specialized ways.
+
+**Noema Currently**: 6 view types (Grid, Cards, Kanban, Calendar, Graph, Timeline) are separate rendering modes.
+
+**Opportunity**: Frame views as "data representations" rather than just display modes:
+
+| Noema View | TD Equivalent | Data Representation |
+|------------|---------------|---------------------|
+| Grid | DAT (Table) | Rows × Columns |
+| Cards | TOP (Tiles) | 2D spatial arrangement |
+| Graph | SOP (Geometry) | Nodes and edges in space |
+| Timeline | CHOP (Channels) | Values over time |
+| Kanban | Custom composite | Grouped columns |
+| Calendar | Custom composite | Temporal grid |
+
+**Benefit**: Users understand that switching views doesn't change data—just its representation. This aligns with the GIVEN/MEANT distinction.
+
+---
+
+### 3. Instancing for Efficient Record Rendering
+
+**TouchDesigner**: Renders thousands of geometry instances from a single template, driven by table data.
+
+**Noema Currently**: Each card/row is rendered individually in the DOM.
+
+**Opportunity**: For Cards and Graph views with many records:
+- Define a single "card template" (like Geometry COMP)
+- Instance it for each record, mapping fields to visual properties
+- Use Canvas/WebGL for massive datasets (like POPs use GPU)
+
+**Implementation Path**:
+```
+Record Data (DAT-like)
+    ↓ Map fields to visual properties
+Template Component (COMP-like)
+    ↓ Instance per record
+Canvas/WebGL Renderer (GPU-like)
+```
+
+This could enable rendering 10,000+ cards smoothly in the Cards view.
+
+---
+
+### 4. Data Conversion Operators
+
+**TouchDesigner**: Explicit conversion operators (`CHOP to SOP`, `DAT to CHOP`) make data transformations visible.
+
+**Noema Currently**: Type coercion happens implicitly in formulas.
+
+**Opportunity**: Make data shape transformations explicit operations:
+
+| Conversion | Use Case |
+|------------|----------|
+| Set → Graph | Convert records + links to nodes + edges |
+| Timeline → Set | Flatten temporal data to snapshot |
+| Grouped → Pivoted | Restructure aggregations |
+| Records → Statistics | Generate summary Set from data |
+
+These could be first-class operators in the Nine Operator family, making data reshaping visible and auditable (maintaining provenance).
+
+---
+
+### 5. Multi-Representation Preview
+
+**TouchDesigner**: Every operator shows a live preview of its output; you see data transform in real-time.
+
+**Noema Currently**: Formula results appear in the final column; intermediate steps are invisible.
+
+**Opportunity**: In the visual pipeline builder (Lesson #1), show live previews at each stage:
+- After CON: "Joined 150 orders with 45 customers"
+- After SEG: "Filtered to 42 complete orders"
+- After SYN: "Summed to $12,450"
+
+This provides transparency (aligns with Nine Rules) and helps users understand their data transformations.
+
+---
+
+### 6. Procedural Layout Controls
+
+**TouchDesigner**: Tile TOP and Composite TOP provide precise control over spatial arrangement.
+
+**Noema Currently**: Cards view uses CSS grid/flexbox with limited configuration.
+
+**Opportunity**: Add layout controls inspired by Tile/Composite TOPs:
+
+- **Tile Mode**: Repeat cards in X×Y grid with configurable gap
+- **Overlap/Blend**: Cards can partially overlap (useful for timeline-style layouts)
+- **Extend Behavior**: What happens at edges (clip, wrap, fade)
+- **Transform per-item**: Per-card scale/rotation based on field values
+
+Example: Scale card size by `{Amount}` field, tint by `{Category}` field.
+
+---
+
+### 7. Horizon-Gated Instancing
+
+**TouchDesigner**: Instance visibility can be controlled by data attributes.
+
+**Noema Alignment**: This maps perfectly to Horizon-Gated Access (Rule 4).
+
+**Opportunity**: When instancing records for visualization:
+- Automatically filter instances by current Horizon
+- Different users see different subsets of the same view
+- Animate transitions when horizon changes (records fade in/out)
+
+---
+
+### 8. Event-Driven Reactivity (Execute DATs)
+
+**TouchDesigner**: Execute DATs fire callbacks when data changes.
+
+**Noema Currently**: Event bus notifies components of changes.
+
+**Opportunity**: Expose user-configurable triggers:
+- "When record added to {Set}, run {Action}"
+- "When field value changes, recalculate {Formula}"
+- "When horizon narrows, highlight affected records"
+
+This could enable automation workflows while maintaining provenance (every action traced to trigger event).
+
+---
+
+### Summary: Key Takeaways
+
+| TouchDesigner Concept | Noema Application | Priority |
+|-----------------------|-------------------|----------|
+| Visual node pipelines | Formula builder UI | High |
+| Live preview at each node | Intermediate result display | High |
+| Instancing for efficiency | Canvas/WebGL card rendering | Medium |
+| Operator families | View type framing | Low (conceptual) |
+| Tile/Layout controls | Cards view configuration | Medium |
+| Data conversion operators | Explicit reshape operations | Medium |
+| Execute callbacks | User-defined triggers | Low |
+
+The highest-impact changes would be:
+1. **Visual formula builder** with live previews at each stage
+2. **Instanced rendering** for large datasets in Cards/Graph views
+
+Both maintain Noema's philosophical integrity while borrowing TD's excellent UX patterns.
 
 ---
 
