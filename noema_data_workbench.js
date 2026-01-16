@@ -31285,11 +31285,12 @@ class EODataWorkbench {
   }
 
   /**
-   * Inject view tabs header at the top of the content area
+   * Inject view tabs header above the tab toolbar
+   * Views come first (what you're looking at), then actions (how you manipulate it)
    */
   _injectViewTabsHeader() {
-    const contentArea = this.elements.contentArea;
-    if (!contentArea) return;
+    const tabToolbar = document.getElementById('tab-toolbar');
+    if (!tabToolbar) return;
 
     // Don't inject if we're in file explorer mode
     if (this.fileExplorerMode) return;
@@ -31298,15 +31299,15 @@ class EODataWorkbench {
     const set = this.getCurrentSet();
     if (!set) return;
 
-    // Check if header already exists
-    const existingHeader = contentArea.querySelector('.view-tabs-header');
+    // Check if header already exists (now at document level, before tab-toolbar)
+    const existingHeader = document.querySelector('.view-tabs-header');
     if (existingHeader) {
       existingHeader.remove();
     }
 
-    // Inject at top
+    // Inject before tab-toolbar (views first, then actions)
     const headerHTML = this._getViewTabsHeaderHTML();
-    contentArea.insertAdjacentHTML('afterbegin', headerHTML);
+    tabToolbar.insertAdjacentHTML('beforebegin', headerHTML);
 
     // Attach event handlers
     this._attachViewTabsHandlers();
@@ -31316,7 +31317,7 @@ class EODataWorkbench {
    * Attach event handlers for view tabs
    */
   _attachViewTabsHandlers() {
-    const header = this.elements.contentArea?.querySelector('.view-tabs-header');
+    const header = document.querySelector('.view-tabs-header');
     if (!header) return;
 
     const scrollContainer = header.querySelector('.view-tabs-scroll');
