@@ -38286,6 +38286,18 @@ class EODataWorkbench {
       set.records = [];
     }
 
+    // Pre-populate values from view filters when no values provided
+    // This ensures new records match the current view's filters and remain visible
+    const view = this.getCurrentView();
+    if (Object.keys(values).length === 0 && view?.config?.filters?.length > 0) {
+      view.config.filters.forEach(filter => {
+        // Only use enabled "is" filters (exact match) for pre-population
+        if (filter.enabled !== false && filter.operator === 'is' && filter.filterValue != null) {
+          values[filter.fieldId] = filter.filterValue;
+        }
+      });
+    }
+
     const record = createRecord(set.id, values);
     set.records.push(record);
 
