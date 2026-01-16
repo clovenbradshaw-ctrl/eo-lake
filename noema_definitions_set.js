@@ -1,5 +1,5 @@
 /**
- * EO Definitions Set - System Set Infrastructure for Column Definitions
+ * EO Definitions Set - System Set Infrastructure for Definitions
  *
  * This module provides:
  * 1. Definitions Set creation and management (definitions as records, not metadata)
@@ -135,11 +135,19 @@ class DefinitionsSetManager {
     // Check if already exists
     let defSet = this.workbench.sets?.find(s => s.id === DEFINITIONS_SET_ID);
 
+    if (defSet) {
+      // Migrate old "Column Definitions" name to "Definitions"
+      if (defSet.name === 'Column Definitions') {
+        defSet.name = 'Definitions';
+        defSet.updatedAt = new Date().toISOString();
+      }
+    }
+
     if (!defSet) {
       // Create the system Definitions Set
       defSet = {
         id: DEFINITIONS_SET_ID,
-        name: 'Column Definitions',
+        name: 'Definitions',
         icon: 'ph-book-open',
         isSystemSet: true,
         displayNameFieldId: null, // Defaults to first column (Term)

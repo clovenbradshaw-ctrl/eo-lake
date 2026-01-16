@@ -26973,7 +26973,14 @@ class EODataWorkbench {
       icon: s.icon || 'ph-table',
       badge: this._getProvenanceStatusIcon(s),
       active: s.id === this.currentSetId,
-      onClick: () => this._selectSet(s.id)
+      onClick: () => {
+        // Special handling for Definitions set - open definitions panel
+        if (s.id === 'set_definitions') {
+          this._showDefinitionsPanel();
+        } else {
+          this._selectSet(s.id);
+        }
+      }
     })), 'Sets (Data Collections)');
   }
 
