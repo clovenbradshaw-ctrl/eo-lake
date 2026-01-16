@@ -1726,35 +1726,6 @@ class EODataWorkbench {
         </div>
         <div class="settings-content">
           <div class="settings-section">
-            <h2>Appearance</h2>
-            <div class="settings-item">
-              <div class="settings-item-info">
-                <div class="settings-item-label">Theme</div>
-                <div class="settings-item-desc">Choose your preferred color scheme</div>
-              </div>
-              <select class="settings-select" id="settings-theme">
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-                <option value="system">System</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="settings-section">
-            <h2>Data</h2>
-            <div class="settings-item">
-              <div class="settings-item-info">
-                <div class="settings-item-label">Auto-save</div>
-                <div class="settings-item-desc">Automatically save changes</div>
-              </div>
-              <label class="settings-toggle">
-                <input type="checkbox" checked />
-                <span class="settings-toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-
-          <div class="settings-section">
             <h2>About</h2>
             <div class="settings-about">
               <p><strong>Noema</strong></p>
