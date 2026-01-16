@@ -12679,7 +12679,7 @@ class EODataWorkbench {
               </div>
             </div>
             <div class="eo-card-content">
-              <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="identityQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.identityQuestion || 'How is this meaning stabilized in the world?')}</p>
+              <p class="eo-ontological-question">${this._escapeHtml(definition.overrides?.identityQuestion || 'How is this meaning stabilized in the world?')}</p>
               <div class="eo-ontological-options">
                 ${this._renderIdentityOptions(identityInfo.identity)}
               </div>
@@ -12702,7 +12702,7 @@ class EODataWorkbench {
               </div>
             </div>
             <div class="eo-card-content">
-              <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="spaceQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.spaceQuestion || 'Where does this meaning apply?')}</p>
+              <p class="eo-ontological-question">${this._escapeHtml(definition.overrides?.spaceQuestion || 'Where does this meaning apply?')}</p>
               <div class="eo-ontological-options">
                 ${this._renderSpaceOptions(spaceInfo.space)}
               </div>
@@ -12725,7 +12725,7 @@ class EODataWorkbench {
               </div>
             </div>
             <div class="eo-card-content">
-              <p class="eo-ontological-question eo-editable" contenteditable="true" data-field="timeQuestion" data-placeholder="Enter question...">${this._escapeHtml(definition.overrides?.timeQuestion || 'How does this meaning change?')}</p>
+              <p class="eo-ontological-question">${this._escapeHtml(definition.overrides?.timeQuestion || 'How does this meaning change?')}</p>
               <div class="eo-ontological-options">
                 ${this._renderTimeOptions(timeInfo.time)}
               </div>
