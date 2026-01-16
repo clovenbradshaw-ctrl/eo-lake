@@ -138,7 +138,7 @@ A special system set that stores all definitions:
 ```javascript
 {
   id: "set_definitions",
-  name: "Column Definitions",
+  name: "Definitions",
   icon: "ph-book-open",
   isSystemSet: true,                     // Cannot be deleted
 
