@@ -4839,7 +4839,9 @@ class EODataWorkbench {
       calendar: 'ph-calendar-blank',
       graph: 'ph-graph',
       filesystem: 'ph-folder-open',
-      timeline: 'ph-clock-countdown'
+      timeline: 'ph-clock-countdown',
+      pipeline: 'ph-cooking-pot',
+      flow: 'ph-flow-arrow'
     };
 
     content.innerHTML = views.map(view => {
@@ -5439,7 +5441,10 @@ class EODataWorkbench {
       'kanban': 'ph-kanban',
       'calendar': 'ph-calendar-blank',
       'graph': 'ph-graph',
-      'filesystem': 'ph-folder-open'
+      'filesystem': 'ph-folder-open',
+      'timeline': 'ph-clock-countdown',
+      'pipeline': 'ph-cooking-pot',
+      'flow': 'ph-flow-arrow'
     };
 
     // Don't show any set as active when viewing a source
@@ -5697,7 +5702,10 @@ class EODataWorkbench {
       kanban: 'ph-kanban',
       calendar: 'ph-calendar-blank',
       graph: 'ph-graph',
-      filesystem: 'ph-folder-open'
+      filesystem: 'ph-folder-open',
+      timeline: 'ph-clock-countdown',
+      pipeline: 'ph-cooking-pot',
+      flow: 'ph-flow-arrow'
     };
 
     this.openTab('view', {
@@ -5776,7 +5784,8 @@ class EODataWorkbench {
       { type: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar' },
       { type: 'graph', icon: 'ph-graph', label: 'Graph' },
       { type: 'timeline', icon: 'ph-clock-countdown', label: 'Timeline' },
-      { type: 'pipeline', icon: 'ph-cooking-pot', label: 'Pipeline' }
+      { type: 'pipeline', icon: 'ph-cooking-pot', label: 'Pipeline' },
+      { type: 'flow', icon: 'ph-flow-arrow', label: 'Data Flow' }
     ];
 
     const picker = document.createElement('div');
@@ -7797,7 +7806,9 @@ class EODataWorkbench {
       calendar: 'ph-calendar-blank',
       graph: 'ph-graph',
       timeline: 'ph-clock-countdown',
-      filesystem: 'ph-folder-open'
+      filesystem: 'ph-folder-open',
+      pipeline: 'ph-cooking-pot',
+      flow: 'ph-flow-arrow'
     };
     const icon = viewIcons[lens.lensType] || 'ph-table';
 
@@ -7850,7 +7861,10 @@ class EODataWorkbench {
       kanban: 'ph-kanban',
       calendar: 'ph-calendar-blank',
       graph: 'ph-graph',
-      filesystem: 'ph-folder-open'
+      filesystem: 'ph-folder-open',
+      timeline: 'ph-clock-countdown',
+      pipeline: 'ph-cooking-pot',
+      flow: 'ph-flow-arrow'
     };
     const icon = viewIcons[view.type] || 'ph-table';
 
@@ -7965,7 +7979,10 @@ class EODataWorkbench {
       'kanban': 'ph-kanban',
       'calendar': 'ph-calendar-blank',
       'graph': 'ph-graph',
-      'filesystem': 'ph-folder-open'
+      'filesystem': 'ph-folder-open',
+      'timeline': 'ph-clock-countdown',
+      'pipeline': 'ph-cooking-pot',
+      'flow': 'ph-flow-arrow'
     };
 
     // Empty state - no projects yet
@@ -27256,6 +27273,9 @@ class EODataWorkbench {
       case 'pipeline':
         this._renderPipelineView();
         break;
+      case 'flow':
+        this._renderFlowView();
+        break;
       case 'filesystem':
         this._renderFilesystemView();
         break;
@@ -31058,7 +31078,9 @@ class EODataWorkbench {
       'calendar': 'ph-calendar-blank',
       'graph': 'ph-graph',
       'filesystem': 'ph-folder-open',
-      'timeline': 'ph-clock-countdown'
+      'timeline': 'ph-clock-countdown',
+      'pipeline': 'ph-cooking-pot',
+      'flow': 'ph-flow-arrow'
     };
 
     const viewTabs = views.map(view => {
@@ -37271,6 +37293,76 @@ class EODataWorkbench {
   }
 
   // --------------------------------------------------------------------------
+  // Data Flow View - n8n-Inspired Visual Data Transformer
+  // --------------------------------------------------------------------------
+
+  _renderFlowView() {
+    const set = this.getCurrentSet();
+
+    // Create container
+    this.elements.contentArea.innerHTML = `
+      <div class="flow-view-container" id="flow-view-container">
+        <!-- Data Flow Canvas will be mounted here -->
+      </div>
+    `;
+
+    const container = document.getElementById('flow-view-container');
+
+    // Initialize or reuse flow pipeline for this set
+    if (!this._flowInstances) {
+      this._flowInstances = new Map();
+    }
+
+    let flow = this._flowInstances.get(set?.id);
+
+    if (!flow) {
+      // Create new flow pipeline
+      flow = new DataFlowPipeline({
+        id: `flow_${set?.id || 'default'}`,
+        name: `${set?.name || 'Data'} Flow`,
+        eventStore: this.eventStore,
+        workbench: this,
+        runMode: 'auto'
+      });
+
+      // Add a source node for the current set if we have one
+      if (set) {
+        flow.addNode(DataFlowNodeType.SET, {
+          x: 100,
+          y: 200,
+          config: {
+            setId: set.id,
+            setName: set.name
+          }
+        });
+      }
+
+      this._flowInstances.set(set?.id, flow);
+    }
+
+    // Create the visual canvas
+    this._currentFlowCanvas = new DataFlowCanvas(container, flow, {
+      showTimeline: true,
+      timelineCollapsed: true,
+      showAIButton: true,
+      onNodeSelect: (node) => {
+        console.log('Flow node selected:', node);
+      },
+      onPipelineChange: (flow) => {
+        // Could save flow state here
+        console.log('Flow changed');
+      },
+      onAIRequest: (action, flow) => {
+        console.log('AI request:', action);
+        this._showToast(`AI ${action} requested`, 'info');
+      }
+    });
+
+    // Execute the flow
+    flow.executeAll();
+  }
+
+  // --------------------------------------------------------------------------
   // Filesystem View - Full Content Hierarchy
   // --------------------------------------------------------------------------
 
@@ -37577,7 +37669,10 @@ class EODataWorkbench {
           kanban: 'kanban',
           calendar: 'calendar-blank',
           graph: 'graph',
-          filesystem: 'folder-open'
+          filesystem: 'folder-open',
+          timeline: 'clock-countdown',
+          pipeline: 'cooking-pot',
+          flow: 'flow-arrow'
         };
         const isViewActive = view.id === this.currentViewId && set.id === currentSet?.id;
 
@@ -37695,7 +37790,10 @@ class EODataWorkbench {
       kanban: 'ph-kanban',
       calendar: 'ph-calendar-blank',
       graph: 'ph-graph',
-      filesystem: 'ph-folder-open'
+      filesystem: 'ph-folder-open',
+      timeline: 'ph-clock-countdown',
+      pipeline: 'ph-cooking-pot',
+      flow: 'ph-flow-arrow'
     };
 
     return `
