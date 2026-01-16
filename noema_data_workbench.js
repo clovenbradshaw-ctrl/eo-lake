@@ -4975,12 +4975,42 @@ class EODataWorkbench {
       });
     });
 
+    // Define all view types with descriptions (Airtable-style)
+    const allViewTypes = [
+      { value: 'table', icon: 'ph-table', label: 'Grid', desc: 'Rows and columns, like a spreadsheet' },
+      { value: 'kanban', icon: 'ph-kanban', label: 'Kanban', desc: 'Stack cards by status or category' },
+      { value: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar', desc: 'Schedule by dates on a calendar' },
+      { value: 'gallery', icon: 'ph-squares-four', label: 'Gallery', desc: 'Visual cards with images' },
+      { value: 'timeline', icon: 'ph-chart-line-up', label: 'Timeline', desc: 'Events arranged over time' },
+      { value: 'list', icon: 'ph-list-bullets', label: 'List', desc: 'Compact single-column list' },
+      { value: 'gantt', icon: 'ph-chart-bar-horizontal', label: 'Gantt', desc: 'Project scheduling with dependencies' },
+      { value: 'graph', icon: 'ph-graph', label: 'Graph', desc: 'Network of linked records' },
+      { value: 'form', icon: 'ph-clipboard-text', label: 'Form', desc: 'Collect data with a shareable form' }
+    ];
+
     const html = `
       <div class="create-view-form">
         <div class="form-group">
-          <label for="view-name" class="form-label">View Name</label>
+          <label for="view-name" class="form-label">View name</label>
           <input type="text" id="view-name" class="form-input" placeholder="My View" value="New View">
         </div>
+
+        <div class="form-group">
+          <label class="form-label">View type</label>
+          <div class="view-type-grid" id="view-type-grid">
+            ${allViewTypes.map((vt, idx) => `
+              <div class="view-type-card ${idx === 0 ? 'selected' : ''}" data-value="${vt.value}">
+                <div class="view-type-card-icon">
+                  <i class="ph ${vt.icon}"></i>
+                </div>
+                <div class="view-type-card-label">${vt.label}</div>
+                <div class="view-type-card-desc">${vt.desc}</div>
+              </div>
+            `).join('')}
+          </div>
+          <input type="hidden" id="view-display" value="table">
+        </div>
+
         <div class="form-group">
           <label for="view-organize" class="form-label">Organize by</label>
           <select id="view-organize" class="form-select">
@@ -5005,30 +5035,6 @@ class EODataWorkbench {
           </select>
           <span class="form-hint">How should records be structured?</span>
         </div>
-        <div class="form-group">
-          <label for="view-display" class="form-label">Display as</label>
-          <div id="view-display-dropdown" class="icon-select-dropdown">
-            <div class="icon-select-trigger" tabindex="0">
-              <i class="ph ph-table"></i>
-              <span class="icon-select-label">Table</span>
-              <i class="ph ph-caret-down icon-select-caret"></i>
-            </div>
-            <div class="icon-select-options">
-              <div class="icon-select-option selected" data-value="table">
-                <i class="ph ph-table"></i>
-                <span>Table</span>
-                <i class="ph ph-check icon-select-check"></i>
-              </div>
-              <div class="icon-select-option" data-value="cards">
-                <i class="ph ph-cards"></i>
-                <span>Cards</span>
-                <i class="ph ph-check icon-select-check"></i>
-              </div>
-            </div>
-            <input type="hidden" id="view-display" value="table">
-          </div>
-          <span class="form-hint">How should records be rendered?</span>
-        </div>
       </div>
     `;
 
@@ -5039,117 +5045,23 @@ class EODataWorkbench {
       this._createNewViewWithLens(name, organizeBy, displayAs);
     });
 
-    // Handle organize by change to update display options
+    // Handle view type card selection
     setTimeout(() => {
-      const organizeSelect = document.getElementById('view-organize');
-      const displayDropdown = document.getElementById('view-display-dropdown');
+      const viewTypeGrid = document.getElementById('view-type-grid');
       const displayInput = document.getElementById('view-display');
-      const trigger = displayDropdown?.querySelector('.icon-select-trigger');
-      const optionsContainer = displayDropdown?.querySelector('.icon-select-options');
 
-      const updateDisplayOptions = () => {
-        const organizeValue = organizeSelect?.value || 'none';
-        const [organizeType] = organizeValue.split(':');
-
-        // Define available display types based on organization
-        let displayOptions = [];
-
-        if (organizeType === 'none') {
-          // Flat: Table or Cards
-          displayOptions = [
-            { value: 'table', icon: 'ph-table', label: 'Table' },
-            { value: 'cards', icon: 'ph-cards', label: 'Cards' }
-          ];
-        } else if (organizeType === 'field') {
-          // Grouped by select field: Table (grouped), Kanban, Cards, or Graph
-          displayOptions = [
-            { value: 'table', icon: 'ph-table', label: 'Table (grouped)' },
-            { value: 'kanban', icon: 'ph-kanban', label: 'Kanban board' },
-            { value: 'cards', icon: 'ph-cards', label: 'Cards (grouped)' },
-            { value: 'graph', icon: 'ph-graph', label: 'Graph' }
-          ];
-        } else if (organizeType === 'date') {
-          // By date: Calendar, Timeline, or Table
-          displayOptions = [
-            { value: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar' },
-            { value: 'timeline', icon: 'ph-clock-countdown', label: 'Timeline' },
-            { value: 'table', icon: 'ph-table', label: 'Table (by date)' }
-          ];
-        } else if (organizeType === 'link') {
-          // By relationship: Graph or Table
-          displayOptions = [
-            { value: 'graph', icon: 'ph-graph', label: 'Graph' },
-            { value: 'table', icon: 'ph-table', label: 'Table' }
-          ];
-        }
-
-        // Update display select options
-        if (optionsContainer && displayInput) {
-          const currentValue = displayInput.value;
-          optionsContainer.innerHTML = displayOptions
-            .map(opt => `
-              <div class="icon-select-option ${opt.value === currentValue ? 'selected' : ''}" data-value="${opt.value}">
-                <i class="ph ${opt.icon}"></i>
-                <span>${opt.label}</span>
-                <i class="ph ph-check icon-select-check"></i>
-              </div>
-            `)
-            .join('');
-
-          // Try to preserve selection if still valid, otherwise select first
-          const validOption = displayOptions.find(opt => opt.value === currentValue) || displayOptions[0];
-          if (validOption) {
-            displayInput.value = validOption.value;
-            const triggerIcon = trigger?.querySelector('i:first-child');
-            const triggerLabel = trigger?.querySelector('.icon-select-label');
-            if (triggerIcon) triggerIcon.className = `ph ${validOption.icon}`;
-            if (triggerLabel) triggerLabel.textContent = validOption.label;
-
-            // Update selected state
-            optionsContainer.querySelectorAll('.icon-select-option').forEach(opt => {
-              opt.classList.toggle('selected', opt.dataset.value === validOption.value);
+      if (viewTypeGrid && displayInput) {
+        viewTypeGrid.querySelectorAll('.view-type-card').forEach(card => {
+          card.addEventListener('click', () => {
+            // Update selection
+            viewTypeGrid.querySelectorAll('.view-type-card').forEach(c => {
+              c.classList.remove('selected');
             });
-          }
-
-          // Add click handlers to new options
-          optionsContainer.querySelectorAll('.icon-select-option').forEach(opt => {
-            opt.addEventListener('click', () => {
-              const value = opt.dataset.value;
-              const option = displayOptions.find(o => o.value === value);
-              if (option) {
-                displayInput.value = value;
-                const triggerIcon = trigger?.querySelector('i:first-child');
-                const triggerLabel = trigger?.querySelector('.icon-select-label');
-                if (triggerIcon) triggerIcon.className = `ph ${option.icon}`;
-                if (triggerLabel) triggerLabel.textContent = option.label;
-
-                optionsContainer.querySelectorAll('.icon-select-option').forEach(o => {
-                  o.classList.toggle('selected', o.dataset.value === value);
-                });
-                displayDropdown.classList.remove('open');
-              }
-            });
+            card.classList.add('selected');
+            displayInput.value = card.dataset.value;
           });
-        }
-      };
-
-      // Toggle dropdown on trigger click
-      trigger?.addEventListener('click', () => {
-        displayDropdown.classList.toggle('open');
-      });
-
-      // Close on outside click
-      document.addEventListener('click', (e) => {
-        if (!displayDropdown?.contains(e.target)) {
-          displayDropdown?.classList.remove('open');
-        }
-      });
-
-      // Initial update
-      updateDisplayOptions();
-
-      // Update on change
-      organizeSelect?.addEventListener('change', updateDisplayOptions);
+        });
+      }
     }, 0);
   }
 
@@ -5272,50 +5184,57 @@ class EODataWorkbench {
       return;
     }
 
+    // Define all view types with descriptions (Airtable-style)
+    const allViewTypes = [
+      { value: 'table', icon: 'ph-table', label: 'Grid', desc: 'Rows and columns, like a spreadsheet' },
+      { value: 'kanban', icon: 'ph-kanban', label: 'Kanban', desc: 'Stack cards by status or category' },
+      { value: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar', desc: 'Schedule by dates on a calendar' },
+      { value: 'gallery', icon: 'ph-squares-four', label: 'Gallery', desc: 'Visual cards with images' },
+      { value: 'timeline', icon: 'ph-chart-line-up', label: 'Timeline', desc: 'Events arranged over time' },
+      { value: 'list', icon: 'ph-list-bullets', label: 'List', desc: 'Compact single-column list' },
+      { value: 'gantt', icon: 'ph-chart-bar-horizontal', label: 'Gantt', desc: 'Project scheduling with dependencies' },
+      { value: 'graph', icon: 'ph-graph', label: 'Graph', desc: 'Network of linked records' },
+      { value: 'form', icon: 'ph-clipboard-text', label: 'Form', desc: 'Collect data with a shareable form' }
+    ];
+
     const html = `
       <div class="create-view-form">
         <div class="form-group">
-          <label for="view-set-select" class="form-label">Select Set</label>
+          <label for="view-set-select" class="form-label">Select set</label>
           <select id="view-set-select" class="form-select">
             ${sets.map(set => `
               <option value="${set.id}">${this._escapeHtml(set.name)} (${(set.records || []).length} records)</option>
             `).join('')}
           </select>
         </div>
+
         <div class="form-group">
-          <label for="view-name" class="form-label">View Name</label>
+          <label for="view-name" class="form-label">View name</label>
           <input type="text" id="view-name" class="form-input" placeholder="My View" value="New View">
         </div>
+
+        <div class="form-group">
+          <label class="form-label">View type</label>
+          <div class="view-type-grid" id="view-type-grid">
+            ${allViewTypes.map((vt, idx) => `
+              <div class="view-type-card ${idx === 0 ? 'selected' : ''}" data-value="${vt.value}">
+                <div class="view-type-card-icon">
+                  <i class="ph ${vt.icon}"></i>
+                </div>
+                <div class="view-type-card-label">${vt.label}</div>
+                <div class="view-type-card-desc">${vt.desc}</div>
+              </div>
+            `).join('')}
+          </div>
+          <input type="hidden" id="view-display" value="table">
+        </div>
+
         <div class="form-group">
           <label for="view-organize" class="form-label">Organize by</label>
           <select id="view-organize" class="form-select">
             <option value="none">None (flat list)</option>
           </select>
           <span class="form-hint">How should records be structured?</span>
-        </div>
-        <div class="form-group">
-          <label for="view-display" class="form-label">Display as</label>
-          <div id="view-display-dropdown" class="icon-select-dropdown">
-            <div class="icon-select-trigger" tabindex="0">
-              <i class="ph ph-table"></i>
-              <span class="icon-select-label">Table</span>
-              <i class="ph ph-caret-down icon-select-caret"></i>
-            </div>
-            <div class="icon-select-options">
-              <div class="icon-select-option selected" data-value="table">
-                <i class="ph ph-table"></i>
-                <span>Table</span>
-                <i class="ph ph-check icon-select-check"></i>
-              </div>
-              <div class="icon-select-option" data-value="cards">
-                <i class="ph ph-cards"></i>
-                <span>Cards</span>
-                <i class="ph ph-check icon-select-check"></i>
-              </div>
-            </div>
-            <input type="hidden" id="view-display" value="table">
-          </div>
-          <span class="form-hint">How should records be rendered?</span>
         </div>
       </div>
     `;
@@ -5396,14 +5315,12 @@ class EODataWorkbench {
       this._showToast(`Created "${name}" view in "${set.name}"`, 'success');
     });
 
-    // Handle set selection change and organize by change
+    // Handle set selection change and view type card selection
     setTimeout(() => {
       const setSelect = document.getElementById('view-set-select');
       const organizeSelect = document.getElementById('view-organize');
-      const displayDropdown = document.getElementById('view-display-dropdown');
+      const viewTypeGrid = document.getElementById('view-type-grid');
       const displayInput = document.getElementById('view-display');
-      const trigger = displayDropdown?.querySelector('.icon-select-trigger');
-      const optionsContainer = displayDropdown?.querySelector('.icon-select-options');
 
       const updateOrganizeOptions = () => {
         const setId = setSelect?.value;
@@ -5446,107 +5363,27 @@ class EODataWorkbench {
         }
 
         organizeSelect.innerHTML = html;
-        updateDisplayOptions();
       };
 
-      const updateDisplayOptions = () => {
-        const organizeValue = organizeSelect?.value || 'none';
-        const [organizeType] = organizeValue.split(':');
-
-        let displayOptions = [];
-
-        if (organizeType === 'none') {
-          displayOptions = [
-            { value: 'table', icon: 'ph-table', label: 'Table' },
-            { value: 'cards', icon: 'ph-cards', label: 'Cards' }
-          ];
-        } else if (organizeType === 'field') {
-          displayOptions = [
-            { value: 'table', icon: 'ph-table', label: 'Table (grouped)' },
-            { value: 'kanban', icon: 'ph-kanban', label: 'Kanban board' },
-            { value: 'cards', icon: 'ph-cards', label: 'Cards (grouped)' },
-            { value: 'graph', icon: 'ph-graph', label: 'Graph' }
-          ];
-        } else if (organizeType === 'date') {
-          displayOptions = [
-            { value: 'calendar', icon: 'ph-calendar-blank', label: 'Calendar' },
-            { value: 'timeline', icon: 'ph-clock-countdown', label: 'Timeline' },
-            { value: 'table', icon: 'ph-table', label: 'Table (by date)' }
-          ];
-        } else if (organizeType === 'link') {
-          displayOptions = [
-            { value: 'graph', icon: 'ph-graph', label: 'Graph' },
-            { value: 'table', icon: 'ph-table', label: 'Table' }
-          ];
-        }
-
-        if (optionsContainer && displayInput) {
-          const currentValue = displayInput.value;
-          optionsContainer.innerHTML = displayOptions
-            .map(opt => `
-              <div class="icon-select-option ${opt.value === currentValue ? 'selected' : ''}" data-value="${opt.value}">
-                <i class="ph ${opt.icon}"></i>
-                <span>${opt.label}</span>
-                <i class="ph ph-check icon-select-check"></i>
-              </div>
-            `)
-            .join('');
-
-          // Try to preserve selection if still valid, otherwise select first
-          const validOption = displayOptions.find(opt => opt.value === currentValue) || displayOptions[0];
-          if (validOption) {
-            displayInput.value = validOption.value;
-            const triggerIcon = trigger?.querySelector('i:first-child');
-            const triggerLabel = trigger?.querySelector('.icon-select-label');
-            if (triggerIcon) triggerIcon.className = `ph ${validOption.icon}`;
-            if (triggerLabel) triggerLabel.textContent = validOption.label;
-
-            // Update selected state
-            optionsContainer.querySelectorAll('.icon-select-option').forEach(opt => {
-              opt.classList.toggle('selected', opt.dataset.value === validOption.value);
+      // Handle view type card selection
+      if (viewTypeGrid && displayInput) {
+        viewTypeGrid.querySelectorAll('.view-type-card').forEach(card => {
+          card.addEventListener('click', () => {
+            // Update selection
+            viewTypeGrid.querySelectorAll('.view-type-card').forEach(c => {
+              c.classList.remove('selected');
             });
-          }
-
-          // Add click handlers to new options
-          optionsContainer.querySelectorAll('.icon-select-option').forEach(opt => {
-            opt.addEventListener('click', () => {
-              const value = opt.dataset.value;
-              const option = displayOptions.find(o => o.value === value);
-              if (option) {
-                displayInput.value = value;
-                const triggerIcon = trigger?.querySelector('i:first-child');
-                const triggerLabel = trigger?.querySelector('.icon-select-label');
-                if (triggerIcon) triggerIcon.className = `ph ${option.icon}`;
-                if (triggerLabel) triggerLabel.textContent = option.label;
-
-                optionsContainer.querySelectorAll('.icon-select-option').forEach(o => {
-                  o.classList.toggle('selected', o.dataset.value === value);
-                });
-                displayDropdown.classList.remove('open');
-              }
-            });
+            card.classList.add('selected');
+            displayInput.value = card.dataset.value;
           });
-        }
-      };
-
-      // Toggle dropdown on trigger click
-      trigger?.addEventListener('click', () => {
-        displayDropdown.classList.toggle('open');
-      });
-
-      // Close on outside click
-      document.addEventListener('click', (e) => {
-        if (!displayDropdown?.contains(e.target)) {
-          displayDropdown?.classList.remove('open');
-        }
-      });
+        });
+      }
 
       // Initial update
       updateOrganizeOptions();
 
-      // Update on changes
+      // Update on set change
       setSelect?.addEventListener('change', updateOrganizeOptions);
-      organizeSelect?.addEventListener('change', updateDisplayOptions);
     }, 0);
   }
 
