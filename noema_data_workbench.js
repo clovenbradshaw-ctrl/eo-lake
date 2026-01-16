@@ -3154,6 +3154,21 @@ class EODataWorkbench {
       this._showPipelineHistory();
     });
 
+    // Pipeline view toggle (list vs canvas)
+    this._pipelineViewMode = 'list';
+    document.getElementById('pipeline-view-toggle')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.toggle-btn');
+      if (!btn) return;
+      const view = btn.dataset.view;
+      if (view && view !== this._pipelineViewMode) {
+        this._pipelineViewMode = view;
+        document.querySelectorAll('#pipeline-view-toggle .toggle-btn').forEach(b => {
+          b.classList.toggle('active', b.dataset.view === view);
+        });
+        this._renderPipelinePanel();
+      }
+    });
+
     // Modal close handlers
     document.getElementById('modal-close')?.addEventListener('click', () => this._closeModal());
     document.getElementById('modal-cancel')?.addEventListener('click', () => this._closeModal());
@@ -49913,13 +49928,19 @@ class EODataWorkbench {
       };
     }
 
+    // Render based on view mode
+    if (this._pipelineViewMode === 'canvas') {
+      this._renderPipelineCanvasView(body, set);
+      return;
+    }
+
     const steps = set.pipeline.steps || [];
 
     if (steps.length === 0) {
       body.innerHTML = `
         <div class="empty-state-small">
-          <i class="ph ph-git-merge"></i>
-          <p>No pipeline steps yet</p>
+          <i class="ph ph-flow-arrow"></i>
+          <p>No data flow steps yet</p>
           <p style="font-size: 11px; color: var(--text-muted); margin-top: 8px;">
             Add steps to merge sources, filter records, or transform data
           </p>
@@ -50001,6 +50022,153 @@ class EODataWorkbench {
 
     // Add drag-and-drop for reordering
     this._initPipelineStepDragDrop();
+  }
+
+  /**
+   * Render the pipeline canvas view (n8n-style visual flow builder)
+   */
+  _renderPipelineCanvasView(body, set) {
+    // Set up container for the canvas
+    body.innerHTML = `
+      <div id="pipeline-canvas-container" style="width: 100%; height: 100%; min-height: 400px;"></div>
+    `;
+
+    // Destroy existing canvas if any
+    if (this._pipelineCanvas) {
+      this._pipelineCanvas.destroy();
+    }
+
+    // Create the canvas
+    const container = document.getElementById('pipeline-canvas-container');
+    if (!container || typeof PipelineCanvas === 'undefined') {
+      body.innerHTML = `
+        <div class="empty-state-small">
+          <i class="ph ph-warning"></i>
+          <p>Canvas view not available</p>
+        </div>
+      `;
+      return;
+    }
+
+    this._pipelineCanvas = new PipelineCanvas(container, {
+      onNodeSelect: (node) => {
+        if (node) {
+          this._showPipelineNodeInspector(node);
+        }
+      },
+      onNodeChange: (action, node) => {
+        this._syncCanvasToSteps(set);
+      },
+      onConnectionChange: (action, connection) => {
+        this._syncCanvasToSteps(set);
+      },
+      onRun: () => {
+        this._runPipeline();
+      }
+    });
+
+    // Load existing pipeline steps into the canvas
+    this._loadStepsIntoCanvas(set);
+  }
+
+  /**
+   * Load pipeline steps into the canvas as nodes
+   */
+  _loadStepsIntoCanvas(set) {
+    if (!this._pipelineCanvas) return;
+
+    const steps = set.pipeline?.steps || [];
+    const nodes = [];
+    const connections = [];
+
+    // Convert steps to nodes
+    let x = 100;
+    let y = 150;
+    let prevNodeId = null;
+
+    steps.forEach((step, idx) => {
+      const nodeId = `step_${step.id}`;
+
+      // Determine node type
+      let nodeType = step.type;
+
+      // Get metric (record count or description)
+      let metric = null;
+      if (step.lastExecution?.stats?.outputCount != null) {
+        metric = `${step.lastExecution.stats.outputCount} records`;
+      }
+
+      // Get label
+      let label = this._formatStepType(step.type);
+      if (step.type === 'source' && step.config?.sourceId) {
+        const source = this.sources?.find(s => s.id === step.config.sourceId);
+        label = source?.name || source?.payload?.name || 'Source';
+      } else if (step.type === 'filter' && step.config?.conditions?.length > 0) {
+        label = `Filter (${step.config.conditions.length} conditions)`;
+      }
+
+      nodes.push({
+        id: nodeId,
+        type: nodeType,
+        x,
+        y,
+        label,
+        status: step.enabled ? 'idle' : 'stale',
+        config: step.config,
+        metric,
+        stepId: step.id
+      });
+
+      // Create connection from previous step
+      if (prevNodeId) {
+        connections.push({
+          id: `conn_${idx}`,
+          from: prevNodeId,
+          to: nodeId
+        });
+      }
+
+      prevNodeId = nodeId;
+      x += 280;
+
+      // Wrap to next row after 3 nodes
+      if ((idx + 1) % 3 === 0) {
+        x = 100;
+        y += 140;
+      }
+    });
+
+    // Load into canvas
+    this._pipelineCanvas.loadPipeline({ nodes, connections });
+  }
+
+  /**
+   * Sync canvas nodes back to pipeline steps
+   */
+  _syncCanvasToSteps(set) {
+    if (!this._pipelineCanvas) return;
+
+    const canvasData = this._pipelineCanvas.getPipelineData();
+
+    // Update step positions (for future persistence)
+    canvasData.nodes.forEach(node => {
+      if (node.stepId) {
+        const step = set.pipeline?.steps?.find(s => s.id === node.stepId);
+        if (step) {
+          step._canvasPosition = { x: node.x, y: node.y };
+        }
+      }
+    });
+
+    this._saveData();
+  }
+
+  /**
+   * Show inspector panel for a pipeline node
+   */
+  _showPipelineNodeInspector(node) {
+    // For now, just log - could show a config panel
+    console.log('Selected pipeline node:', node);
   }
 
   /**
@@ -50267,15 +50435,12 @@ class EODataWorkbench {
           ${sourcesHtml}
         </select>
       </div>
-    `, [
-      { label: 'Cancel', action: 'cancel' },
-      { label: 'Add Step', action: 'confirm', primary: true }
-    ], () => {
+    `, () => {
       const sourceId = document.getElementById('step-source-id')?.value;
       if (!sourceId) return;
 
       this._addPipelineStep('source', { sourceId });
-    });
+    }, { confirmText: 'Add Step' });
   }
 
   /**
@@ -50336,10 +50501,7 @@ class EODataWorkbench {
           <span>Add unmatched records as new</span>
         </label>
       </div>
-    `, [
-      { label: 'Cancel', action: 'cancel' },
-      { label: 'Add Merge Step', action: 'confirm', primary: true }
-    ], () => {
+    `, () => {
       const sourceId = document.getElementById('merge-source-id')?.value;
       const matchField = document.getElementById('merge-match-field')?.value;
       const strategy = document.getElementById('merge-strategy')?.value;
@@ -50360,7 +50522,7 @@ class EODataWorkbench {
         defaultStrategy: strategy || 'preferNonEmpty',
         addUnmatched
       });
-    });
+    }, { confirmText: 'Add Merge Step' });
   }
 
   /**
@@ -50407,10 +50569,7 @@ class EODataWorkbench {
           <span>Invert (keep records that DON'T match)</span>
         </label>
       </div>
-    `, [
-      { label: 'Cancel', action: 'cancel' },
-      { label: 'Add Filter Step', action: 'confirm', primary: true }
-    ], () => {
+    `, () => {
       const field = document.getElementById('filter-field')?.value;
       const operator = document.getElementById('filter-operator')?.value;
       const value = document.getElementById('filter-value')?.value;
@@ -50426,7 +50585,7 @@ class EODataWorkbench {
         logic: 'and',
         invert
       });
-    });
+    }, { confirmText: 'Add Filter Step' });
   }
 
   /**
@@ -50466,10 +50625,7 @@ class EODataWorkbench {
         <label class="form-label" id="transform-param-label">Value</label>
         <input type="text" class="form-input" id="transform-param" placeholder="">
       </div>
-    `, [
-      { label: 'Cancel', action: 'cancel' },
-      { label: 'Add Transform Step', action: 'confirm', primary: true }
-    ], () => {
+    `, () => {
       const field = document.getElementById('transform-field')?.value;
       const operation = document.getElementById('transform-operation')?.value;
       const param = document.getElementById('transform-param')?.value;
@@ -50491,7 +50647,7 @@ class EODataWorkbench {
       this._addPipelineStep('transform', {
         transformations: [{ field, operation, params }]
       });
-    });
+    }, { confirmText: 'Add Transform Step' });
 
     // Show/hide params based on operation
     setTimeout(() => {
@@ -50535,10 +50691,7 @@ class EODataWorkbench {
           ${fieldsHtml}
         </div>
       </div>
-    `, [
-      { label: 'Cancel', action: 'cancel' },
-      { label: 'Add Dedupe Step', action: 'confirm', primary: true }
-    ], () => {
+    `, () => {
       const matchFields = Array.from(document.querySelectorAll('.dedupe-field:checked'))
         .map(cb => cb.value);
 
@@ -50548,7 +50701,7 @@ class EODataWorkbench {
       }
 
       this._addPipelineStep('dedupe', { matchFields });
-    });
+    }, { confirmText: 'Add Dedupe Step' });
   }
 
   /**
@@ -50576,10 +50729,7 @@ class EODataWorkbench {
           <option value="desc">Descending (Z-A, 9-0)</option>
         </select>
       </div>
-    `, [
-      { label: 'Cancel', action: 'cancel' },
-      { label: 'Add Sort Step', action: 'confirm', primary: true }
-    ], () => {
+    `, () => {
       const field = document.getElementById('sort-field')?.value;
       const direction = document.getElementById('sort-direction')?.value;
 
@@ -50591,7 +50741,7 @@ class EODataWorkbench {
       this._addPipelineStep('sort', {
         sorts: [{ field, direction }]
       });
-    });
+    }, { confirmText: 'Add Sort Step' });
   }
 
   /**
@@ -50663,10 +50813,7 @@ class EODataWorkbench {
         <label class="form-label">Configuration</label>
         <pre style="background: var(--bg-tertiary); padding: 12px; border-radius: var(--radius-sm); font-size: 11px; overflow: auto; max-height: 200px;">${JSON.stringify(step.config, null, 2)}</pre>
       </div>
-    `, [
-      { label: 'Cancel', action: 'cancel' },
-      { label: 'Save', action: 'confirm', primary: true }
-    ], () => {
+    `, () => {
       const note = document.getElementById('step-note')?.value;
       step.note = note;
       step.updatedAt = new Date().toISOString();
@@ -50756,9 +50903,7 @@ class EODataWorkbench {
       <div class="pipeline-history">
         ${historyHtml}
       </div>
-    `, [
-      { label: 'Close', action: 'cancel' }
-    ]);
+    `, null, { hideFooter: true });
   }
 }
 

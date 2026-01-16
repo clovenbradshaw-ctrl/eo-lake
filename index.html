@@ -445,10 +445,18 @@
     <aside class="pipeline-panel" id="pipeline-panel">
       <div class="pipeline-panel-header">
         <div class="pipeline-header-title">
-          <i class="ph ph-git-merge"></i>
-          <h3>Data Pipeline</h3>
+          <i class="ph ph-flow-arrow"></i>
+          <h3>Data Flow</h3>
         </div>
         <div class="pipeline-header-actions">
+          <div class="pipeline-view-toggle" id="pipeline-view-toggle">
+            <button class="toggle-btn active" data-view="list" title="List View">
+              <i class="ph ph-list"></i>
+            </button>
+            <button class="toggle-btn" data-view="canvas" title="Canvas View">
+              <i class="ph ph-flow-arrow"></i>
+            </button>
+          </div>
           <button class="pipeline-action-btn" id="pipeline-run-btn" title="Run pipeline">
             <i class="ph ph-play"></i>
           </button>
@@ -1089,6 +1097,7 @@
   <script src="noema_source_join.js"></script>   <!-- Source Storage & No-Code Join Builder -->
   <script src="noema_relational_merge.js"></script>   <!-- Phase-Space Relational Merge UI -->
   <script src="noema_pipeline.js"></script>          <!-- Pipeline Engine for Set Transformations -->
+  <script src="noema_pipeline_canvas.js"></script>    <!-- n8n-style Pipeline Canvas UI -->
   <script src="noema_temporal_pipeline.js"></script>  <!-- Temporal Pipeline: Visual Pipeline + Time-Travel -->
   <script src="noema_temporal_pipeline_ui.js"></script> <!-- Temporal Pipeline UI: Canvas, Nodes, Timeline -->
 
