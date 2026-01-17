@@ -56,6 +56,11 @@ const EO_OPERATORS = Object.freeze({
   MAP: 'map',
   RENAME: 'rename',
   FLATTEN: 'flatten',
+  PIVOT: 'pivot',
+  UNPIVOT: 'unpivot',
+  INDEX: 'index',
+  FILL: 'fill',
+  TRANSPOSE: 'transpose',
 
   // ─────────────────────────────────────────────────────────────────────────
   // COMPUTE OPERATORS
@@ -198,6 +203,91 @@ const OperatorMetadata = Object.freeze({
     producesType: 'same',
     isMonotonic: true,
     reversible: false
+  },
+
+  [EO_OPERATORS.PIVOT]: {
+    class: OperatorClass.SHAPE,
+    symbol: '⊙',
+    name: 'Pivot',
+    description: 'Reshape from long to wide format (rows to columns)',
+    producesType: 'same',
+    isMonotonic: true,
+    reversible: false,
+    canonicMaps: ['SEG', 'ALT'], // Segments by attribute, alternates structure
+    params: {
+      groupBy: { type: 'array', description: 'Fields to group by (row identifiers)' },
+      attributeColumn: { type: 'string', required: true, description: 'Column containing attribute names' },
+      valueColumn: { type: 'string', required: true, description: 'Column containing values' },
+      aggregateFunction: {
+        type: 'enum',
+        values: ['FIRST', 'LAST', 'SUM', 'AVG', 'COUNT', 'MIN', 'MAX'],
+        default: 'FIRST',
+        description: 'Function for aggregating multiple values'
+      }
+    }
+  },
+
+  [EO_OPERATORS.UNPIVOT]: {
+    class: OperatorClass.SHAPE,
+    symbol: '⊗',
+    name: 'Unpivot',
+    description: 'Reshape from wide to long format (columns to rows)',
+    producesType: 'same',
+    isMonotonic: true,
+    reversible: false,
+    canonicMaps: ['ALT'],
+    params: {
+      columnsToUnpivot: { type: 'array', required: true, description: 'Columns to convert to rows' },
+      attributeColumnName: { type: 'string', default: 'Attribute', description: 'Name for attribute column' },
+      valueColumnName: { type: 'string', default: 'Value', description: 'Name for value column' },
+      excludeNulls: { type: 'boolean', default: true, description: 'Exclude null/empty values' }
+    }
+  },
+
+  [EO_OPERATORS.INDEX]: {
+    class: OperatorClass.SHAPE,
+    symbol: '⊞',
+    name: 'Index',
+    description: 'Add row index as field',
+    producesType: 'same',
+    isMonotonic: true,
+    reversible: false,
+    canonicMaps: ['ALT'],
+    params: {
+      fieldName: { type: 'string', default: '__row_index', description: 'Name for index field' },
+      startFrom: { type: 'number', default: 0, description: 'Starting index value' },
+      step: { type: 'number', default: 1, description: 'Increment step' }
+    }
+  },
+
+  [EO_OPERATORS.FILL]: {
+    class: OperatorClass.SHAPE,
+    symbol: '↓',
+    name: 'Fill',
+    description: 'Fill down/up missing values in columns',
+    producesType: 'same',
+    isMonotonic: true,
+    reversible: false,
+    canonicMaps: ['ALT'],
+    params: {
+      fields: { type: 'array', required: true, description: 'Fields to fill' },
+      direction: { type: 'enum', values: ['down', 'up'], default: 'down', description: 'Fill direction' },
+      treatAsEmpty: { type: 'array', default: [null, '', undefined], description: 'Values treated as empty' }
+    }
+  },
+
+  [EO_OPERATORS.TRANSPOSE]: {
+    class: OperatorClass.SHAPE,
+    symbol: '⟂',
+    name: 'Transpose',
+    description: 'Swap rows and columns',
+    producesType: 'same',
+    isMonotonic: true,
+    reversible: true,
+    canonicMaps: ['ALT'],
+    params: {
+      headerField: { type: 'string', description: 'Field to use as new column headers (optional)' }
+    }
   },
 
   [EO_OPERATORS.AGGREGATE]: {

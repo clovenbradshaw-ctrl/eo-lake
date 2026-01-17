@@ -37,7 +37,13 @@ const PipelineStepTypes = Object.freeze({
   DEDUPE: 'dedupe',       // Collapse duplicates
   ROLLUP: 'rollup',       // Aggregate from linked records
   SORT: 'sort',           // Order records
-  LINK: 'link'            // Establish relationships to another set
+  LINK: 'link',           // Establish relationships to another set
+  // Phase 1: Data Reshaping Operators
+  PIVOT: 'pivot',         // Reshape long to wide (rows to columns)
+  UNPIVOT: 'unpivot',     // Reshape wide to long (columns to rows)
+  INDEX: 'index',         // Add row index as field
+  FILL: 'fill',           // Fill down/up missing values
+  TRANSPOSE: 'transpose'  // Swap rows and columns
 });
 
 const PipelineStepIcons = {
@@ -48,7 +54,13 @@ const PipelineStepIcons = {
   [PipelineStepTypes.DEDUPE]: 'ph-users-three',
   [PipelineStepTypes.ROLLUP]: 'ph-sigma',
   [PipelineStepTypes.SORT]: 'ph-sort-ascending',
-  [PipelineStepTypes.LINK]: 'ph-link'
+  [PipelineStepTypes.LINK]: 'ph-link',
+  // Phase 1: Data Reshaping Icons
+  [PipelineStepTypes.PIVOT]: 'ph-squares-four',
+  [PipelineStepTypes.UNPIVOT]: 'ph-rows',
+  [PipelineStepTypes.INDEX]: 'ph-hash',
+  [PipelineStepTypes.FILL]: 'ph-arrow-line-down',
+  [PipelineStepTypes.TRANSPOSE]: 'ph-swap'
 };
 
 // ============================================================================
@@ -257,6 +269,90 @@ function createDedupeStep(matchFields, options = {}) {
 }
 
 // ============================================================================
+// Phase 1: Data Reshaping Step Factories
+// ============================================================================
+
+/**
+ * Create a pivot step - reshape from long to wide format
+ * @param {Object} config - Pivot configuration
+ * @param {string[]} config.groupBy - Fields to group by (row identifiers)
+ * @param {string} config.attributeColumn - Column containing attribute names
+ * @param {string} config.valueColumn - Column containing values
+ * @param {string} config.aggregateFunction - Aggregation for multiple values (FIRST, LAST, SUM, AVG, COUNT, MIN, MAX)
+ * @param {Object} options - Additional options (note, actor)
+ */
+function createPivotStep(config, options = {}) {
+  return createPipelineStep(PipelineStepTypes.PIVOT, {
+    groupBy: config.groupBy || [],
+    attributeColumn: config.attributeColumn,
+    valueColumn: config.valueColumn,
+    aggregateFunction: config.aggregateFunction || 'FIRST'
+  }, options);
+}
+
+/**
+ * Create an unpivot step - reshape from wide to long format
+ * @param {Object} config - Unpivot configuration
+ * @param {string[]} config.columnsToUnpivot - Columns to convert to rows
+ * @param {string} config.attributeColumnName - Name for the attribute column (default: 'Attribute')
+ * @param {string} config.valueColumnName - Name for the value column (default: 'Value')
+ * @param {boolean} config.excludeNulls - Whether to exclude null/empty values (default: true)
+ * @param {Object} options - Additional options (note, actor)
+ */
+function createUnpivotStep(config, options = {}) {
+  return createPipelineStep(PipelineStepTypes.UNPIVOT, {
+    columnsToUnpivot: config.columnsToUnpivot || [],
+    attributeColumnName: config.attributeColumnName || 'Attribute',
+    valueColumnName: config.valueColumnName || 'Value',
+    excludeNulls: config.excludeNulls !== false
+  }, options);
+}
+
+/**
+ * Create an index step - add row index as field
+ * @param {Object} config - Index configuration
+ * @param {string} config.fieldName - Name for index field (default: '__row_index')
+ * @param {number} config.startFrom - Starting index value (default: 0)
+ * @param {number} config.step - Increment step (default: 1)
+ * @param {Object} options - Additional options (note, actor)
+ */
+function createIndexStep(config = {}, options = {}) {
+  return createPipelineStep(PipelineStepTypes.INDEX, {
+    fieldName: config.fieldName || '__row_index',
+    startFrom: config.startFrom ?? 0,
+    step: config.step ?? 1
+  }, options);
+}
+
+/**
+ * Create a fill step - fill down/up missing values
+ * @param {Object} config - Fill configuration
+ * @param {string[]} config.fields - Fields to fill
+ * @param {string} config.direction - Fill direction ('down' or 'up', default: 'down')
+ * @param {any[]} config.treatAsEmpty - Values to treat as empty (default: [null, '', undefined])
+ * @param {Object} options - Additional options (note, actor)
+ */
+function createFillStep(config, options = {}) {
+  return createPipelineStep(PipelineStepTypes.FILL, {
+    fields: config.fields || [],
+    direction: config.direction || 'down',
+    treatAsEmpty: config.treatAsEmpty || [null, '', undefined]
+  }, options);
+}
+
+/**
+ * Create a transpose step - swap rows and columns
+ * @param {Object} config - Transpose configuration
+ * @param {string} config.headerField - Field to use as new column headers (optional)
+ * @param {Object} options - Additional options (note, actor)
+ */
+function createTransposeStep(config = {}, options = {}) {
+  return createPipelineStep(PipelineStepTypes.TRANSPOSE, {
+    headerField: config.headerField || null
+  }, options);
+}
+
+// ============================================================================
 // Pipeline Executor
 // ============================================================================
 
@@ -348,6 +444,17 @@ class PipelineExecutor {
         return this._executeDedupeStep(step, records, context);
       case PipelineStepTypes.SORT:
         return this._executeSortStep(step, records, context);
+      // Phase 1: Data Reshaping Operators
+      case PipelineStepTypes.PIVOT:
+        return this._executePivotStep(step, records, context);
+      case PipelineStepTypes.UNPIVOT:
+        return this._executeUnpivotStep(step, records, context);
+      case PipelineStepTypes.INDEX:
+        return this._executeIndexStep(step, records, context);
+      case PipelineStepTypes.FILL:
+        return this._executeFillStep(step, records, context);
+      case PipelineStepTypes.TRANSPOSE:
+        return this._executeTransposeStep(step, records, context);
       default:
         throw new Error(`Unknown step type: ${step.type}`);
     }
@@ -914,6 +1021,371 @@ class PipelineExecutor {
       }
     };
   }
+
+  // ==========================================================================
+  // Phase 1: Data Reshaping Operators
+  // ==========================================================================
+
+  /**
+   * Execute a pivot step - reshape from long to wide format
+   * Converts rows to columns based on attribute values
+   *
+   * Example: Sales data with columns [Region, Product, Amount]
+   * After PIVOT on Product: [Region, ProductA, ProductB, ProductC]
+   */
+  _executePivotStep(step, records, context) {
+    const config = step.config;
+    const {
+      groupBy = [],
+      attributeColumn,
+      valueColumn,
+      aggregateFunction = 'FIRST'
+    } = config;
+
+    if (!attributeColumn || !valueColumn) {
+      throw new Error('PIVOT requires attributeColumn and valueColumn');
+    }
+
+    // Discover all unique attribute values (these become column headers)
+    const attributeValues = new Set();
+    records.forEach(rec => {
+      const attrVal = rec.values[attributeColumn];
+      if (attrVal != null && attrVal !== '') {
+        attributeValues.add(String(attrVal));
+      }
+    });
+
+    // Group records by groupBy fields
+    const groups = new Map();
+    records.forEach(rec => {
+      const groupKey = groupBy.length > 0
+        ? this._buildMatchKey(rec.values, groupBy.map(f => ({ field: f, normalize: 'string' })))
+        : '__all__';
+
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, {
+          groupValues: {},
+          attributeMap: new Map()
+        });
+        // Copy groupBy field values
+        groupBy.forEach(f => {
+          groups.get(groupKey).groupValues[f] = rec.values[f];
+        });
+      }
+
+      const attrVal = String(rec.values[attributeColumn] ?? '');
+      const value = rec.values[valueColumn];
+
+      if (!groups.get(groupKey).attributeMap.has(attrVal)) {
+        groups.get(groupKey).attributeMap.set(attrVal, []);
+      }
+      if (value != null) {
+        groups.get(groupKey).attributeMap.get(attrVal).push(value);
+      }
+    });
+
+    // Build pivoted records
+    const pivotedRecords = [];
+    groups.forEach((group, groupKey) => {
+      const newRec = {
+        id: `rec_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+        values: { ...group.groupValues },
+        _pipeline: {
+          pivotedByStep: step.id,
+          groupKey
+        }
+      };
+
+      // Add a column for each attribute value
+      attributeValues.forEach(attrVal => {
+        const values = group.attributeMap.get(attrVal) || [];
+        newRec.values[attrVal] = this._aggregateValues(values, aggregateFunction);
+      });
+
+      pivotedRecords.push(newRec);
+    });
+
+    return {
+      records: pivotedRecords,
+      stats: {
+        before: records.length,
+        after: pivotedRecords.length,
+        columnsCreated: attributeValues.size,
+        groupCount: groups.size
+      }
+    };
+  }
+
+  /**
+   * Execute an unpivot step - reshape from wide to long format
+   * Converts columns to rows
+   *
+   * Example: Data with columns [Name, Jan, Feb, Mar]
+   * After UNPIVOT on [Jan, Feb, Mar]: [Name, Month, Value]
+   */
+  _executeUnpivotStep(step, records, context) {
+    const config = step.config;
+    const {
+      columnsToUnpivot = [],
+      attributeColumnName = 'Attribute',
+      valueColumnName = 'Value',
+      excludeNulls = true
+    } = config;
+
+    if (!columnsToUnpivot || columnsToUnpivot.length === 0) {
+      throw new Error('UNPIVOT requires columnsToUnpivot');
+    }
+
+    const unpivotedRecords = [];
+
+    // Identify columns to keep (not in columnsToUnpivot)
+    const allColumns = new Set();
+    records.forEach(rec => {
+      Object.keys(rec.values || {}).forEach(k => allColumns.add(k));
+    });
+    const keepColumns = [...allColumns].filter(c => !columnsToUnpivot.includes(c));
+
+    records.forEach((rec, recIdx) => {
+      columnsToUnpivot.forEach(col => {
+        const value = rec.values[col];
+
+        // Skip null/empty if configured
+        if (excludeNulls && (value == null || value === '')) {
+          return;
+        }
+
+        const newRec = {
+          id: `rec_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+          values: {},
+          _pipeline: {
+            unpivotedByStep: step.id,
+            sourceRecordIndex: recIdx,
+            sourceColumn: col
+          }
+        };
+
+        // Copy kept columns
+        keepColumns.forEach(k => {
+          newRec.values[k] = rec.values[k];
+        });
+
+        // Add attribute and value columns
+        newRec.values[attributeColumnName] = col;
+        newRec.values[valueColumnName] = value;
+
+        unpivotedRecords.push(newRec);
+      });
+    });
+
+    return {
+      records: unpivotedRecords,
+      stats: {
+        before: records.length,
+        after: unpivotedRecords.length,
+        columnsUnpivoted: columnsToUnpivot.length
+      }
+    };
+  }
+
+  /**
+   * Execute an index step - add row index as field
+   */
+  _executeIndexStep(step, records, context) {
+    const config = step.config;
+    const {
+      fieldName = '__row_index',
+      startFrom = 0,
+      step: stepIncrement = 1
+    } = config;
+
+    const indexedRecords = records.map((rec, idx) => {
+      return {
+        ...rec,
+        values: {
+          ...rec.values,
+          [fieldName]: startFrom + (idx * stepIncrement)
+        },
+        _pipeline: {
+          ...rec._pipeline,
+          indexedByStep: step.id
+        }
+      };
+    });
+
+    return {
+      records: indexedRecords,
+      stats: {
+        indexed: indexedRecords.length,
+        fieldName,
+        startFrom,
+        step: stepIncrement
+      }
+    };
+  }
+
+  /**
+   * Execute a fill step - fill down/up missing values
+   */
+  _executeFillStep(step, records, context) {
+    const config = step.config;
+    const {
+      fields = [],
+      direction = 'down',
+      treatAsEmpty = [null, '', undefined]
+    } = config;
+
+    if (!fields || fields.length === 0) {
+      throw new Error('FILL requires fields to fill');
+    }
+
+    // Helper to check if value is empty
+    const isEmpty = (val) => treatAsEmpty.includes(val);
+
+    // Clone records for modification
+    const filledRecords = records.map(rec => ({
+      ...rec,
+      values: { ...rec.values }
+    }));
+
+    let fillCount = 0;
+
+    fields.forEach(field => {
+      if (direction === 'down') {
+        // Fill down - carry value forward
+        let lastValue = null;
+        filledRecords.forEach((rec, idx) => {
+          const currentValue = rec.values[field];
+          if (isEmpty(currentValue)) {
+            if (lastValue !== null) {
+              rec.values[field] = lastValue;
+              fillCount++;
+              rec._pipeline = rec._pipeline || {};
+              rec._pipeline.filledFields = rec._pipeline.filledFields || [];
+              rec._pipeline.filledFields.push({ field, direction, fromIndex: idx - 1 });
+            }
+          } else {
+            lastValue = currentValue;
+          }
+        });
+      } else if (direction === 'up') {
+        // Fill up - carry value backward
+        let lastValue = null;
+        for (let i = filledRecords.length - 1; i >= 0; i--) {
+          const rec = filledRecords[i];
+          const currentValue = rec.values[field];
+          if (isEmpty(currentValue)) {
+            if (lastValue !== null) {
+              rec.values[field] = lastValue;
+              fillCount++;
+              rec._pipeline = rec._pipeline || {};
+              rec._pipeline.filledFields = rec._pipeline.filledFields || [];
+              rec._pipeline.filledFields.push({ field, direction, fromIndex: i + 1 });
+            }
+          } else {
+            lastValue = currentValue;
+          }
+        }
+      }
+    });
+
+    return {
+      records: filledRecords,
+      stats: {
+        fillCount,
+        fields: fields.length,
+        direction
+      }
+    };
+  }
+
+  /**
+   * Execute a transpose step - swap rows and columns
+   */
+  _executeTransposeStep(step, records, context) {
+    const config = step.config;
+    const { headerField } = config;
+
+    if (records.length === 0) {
+      return { records: [], stats: { transposed: false, reason: 'empty input' } };
+    }
+
+    // Get all field names from all records
+    const allFields = new Set();
+    records.forEach(rec => {
+      Object.keys(rec.values || {}).forEach(k => allFields.add(k));
+    });
+    const fieldList = [...allFields];
+
+    // If headerField specified, use it for column names; otherwise use row indices
+    const columnHeaders = headerField
+      ? records.map(rec => String(rec.values[headerField] ?? `col_${records.indexOf(rec)}`))
+      : records.map((_, idx) => `col_${idx}`);
+
+    // Filter out headerField from transposition if specified
+    const fieldsToTranspose = headerField
+      ? fieldList.filter(f => f !== headerField)
+      : fieldList;
+
+    // Create transposed records - one for each original field
+    const transposedRecords = fieldsToTranspose.map((field, idx) => {
+      const newRec = {
+        id: `rec_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 8)}`,
+        values: {
+          __field_name: field  // First column contains original field names
+        },
+        _pipeline: {
+          transposedByStep: step.id,
+          originalField: field
+        }
+      };
+
+      // Add value from each original record as a new column
+      records.forEach((rec, recIdx) => {
+        newRec.values[columnHeaders[recIdx]] = rec.values[field];
+      });
+
+      return newRec;
+    });
+
+    return {
+      records: transposedRecords,
+      stats: {
+        beforeRows: records.length,
+        beforeCols: fieldsToTranspose.length,
+        afterRows: transposedRecords.length,
+        afterCols: columnHeaders.length + 1  // +1 for __field_name
+      }
+    };
+  }
+
+  /**
+   * Helper: Aggregate values using specified function
+   */
+  _aggregateValues(values, func) {
+    if (!values || values.length === 0) return null;
+
+    switch (func.toUpperCase()) {
+      case 'FIRST':
+        return values[0];
+      case 'LAST':
+        return values[values.length - 1];
+      case 'SUM':
+        return values.reduce((acc, v) => acc + (Number(v) || 0), 0);
+      case 'AVG':
+        const nums = values.map(v => Number(v)).filter(n => !isNaN(n));
+        return nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+      case 'COUNT':
+        return values.length;
+      case 'MIN':
+        const mins = values.map(v => Number(v)).filter(n => !isNaN(n));
+        return mins.length > 0 ? Math.min(...mins) : null;
+      case 'MAX':
+        const maxs = values.map(v => Number(v)).filter(n => !isNaN(n));
+        return maxs.length > 0 ? Math.max(...maxs) : null;
+      default:
+        return values[0];
+    }
+  }
 }
 
 // ============================================================================
@@ -1209,6 +1681,12 @@ if (typeof window !== 'undefined') {
   window.createFilterStep = createFilterStep;
   window.createTransformStep = createTransformStep;
   window.createDedupeStep = createDedupeStep;
+  // Phase 1: Data Reshaping Step Factories
+  window.createPivotStep = createPivotStep;
+  window.createUnpivotStep = createUnpivotStep;
+  window.createIndexStep = createIndexStep;
+  window.createFillStep = createFillStep;
+  window.createTransposeStep = createTransposeStep;
   window.PipelineExecutor = PipelineExecutor;
   window.PipelineManager = PipelineManager;
 }
