@@ -48357,3 +48357,294 @@ td:hover .fdm-mode-toggle {
   background: var(--primary-color, #3b82f6);
   color: white;
 }
+
+/* ============================================================================
+   Nested Structure Toggle (in view tabs header)
+   ============================================================================ */
+
+.nested-structure-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tertiary, #18181b);
+  padding: 4px 8px 4px 12px;
+  border-radius: 6px;
+  margin-left: 8px;
+  border: 1px solid var(--border-color, #2e2e32);
+}
+
+.nested-structure-label {
+  font-size: 11px;
+  color: var(--text-tertiary, #71717a);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.nested-structure-options {
+  display: flex;
+  gap: 2px;
+}
+
+.nested-structure-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #a1a1aa);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.nested-structure-btn:hover {
+  color: var(--text-primary, #fafafa);
+  background: var(--bg-hover, #27272a);
+}
+
+.nested-structure-btn.active {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+}
+
+.nested-structure-btn i {
+  font-size: 14px;
+}
+
+.nested-structure-btn span {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .nested-structure-btn span {
+    display: inline;
+  }
+}
+
+/* ============================================================================
+   Normalized JSON Cell Link
+   ============================================================================ */
+
+.cell-json-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--primary-color, #3b82f6);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  background: rgba(59, 130, 246, 0.1);
+  font-size: 13px;
+}
+
+.cell-json-link:hover {
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.cell-json-link-count {
+  font-weight: 600;
+}
+
+.cell-json-link-label {
+  color: var(--text-secondary, #a1a1aa);
+}
+
+.cell-json-link-arrow {
+  font-size: 12px;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: all 0.15s ease;
+}
+
+.cell-json-link:hover .cell-json-link-arrow {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* ============================================================================
+   Normalized Data Modal
+   ============================================================================ */
+
+.normalized-data-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 70vh;
+}
+
+.normalized-data-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #a1a1aa);
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+
+.ndm-crumb {
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.ndm-crumb:hover {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.ndm-crumb.active {
+  color: var(--text-primary, #111827);
+  font-weight: 500;
+  background: var(--bg-tertiary, #f3f4f6);
+}
+
+.ndm-crumb-sep {
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.normalized-data-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.ndm-stat strong {
+  color: var(--text-primary, #111827);
+}
+
+.normalized-data-table-container {
+  flex: 1;
+  overflow: auto;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  max-height: 400px;
+}
+
+.normalized-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.normalized-data-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--bg-secondary, #f9fafb);
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.normalized-data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle, #f3f4f6);
+  color: var(--text-primary, #111827);
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ndm-th-num,
+.ndm-td-num {
+  width: 40px;
+  text-align: center;
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.ndm-row:hover td {
+  background: var(--bg-hover, #f9fafb);
+}
+
+.ndm-empty {
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.ndm-json {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--text-secondary, #6b7280);
+  background: var(--bg-tertiary, #f3f4f6);
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.normalized-data-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+/* Raw JSON Modal */
+.raw-json-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.raw-json-content {
+  background: var(--bg-tertiary, #f3f4f6);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 16px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary, #111827);
+  max-height: 400px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
+}
+
+.raw-json-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* Dark theme overrides for nested structure toggle */
+.dark-theme .nested-structure-toggle,
+[data-theme="dark"] .nested-structure-toggle {
+  background: var(--bg-tertiary, #27272a);
+  border-color: var(--border-color, #3f3f46);
+}
+
+.dark-theme .ndm-crumb:hover,
+[data-theme="dark"] .ndm-crumb:hover {
+  background: var(--bg-hover, #27272a);
+}
+
+.dark-theme .ndm-crumb.active,
+[data-theme="dark"] .ndm-crumb.active {
+  background: var(--bg-tertiary, #27272a);
+  color: var(--text-primary, #fafafa);
+}
+
+.dark-theme .normalized-data-table th,
+[data-theme="dark"] .normalized-data-table th {
+  background: var(--bg-secondary, #18181b);
+}
+
+.dark-theme .ndm-row:hover td,
+[data-theme="dark"] .ndm-row:hover td {
+  background: var(--bg-hover, #27272a);
+}
+
+.dark-theme .raw-json-content,
+[data-theme="dark"] .raw-json-content {
+  background: var(--bg-tertiary, #27272a);
+  color: var(--text-primary, #fafafa);
+}

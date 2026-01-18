@@ -31925,6 +31925,10 @@ class EODataWorkbench {
       `;
     }).join('');
 
+    // Check if current set has any JSON fields with nested data
+    const hasNestedFields = (set.fields || []).some(f => f.type === 'json' || f.type === 'link');
+    const nestedStructureMode = this.nestedStructureMode || 'embedded';
+
     return `
       <div class="view-tabs-header">
         <div class="view-tabs-scroll">
@@ -31933,6 +31937,25 @@ class EODataWorkbench {
         <button class="view-tabs-add" id="view-tabs-add-btn" title="Add view">
           <i class="ph ph-plus"></i>
         </button>
+        ${hasNestedFields ? `
+        <div class="nested-structure-toggle" id="nested-structure-toggle" title="Toggle between embedded and normalized view of nested data">
+          <span class="nested-structure-label">Structure</span>
+          <div class="nested-structure-options">
+            <button class="nested-structure-btn ${nestedStructureMode === 'embedded' ? 'active' : ''}" data-mode="embedded" title="All data in one table">
+              <i class="ph ph-stack"></i>
+              <span>Embedded</span>
+            </button>
+            <button class="nested-structure-btn ${nestedStructureMode === 'hybrid' ? 'active' : ''}" data-mode="hybrid" title="Mix of embedded and linked">
+              <i class="ph ph-intersect"></i>
+              <span>Hybrid</span>
+            </button>
+            <button class="nested-structure-btn ${nestedStructureMode === 'normalized' ? 'active' : ''}" data-mode="normalized" title="Nested data as linked tables">
+              <i class="ph ph-tree-structure"></i>
+              <span>Normalized</span>
+            </button>
+          </div>
+        </div>
+        ` : ''}
         <div class="view-search-container">
           <i class="ph ph-magnifying-glass view-search-icon"></i>
           <input type="text"
@@ -32070,6 +32093,52 @@ class EODataWorkbench {
         searchInput.blur();
       }
     });
+
+    // Nested structure toggle handlers
+    header.querySelectorAll('.nested-structure-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const mode = btn.dataset.mode;
+        this._setNestedStructureMode(mode);
+      });
+    });
+  }
+
+  /**
+   * Set the nested data structure mode (embedded/hybrid/normalized)
+   */
+  _setNestedStructureMode(mode) {
+    if (!['embedded', 'hybrid', 'normalized'].includes(mode)) return;
+
+    this.nestedStructureMode = mode;
+
+    // Update toggle UI
+    document.querySelectorAll('.nested-structure-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+
+    // Initialize UnifiedNestedLensManager if switching to normalized/hybrid
+    if (mode !== 'embedded' && typeof UnifiedNestedLensManager !== 'undefined') {
+      const set = this.getCurrentSet();
+      if (set && !this._nestedLensManager) {
+        this._nestedLensManager = new UnifiedNestedLensManager(this);
+        this._nestedLensManager.initialize(set.id);
+      }
+      if (this._nestedLensManager) {
+        this._nestedLensManager.setStructureMode(mode);
+      }
+    }
+
+    // Re-render the table to reflect the new mode
+    this._renderView();
+    this._saveData();
+  }
+
+  /**
+   * Get current nested structure mode
+   */
+  _getNestedStructureMode() {
+    return this.nestedStructureMode || 'embedded';
   }
 
   _renderEmptyState() {
@@ -32771,8 +32840,16 @@ class EODataWorkbench {
 
       case FieldTypes.JSON:
         if (value !== null && value !== undefined) {
-          // Use new Field Display Modes if available
-          if (typeof FieldDisplayModesManager !== 'undefined') {
+          // Check for Unified Nested Lens mode
+          const structureMode = this._getNestedStructureMode();
+          const isNormalizedField = structureMode === 'normalized' ||
+                                    (structureMode === 'hybrid' && field.options?.normalized);
+
+          if (isNormalizedField && this._nestedLensManager) {
+            // Render as linked cell with navigation
+            content = this._renderNormalizedJsonCell(value, field, record);
+          } else if (typeof FieldDisplayModesManager !== 'undefined') {
+            // Use new Field Display Modes if available
             const displayMgr = new FieldDisplayModesManager(this);
             content = displayMgr.renderCell(value, field, searchTerm);
           } else {
@@ -33176,6 +33253,16 @@ class EODataWorkbench {
         const field = set?.fields?.find(f => f.id === fieldId);
         const linkedSetId = field?.options?.linkedSetId;
         this._showLinkedRecordDetail(linkedRecordId, linkedSetId);
+        return;
+      }
+
+      // Normalized JSON cell link click - show nested data in modal/panel
+      const jsonLink = target.closest('.cell-json-link');
+      if (jsonLink && jsonLink.dataset.action === 'view-normalized') {
+        e.stopPropagation(); // Prevent row click
+        const fieldId = jsonLink.dataset.fieldId;
+        const recordId = jsonLink.dataset.recordId;
+        this._showNormalizedDataView(recordId, fieldId);
         return;
       }
 
@@ -34525,6 +34612,166 @@ class EODataWorkbench {
   }
 
   // ============================================================================
+  // ============================================================================
+  // Normalized Data View Modal
+  // Shows nested JSON data in a table format when in normalized/hybrid mode
+  // ============================================================================
+
+  /**
+   * Show nested data in a full modal table view
+   * Used when clicking the link in normalized mode
+   *
+   * @param {string} recordId - The parent record ID
+   * @param {string} fieldId - The field containing nested data
+   */
+  _showNormalizedDataView(recordId, fieldId) {
+    const set = this.getCurrentSet();
+    const record = set?.records.find(r => r.id === recordId);
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!record || !field) return;
+
+    let value = record.values[fieldId];
+
+    // Parse JSON if string
+    if (typeof value === 'string') {
+      try {
+        value = JSON.parse(value);
+      } catch (e) {
+        this._showNotification('Unable to parse nested data', 'error');
+        return;
+      }
+    }
+
+    // Convert to array if object
+    let items = [];
+    if (Array.isArray(value)) {
+      items = value;
+    } else if (typeof value === 'object' && value !== null) {
+      items = Object.entries(value).map(([key, val]) => ({ key, value: val }));
+    }
+
+    if (items.length === 0) {
+      this._showNotification('No nested data to display', 'info');
+      return;
+    }
+
+    // Get primary field for record name (breadcrumb)
+    const primaryField = set.fields.find(f => f.isPrimary) || set.fields[0];
+    const recordName = primaryField ? (record.values[primaryField.id] || 'Record') : 'Record';
+
+    // Infer columns from first few items
+    const columnKeys = new Set();
+    items.slice(0, 10).forEach(item => {
+      if (typeof item === 'object' && item !== null) {
+        Object.keys(item).forEach(k => {
+          if (!k.startsWith('_')) columnKeys.add(k);
+        });
+      }
+    });
+    const columns = Array.from(columnKeys).slice(0, 8); // Max 8 columns
+
+    // Build modal content
+    const modalContent = `
+      <div class="normalized-data-modal">
+        <div class="normalized-data-breadcrumb">
+          <span class="ndm-crumb ndm-crumb-parent">${this._escapeHtml(set.name)}</span>
+          <span class="ndm-crumb-sep">›</span>
+          <span class="ndm-crumb ndm-crumb-record">${this._escapeHtml(String(recordName))}</span>
+          <span class="ndm-crumb-sep">›</span>
+          <span class="ndm-crumb ndm-crumb-field active">${this._escapeHtml(field.name)}</span>
+        </div>
+
+        <div class="normalized-data-stats">
+          <span class="ndm-stat"><strong>${items.length}</strong> items</span>
+          <span class="ndm-stat"><strong>${columns.length}</strong> fields detected</span>
+        </div>
+
+        <div class="normalized-data-table-container">
+          <table class="normalized-data-table">
+            <thead>
+              <tr>
+                <th class="ndm-th-num">#</th>
+                ${columns.map(col => `<th>${this._escapeHtml(col)}</th>`).join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${items.map((item, idx) => `
+                <tr class="ndm-row" data-item-index="${idx}">
+                  <td class="ndm-td-num">${idx + 1}</td>
+                  ${columns.map(col => {
+                    const val = item?.[col];
+                    let display = '';
+                    if (val === null || val === undefined) {
+                      display = '<span class="ndm-empty">—</span>';
+                    } else if (typeof val === 'object') {
+                      display = `<span class="ndm-json">${this._escapeHtml(JSON.stringify(val))}</span>`;
+                    } else {
+                      display = this._escapeHtml(String(val));
+                    }
+                    return `<td>${display}</td>`;
+                  }).join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="normalized-data-actions">
+          <button class="btn btn-secondary" id="ndm-view-raw">
+            <i class="ph ph-brackets-curly"></i> View Raw JSON
+          </button>
+          <button class="btn btn-primary" id="ndm-create-set">
+            <i class="ph ph-database"></i> Create Linked Set
+          </button>
+        </div>
+      </div>
+    `;
+
+    this._showModal(`${field.name} — Nested Data`, modalContent, null, {
+      size: 'large'
+    });
+
+    // Attach event listeners
+    setTimeout(() => {
+      document.getElementById('ndm-view-raw')?.addEventListener('click', () => {
+        this._showRawJsonModal(value, field.name);
+      });
+
+      document.getElementById('ndm-create-set')?.addEventListener('click', () => {
+        this._closeModal();
+        this._showNormalizationWizard(fieldId);
+      });
+    }, 0);
+  }
+
+  /**
+   * Show raw JSON in a modal
+   */
+  _showRawJsonModal(data, title) {
+    const jsonStr = JSON.stringify(data, null, 2);
+    const modalContent = `
+      <div class="raw-json-modal">
+        <pre class="raw-json-content">${this._escapeHtml(jsonStr)}</pre>
+        <div class="raw-json-actions">
+          <button class="btn btn-secondary" id="rjm-copy">
+            <i class="ph ph-copy"></i> Copy to Clipboard
+          </button>
+        </div>
+      </div>
+    `;
+
+    this._showModal(`${title} — Raw JSON`, modalContent, null, {
+      size: 'medium'
+    });
+
+    setTimeout(() => {
+      document.getElementById('rjm-copy')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(jsonStr);
+        this._showNotification('JSON copied to clipboard', 'success');
+      });
+    }, 0);
+  }
+
   // Cell Edit Modal - Semantic Triplet Pattern
   // Subject (record) → Predicate (column) → Object (value)
   // ============================================================================
@@ -50697,6 +50944,50 @@ class EODataWorkbench {
    * Render JSON field value as elegant key-value pairs
    * This is the default display for JSON field type
    */
+  /**
+   * Render a JSON cell as a link to normalized/derived table
+   * Used when structure mode is normalized or hybrid
+   */
+  _renderNormalizedJsonCell(value, field, record) {
+    // Parse the value to count items
+    let data = value;
+    if (typeof value === 'string') {
+      try {
+        data = JSON.parse(value);
+      } catch (e) {
+        return `<span class="cell-json-raw">${this._escapeHtml(value)}</span>`;
+      }
+    }
+
+    // Count items
+    let itemCount = 0;
+    if (Array.isArray(data)) {
+      itemCount = data.length;
+    } else if (typeof data === 'object' && data !== null) {
+      itemCount = Object.keys(data).length;
+    }
+
+    if (itemCount === 0) {
+      return '<span class="cell-empty">-</span>';
+    }
+
+    // Get field name for display
+    const fieldName = field.name?.toLowerCase() || 'items';
+
+    // Render as a clickable link
+    return `
+      <span class="cell-json-link"
+            data-action="view-normalized"
+            data-field-id="${field.id}"
+            data-record-id="${record.id}"
+            title="View ${itemCount} ${fieldName} in normalized view">
+        <span class="cell-json-link-count">${itemCount}</span>
+        <span class="cell-json-link-label">${this._escapeHtml(fieldName)}</span>
+        <i class="ph ph-arrow-right cell-json-link-arrow"></i>
+      </span>
+    `;
+  }
+
   _renderJsonKeyValue(value, field, searchTerm = '') {
     // Handle string values - try to parse as JSON
     let data = value;
