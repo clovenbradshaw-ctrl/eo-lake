@@ -24078,13 +24078,8 @@ class EODataWorkbench {
       // Single source - use SetFromSourceUI for field selection
       this._showSetFromSourceUI(selectedIds[0]);
     } else {
-      // Multiple sources - show merge options modal
-      // Generate a default name from source names
-      const sources = selectedIds.map(id => this.sources?.find(s => s.id === id)).filter(Boolean);
-      const defaultName = sources.length <= 2
-        ? sources.map(s => s.name.replace(/\.[^/.]+$/, '')).join(' + ')
-        : `Combined (${sources.length} sources)`;
-      this._showMergeOptionsModal(defaultName, selectedIds);
+      // Multiple sources - show relational merge UI with 3 questions
+      this._showRelationalMergeUI(selectedIds);
     }
 
     // Clear selection after creating set
@@ -24879,8 +24874,9 @@ class EODataWorkbench {
   /**
    * Show the RelationalMergeUI modal for creating joined Sets
    * Uses the phase-space merge paradigm with Recognition/Boundary/Decision axes
+   * @param {string|string[]|null} preSelectedSourceIds - Single source ID or array of source IDs to pre-select
    */
-  _showRelationalMergeUI(preSelectedSourceId = null) {
+  _showRelationalMergeUI(preSelectedSourceIds = null) {
     // Ensure we have a source store
     if (!this.sourceStore) {
       this._initSourceStore();
@@ -24907,9 +24903,15 @@ class EODataWorkbench {
       document.body.appendChild(container);
     }
 
+    // Normalize preSelectedSourceIds to an array
+    const sourceIdsArray = preSelectedSourceIds
+      ? (Array.isArray(preSelectedSourceIds) ? preSelectedSourceIds : [preSelectedSourceIds])
+      : [];
+
     // Create and show the RelationalMergeUI
     const ui = new RelationalMergeUI(this.sourceStore, container);
     ui.show({
+      preSelectedSources: sourceIdsArray,
       onComplete: async (result) => {
         // Add the new virtual set to our sets array
         this.sets.push(result.set);
@@ -24938,23 +24940,15 @@ class EODataWorkbench {
         // Nothing to do on cancel
       }
     });
-
-    // Pre-select the source if one was provided
-    if (preSelectedSourceId && ui.config) {
-      setTimeout(() => {
-        ui.config.setLeftSource(this.sourceStore.get(preSelectedSourceId));
-        ui._render(); // Re-render to show the selected source
-      }, 100);
-    }
   }
 
   /**
    * Show the JoinBuilderUI modal for creating joined Sets (Legacy)
    * @deprecated Use _showRelationalMergeUI instead
    */
-  _showJoinBuilderUI(preSelectedSourceId = null) {
+  _showJoinBuilderUI(preSelectedSourceIds = null) {
     // Redirect to the new RelationalMergeUI
-    return this._showRelationalMergeUI(preSelectedSourceId);
+    return this._showRelationalMergeUI(preSelectedSourceIds);
   }
 
   /**
@@ -40241,18 +40235,9 @@ class EODataWorkbench {
         this._closeModal();
         this._showSetFromSourceUI(selectedSourceIds[0]);
       } else {
-        // Multiple sources selected - directly execute union merge
+        // Multiple sources selected - show relational merge UI with 3 questions
         this._closeModal();
-        const mergeConfig = {
-          name: name || 'Merged Set',
-          strategy: 'union',
-          joinType: 'inner',
-          joinColumns: [],
-          splitTypes: false,
-          includeSource: true,  // Track source origin by default
-          sourceIds: selectedSourceIds
-        };
-        this._executeMerge(mergeConfig);
+        this._showRelationalMergeUI(selectedSourceIds);
       }
     });
 

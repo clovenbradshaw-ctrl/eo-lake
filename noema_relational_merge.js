@@ -354,6 +354,24 @@ class RelationalMergeUI {
     this._purposeShown = false;
     this._currentStep = 'sources';
     this.config.reset();
+
+    // Pre-select sources if provided
+    if (options.preSelectedSources && options.preSelectedSources.length > 0) {
+      const [leftId, rightId] = options.preSelectedSources;
+      if (leftId) {
+        const leftSource = this.sourceStore.get(String(leftId)) || this.sourceStore.get(leftId);
+        if (leftSource) {
+          this.config.leftSource = leftSource;
+        }
+      }
+      if (rightId) {
+        const rightSource = this.sourceStore.get(String(rightId)) || this.sourceStore.get(rightId);
+        if (rightSource) {
+          this.config.rightSource = rightSource;
+        }
+      }
+    }
+
     this._render();
   }
 
