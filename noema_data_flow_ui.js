@@ -201,21 +201,45 @@ class DataFlowCanvas {
             <input type="text" placeholder="Search nodes..." autofocus>
           </div>
           <div class="df-palette-categories">
-            <div class="df-palette-category" data-category="source">
-              <div class="df-palette-category-header">
-                <i class="ph-bold ph-package"></i> Sources
+            <div class="df-palette-category" data-category="given">
+              <div class="df-palette-category-header" style="--cat-color: #6366f1">
+                <i class="ph-bold ph-package"></i> GIVEN
+                <span class="df-palette-cat-desc">Where data originates</span>
               </div>
               <div class="df-palette-items"></div>
             </div>
-            <div class="df-palette-category" data-category="transform">
-              <div class="df-palette-category-header">
-                <i class="ph-bold ph-lightning"></i> Transform
+            <div class="df-palette-category" data-category="shape">
+              <div class="df-palette-category-header" style="--cat-color: #f59e0b">
+                <i class="ph-bold ph-lightning"></i> SHAPE
+                <span class="df-palette-cat-desc">How data is sculpted</span>
               </div>
               <div class="df-palette-items"></div>
             </div>
-            <div class="df-palette-category" data-category="output">
-              <div class="df-palette-category-header">
-                <i class="ph-bold ph-chart-bar"></i> Output
+            <div class="df-palette-category" data-category="synth">
+              <div class="df-palette-category-header" style="--cat-color: #8b5cf6">
+                <i class="ph-bold ph-sigma"></i> SYNTH
+                <span class="df-palette-cat-desc">How data is synthesized</span>
+              </div>
+              <div class="df-palette-items"></div>
+            </div>
+            <div class="df-palette-category" data-category="agent">
+              <div class="df-palette-category-header" style="--cat-color: #06b6d4">
+                <i class="ph-bold ph-robot"></i> AGENT
+                <span class="df-palette-cat-desc">Where AI acts</span>
+              </div>
+              <div class="df-palette-items"></div>
+            </div>
+            <div class="df-palette-category" data-category="flow">
+              <div class="df-palette-category-header" style="--cat-color: #f43f5e">
+                <i class="ph-bold ph-git-branch"></i> FLOW
+                <span class="df-palette-cat-desc">How data flows</span>
+              </div>
+              <div class="df-palette-items"></div>
+            </div>
+            <div class="df-palette-category" data-category="emit">
+              <div class="df-palette-category-header" style="--cat-color: #10b981">
+                <i class="ph-bold ph-export"></i> EMIT
+                <span class="df-palette-cat-desc">Where data goes</span>
               </div>
               <div class="df-palette-items"></div>
             </div>
@@ -267,31 +291,65 @@ class DataFlowCanvas {
   }
 
   /**
-   * Populate the command palette with node options
+   * Populate the command palette with node options (6 operator families)
    */
   _populateCommandPalette() {
     const categories = {
-      source: [
+      // GIVEN - Where data originates
+      given: [
         DataFlowNodeType.SET,
         DataFlowNodeType.LENS,
         DataFlowNodeType.FOCUS,
-        DataFlowNodeType.IMPORT
+        DataFlowNodeType.IMPORT,
+        DataFlowNodeType.QUERY,
+        DataFlowNodeType.WEBHOOK_IN
       ],
-      transform: [
+      // SHAPE - How data is sculpted
+      shape: [
         DataFlowNodeType.FILTER,
-        DataFlowNodeType.JOIN,
-        DataFlowNodeType.TRANSFORM,
+        DataFlowNodeType.SORT,
         DataFlowNodeType.SELECT,
+        DataFlowNodeType.TRANSFORM,
+        DataFlowNodeType.DEDUPE,
+        DataFlowNodeType.FLATTEN,
+        DataFlowNodeType.UNWIND,
         DataFlowNodeType.HANDLE_NULLS,
-        DataFlowNodeType.BRANCH,
         DataFlowNodeType.CODE
       ],
-      output: [
+      // SYNTH - How data is synthesized
+      synth: [
         DataFlowNodeType.AGGREGATE,
+        DataFlowNodeType.GROUP,
+        DataFlowNodeType.PIVOT,
+        DataFlowNodeType.ROLLUP,
+        DataFlowNodeType.WINDOW,
+        DataFlowNodeType.DISTINCT
+      ],
+      // AGENT - Where AI acts
+      agent: [
+        DataFlowNodeType.AI_CLASSIFY,
+        DataFlowNodeType.AI_EXTRACT,
+        DataFlowNodeType.AI_GENERATE,
+        DataFlowNodeType.AI_EMBED,
+        DataFlowNodeType.AI_SUMMARIZE,
+        DataFlowNodeType.AI_MATCH
+      ],
+      // FLOW - How data flows
+      flow: [
+        DataFlowNodeType.BRANCH,
+        DataFlowNodeType.SWITCH,
+        DataFlowNodeType.MERGE,
+        DataFlowNodeType.JOIN,
+        DataFlowNodeType.LOOP,
+        DataFlowNodeType.ERROR
+      ],
+      // EMIT - Where data goes
+      emit: [
         DataFlowNodeType.PREVIEW,
         DataFlowNodeType.SAVE,
         DataFlowNodeType.EXPORT,
-        DataFlowNodeType.AI_ACTION
+        DataFlowNodeType.WEBHOOK_OUT,
+        DataFlowNodeType.LOG
       ]
     };
 
@@ -301,10 +359,12 @@ class DataFlowCanvas {
       );
       if (!container) continue;
 
+      const catColor = CategoryColors[category] || '#666';
+
       container.innerHTML = types.map(type => `
-        <button class="df-palette-item" data-node-type="${type}">
-          <i class="ph-bold ${DataFlowNodeIcons[type]}"></i>
-          <span>${DataFlowNodeLabels[type]}</span>
+        <button class="df-palette-item" data-node-type="${type}" style="--item-color: ${catColor}">
+          <i class="ph-bold ${DataFlowNodeIcons[type] || 'ph-cube'}"></i>
+          <span>${DataFlowNodeLabels[type] || type}</span>
         </button>
       `).join('');
     }
@@ -2183,9 +2243,24 @@ const DataFlowStyles = `
   padding: 8px 10px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--df-text-muted);
+  color: var(--cat-color, var(--df-text-muted));
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  border-left: 3px solid var(--cat-color, var(--df-border));
+  margin-bottom: 4px;
+}
+
+.df-palette-category-header i {
+  font-size: 14px;
+}
+
+.df-palette-cat-desc {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--df-text-muted);
+  text-transform: none;
+  letter-spacing: normal;
+  margin-left: auto;
 }
 
 .df-palette-items {
@@ -2216,7 +2291,11 @@ const DataFlowStyles = `
 
 .df-palette-item i {
   font-size: 18px;
-  color: var(--df-text-secondary);
+  color: var(--item-color, var(--df-text-secondary));
+}
+
+.df-palette-item:hover i {
+  color: var(--item-color, var(--df-accent));
 }
 
 /* ═══════════════════════════════════════════════════════════════
