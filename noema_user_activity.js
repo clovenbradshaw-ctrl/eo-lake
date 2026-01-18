@@ -80,8 +80,6 @@ const ActivityType = Object.freeze({
   AUTH_LOGIN_FAILED: { id: 'auth.login_failed', op: 'NUL', category: 'auth', description: 'Login attempt failed' },
   AUTH_PASSWORD_CHANGED: { id: 'auth.password_changed', op: 'ALT', category: 'auth', description: 'Password changed' },
   AUTH_PASSWORD_RESET: { id: 'auth.password_reset', op: 'ALT', category: 'auth', description: 'Password reset' },
-  AUTH_MFA_ENABLED: { id: 'auth.mfa_enabled', op: 'INS', category: 'auth', description: 'MFA enabled' },
-  AUTH_MFA_DISABLED: { id: 'auth.mfa_disabled', op: 'NUL', category: 'auth', description: 'MFA disabled' },
   AUTH_SESSION_EXPIRED: { id: 'auth.session_expired', op: 'NUL', category: 'auth', description: 'Session expired' },
 
   // ──────────────────────────────────────────────────────────────────────────
