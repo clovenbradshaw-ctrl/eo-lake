@@ -32771,14 +32771,21 @@ class EODataWorkbench {
 
       case FieldTypes.JSON:
         if (value !== null && value !== undefined) {
-          const displayMode = field.options?.displayMode || 'keyValue';
-          if (displayMode === 'raw') {
-            // Raw mode: show JSON string
-            const jsonStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
-            content = `<span class="cell-json-raw">${this._highlightText(jsonStr, searchTerm)}</span>`;
+          // Use new Field Display Modes if available
+          if (typeof FieldDisplayModesManager !== 'undefined') {
+            const displayMgr = new FieldDisplayModesManager(this);
+            content = displayMgr.renderCell(value, field, searchTerm);
           } else {
-            // Key-value mode (default): use nested object rendering with search
-            content = this._renderJsonKeyValue(value, field, searchTerm);
+            // Fallback to legacy rendering
+            const displayMode = field.options?.displayMode || 'keyValue';
+            if (displayMode === 'raw') {
+              // Raw mode: show JSON string
+              const jsonStr = typeof value === 'object' ? JSON.stringify(value) : String(value);
+              content = `<span class="cell-json-raw">${this._highlightText(jsonStr, searchTerm)}</span>`;
+            } else {
+              // Key-value mode (default): use nested object rendering with search
+              content = this._renderJsonKeyValue(value, field, searchTerm);
+            }
           }
         } else {
           content = '<span class="cell-empty">-</span>';
@@ -33169,6 +33176,28 @@ class EODataWorkbench {
         const field = set?.fields?.find(f => f.id === fieldId);
         const linkedSetId = field?.options?.linkedSetId;
         this._showLinkedRecordDetail(linkedRecordId, linkedSetId);
+        return;
+      }
+
+      // Field Display Mode toggle button click
+      const modeBtn = target.closest('.fdm-mode-btn');
+      if (modeBtn) {
+        e.stopPropagation();
+        const mode = modeBtn.dataset.mode;
+        const cell = modeBtn.closest('td[data-field-id]');
+        const fieldId = cell?.dataset.fieldId;
+        if (fieldId && mode) {
+          this._switchFieldDisplayMode(fieldId, mode);
+        }
+        return;
+      }
+
+      // Chip click in display modes - show detail
+      const fdmChip = target.closest('.fdm-chip:not(.fdm-chip-more)');
+      if (fdmChip && fdmChip.dataset.itemId) {
+        e.stopPropagation();
+        // Show tooltip or detail - for now just log
+        console.log('Clicked chip:', fdmChip.dataset.itemId);
         return;
       }
 
@@ -40102,6 +40131,17 @@ class EODataWorkbench {
           <span>Edit formula</span>
         </div>
       ` : ''}
+      ${field.type === FieldTypes.JSON ? `
+        <div class="context-menu-item" data-action="display-mode">
+          <i class="ph ph-squares-four"></i>
+          <span>Display mode</span>
+          <i class="ph ph-caret-right" style="margin-left: auto; opacity: 0.5;"></i>
+        </div>
+        <div class="context-menu-item" data-action="normalize-json">
+          <i class="ph ph-lightning"></i>
+          <span>Create linked set...</span>
+        </div>
+      ` : ''}
       <div class="context-menu-item" data-action="change-type">
         <i class="ph ${FieldTypeIcons[field.type]}"></i>
         <span>Change type (${typeNames[field.type] || field.type})</span>
@@ -40194,6 +40234,14 @@ class EODataWorkbench {
               this._changeFieldType(fieldId, newType, options);
             }, menuPosition);
             break;
+          case 'display-mode':
+            // Show display mode picker for JSON fields
+            this._showDisplayModePicker(clickEvent, fieldId, menuPosition);
+            break;
+          case 'normalize-json':
+            // Show normalization wizard for JSON fields
+            this._showNormalizationWizard(fieldId);
+            break;
           case 'configure-link':
             // Reconfigure linked set/view for LINK fields
             this._showLinkedSetSelectionModal((options) => {
@@ -40223,6 +40271,234 @@ class EODataWorkbench {
           case 'delete':
             this._deleteField(fieldId);
             break;
+        }
+      });
+    });
+  }
+
+  /**
+   * Switch the display mode for a JSON field
+   */
+  _switchFieldDisplayMode(fieldId, mode) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    // Initialize displayConfig if not present
+    if (!field.options) field.options = {};
+    if (!field.options.displayConfig) {
+      field.options.displayConfig = {
+        defaultMode: 'chips',
+        defaultHorizon: 'detailed',
+        modes: {}
+      };
+    }
+
+    // Update the mode
+    field.options.displayConfig.defaultMode = mode;
+
+    // Re-render and save
+    this._renderView();
+    this._saveData();
+    this._showToast(`Display mode changed to ${mode}`, 'success');
+  }
+
+  /**
+   * Switch the horizon level for a JSON field
+   */
+  _switchFieldHorizon(fieldId, horizon) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    // Initialize displayConfig if not present
+    if (!field.options) field.options = {};
+    if (!field.options.displayConfig) {
+      field.options.displayConfig = {
+        defaultMode: 'chips',
+        defaultHorizon: 'detailed',
+        modes: {}
+      };
+    }
+
+    // Update the horizon
+    field.options.displayConfig.defaultHorizon = horizon;
+
+    // Re-render and save
+    this._renderView();
+    this._saveData();
+    this._showToast(`Detail level changed to ${horizon}`, 'success');
+  }
+
+  /**
+   * Show display mode picker submenu for JSON fields
+   */
+  _showDisplayModePicker(e, fieldId, menuPosition) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    const currentMode = field.options?.displayConfig?.defaultMode || 'chips';
+    const currentHorizon = field.options?.displayConfig?.defaultHorizon || 'detailed';
+
+    // Create submenu
+    const picker = document.createElement('div');
+    picker.className = 'context-menu type-picker active';
+    picker.style.cssText = `
+      position: fixed;
+      left: ${menuPosition.left + 180}px;
+      top: ${menuPosition.top}px;
+      z-index: 10001;
+      min-width: 200px;
+    `;
+
+    const modes = [
+      { id: 'summary', label: 'Summary', icon: 'ph-list-numbers', desc: 'Compact count/types' },
+      { id: 'chips', label: 'Chips', icon: 'ph-squares-four', desc: 'Visual tokens' },
+      { id: 'table', label: 'Table', icon: 'ph-table', desc: 'Inline mini-table' },
+      { id: 'graph', label: 'Graph', icon: 'ph-graph', desc: 'Relationship view' },
+      { id: 'raw', label: 'Raw JSON', icon: 'ph-brackets-curly', desc: 'Original data (GIVEN)', badge: 'GIVEN' }
+    ];
+
+    const horizons = [
+      { id: 'minimal', label: 'Minimal', desc: 'Just counts' },
+      { id: 'basic', label: 'Basic', desc: 'Names and types' },
+      { id: 'detailed', label: 'Detailed', desc: 'With key options' },
+      { id: 'full', label: 'Full', desc: 'Everything' }
+    ];
+
+    picker.innerHTML = `
+      <div style="padding: 8px 12px; border-bottom: 1px solid var(--border-color, #2a2a4a);">
+        <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary, #94a3b8); margin-bottom: 8px;">Display Mode</div>
+        ${modes.map(m => `
+          <div class="context-menu-item ${m.id === currentMode ? 'selected' : ''}" data-action="set-mode" data-mode="${m.id}" style="padding: 8px 10px;">
+            <i class="ph ${m.icon}"></i>
+            <span>${m.label}</span>
+            ${m.badge ? `<span style="margin-left: auto; padding: 2px 6px; background: rgba(34, 197, 94, 0.2); color: #22c55e; font-size: 9px; border-radius: 3px;">${m.badge}</span>` : ''}
+            ${m.id === currentMode ? '<i class="ph ph-check" style="margin-left: auto; color: var(--primary, #60a5fa);"></i>' : ''}
+          </div>
+        `).join('')}
+      </div>
+      <div style="padding: 8px 12px;">
+        <div style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary, #94a3b8); margin-bottom: 8px;">Detail Level (Horizon)</div>
+        ${horizons.map(h => `
+          <div class="context-menu-item ${h.id === currentHorizon ? 'selected' : ''}" data-action="set-horizon" data-horizon="${h.id}" style="padding: 8px 10px;">
+            <span>${h.label}</span>
+            <span style="margin-left: auto; font-size: 11px; color: var(--text-secondary, #94a3b8);">${h.desc}</span>
+            ${h.id === currentHorizon ? '<i class="ph ph-check" style="margin-left: 8px; color: var(--primary, #60a5fa);"></i>' : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    document.body.appendChild(picker);
+
+    // Handle clicks
+    picker.querySelectorAll('.context-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const action = item.dataset.action;
+        if (action === 'set-mode') {
+          this._switchFieldDisplayMode(fieldId, item.dataset.mode);
+        } else if (action === 'set-horizon') {
+          this._switchFieldHorizon(fieldId, item.dataset.horizon);
+        }
+        picker.remove();
+      });
+    });
+
+    // Close on outside click
+    setTimeout(() => {
+      document.addEventListener('click', function closePicker(evt) {
+        if (!picker.contains(evt.target)) {
+          picker.remove();
+          document.removeEventListener('click', closePicker);
+        }
+      });
+    }, 10);
+  }
+
+  /**
+   * Show normalization wizard for converting nested JSON to a linked Set
+   */
+  _showNormalizationWizard(fieldId) {
+    const set = this.getCurrentSet();
+    const field = set?.fields.find(f => f.id === fieldId);
+    if (!field) return;
+
+    // Check if NestedDataNormalizationManager is available
+    if (typeof NestedDataNormalizationManager === 'undefined') {
+      this._showToast('Normalization feature not available', 'error');
+      return;
+    }
+
+    // Get sample value for analysis
+    const sampleRecord = set.records.find(r => r.values[fieldId] != null);
+    if (!sampleRecord) {
+      this._showToast('No data to normalize', 'warning');
+      return;
+    }
+
+    const normMgr = new NestedDataNormalizationManager(this);
+    const analysis = normMgr.analyzeForNormalization(sampleRecord.values[fieldId], fieldId);
+
+    if (!analysis.canNormalize) {
+      this._showToast(analysis.reason || 'Cannot normalize this field', 'warning');
+      return;
+    }
+
+    // Show modal with wizard
+    const modal = document.getElementById('modal-overlay');
+    const modalBody = modal.querySelector('.modal-body');
+    const modalTitle = modal.querySelector('.modal-title');
+
+    if (!modal || !modalBody || !modalTitle) return;
+
+    modalTitle.textContent = 'Normalize Nested Data';
+    modalBody.innerHTML = normMgr.renderNormalizationWizard(analysis, set.id, fieldId);
+    modal.classList.add('active');
+
+    // Handle wizard actions
+    modalBody.querySelectorAll('[data-action]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const action = btn.dataset.action;
+
+        if (action === 'cancel') {
+          modal.classList.remove('active');
+          return;
+        }
+
+        if (action === 'normalize') {
+          const targetSetName = modalBody.querySelector('#fdm-target-set-name')?.value || analysis.suggestedName;
+          const syncMode = modalBody.querySelector('input[name="fdm-sync-mode"]:checked')?.value || 'bidirectional';
+          const createBacklink = modalBody.querySelector('#fdm-create-backlink')?.checked ?? true;
+
+          try {
+            // Perform normalization
+            const result = await normMgr.createNormalizedSet(set.id, fieldId, {
+              targetSetName,
+              schema: analysis.schema,
+              syncMode,
+              createBacklink
+            });
+
+            // Add the new set
+            this.sets.push(result.targetSet);
+
+            // Update the source field
+            const fieldIndex = set.fields.findIndex(f => f.id === fieldId);
+            if (fieldIndex !== -1) {
+              set.fields[fieldIndex] = result.updatedSourceField;
+            }
+
+            modal.classList.remove('active');
+            this._renderView();
+            this._renderSidebar();
+            this._saveData();
+
+            this._showToast(`Created "${targetSetName}" with ${result.recordCount} records`, 'success');
+          } catch (err) {
+            this._showToast(`Normalization failed: ${err.message}`, 'error');
+          }
         }
       });
     });
