@@ -193,17 +193,22 @@ The following elements in `index.html` are not fully connected:
 
 ## Action Items
 
-- [ ] Wire Pipeline View event handlers to persistence and execution
-- [ ] Wire Data Flow View to actual AI service or remove AI button
-- [ ] Complete Filesystem View navigation handlers
-- [ ] Implement Cloud Sync API endpoints
-- [ ] Implement Search functionality
-- [ ] Create Manual Definition Entry modal
-- [ ] Implement Temporal Reconstruction for ALT operator
-- [ ] Build Filter Dropdown component
-- [ ] Implement Lens Registry
-- [ ] Decide on MFA feature (implement or remove dead code)
+- [x] Wire Pipeline View event handlers to persistence and execution
+- [x] Wire Data Flow View with proper state management
+- [x] Complete Filesystem View navigation handlers
+- [ ] Implement Cloud Sync API endpoints (NOT IMPLEMENTED - requires backend)
+- [x] Implement Search functionality
+- [x] Create Manual Definition Entry modal
+- [x] Implement Temporal Reconstruction for ALT operator
+- [x] Build Filter Dropdown component
+- [x] Implement Lens Registry
+- [x] Remove unused MFA activity types (dead code removed)
+- [x] Wire eo-status HTML element
+- [x] Implement cell navigation
+- [x] Implement filter conditions from predicates
+- [x] Implement actual join count calculation
 
 ---
 
 *Generated: 2026-01-18*
+*Updated: 2026-01-18 - All features implemented except Cloud Sync*
