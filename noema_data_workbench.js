@@ -630,7 +630,6 @@ class EODataWorkbench {
     this.lastViewPerSet = {}; // Remember last active view for each set
     this.expandedSets = {}; // Track which sets are expanded in sidebar
     this.expandedDefinitions = {}; // Track which definitions are expanded in sidebar
-    this.currentSetTagFilter = null; // Filter sets by tag in header
     this.selectedRecords = new Set();
     this.editingCell = null;
     this.clipboard = null;
@@ -4163,20 +4162,6 @@ class EODataWorkbench {
       this._showNewExportModal();
     });
 
-    // Close dropdowns when clicking outside
-    document.addEventListener('click', (e) => {
-      const tagSelector = document.getElementById('set-tag-selector');
-      if (tagSelector && !tagSelector.contains(e.target)) {
-        this._hideSetTagDropdown();
-      }
-    });
-
-    // Set tag selector
-    document.getElementById('set-tag-btn')?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      this._toggleSetTagDropdown();
-    });
-
     // Note: Global search is handled by eo_app.js handleGlobalSearch() which supports
     // prefix-based search (@fields, #sets, /views, ?sources, >commands, !provenance)
     // The DataWorkbench _handleSearch is kept as a fallback for internal search needs
@@ -6240,17 +6225,11 @@ class EODataWorkbench {
     // Update panel header with project context
     this._updatePanelProjectContext('sets', filteredSets.length, totalSets);
 
-    if (this.currentSetTagFilter) {
-      filteredSets = filteredSets.filter(set =>
-        set.tags && set.tags.includes(this.currentSetTagFilter)
-      );
-    }
-
     if (filteredSets.length === 0) {
       container.innerHTML = `
         <div class="nav-empty-state">
           <i class="ph ph-funnel"></i>
-          <span>${this.currentSetTagFilter ? 'No sets with this tag' : 'No sets yet'}</span>
+          <span>No sets yet</span>
           <div class="empty-actions">
             <button class="btn-link" id="btn-create-from-import">Import & Create Set</button>
             <span class="empty-divider">or</span>
@@ -47717,73 +47696,6 @@ class EODataWorkbench {
     const overlay = document.getElementById('loading-overlay');
     if (overlay) {
       overlay.remove();
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // Set Tag Selector (filter sets by tag in header)
-  // --------------------------------------------------------------------------
-
-  _toggleSetTagDropdown() {
-    const dropdown = document.getElementById('set-tag-dropdown');
-    if (dropdown) {
-      const isVisible = dropdown.style.display !== 'none';
-      if (!isVisible) {
-        this._renderSetTagDropdown();
-      }
-      dropdown.style.display = isVisible ? 'none' : 'block';
-    }
-  }
-
-  _hideSetTagDropdown() {
-    const dropdown = document.getElementById('set-tag-dropdown');
-    if (dropdown) {
-      dropdown.style.display = 'none';
-    }
-  }
-
-  _renderSetTagDropdown() {
-    const dropdown = document.getElementById('set-tag-dropdown');
-    if (!dropdown) return;
-
-    // Collect all unique tags from sets
-    const allTags = new Set();
-    this.sets.forEach(set => {
-      if (set.tags) {
-        set.tags.forEach(tag => allTags.add(tag));
-      }
-    });
-
-    const tagsArray = Array.from(allTags).sort();
-
-    dropdown.innerHTML = `
-      <div class="set-tag-option ${!this.currentSetTagFilter ? 'active' : ''}" data-tag="">
-        <i class="ph ph-squares-four"></i>
-        <span>All Sets</span>
-      </div>
-      ${tagsArray.map(tag => `
-        <div class="set-tag-option ${this.currentSetTagFilter === tag ? 'active' : ''}" data-tag="${this._escapeHtml(tag)}">
-          <i class="ph ph-tag"></i>
-          <span>${this._escapeHtml(tag)}</span>
-        </div>
-      `).join('')}
-    `;
-
-    // Attach click handlers
-    dropdown.querySelectorAll('.set-tag-option').forEach(option => {
-      option.addEventListener('click', () => {
-        this.currentSetTagFilter = option.dataset.tag || null;
-        this._hideSetTagDropdown();
-        this._updateSetTagLabel();
-        this._renderSetsNavFlat();
-      });
-    });
-  }
-
-  _updateSetTagLabel() {
-    const label = document.querySelector('.set-tag-label');
-    if (label) {
-      label.textContent = this.currentSetTagFilter || 'All Sets';
     }
   }
 
