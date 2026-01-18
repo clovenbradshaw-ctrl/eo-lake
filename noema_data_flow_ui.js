@@ -779,9 +779,80 @@ class DataFlowCanvas {
       [ExecutionState.STALE]: '<i class="ph-bold ph-warning-circle"></i>'
     }[node.state] || '';
 
+    // Determine input ports
+    let inputPortsHtml = '';
+    if (node.isSource()) {
+      inputPortsHtml = '<div class="df-port-spacer"></div>';
+    } else if (node.isMerge && node.isMerge()) {
+      // Merge/Join nodes have two input ports
+      inputPortsHtml = `
+        <div class="df-port df-port-in df-port-a" data-port="in-a">
+          <span class="df-port-label">A</span>
+          <div class="df-port-dot"></div>
+        </div>
+        <div class="df-port df-port-in df-port-b" data-port="in-b">
+          <span class="df-port-label">B</span>
+          <div class="df-port-dot"></div>
+        </div>
+      `;
+    } else {
+      inputPortsHtml = `
+        <div class="df-port df-port-in" data-port="in">
+          <div class="df-port-dot"></div>
+        </div>
+      `;
+    }
+
+    // Determine output ports
+    let outputPortsHtml = '';
+    if (node.isBranch()) {
+      if (node.type === DataFlowNodeType.SWITCH) {
+        // Switch node: multiple cases
+        const cases = node.config.cases || [];
+        outputPortsHtml = cases.map((c, i) => `
+          <div class="df-port df-port-out df-port-case" data-port="case-${i}">
+            <span class="df-port-label">${c.label || i}</span>
+            <div class="df-port-dot"></div>
+          </div>
+        `).join('') + `
+          <div class="df-port df-port-out df-port-default" data-port="default">
+            <span class="df-port-label">*</span>
+            <div class="df-port-dot"></div>
+          </div>
+        `;
+        // Fallback if no cases configured
+        if (cases.length === 0) {
+          outputPortsHtml = `
+            <div class="df-port df-port-out df-port-default" data-port="default">
+              <span class="df-port-label">*</span>
+              <div class="df-port-dot"></div>
+            </div>
+          `;
+        }
+      } else {
+        // Branch node: true/false
+        outputPortsHtml = `
+          <div class="df-port df-port-out df-port-true" data-port="true">
+            <span class="df-port-label">T</span>
+            <div class="df-port-dot"></div>
+          </div>
+          <div class="df-port df-port-out df-port-false" data-port="false">
+            <span class="df-port-label">F</span>
+            <div class="df-port-dot"></div>
+          </div>
+        `;
+      }
+    } else {
+      outputPortsHtml = `
+        <div class="df-port df-port-out" data-port="out">
+          <div class="df-port-dot"></div>
+        </div>
+      `;
+    }
+
     el.innerHTML = `
       <div class="df-node-header">
-        <i class="ph-bold ${DataFlowNodeIcons[node.type]} df-node-icon"></i>
+        <i class="ph-bold ${DataFlowNodeIcons[node.type] || 'ph-cube'} df-node-icon"></i>
         <span class="df-node-label">${node.label}</span>
         <span class="df-node-state">${stateIcon}</span>
       </div>
@@ -793,25 +864,8 @@ class DataFlowCanvas {
         ` : ''}
       </div>
       <div class="df-node-ports">
-        ${!node.isSource() ? `
-          <div class="df-port df-port-in" data-port="in">
-            <div class="df-port-dot"></div>
-          </div>
-        ` : '<div class="df-port-spacer"></div>'}
-        ${node.isBranch() ? `
-          <div class="df-port df-port-out df-port-true" data-port="true">
-            <span class="df-port-label">T</span>
-            <div class="df-port-dot"></div>
-          </div>
-          <div class="df-port df-port-out df-port-false" data-port="false">
-            <span class="df-port-label">F</span>
-            <div class="df-port-dot"></div>
-          </div>
-        ` : `
-          <div class="df-port df-port-out" data-port="out">
-            <div class="df-port-dot"></div>
-          </div>
-        `}
+        <div class="df-ports-in">${inputPortsHtml}</div>
+        <div class="df-ports-out">${outputPortsHtml}</div>
       </div>
     `;
 
@@ -955,8 +1009,19 @@ class DataFlowCanvas {
         const x2 = target.x;
         const y2 = target.y + 50;
 
+        // Determine wire status based on node states
+        let statusClass = '';
+        if (target.state === ExecutionState.RUNNING) {
+          statusClass = 'flowing';
+        } else if (source.state === ExecutionState.SUCCESS && target.state === ExecutionState.SUCCESS) {
+          statusClass = 'success';
+        } else if (source.state === ExecutionState.ERROR || target.state === ExecutionState.ERROR) {
+          statusClass = 'error';
+        }
+
         const selected = wire.id === this.selectedWireId ? 'selected' : '';
-        paths.push(this._createWirePath(x1, y1, x2, y2, selected, wire.id));
+        const className = [selected, statusClass].filter(Boolean).join(' ');
+        paths.push(this._createWirePath(x1, y1, x2, y2, className, wire.id));
       }
     }
 
@@ -1204,16 +1269,208 @@ class DataFlowCanvas {
         ], node.config);
 
       case DataFlowNodeType.AI_ACTION:
+      case DataFlowNodeType.AI_CLASSIFY:
         return this._renderFields([
-          { name: 'action', label: 'Action', type: 'select', options: [
-            { value: 'classify', label: 'Classify' },
-            { value: 'sentiment', label: 'Sentiment Analysis' },
-            { value: 'extract', label: 'Extract Entities' },
-            { value: 'summarize', label: 'Summarize' },
-            { value: 'custom', label: 'Custom Prompt' }
+          { name: 'prompt', label: 'Classification Prompt', type: 'textarea', placeholder: 'Describe how to classify...' },
+          { name: 'categories', label: 'Categories', type: 'textarea', placeholder: 'cat1, cat2, cat3' },
+          { name: 'outputField', label: 'Output Field', type: 'text', placeholder: 'category' }
+        ], node.config);
+
+      case DataFlowNodeType.AI_EXTRACT:
+        return this._renderFields([
+          { name: 'prompt', label: 'Extraction Prompt', type: 'textarea', placeholder: 'Describe what to extract...' },
+          { name: 'outputField', label: 'Output Field', type: 'text', placeholder: 'extracted' }
+        ], node.config);
+
+      case DataFlowNodeType.AI_GENERATE:
+        return this._renderFields([
+          { name: 'prompt', label: 'Generation Prompt', type: 'textarea', placeholder: 'Describe what to generate...' },
+          { name: 'outputField', label: 'Output Field', type: 'text', placeholder: 'generated' }
+        ], node.config);
+
+      case DataFlowNodeType.AI_SUMMARIZE:
+        return this._renderFields([
+          { name: 'field', label: 'Field to Summarize', type: 'text', placeholder: 'content' },
+          { name: 'maxLength', label: 'Max Length', type: 'number', placeholder: '100' },
+          { name: 'outputField', label: 'Output Field', type: 'text', placeholder: 'summary' }
+        ], node.config);
+
+      case DataFlowNodeType.AI_EMBED:
+        return this._renderFields([
+          { name: 'field', label: 'Field to Embed', type: 'text', placeholder: 'text' },
+          { name: 'outputField', label: 'Output Field', type: 'text', placeholder: 'embedding' }
+        ], node.config);
+
+      case DataFlowNodeType.AI_MATCH:
+        return this._renderFields([
+          { name: 'targetSetId', label: 'Target Set', type: 'select', options: this._getSetOptions() },
+          { name: 'threshold', label: 'Match Threshold', type: 'number', placeholder: '0.8' },
+          { name: 'outputField', label: 'Output Field', type: 'text', placeholder: 'match_score' }
+        ], node.config);
+
+      // SHAPE - Additional nodes
+      case DataFlowNodeType.SORT:
+        return this._renderFields([
+          { name: 'field', label: 'Sort Field', type: 'text', placeholder: 'Field name' },
+          { name: 'direction', label: 'Direction', type: 'select', options: [
+            { value: 'asc', label: 'Ascending' },
+            { value: 'desc', label: 'Descending' }
           ]},
-          { name: 'prompt', label: 'Prompt', type: 'textarea', placeholder: 'Describe what AI should do...' },
-          { name: 'outputField', label: 'Output Field', type: 'text', placeholder: 'ai_result' }
+          { name: 'nullsFirst', label: 'Nulls First', type: 'checkbox' }
+        ], node.config);
+
+      case DataFlowNodeType.DEDUPE:
+        return this._renderFields([
+          { name: 'fields', label: 'Dedupe By Fields', type: 'textarea', placeholder: 'field1, field2' },
+          { name: 'keepFirst', label: 'Keep First', type: 'checkbox' }
+        ], node.config);
+
+      case DataFlowNodeType.FLATTEN:
+        return this._renderFields([
+          { name: 'field', label: 'Field to Flatten', type: 'text', placeholder: 'nested.field' },
+          { name: 'separator', label: 'Separator', type: 'text', placeholder: '.' }
+        ], node.config);
+
+      case DataFlowNodeType.UNWIND:
+        return this._renderFields([
+          { name: 'field', label: 'Array Field', type: 'text', placeholder: 'items' },
+          { name: 'includeIndex', label: 'Include Index', type: 'checkbox' }
+        ], node.config);
+
+      // SYNTH - Additional nodes
+      case DataFlowNodeType.GROUP:
+        return this._renderFields([
+          { name: 'groupBy', label: 'Group By Fields', type: 'textarea', placeholder: 'field1, field2' }
+        ], node.config);
+
+      case DataFlowNodeType.PIVOT:
+        return this._renderFields([
+          { name: 'rowField', label: 'Row Field', type: 'text', placeholder: 'category' },
+          { name: 'columnField', label: 'Column Field', type: 'text', placeholder: 'date' },
+          { name: 'valueField', label: 'Value Field', type: 'text', placeholder: 'amount' },
+          { name: 'aggregation', label: 'Aggregation', type: 'select', options: [
+            { value: 'SUM', label: 'Sum' },
+            { value: 'COUNT', label: 'Count' },
+            { value: 'AVG', label: 'Average' }
+          ]}
+        ], node.config);
+
+      case DataFlowNodeType.DISTINCT:
+        return this._renderFields([
+          { name: 'fields', label: 'Fields', type: 'textarea', placeholder: 'field1, field2 (empty = all)' }
+        ], node.config);
+
+      // FLOW - Additional nodes
+      case DataFlowNodeType.SWITCH:
+        return this._renderFields([
+          { name: 'field', label: 'Switch Field', type: 'text', placeholder: 'status' },
+          { name: 'defaultCase', label: 'Default Case Label', type: 'text', placeholder: 'other' }
+        ], node.config);
+
+      case DataFlowNodeType.MERGE:
+        return this._renderFields([
+          { name: 'strategy', label: 'Merge Strategy', type: 'select', options: [
+            { value: 'concat', label: 'Concatenate' },
+            { value: 'union', label: 'Union (dedupe)' },
+            { value: 'intersect', label: 'Intersect' }
+          ]}
+        ], node.config);
+
+      case DataFlowNodeType.LOOP:
+        return this._renderFields([
+          { name: 'iterateOver', label: 'Iterate Over', type: 'select', options: [
+            { value: 'records', label: 'Records' },
+            { value: 'batches', label: 'Batches' }
+          ]},
+          { name: 'maxIterations', label: 'Max Iterations', type: 'number', placeholder: '1000' }
+        ], node.config);
+
+      case DataFlowNodeType.ERROR:
+        return this._renderFields([
+          { name: 'strategy', label: 'Error Strategy', type: 'select', options: [
+            { value: 'skip', label: 'Skip Error Records' },
+            { value: 'stop', label: 'Stop on Error' },
+            { value: 'fallback', label: 'Use Fallback Value' }
+          ]},
+          { name: 'logErrors', label: 'Log Errors', type: 'checkbox' }
+        ], node.config);
+
+      // EMIT - Additional nodes
+      case DataFlowNodeType.SAVE:
+        return this._renderFields([
+          { name: 'createNew', label: 'Create New Set', type: 'checkbox' },
+          { name: 'setName', label: 'Set Name', type: 'text', placeholder: 'New Set Name' },
+          { name: 'targetSetId', label: 'Or Select Existing', type: 'select', options: this._getSetOptions() },
+          { name: 'updateMode', label: 'Update Mode', type: 'select', options: [
+            { value: 'replace', label: 'Replace All' },
+            { value: 'append', label: 'Append' },
+            { value: 'upsert', label: 'Upsert' }
+          ]}
+        ], node.config);
+
+      case DataFlowNodeType.WEBHOOK_OUT:
+        return this._renderFields([
+          { name: 'url', label: 'Webhook URL', type: 'text', placeholder: 'https://...' },
+          { name: 'method', label: 'HTTP Method', type: 'select', options: [
+            { value: 'POST', label: 'POST' },
+            { value: 'PUT', label: 'PUT' },
+            { value: 'PATCH', label: 'PATCH' }
+          ]}
+        ], node.config);
+
+      case DataFlowNodeType.LOG:
+        return this._renderFields([
+          { name: 'label', label: 'Log Label', type: 'text', placeholder: 'Debug point' },
+          { name: 'level', label: 'Level', type: 'select', options: [
+            { value: 'info', label: 'Info' },
+            { value: 'warn', label: 'Warning' },
+            { value: 'error', label: 'Error' },
+            { value: 'debug', label: 'Debug' }
+          ]}
+        ], node.config);
+
+      case DataFlowNodeType.PREVIEW:
+        return this._renderFields([
+          { name: 'maxRecords', label: 'Max Records', type: 'number', placeholder: '100' }
+        ], node.config);
+
+      // GIVEN - Additional nodes
+      case DataFlowNodeType.IMPORT:
+        return this._renderFields([
+          { name: 'source', label: 'Source Type', type: 'select', options: [
+            { value: 'csv', label: 'CSV File' },
+            { value: 'json', label: 'JSON File' },
+            { value: 'api', label: 'API Endpoint' }
+          ]},
+          { name: 'fileName', label: 'File/URL', type: 'text', placeholder: 'data.csv or https://...' }
+        ], node.config);
+
+      case DataFlowNodeType.QUERY:
+        return this._renderFields([
+          { name: 'language', label: 'Query Language', type: 'select', options: [
+            { value: 'sql', label: 'SQL' },
+            { value: 'eoql', label: 'EOQL' }
+          ]}
+        ], node.config) + `
+          <div class="df-field">
+            <label>Query</label>
+            <textarea class="df-code-input" data-field="query" rows="6"
+                      placeholder="SELECT * FROM ...">${node.config.query || ''}</textarea>
+          </div>
+        `;
+
+      case DataFlowNodeType.FOCUS:
+        return this._renderFields([
+          { name: 'recordId', label: 'Record ID', type: 'text', placeholder: 'rec_...' }
+        ], node.config);
+
+      case DataFlowNodeType.WEBHOOK_IN:
+        return this._renderFields([
+          { name: 'endpoint', label: 'Endpoint Path', type: 'text', placeholder: '/webhook/data' },
+          { name: 'method', label: 'Expected Method', type: 'select', options: [
+            { value: 'POST', label: 'POST' },
+            { value: 'GET', label: 'GET' }
+          ]}
         ], node.config);
 
       default:
@@ -1884,6 +2141,17 @@ const DataFlowStyles = `
   padding: 8px 14px 12px;
 }
 
+.df-ports-in,
+.df-ports-out {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.df-ports-out {
+  align-items: flex-end;
+}
+
 .df-port {
   display: flex;
   align-items: center;
@@ -1891,8 +2159,17 @@ const DataFlowStyles = `
   cursor: crosshair;
 }
 
+.df-port-in {
+  flex-direction: row;
+}
+
+.df-port-out {
+  flex-direction: row-reverse;
+}
+
 .df-port-spacer {
   width: 16px;
+  height: 16px;
 }
 
 .df-port-dot {
@@ -1934,7 +2211,7 @@ const DataFlowStyles = `
   stroke: var(--df-wire-color);
   stroke-width: 2;
   cursor: pointer;
-  transition: stroke 0.15s;
+  transition: stroke 0.15s, stroke-width 0.15s;
 }
 
 .df-wire:hover,
@@ -1947,6 +2224,33 @@ const DataFlowStyles = `
   stroke: var(--df-accent);
   stroke-width: 2;
   stroke-dasharray: 6 4;
+  animation: df-wire-dash 0.5s linear infinite;
+}
+
+/* Flowing data animation */
+.df-wire.flowing {
+  stroke: var(--df-info);
+  stroke-width: 2.5;
+  stroke-dasharray: 8 4;
+  animation: df-wire-flow 0.8s linear infinite;
+}
+
+.df-wire.success {
+  stroke: var(--df-success);
+}
+
+.df-wire.error {
+  stroke: var(--df-error);
+}
+
+@keyframes df-wire-flow {
+  from { stroke-dashoffset: 12; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes df-wire-dash {
+  from { stroke-dashoffset: 10; }
+  to { stroke-dashoffset: 0; }
 }
 
 /* ═══════════════════════════════════════════════════════════════

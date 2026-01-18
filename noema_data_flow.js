@@ -403,6 +403,9 @@ class DataFlowNode {
    */
   _getDefaultConfig() {
     switch (this.type) {
+      // ═══════════════════════════════════════════════════════════════
+      // GIVEN - Source Nodes
+      // ═══════════════════════════════════════════════════════════════
       case DataFlowNodeType.SET:
         return { setId: null, setName: '', fields: [] };
 
@@ -415,44 +418,125 @@ class DataFlowNode {
       case DataFlowNodeType.IMPORT:
         return { source: 'csv', data: null, fileName: '' };
 
+      case DataFlowNodeType.QUERY:
+        return { query: '', language: 'sql' };
+
+      case DataFlowNodeType.WEBHOOK_IN:
+        return { endpoint: '', method: 'POST', auth: null };
+
+      // ═══════════════════════════════════════════════════════════════
+      // SHAPE - Transform Nodes
+      // ═══════════════════════════════════════════════════════════════
       case DataFlowNodeType.FILTER:
         return { field: '', operator: 'eq', value: '', conditions: [], logic: 'AND' };
 
-      case DataFlowNodeType.JOIN:
-        return { targetSetId: null, joinField: '', joinType: 'inner' };
-
-      case DataFlowNodeType.TRANSFORM:
-        return { field: '', expression: '', operation: 'map' };
+      case DataFlowNodeType.SORT:
+        return { field: '', direction: 'asc', nullsFirst: false };
 
       case DataFlowNodeType.SELECT:
-        return { fields: [], renames: {} };
+        return { fields: [], renames: {}, exclude: [] };
+
+      case DataFlowNodeType.TRANSFORM:
+        return { field: '', expression: '', operation: 'map', newField: '' };
+
+      case DataFlowNodeType.DEDUPE:
+        return { fields: [], keepFirst: true };
+
+      case DataFlowNodeType.FLATTEN:
+        return { field: '', separator: '.' };
+
+      case DataFlowNodeType.UNWIND:
+        return { field: '', includeIndex: false };
 
       case DataFlowNodeType.HANDLE_NULLS:
         return { strategy: 'default', defaultValue: '', perField: {} };
 
+      case DataFlowNodeType.CODE:
+        return {
+          code: '// Input records available as `records`\n// Return transformed records\nreturn records;',
+          language: 'javascript'
+        };
+
+      // ═══════════════════════════════════════════════════════════════
+      // SYNTH - Aggregation Nodes
+      // ═══════════════════════════════════════════════════════════════
+      case DataFlowNodeType.AGGREGATE:
+        return { function: 'SUM', field: '', groupBy: [], alias: '' };
+
+      case DataFlowNodeType.GROUP:
+        return { groupBy: [], aggregations: [] };
+
+      case DataFlowNodeType.PIVOT:
+        return { rowField: '', columnField: '', valueField: '', aggregation: 'SUM' };
+
+      case DataFlowNodeType.ROLLUP:
+        return { groupBy: [], aggregation: 'SUM', field: '' };
+
+      case DataFlowNodeType.WINDOW:
+        return { function: 'ROW_NUMBER', partitionBy: [], orderBy: '', alias: '' };
+
+      case DataFlowNodeType.DISTINCT:
+        return { fields: [] };
+
+      // ═══════════════════════════════════════════════════════════════
+      // AGENT - AI Nodes
+      // ═══════════════════════════════════════════════════════════════
+      case DataFlowNodeType.AI_CLASSIFY:
+        return { prompt: '', categories: [], outputField: 'category', model: 'default' };
+
+      case DataFlowNodeType.AI_EXTRACT:
+        return { prompt: '', schema: {}, outputField: 'extracted', model: 'default' };
+
+      case DataFlowNodeType.AI_GENERATE:
+        return { prompt: '', outputField: 'generated', model: 'default' };
+
+      case DataFlowNodeType.AI_EMBED:
+        return { field: '', outputField: 'embedding', model: 'default' };
+
+      case DataFlowNodeType.AI_SUMMARIZE:
+        return { field: '', maxLength: 100, outputField: 'summary', model: 'default' };
+
+      case DataFlowNodeType.AI_MATCH:
+        return { targetSetId: null, threshold: 0.8, outputField: 'match_score' };
+
+      // ═══════════════════════════════════════════════════════════════
+      // FLOW - Control Nodes
+      // ═══════════════════════════════════════════════════════════════
       case DataFlowNodeType.BRANCH:
         return { field: '', operator: 'eq', value: '' };
 
+      case DataFlowNodeType.SWITCH:
+        return { field: '', cases: [], defaultCase: 'other' };
+
+      case DataFlowNodeType.MERGE:
+        return { strategy: 'concat', dedupeBy: null };
+
+      case DataFlowNodeType.JOIN:
+        return { targetSetId: null, joinField: '', joinType: 'inner', targetField: '' };
+
       case DataFlowNodeType.LOOP:
-        return { iterateOver: 'records' };
+        return { iterateOver: 'records', maxIterations: 1000 };
 
-      case DataFlowNodeType.CODE:
-        return { code: '// Input data is in `input`\n// Return transformed data\nreturn input;', language: 'javascript' };
+      case DataFlowNodeType.ERROR:
+        return { strategy: 'skip', fallbackValue: null, logErrors: true };
 
-      case DataFlowNodeType.AGGREGATE:
-        return { function: 'SUM', field: '', groupBy: '' };
-
+      // ═══════════════════════════════════════════════════════════════
+      // EMIT - Output Nodes
+      // ═══════════════════════════════════════════════════════════════
       case DataFlowNodeType.PREVIEW:
-        return { maxRecords: 100 };
+        return { maxRecords: 100, columns: [] };
 
       case DataFlowNodeType.SAVE:
-        return { targetSetId: null, createNew: false, setName: '' };
+        return { targetSetId: null, createNew: false, setName: '', updateMode: 'replace' };
 
       case DataFlowNodeType.EXPORT:
-        return { format: 'csv', fileName: 'export' };
+        return { format: 'csv', fileName: 'export', includeHeaders: true };
 
-      case DataFlowNodeType.AI_ACTION:
-        return { action: 'classify', prompt: '', outputField: 'ai_result' };
+      case DataFlowNodeType.WEBHOOK_OUT:
+        return { url: '', method: 'POST', headers: {}, auth: null };
+
+      case DataFlowNodeType.LOG:
+        return { label: '', level: 'info', fields: [] };
 
       default:
         return {};
@@ -533,53 +617,103 @@ class DataFlowNode {
    * Get a short summary of the config for display on card
    */
   getConfigSummary() {
+    const opSymbols = { eq: '=', ne: '!=', gt: '>', lt: '<', gte: '>=', lte: '<=', contains: '~' };
+
     switch (this.type) {
+      // GIVEN
       case DataFlowNodeType.SET:
         return this.config.setName || 'Select a Set';
-
       case DataFlowNodeType.LENS:
         return this.config.lensName || 'Select a Lens';
+      case DataFlowNodeType.FOCUS:
+        return this.config.recordId || 'Select record';
+      case DataFlowNodeType.IMPORT:
+        return this.config.fileName || 'Load file';
+      case DataFlowNodeType.QUERY:
+        return this.config.query ? `${this.config.language}: ...` : 'Write query';
+      case DataFlowNodeType.WEBHOOK_IN:
+        return this.config.endpoint || 'Configure endpoint';
 
+      // SHAPE
       case DataFlowNodeType.FILTER:
         if (!this.config.field) return 'Configure filter';
-        const op = this.config.operator === 'eq' ? '=' :
-                   this.config.operator === 'ne' ? '!=' :
-                   this.config.operator === 'gt' ? '>' :
-                   this.config.operator === 'lt' ? '<' :
-                   this.config.operator;
-        return `${this.config.field} ${op} "${this.config.value}"`;
-
-      case DataFlowNodeType.JOIN:
-        return this.config.targetSetId
-          ? `\u2192 ${this.config.targetSetName || this.config.targetSetId}`
-          : 'Configure join';
-
+        return `${this.config.field} ${opSymbols[this.config.operator] || this.config.operator} "${this.config.value}"`;
+      case DataFlowNodeType.SORT:
+        return this.config.field ? `${this.config.field} ${this.config.direction}` : 'Configure sort';
+      case DataFlowNodeType.SELECT:
+        const selectCount = this.config.fields?.length || 0;
+        return selectCount ? `${selectCount} fields` : 'Select fields';
       case DataFlowNodeType.TRANSFORM:
         return this.config.expression || 'Configure transform';
-
-      case DataFlowNodeType.SELECT:
-        const count = this.config.fields?.length || 0;
-        return count ? `${count} fields` : 'Select fields';
-
+      case DataFlowNodeType.DEDUPE:
+        const dedupeCount = this.config.fields?.length || 0;
+        return dedupeCount ? `By ${dedupeCount} fields` : 'Configure dedupe';
+      case DataFlowNodeType.FLATTEN:
+        return this.config.field || 'Select field';
+      case DataFlowNodeType.UNWIND:
+        return this.config.field || 'Select array field';
       case DataFlowNodeType.HANDLE_NULLS:
-        return `Default: ${this.config.defaultValue || 'null'}`;
-
-      case DataFlowNodeType.BRANCH:
-        return this.config.field
-          ? `If ${this.config.field} ${this.config.operator} ${this.config.value}`
-          : 'Configure condition';
-
+        return `${this.config.strategy}: ${this.config.defaultValue || 'null'}`;
       case DataFlowNodeType.CODE:
         const lines = (this.config.code || '').split('\n').length;
-        return `${lines} lines`;
+        return `${lines} lines of code`;
 
+      // SYNTH
       case DataFlowNodeType.AGGREGATE:
-        return this.config.function
-          ? `${this.config.function}(${this.config.field || '*'})`
-          : 'Configure aggregation';
+        return this.config.function ? `${this.config.function}(${this.config.field || '*'})` : 'Configure';
+      case DataFlowNodeType.GROUP:
+        const groupCount = this.config.groupBy?.length || 0;
+        return groupCount ? `By ${groupCount} fields` : 'Configure group';
+      case DataFlowNodeType.PIVOT:
+        return this.config.rowField || 'Configure pivot';
+      case DataFlowNodeType.ROLLUP:
+        return `${this.config.aggregation || 'SUM'} rollup`;
+      case DataFlowNodeType.WINDOW:
+        return `${this.config.function || 'ROW_NUMBER'}()`;
+      case DataFlowNodeType.DISTINCT:
+        const distinctCount = this.config.fields?.length || 0;
+        return distinctCount ? `${distinctCount} fields` : 'All fields';
 
-      case DataFlowNodeType.AI_ACTION:
-        return this.config.action || 'Configure AI action';
+      // AGENT
+      case DataFlowNodeType.AI_CLASSIFY:
+        return this.config.categories?.length ? `${this.config.categories.length} categories` : 'Configure';
+      case DataFlowNodeType.AI_EXTRACT:
+        return this.config.prompt ? 'Extraction configured' : 'Configure extraction';
+      case DataFlowNodeType.AI_GENERATE:
+        return this.config.prompt ? 'Generation configured' : 'Configure generation';
+      case DataFlowNodeType.AI_EMBED:
+        return this.config.field || 'Select field';
+      case DataFlowNodeType.AI_SUMMARIZE:
+        return this.config.field || 'Select field';
+      case DataFlowNodeType.AI_MATCH:
+        return this.config.targetSetId ? 'Match configured' : 'Configure match';
+
+      // FLOW
+      case DataFlowNodeType.BRANCH:
+        return this.config.field ? `If ${this.config.field} ${opSymbols[this.config.operator] || '='} ${this.config.value}` : 'Configure';
+      case DataFlowNodeType.SWITCH:
+        const caseCount = this.config.cases?.length || 0;
+        return caseCount ? `${caseCount} cases` : 'Configure cases';
+      case DataFlowNodeType.MERGE:
+        return this.config.strategy || 'concat';
+      case DataFlowNodeType.JOIN:
+        return this.config.targetSetId ? `${this.config.joinType} join` : 'Configure join';
+      case DataFlowNodeType.LOOP:
+        return `Over ${this.config.iterateOver}`;
+      case DataFlowNodeType.ERROR:
+        return this.config.strategy || 'skip';
+
+      // EMIT
+      case DataFlowNodeType.PREVIEW:
+        return `Max ${this.config.maxRecords} records`;
+      case DataFlowNodeType.SAVE:
+        return this.config.setName || this.config.targetSetId || 'Configure save';
+      case DataFlowNodeType.EXPORT:
+        return `${this.config.format.toUpperCase()}: ${this.config.fileName}`;
+      case DataFlowNodeType.WEBHOOK_OUT:
+        return this.config.url || 'Configure URL';
+      case DataFlowNodeType.LOG:
+        return this.config.label || this.config.level;
 
       default:
         return '';
@@ -590,14 +724,24 @@ class DataFlowNode {
    * Check if this is a source node (no inputs)
    */
   isSource() {
-    return this.category === DataFlowCategory.SOURCE;
+    return this.category === DataFlowCategory.GIVEN ||
+           this.category === DataFlowCategory.SOURCE; // Legacy alias
   }
 
   /**
    * Check if this is a branch node (multiple outputs)
    */
   isBranch() {
-    return this.type === DataFlowNodeType.BRANCH;
+    return this.type === DataFlowNodeType.BRANCH ||
+           this.type === DataFlowNodeType.SWITCH;
+  }
+
+  /**
+   * Check if this is a merge node (multiple inputs)
+   */
+  isMerge() {
+    return this.type === DataFlowNodeType.MERGE ||
+           this.type === DataFlowNodeType.JOIN;
   }
 
   /**

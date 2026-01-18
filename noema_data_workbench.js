@@ -37308,9 +37308,9 @@ class EODataWorkbench {
   _renderFlowView() {
     const set = this.getCurrentSet();
 
-    // Create container
+    // Create container with proper sizing
     this.elements.contentArea.innerHTML = `
-      <div class="flow-view-container" id="flow-view-container">
+      <div class="flow-view-container" id="flow-view-container" style="width: 100%; height: 100%; min-height: 500px; position: relative;">
         <!-- Data Flow Canvas will be mounted here -->
       </div>
     `;
