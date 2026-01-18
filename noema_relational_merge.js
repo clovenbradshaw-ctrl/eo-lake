@@ -833,10 +833,11 @@ class RelationalMergeUI {
     const sourceName = field.source === 'left'
       ? (this.config.leftSource?.name || 'A')
       : (this.config.rightSource?.name || 'B');
+    const sourceInitial = sourceName.charAt(0).toUpperCase();
     return `
       <div class="rm-output-field" data-index="${index}">
-        <span class="rm-output-source ${field.source}">
-          ${this._escapeHtml(sourceName)}
+        <span class="rm-output-source ${field.source}" data-source="${this._escapeHtml(sourceName)}">
+          ${sourceInitial}
         </span>
         <span class="rm-output-name">${this._escapeHtml(field.field)}</span>
         <button class="rm-output-remove" title="Remove field">
