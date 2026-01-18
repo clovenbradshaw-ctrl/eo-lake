@@ -420,7 +420,7 @@ class RelationalMergeUI {
   _renderStepIndicator() {
     const steps = [
       { id: 'sources', label: 'Sources', icon: 'ph-database' },
-      { id: 'questions', label: 'Three Questions', icon: 'ph-compass' },
+      { id: 'questions', label: 'Merge Methods', icon: 'ph-compass' },
       { id: 'conditions', label: 'Conditions', icon: 'ph-link' },
       { id: 'review', label: 'Review', icon: 'ph-check-circle' }
     ];
