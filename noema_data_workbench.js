@@ -34980,13 +34980,45 @@ class EODataWorkbench {
       case FieldTypes.DATE:
         return this._renderCellEditModalDateInput(field, value);
 
+      case FieldTypes.JSON:
+        return this._renderCellEditModalJsonEditor(field, value);
+
       default:
         return this._renderCellEditModalTextInput(field, value);
     }
   }
 
+  _renderCellEditModalJsonEditor(field, value) {
+    let jsonString = '';
+    try {
+      jsonString = typeof value === 'string' ? value : JSON.stringify(value || {}, null, 2);
+    } catch (e) {
+      jsonString = String(value || '{}');
+    }
+
+    return `
+      <div class="cell-edit-modal-editor">
+        <div class="cell-edit-modal-textarea-wrapper">
+          <textarea class="cell-edit-modal-textarea cell-edit-modal-json-textarea" data-field-type="json">${this._escapeHtml(jsonString)}</textarea>
+          <span class="cell-edit-modal-textarea-resize"><i class="ph ph-arrows-out-simple"></i></span>
+        </div>
+      </div>
+    `;
+  }
+
   _renderCellEditModalReadOnly(field, value) {
-    let displayValue = value !== null && value !== undefined ? String(value) : '(empty)';
+    let displayValue;
+    if (value === null || value === undefined) {
+      displayValue = '(empty)';
+    } else if (typeof value === 'object') {
+      try {
+        displayValue = JSON.stringify(value, null, 2);
+      } catch (e) {
+        displayValue = String(value);
+      }
+    } else {
+      displayValue = String(value);
+    }
     return `
       <div class="cell-edit-modal-editor cell-edit-modal-readonly">
         <div class="cell-edit-modal-readonly-value">${this._escapeHtml(displayValue)}</div>
@@ -35002,11 +35034,16 @@ class EODataWorkbench {
     const placeholder = field.type === FieldTypes.URL ? 'https://...' :
                         field.type === FieldTypes.EMAIL ? 'email@example.com' :
                         field.type === FieldTypes.PHONE ? '+1 (555) 000-0000' : '';
+    // Handle objects by stringifying them
+    let displayValue = '';
+    if (value !== null && value !== undefined) {
+      displayValue = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
     return `
       <div class="cell-edit-modal-editor">
         <input type="text"
                class="cell-edit-modal-input"
-               value="${this._escapeHtml(value || '')}"
+               value="${this._escapeHtml(displayValue)}"
                placeholder="${placeholder}"
                data-field-type="${field.type}">
       </div>
@@ -35014,10 +35051,15 @@ class EODataWorkbench {
   }
 
   _renderCellEditModalTextarea(field, value) {
+    // Handle objects by stringifying them
+    let displayValue = '';
+    if (value !== null && value !== undefined) {
+      displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+    }
     return `
       <div class="cell-edit-modal-editor">
         <div class="cell-edit-modal-textarea-wrapper">
-          <textarea class="cell-edit-modal-textarea">${this._escapeHtml(value || '')}</textarea>
+          <textarea class="cell-edit-modal-textarea">${this._escapeHtml(displayValue)}</textarea>
           <span class="cell-edit-modal-textarea-resize"><i class="ph ph-arrows-out-simple"></i></span>
         </div>
       </div>
