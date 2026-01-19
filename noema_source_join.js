@@ -4326,9 +4326,11 @@ class QueryBuilderUI {
     const segOp = pipeline.find(op => op.op === 'SEG');
     if (segOp && segOp.params && segOp.params.predicate) {
       // Convert predicate back to filter builder format
-      // This is simplified - full implementation would recursively convert
       this._filterBuilder.clear();
-      // TODO: Convert predicate to filter conditions
+      const conditions = this._predicateToFilterConditions(segOp.params.predicate);
+      for (const condition of conditions) {
+        this._filterBuilder.addFilter(condition);
+      }
     }
 
     // Find DES operator for name
@@ -4389,6 +4391,207 @@ class QueryBuilderUI {
       this._generateQueryFromWizard();
       this._updatePreview();
     }, 300);
+  }
+
+  /**
+   * Convert a predicate expression to filter builder conditions
+   * Handles AND/OR combinations and basic comparison operators
+   */
+  _predicateToFilterConditions(predicate, depth = 0) {
+    const conditions = [];
+
+    if (!predicate) return conditions;
+
+    // Handle string predicates (simple format)
+    if (typeof predicate === 'string') {
+      const parsed = this._parsePredicateString(predicate);
+      if (parsed) conditions.push(parsed);
+      return conditions;
+    }
+
+    // Handle object predicates
+    if (typeof predicate === 'object') {
+      // AND combination
+      if (predicate.and && Array.isArray(predicate.and)) {
+        for (const subPred of predicate.and) {
+          conditions.push(...this._predicateToFilterConditions(subPred, depth + 1));
+        }
+        return conditions;
+      }
+
+      // OR combination - convert to a single filter with OR logic
+      if (predicate.or && Array.isArray(predicate.or)) {
+        const orConditions = [];
+        for (const subPred of predicate.or) {
+          orConditions.push(...this._predicateToFilterConditions(subPred, depth + 1));
+        }
+        if (orConditions.length > 0) {
+          // Mark as OR group
+          conditions.push({
+            type: 'group',
+            logic: 'OR',
+            conditions: orConditions
+          });
+        }
+        return conditions;
+      }
+
+      // Single condition object
+      if (predicate.field || predicate.fieldId) {
+        conditions.push({
+          fieldId: predicate.field || predicate.fieldId,
+          operator: this._convertOperator(predicate.operator || predicate.op),
+          value: predicate.value,
+          enabled: true
+        });
+        return conditions;
+      }
+
+      // Comparison operators at top level: { fieldName: { $gt: value } }
+      for (const [key, val] of Object.entries(predicate)) {
+        if (key.startsWith('$')) continue; // Skip operators
+
+        if (typeof val === 'object' && val !== null) {
+          // Extract operator and value
+          for (const [op, opVal] of Object.entries(val)) {
+            conditions.push({
+              fieldId: key,
+              operator: this._convertOperator(op),
+              value: opVal,
+              enabled: true
+            });
+          }
+        } else {
+          // Simple equality: { fieldName: value }
+          conditions.push({
+            fieldId: key,
+            operator: 'is',
+            value: val,
+            enabled: true
+          });
+        }
+      }
+    }
+
+    return conditions;
+  }
+
+  /**
+   * Parse a simple predicate string like "age > 18" or "status = 'active'"
+   */
+  _parsePredicateString(str) {
+    if (!str || typeof str !== 'string') return null;
+
+    // Match patterns like: field operator value
+    const patterns = [
+      /^(\w+)\s*>=\s*(.+)$/,   // >=
+      /^(\w+)\s*<=\s*(.+)$/,   // <=
+      /^(\w+)\s*!=\s*(.+)$/,   // !=
+      /^(\w+)\s*<>\s*(.+)$/,   // <>
+      /^(\w+)\s*>\s*(.+)$/,    // >
+      /^(\w+)\s*<\s*(.+)$/,    // <
+      /^(\w+)\s*=\s*(.+)$/,    // =
+      /^(\w+)\s+like\s+(.+)$/i,      // LIKE
+      /^(\w+)\s+contains\s+(.+)$/i,  // contains
+      /^(\w+)\s+is\s+null$/i,        // IS NULL
+      /^(\w+)\s+is\s+not\s+null$/i,  // IS NOT NULL
+    ];
+
+    for (const pattern of patterns) {
+      const match = str.match(pattern);
+      if (match) {
+        const field = match[1];
+        let operator = 'is';
+        let value = match[2];
+
+        // Determine operator
+        if (str.includes('>=')) operator = 'greaterOrEqual';
+        else if (str.includes('<=')) operator = 'lessOrEqual';
+        else if (str.includes('!=') || str.includes('<>')) operator = 'isNot';
+        else if (str.includes('>')) operator = 'greaterThan';
+        else if (str.includes('<')) operator = 'lessThan';
+        else if (str.toLowerCase().includes('like')) operator = 'contains';
+        else if (str.toLowerCase().includes('contains')) operator = 'contains';
+        else if (str.toLowerCase().includes('is not null')) {
+          operator = 'isNotEmpty';
+          value = null;
+        }
+        else if (str.toLowerCase().includes('is null')) {
+          operator = 'isEmpty';
+          value = null;
+        }
+
+        // Clean up value (remove quotes)
+        if (value) {
+          value = value.trim().replace(/^['"]|['"]$/g, '');
+          // Try to parse numbers
+          if (!isNaN(value) && value !== '') {
+            value = Number(value);
+          }
+        }
+
+        return {
+          fieldId: field,
+          operator,
+          value,
+          enabled: true
+        };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Convert predicate operator to filter builder operator
+   */
+  _convertOperator(op) {
+    const operatorMap = {
+      // Comparison
+      '=': 'is',
+      '==': 'is',
+      'eq': 'is',
+      '$eq': 'is',
+      '!=': 'isNot',
+      '<>': 'isNot',
+      'ne': 'isNot',
+      '$ne': 'isNot',
+      '>': 'greaterThan',
+      'gt': 'greaterThan',
+      '$gt': 'greaterThan',
+      '>=': 'greaterOrEqual',
+      'gte': 'greaterOrEqual',
+      '$gte': 'greaterOrEqual',
+      '<': 'lessThan',
+      'lt': 'lessThan',
+      '$lt': 'lessThan',
+      '<=': 'lessOrEqual',
+      'lte': 'lessOrEqual',
+      '$lte': 'lessOrEqual',
+
+      // String
+      'contains': 'contains',
+      '$contains': 'contains',
+      'like': 'contains',
+      'startsWith': 'startsWith',
+      '$startsWith': 'startsWith',
+      'endsWith': 'endsWith',
+      '$endsWith': 'endsWith',
+
+      // Null checks
+      'isEmpty': 'isEmpty',
+      'isNotEmpty': 'isNotEmpty',
+      'isNull': 'isEmpty',
+      'isNotNull': 'isNotEmpty',
+
+      // Arrays
+      'in': 'in',
+      '$in': 'in',
+      'notIn': 'notIn',
+      '$nin': 'notIn'
+    };
+
+    return operatorMap[op] || op || 'is';
   }
 
   /**
@@ -8519,14 +8722,144 @@ class DataPipelineUI {
   }
 
   _getOutputRecordCount() {
-    // For now, simple pass-through count
-    // TODO: Apply filters and joins to get actual count
+    // Calculate actual output count by applying filters and joins
     const baseCount = this._getSourceRecordCount();
+
+    if (this._sources.length === 0) return 0;
+
+    // Get filter transform
     const filterTransform = this._transforms.find(t => t.type === 'filter');
+
+    // Get join transforms
+    const joinTransforms = this._transforms.filter(t => t.type === 'join');
+
+    // If we have joins, calculate the joined count
+    if (joinTransforms.length > 0 && this._sources.length > 1) {
+      return this._calculateJoinedCount(filterTransform, joinTransforms);
+    }
+
+    // If we only have filters, apply them
     if (filterTransform && this._sources.length > 0) {
       return this._applyFiltersAndCount();
     }
+
     return baseCount;
+  }
+
+  /**
+   * Calculate record count after applying joins
+   */
+  _calculateJoinedCount(filterTransform, joinTransforms) {
+    if (this._sources.length < 2) return this._getSourceRecordCount();
+
+    const primarySource = this._sources[0].source;
+    let primaryRecords = primarySource.records || [];
+
+    // Apply filters to primary source first
+    if (filterTransform) {
+      primaryRecords = primaryRecords.filter(record =>
+        AdvancedFilterBuilder.evaluateRecord(record, filterTransform.config, primarySource)
+      );
+    }
+
+    let resultCount = 0;
+
+    // Process each primary record through all joins
+    for (const record of primaryRecords) {
+      let matchCount = 1; // Start with 1 (the primary record)
+
+      for (let i = 0; i < joinTransforms.length && i < this._sources.length - 1; i++) {
+        const joinTransform = joinTransforms[i];
+        const joinConfig = joinTransform.config || {};
+        const joinType = joinConfig.type || 'inner';
+        const joinSource = this._sources[i + 1]?.source;
+
+        if (!joinSource?.records) continue;
+
+        // Find matching records in the join source
+        const matches = this._findJoinMatches(record, joinSource, joinConfig);
+
+        switch (joinType) {
+          case 'inner':
+            // Inner join: only include if there are matches
+            if (matches.length === 0) {
+              matchCount = 0;
+            } else {
+              matchCount *= matches.length;
+            }
+            break;
+
+          case 'left':
+            // Left join: include even without matches (1 result with nulls)
+            matchCount *= Math.max(matches.length, 1);
+            break;
+
+          case 'right':
+            // Right join: would be different logic, simplified here
+            matchCount *= Math.max(matches.length, 1);
+            break;
+
+          case 'full':
+          case 'outer':
+            // Full outer join: include all combinations
+            matchCount *= Math.max(matches.length, 1);
+            break;
+
+          case 'cross':
+            // Cross join: cartesian product
+            matchCount *= joinSource.records.length;
+            break;
+        }
+      }
+
+      resultCount += matchCount;
+    }
+
+    return resultCount;
+  }
+
+  /**
+   * Find matching records for a join
+   */
+  _findJoinMatches(record, joinSource, joinConfig) {
+    const joinConditions = joinConfig.conditions || [];
+    const joinRecords = joinSource.records || [];
+
+    if (joinConditions.length === 0) {
+      // No conditions = all records match (cross join behavior)
+      return joinRecords;
+    }
+
+    return joinRecords.filter(joinRecord => {
+      // All conditions must match
+      return joinConditions.every(condition => {
+        const leftValue = record[condition.leftField];
+        const rightValue = joinRecord[condition.rightField];
+
+        switch (condition.operator || '=') {
+          case '=':
+          case 'eq':
+            return leftValue == rightValue;
+          case '!=':
+          case 'ne':
+            return leftValue != rightValue;
+          case '>':
+          case 'gt':
+            return leftValue > rightValue;
+          case '>=':
+          case 'gte':
+            return leftValue >= rightValue;
+          case '<':
+          case 'lt':
+            return leftValue < rightValue;
+          case '<=':
+          case 'lte':
+            return leftValue <= rightValue;
+          default:
+            return leftValue == rightValue;
+        }
+      });
+    });
   }
 
   _applyFiltersAndCount() {

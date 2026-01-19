@@ -2032,13 +2032,221 @@ class DefinitionPopulationPanel {
   }
 
   /**
-   * Show manual entry form (placeholder - could be expanded)
+   * Show manual entry form for creating/editing a definition
    * @private
    */
   _showManualEntryForm(definitionId) {
-    // TODO: Show a modal or inline form for manual entry
-    console.log('Manual entry for:', definitionId);
-    alert('Manual entry form coming soon. For now, use the Definition Source Builder.');
+    const def = this.store.get(definitionId);
+    if (!def) {
+      console.error('Definition not found:', definitionId);
+      return;
+    }
+
+    const term = def.term || {};
+    const authority = def.authority || {};
+    const source = def.source || {};
+    const jurisdiction = def.jurisdiction || {};
+    const validity = def.validity || {};
+
+    // Create modal
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay definition-entry-modal';
+    modal.innerHTML = `
+      <div class="modal-content definition-entry-content">
+        <div class="modal-header">
+          <h3><i class="ph ph-book-open"></i> Define: ${this._escapeHtml(term.term || definitionId)}</h3>
+          <button class="modal-close" data-action="close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <form id="manual-definition-form" class="definition-form">
+            <div class="form-section">
+              <h4>Term Information</h4>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="def-term">Term Name *</label>
+                  <input type="text" id="def-term" value="${this._escapeHtml(term.term || '')}" required>
+                </div>
+                <div class="form-group">
+                  <label for="def-label">Label</label>
+                  <input type="text" id="def-label" value="${this._escapeHtml(term.label || '')}" placeholder="Human-readable label">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="def-text">Definition Text *</label>
+                <textarea id="def-text" rows="3" required placeholder="Clear, precise definition of this term">${this._escapeHtml(term.definitionText || def.description || '')}</textarea>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <h4>Classification</h4>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="def-role">Role</label>
+                  <select id="def-role">
+                    <option value="property" ${def.role === 'property' ? 'selected' : ''}>Property</option>
+                    <option value="identifier" ${def.role === 'identifier' ? 'selected' : ''}>Identifier</option>
+                    <option value="temporal" ${def.role === 'temporal' ? 'selected' : ''}>Temporal</option>
+                    <option value="categorical" ${def.role === 'categorical' ? 'selected' : ''}>Categorical</option>
+                    <option value="quantity" ${def.role === 'quantity' ? 'selected' : ''}>Quantity</option>
+                    <option value="textual" ${def.role === 'textual' ? 'selected' : ''}>Textual</option>
+                    <option value="spatial" ${def.role === 'spatial' ? 'selected' : ''}>Spatial</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="def-datatype">Data Type</label>
+                  <select id="def-datatype">
+                    <option value="string" ${term.dataType === 'string' ? 'selected' : ''}>String</option>
+                    <option value="integer" ${term.dataType === 'integer' ? 'selected' : ''}>Integer</option>
+                    <option value="decimal" ${term.dataType === 'decimal' ? 'selected' : ''}>Decimal</option>
+                    <option value="boolean" ${term.dataType === 'boolean' ? 'selected' : ''}>Boolean</option>
+                    <option value="date" ${term.dataType === 'date' ? 'selected' : ''}>Date</option>
+                    <option value="datetime" ${term.dataType === 'datetime' ? 'selected' : ''}>DateTime</option>
+                    <option value="uri" ${term.dataType === 'uri' ? 'selected' : ''}>URI</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section collapsible">
+              <h4 class="collapsible-header">
+                <i class="ph ph-caret-right"></i>
+                Authority & Source
+              </h4>
+              <div class="collapsible-content">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="def-authority">Authority Name</label>
+                    <input type="text" id="def-authority" value="${this._escapeHtml(authority.name || '')}" placeholder="e.g., IRS, NIST, ISO">
+                  </div>
+                  <div class="form-group">
+                    <label for="def-authority-short">Short Name</label>
+                    <input type="text" id="def-authority-short" value="${this._escapeHtml(authority.shortName || '')}" placeholder="e.g., IRS">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="def-source-uri">Source URI</label>
+                  <input type="url" id="def-source-uri" value="${this._escapeHtml(source.uri || '')}" placeholder="https://...">
+                </div>
+                <div class="form-group">
+                  <label for="def-citation">Citation</label>
+                  <input type="text" id="def-citation" value="${this._escapeHtml(source.citation || source.title || '')}" placeholder="Document title, section, etc.">
+                </div>
+              </div>
+            </div>
+
+            <div class="form-section collapsible">
+              <h4 class="collapsible-header">
+                <i class="ph ph-caret-right"></i>
+                Validity & Jurisdiction
+              </h4>
+              <div class="collapsible-content">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="def-valid-from">Valid From</label>
+                    <input type="date" id="def-valid-from" value="${validity.from || ''}">
+                  </div>
+                  <div class="form-group">
+                    <label for="def-valid-to">Valid To</label>
+                    <input type="date" id="def-valid-to" value="${validity.to || ''}">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="def-jurisdiction">Geographic Jurisdiction</label>
+                  <input type="text" id="def-jurisdiction" value="${this._escapeHtml(jurisdiction.geographic || '')}" placeholder="e.g., United States, California">
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-action="close">Cancel</button>
+          <button class="btn btn-primary" data-action="save"><i class="ph ph-check"></i> Save Definition</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Wire up collapsible sections
+    modal.querySelectorAll('.collapsible-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const section = header.closest('.collapsible');
+        section.classList.toggle('expanded');
+        const icon = header.querySelector('i');
+        if (icon) {
+          icon.className = section.classList.contains('expanded')
+            ? 'ph ph-caret-down'
+            : 'ph ph-caret-right';
+        }
+      });
+    });
+
+    // Event handlers
+    modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+
+    modal.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+      const form = modal.querySelector('#manual-definition-form');
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+      }
+
+      // Gather form data
+      const updatedDef = {
+        ...def,
+        term: {
+          ...term,
+          term: modal.querySelector('#def-term').value,
+          label: modal.querySelector('#def-label').value,
+          definitionText: modal.querySelector('#def-text').value,
+          dataType: modal.querySelector('#def-datatype').value
+        },
+        role: modal.querySelector('#def-role').value,
+        authority: {
+          name: modal.querySelector('#def-authority').value,
+          shortName: modal.querySelector('#def-authority-short').value
+        },
+        source: {
+          ...source,
+          uri: modal.querySelector('#def-source-uri').value,
+          citation: modal.querySelector('#def-citation').value
+        },
+        validity: {
+          from: modal.querySelector('#def-valid-from').value || null,
+          to: modal.querySelector('#def-valid-to').value || null
+        },
+        jurisdiction: {
+          geographic: modal.querySelector('#def-jurisdiction').value
+        },
+        status: 'populated',
+        populationMethod: 'manual',
+        populatedAt: new Date().toISOString()
+      };
+
+      // Update the store
+      this.store.set(definitionId, updatedDef);
+
+      // Show success feedback
+      this._showFeedback('Definition saved successfully', 'success');
+
+      // Close modal and re-render
+      modal.remove();
+      this.render();
+    });
+  }
+
+  /**
+   * Escape HTML for safe rendering
+   * @private
+   */
+  _escapeHtml(text) {
+    if (text == null) return '';
+    const div = document.createElement('div');
+    div.textContent = String(text);
+    return div.innerHTML;
   }
 
   /**
@@ -2046,11 +2254,147 @@ class DefinitionPopulationPanel {
    * @private
    */
   _showSuggestionsList(definitionId) {
-    // TODO: Show a dropdown or modal with all suggestions
     const def = this.store.get(definitionId);
-    if (def?.apiSuggestions) {
-      console.log('All suggestions for', def.term.term, ':', def.apiSuggestions);
+    if (!def) return;
+
+    const suggestions = def.apiSuggestions || [];
+    const term = def.term?.term || definitionId;
+
+    if (suggestions.length === 0) {
+      this._showFeedback('No suggestions available for this definition', 'info');
+      return;
     }
+
+    // Create modal
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay suggestions-list-modal';
+    modal.innerHTML = `
+      <div class="modal-content suggestions-list-content">
+        <div class="modal-header">
+          <h3><i class="ph ph-lightbulb"></i> Suggestions for: ${this._escapeHtml(term)}</h3>
+          <button class="modal-close" data-action="close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="suggestions-list">
+            ${suggestions.map((suggestion, index) => `
+              <div class="suggestion-card" data-index="${index}">
+                <div class="suggestion-header">
+                  <span class="suggestion-source">${this._escapeHtml(suggestion.source?.name || suggestion.authority?.shortName || 'Unknown Source')}</span>
+                  <span class="suggestion-confidence ${this._getConfidenceClass(suggestion.confidence)}">${Math.round((suggestion.confidence || 0) * 100)}%</span>
+                </div>
+                <div class="suggestion-body">
+                  <div class="suggestion-term">
+                    <strong>${this._escapeHtml(suggestion.term?.term || suggestion.name || term)}</strong>
+                    ${suggestion.term?.label ? `<span class="term-label">${this._escapeHtml(suggestion.term.label)}</span>` : ''}
+                  </div>
+                  <p class="suggestion-definition">${this._escapeHtml(suggestion.term?.definitionText || suggestion.description || 'No definition available')}</p>
+                  ${suggestion.source?.uri ? `
+                    <div class="suggestion-uri">
+                      <i class="ph ph-link"></i>
+                      <a href="${this._escapeHtml(suggestion.source.uri)}" target="_blank" rel="noopener">${this._escapeHtml(suggestion.source.uri)}</a>
+                    </div>
+                  ` : ''}
+                  ${suggestion.authority?.name ? `
+                    <div class="suggestion-authority">
+                      <i class="ph ph-buildings"></i>
+                      <span>${this._escapeHtml(suggestion.authority.name)}</span>
+                    </div>
+                  ` : ''}
+                </div>
+                <div class="suggestion-footer">
+                  <button class="btn btn-sm btn-primary" data-action="apply" data-index="${index}">
+                    <i class="ph ph-check"></i> Apply This Definition
+                  </button>
+                  <button class="btn btn-sm btn-secondary" data-action="copy" data-index="${index}">
+                    <i class="ph ph-copy"></i> Copy
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="suggestions-count">${suggestions.length} suggestion${suggestions.length !== 1 ? 's' : ''} found</span>
+          <button class="btn btn-secondary" data-action="close">Close</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Event handlers
+    modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+
+    // Apply suggestion
+    modal.querySelectorAll('[data-action="apply"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.index, 10);
+        const suggestion = suggestions[index];
+        if (suggestion) {
+          this._applySuggestion(definitionId, suggestion);
+          modal.remove();
+        }
+      });
+    });
+
+    // Copy suggestion
+    modal.querySelectorAll('[data-action="copy"]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const index = parseInt(btn.dataset.index, 10);
+        const suggestion = suggestions[index];
+        if (suggestion) {
+          const text = suggestion.term?.definitionText || suggestion.description || '';
+          navigator.clipboard.writeText(text).then(() => {
+            this._showFeedback('Definition copied to clipboard', 'success');
+          }).catch(() => {
+            this._showFeedback('Failed to copy', 'error');
+          });
+        }
+      });
+    });
+  }
+
+  /**
+   * Apply a suggestion to a definition
+   * @private
+   */
+  _applySuggestion(definitionId, suggestion) {
+    const def = this.store.get(definitionId);
+    if (!def) return;
+
+    const updatedDef = {
+      ...def,
+      term: {
+        ...def.term,
+        ...(suggestion.term || {}),
+        definitionText: suggestion.term?.definitionText || suggestion.description || def.term?.definitionText
+      },
+      authority: suggestion.authority || def.authority,
+      source: suggestion.source || def.source,
+      role: suggestion.role || def.role,
+      status: 'populated',
+      populationMethod: 'api_suggestion',
+      populatedAt: new Date().toISOString(),
+      appliedSuggestionIndex: suggestion.index
+    };
+
+    this.store.set(definitionId, updatedDef);
+    this._showFeedback('Suggestion applied successfully', 'success');
+    this.render();
+  }
+
+  /**
+   * Get confidence class for styling
+   * @private
+   */
+  _getConfidenceClass(confidence) {
+    const pct = (confidence || 0) * 100;
+    if (pct >= 80) return 'high';
+    if (pct >= 50) return 'medium';
+    return 'low';
   }
 
   /**

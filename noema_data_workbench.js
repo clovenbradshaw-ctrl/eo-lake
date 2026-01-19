@@ -2488,15 +2488,318 @@ class EODataWorkbench {
       });
     });
 
-    // Focus search input
+    // Focus search input and wire up search functionality
     const searchInput = document.getElementById('new-tab-search-input');
     if (searchInput) {
       searchInput.focus();
+
+      // Debounced search as user types
+      let searchTimeout;
+      searchInput.addEventListener('input', (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          this._performNewTabSearch(e.target.value);
+        }, 200);
+      });
+
       searchInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
-          // TODO: Implement search
+          e.preventDefault();
+          const query = e.target.value.trim();
+          if (query) {
+            // Check for commands (start with /)
+            if (query.startsWith('/')) {
+              this._executeSearchCommand(query);
+            } else {
+              // Open first search result
+              this._openFirstSearchResult(query);
+            }
+          }
+        } else if (e.key === 'Escape') {
+          searchInput.value = '';
+          this._clearSearchResults();
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          this._navigateSearchResults(1);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          this._navigateSearchResults(-1);
         }
       });
+    }
+  }
+
+  /**
+   * Perform search in new tab page
+   */
+  _performNewTabSearch(query) {
+    if (!query || query.length < 2) {
+      this._clearSearchResults();
+      return;
+    }
+
+    const normalizedQuery = query.toLowerCase().trim();
+    const results = [];
+
+    // Search sets
+    (this.sets || []).forEach(set => {
+      if (set.name?.toLowerCase().includes(normalizedQuery)) {
+        results.push({
+          type: 'set',
+          id: set.id,
+          name: set.name,
+          icon: set.icon || 'ph-table',
+          meta: `${(set.records || []).length} records`
+        });
+      }
+    });
+
+    // Search sources
+    (this.sources || []).forEach(source => {
+      if (source.name?.toLowerCase().includes(normalizedQuery)) {
+        results.push({
+          type: 'source',
+          id: source.id,
+          name: source.name,
+          icon: 'ph-download-simple',
+          meta: source.type || 'Source'
+        });
+      }
+    });
+
+    // Search definitions
+    (this.definitions || []).forEach(def => {
+      const term = def.term?.term || def.name;
+      if (term?.toLowerCase().includes(normalizedQuery)) {
+        results.push({
+          type: 'definition',
+          id: def.id,
+          name: term,
+          icon: 'ph-book-open',
+          meta: def.source?.name || 'Definition'
+        });
+      }
+    });
+
+    // Search records (limit to first 5 matches per set)
+    (this.sets || []).forEach(set => {
+      let matchCount = 0;
+      (set.records || []).forEach(record => {
+        if (matchCount >= 5) return;
+
+        const displayField = set.displayNameFieldId || set.fields?.[0]?.id;
+        const displayValue = record[displayField] || record.id;
+
+        if (String(displayValue).toLowerCase().includes(normalizedQuery)) {
+          results.push({
+            type: 'record',
+            id: record.id,
+            setId: set.id,
+            name: String(displayValue),
+            icon: 'ph-row',
+            meta: `in ${set.name}`
+          });
+          matchCount++;
+        }
+      });
+    });
+
+    this._displaySearchResults(results.slice(0, 10)); // Limit to 10 results
+  }
+
+  /**
+   * Display search results in new tab
+   */
+  _displaySearchResults(results) {
+    // Remove existing search results
+    let resultsContainer = document.getElementById('new-tab-search-results');
+    if (!resultsContainer) {
+      resultsContainer = document.createElement('div');
+      resultsContainer.id = 'new-tab-search-results';
+      resultsContainer.className = 'new-tab-search-results';
+
+      const searchBox = document.querySelector('.new-tab-search');
+      if (searchBox) {
+        searchBox.appendChild(resultsContainer);
+      }
+    }
+
+    if (results.length === 0) {
+      resultsContainer.innerHTML = '<div class="search-no-results">No results found</div>';
+      return;
+    }
+
+    resultsContainer.innerHTML = results.map((result, index) => `
+      <button class="search-result-item ${index === 0 ? 'selected' : ''}"
+              data-type="${result.type}"
+              data-id="${result.id}"
+              ${result.setId ? `data-set-id="${result.setId}"` : ''}>
+        <i class="ph ${result.icon}"></i>
+        <div class="search-result-info">
+          <span class="search-result-name">${this._escapeHtml(result.name)}</span>
+          <span class="search-result-meta">${this._escapeHtml(result.meta)}</span>
+        </div>
+        <span class="search-result-type">${result.type}</span>
+      </button>
+    `).join('');
+
+    // Attach click handlers
+    resultsContainer.querySelectorAll('.search-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        this._openSearchResult(item.dataset);
+      });
+    });
+  }
+
+  /**
+   * Clear search results
+   */
+  _clearSearchResults() {
+    const resultsContainer = document.getElementById('new-tab-search-results');
+    if (resultsContainer) {
+      resultsContainer.remove();
+    }
+  }
+
+  /**
+   * Navigate search results with arrow keys
+   */
+  _navigateSearchResults(direction) {
+    const results = document.querySelectorAll('.search-result-item');
+    if (results.length === 0) return;
+
+    const selected = document.querySelector('.search-result-item.selected');
+    let newIndex = 0;
+
+    if (selected) {
+      const currentIndex = Array.from(results).indexOf(selected);
+      newIndex = currentIndex + direction;
+      if (newIndex < 0) newIndex = results.length - 1;
+      if (newIndex >= results.length) newIndex = 0;
+      selected.classList.remove('selected');
+    }
+
+    results[newIndex].classList.add('selected');
+    results[newIndex].scrollIntoView({ block: 'nearest' });
+  }
+
+  /**
+   * Open first search result
+   */
+  _openFirstSearchResult(query) {
+    const firstResult = document.querySelector('.search-result-item.selected');
+    if (firstResult) {
+      this._openSearchResult(firstResult.dataset);
+    } else {
+      // No results, perform search and try again
+      this._performNewTabSearch(query);
+      setTimeout(() => {
+        const result = document.querySelector('.search-result-item');
+        if (result) {
+          this._openSearchResult(result.dataset);
+        }
+      }, 100);
+    }
+  }
+
+  /**
+   * Open a search result
+   */
+  _openSearchResult(data) {
+    const { type, id, setId } = data;
+
+    switch (type) {
+      case 'set':
+        const set = this.sets.find(s => s.id === id);
+        if (set) {
+          this.openTab('set', {
+            contentId: id,
+            title: set.name,
+            icon: set.icon || 'ph-table'
+          });
+        }
+        break;
+      case 'source':
+        this.openTab('sources');
+        // Highlight the source after a brief delay
+        setTimeout(() => {
+          const sourceEl = document.querySelector(`[data-source-id="${id}"]`);
+          if (sourceEl) {
+            sourceEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            sourceEl.classList.add('highlight');
+            setTimeout(() => sourceEl.classList.remove('highlight'), 2000);
+          }
+        }, 200);
+        break;
+      case 'definition':
+        this.openTab('definitions');
+        setTimeout(() => {
+          const defEl = document.querySelector(`[data-definition-id="${id}"]`);
+          if (defEl) {
+            defEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            defEl.classList.add('highlight');
+            setTimeout(() => defEl.classList.remove('highlight'), 2000);
+          }
+        }, 200);
+        break;
+      case 'record':
+        const recordSet = this.sets.find(s => s.id === setId);
+        if (recordSet) {
+          this.openTab('set', {
+            contentId: setId,
+            title: recordSet.name,
+            icon: recordSet.icon || 'ph-table'
+          });
+          // Open the record detail after a brief delay
+          setTimeout(() => {
+            this._showRecordDetail(id);
+          }, 300);
+        }
+        break;
+    }
+
+    this._clearSearchResults();
+  }
+
+  /**
+   * Execute a search command (starts with /)
+   */
+  _executeSearchCommand(command) {
+    const cmd = command.substring(1).toLowerCase().trim();
+    const parts = cmd.split(/\s+/);
+    const action = parts[0];
+    const args = parts.slice(1).join(' ');
+
+    switch (action) {
+      case 'new':
+      case 'create':
+        if (args.startsWith('set')) {
+          this._showNewSetModal();
+        } else if (args.startsWith('source') || args.startsWith('import')) {
+          this._showImportDialog();
+        } else if (args.startsWith('view')) {
+          this._showNewViewFromNewTab();
+        } else {
+          this._showToast(`Unknown: /new ${args}. Try: /new set, /new source, /new view`, 'info');
+        }
+        break;
+      case 'settings':
+        this.openTab('settings');
+        break;
+      case 'activity':
+        this.openTab('activity');
+        break;
+      case 'sources':
+        this.openTab('sources');
+        break;
+      case 'definitions':
+        this.openTab('definitions');
+        break;
+      case 'help':
+        this._showToast('Commands: /new, /settings, /activity, /sources, /definitions', 'info');
+        break;
+      default:
+        this._showToast(`Unknown command: /${action}. Type /help for available commands.`, 'warning');
     }
   }
 
@@ -3929,6 +4232,9 @@ class EODataWorkbench {
       this._closeDetailPanel();
     });
 
+    // Initialize status indicators
+    this._initStatusIndicators();
+
     // Pipeline panel events
     document.getElementById('pipeline-panel-close')?.addEventListener('click', () => {
       this._closePipelinePanel();
@@ -4395,6 +4701,10 @@ class EODataWorkbench {
         this.bookmarkFolders = parsed.bookmarkFolders || [];
         this.expandedBookmarkFolders = new Set(parsed.expandedBookmarkFolders || []);
 
+        // Load pipeline and flow data for visual editors
+        this._pipelineData = parsed.pipelineData || {};
+        this._flowData = parsed.flowData || {};
+
         // Load records for current set immediately if using lazy loading
         if (this._useLazyLoading && this.currentSetId) {
           this._loadSetRecords(this.currentSetId);
@@ -4777,6 +5087,8 @@ class EODataWorkbench {
         bookmarks: this.bookmarks || [],
         bookmarkFolders: this.bookmarkFolders || [],
         expandedBookmarkFolders: Array.from(this.expandedBookmarkFolders || []),
+        pipelineData: this._pipelineData || {},
+        flowData: this._flowData || {},
         _storageVersion: 2,
         _syncSave: true // Mark as sync save
       };
@@ -4858,6 +5170,8 @@ class EODataWorkbench {
         bookmarks: this.bookmarks || [],
         bookmarkFolders: this.bookmarkFolders || [],
         expandedBookmarkFolders: Array.from(this.expandedBookmarkFolders || []),
+        pipelineData: this._pipelineData || {},
+        flowData: this._flowData || {},
         _storageVersion: 2, // Mark as hybrid storage format
         _hasIndexedDB: !!storage
       };
@@ -4888,10 +5202,11 @@ class EODataWorkbench {
           this._createEOEvent('data_saved', { timestamp: new Date().toISOString() });
         }
 
-        // Update last saved time
-        const lastSaved = document.querySelector('#last-saved span:last-child');
-        if (lastSaved) {
-          lastSaved.textContent = trimLevel > 0 ? 'Just now (trimmed)' : 'Just now';
+        // Record save time and update display
+        this._lastSaveTime = Date.now();
+        this._updateLastSavedDisplay();
+        if (trimLevel > 0) {
+          console.log(`[Persistence] Saved with trim level ${trimLevel}`);
         }
         return; // Success
       } catch (e) {
@@ -6576,8 +6891,8 @@ class EODataWorkbench {
    */
   _openLensTab(setId, lensId) {
     const set = this.sets.find(s => s.id === setId);
-    // TODO: Get lens from registry when lenses are properly implemented
-    const lensName = 'All Records'; // Default lens name
+    const lens = this._getLensFromRegistry(setId, lensId);
+    const lensName = lens?.name || 'All Records';
 
     // Clear search when switching to a new lens
     this.viewSearchTerm = '';
@@ -6590,12 +6905,275 @@ class EODataWorkbench {
     this.openTab('lens', {
       contentId: setId,
       title: `${set?.name || 'Set'} - ${lensName}`,
-      icon: 'ph-funnel',
+      icon: lens?.icon || 'ph-funnel',
       viewState: {
         lensId: lensId,
         viewId: defaultViewId
       }
     });
+  }
+
+  // --------------------------------------------------------------------------
+  // Lens Registry
+  // --------------------------------------------------------------------------
+
+  /**
+   * Initialize the lens registry
+   */
+  _initLensRegistry() {
+    if (!this._lensRegistry) {
+      this._lensRegistry = new Map();
+
+      // Register built-in lenses
+      this._registerBuiltInLenses();
+    }
+    return this._lensRegistry;
+  }
+
+  /**
+   * Register built-in default lenses
+   */
+  _registerBuiltInLenses() {
+    // All Records lens (default)
+    this._registerLens({
+      id: 'all-records',
+      name: 'All Records',
+      icon: 'ph-rows',
+      description: 'View all records without any filtering',
+      type: 'builtin',
+      filter: null
+    });
+
+    // Recent Records lens
+    this._registerLens({
+      id: 'recent',
+      name: 'Recent Records',
+      icon: 'ph-clock',
+      description: 'Records created or modified in the last 7 days',
+      type: 'builtin',
+      filter: (record) => {
+        const date = record.createdAt || record._created || record.updatedAt;
+        if (!date) return true;
+        const recordDate = new Date(date).getTime();
+        const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+        return recordDate >= weekAgo;
+      }
+    });
+
+    // Incomplete Records lens
+    this._registerLens({
+      id: 'incomplete',
+      name: 'Incomplete Records',
+      icon: 'ph-warning-circle',
+      description: 'Records with missing required fields',
+      type: 'builtin',
+      filterFn: (records, set) => {
+        const requiredFields = (set.fields || []).filter(f => f.required);
+        if (requiredFields.length === 0) return records;
+
+        return records.filter(record => {
+          return requiredFields.some(field => {
+            const value = record[field.id];
+            return value === null || value === undefined || value === '';
+          });
+        });
+      }
+    });
+
+    // Duplicates lens
+    this._registerLens({
+      id: 'duplicates',
+      name: 'Potential Duplicates',
+      icon: 'ph-copy',
+      description: 'Records that may be duplicates based on key fields',
+      type: 'builtin',
+      filterFn: (records, set) => {
+        const primaryField = set.fields?.find(f => f.isPrimary) || set.fields?.[0];
+        if (!primaryField) return [];
+
+        const seen = new Map();
+        const duplicates = new Set();
+
+        records.forEach(record => {
+          const value = String(record[primaryField.id] || '').toLowerCase().trim();
+          if (value && seen.has(value)) {
+            duplicates.add(seen.get(value));
+            duplicates.add(record.id);
+          } else if (value) {
+            seen.set(value, record.id);
+          }
+        });
+
+        return records.filter(r => duplicates.has(r.id));
+      }
+    });
+  }
+
+  /**
+   * Register a lens in the registry
+   */
+  _registerLens(lens) {
+    if (!lens?.id) return;
+    this._initLensRegistry();
+
+    this._lensRegistry.set(lens.id, {
+      ...lens,
+      registeredAt: new Date().toISOString()
+    });
+  }
+
+  /**
+   * Get a lens from the registry
+   */
+  _getLensFromRegistry(setId, lensId) {
+    this._initLensRegistry();
+
+    // First check for set-specific lens
+    const set = this.sets?.find(s => s.id === setId);
+    if (set?.lenses) {
+      const setLens = set.lenses.find(l => l.id === lensId);
+      if (setLens) return setLens;
+    }
+
+    // Fall back to global registry
+    return this._lensRegistry.get(lensId) || null;
+  }
+
+  /**
+   * Get all available lenses for a set
+   */
+  _getAvailableLenses(setId) {
+    this._initLensRegistry();
+
+    const lenses = [];
+
+    // Add built-in lenses
+    for (const lens of this._lensRegistry.values()) {
+      lenses.push(lens);
+    }
+
+    // Add set-specific custom lenses
+    const set = this.sets?.find(s => s.id === setId);
+    if (set?.lenses) {
+      for (const lens of set.lenses) {
+        if (!lenses.some(l => l.id === lens.id)) {
+          lenses.push({ ...lens, type: 'custom' });
+        }
+      }
+    }
+
+    return lenses;
+  }
+
+  /**
+   * Apply a lens filter to records
+   */
+  _applyLensFilter(records, setId, lensId) {
+    const lens = this._getLensFromRegistry(setId, lensId);
+    if (!lens) return records;
+
+    const set = this.sets?.find(s => s.id === setId);
+
+    // Apply filterFn if provided (for complex filters)
+    if (typeof lens.filterFn === 'function') {
+      return lens.filterFn(records, set);
+    }
+
+    // Apply simple filter function
+    if (typeof lens.filter === 'function') {
+      return records.filter(lens.filter);
+    }
+
+    // Apply filter config (like view filters)
+    if (lens.filterConfig && Array.isArray(lens.filterConfig)) {
+      return records.filter(record => {
+        return lens.filterConfig.every(filter => {
+          if (!filter.enabled) return true;
+          return this._evaluateFilterCondition(record, filter, set);
+        });
+      });
+    }
+
+    // No filter - return all records
+    return records;
+  }
+
+  /**
+   * Create a custom lens for a set
+   */
+  _createCustomLens(setId, lensConfig) {
+    const set = this.sets?.find(s => s.id === setId);
+    if (!set) return null;
+
+    if (!set.lenses) set.lenses = [];
+
+    const lens = {
+      id: `lens_${Date.now().toString(36)}`,
+      name: lensConfig.name || 'Custom Lens',
+      icon: lensConfig.icon || 'ph-funnel',
+      description: lensConfig.description || '',
+      type: 'custom',
+      filterConfig: lensConfig.filters || [],
+      createdAt: new Date().toISOString()
+    };
+
+    set.lenses.push(lens);
+    this._saveData();
+
+    return lens;
+  }
+
+  /**
+   * Delete a custom lens
+   */
+  _deleteCustomLens(setId, lensId) {
+    const set = this.sets?.find(s => s.id === setId);
+    if (!set?.lenses) return false;
+
+    const index = set.lenses.findIndex(l => l.id === lensId);
+    if (index === -1) return false;
+
+    set.lenses.splice(index, 1);
+    this._saveData();
+
+    return true;
+  }
+
+  /**
+   * Evaluate a single filter condition
+   */
+  _evaluateFilterCondition(record, filter, set) {
+    const value = record[filter.fieldId];
+    const filterValue = filter.filterValue;
+
+    switch (filter.operator) {
+      case 'is':
+        return value == filterValue;
+      case 'isNot':
+        return value != filterValue;
+      case 'contains':
+        return String(value || '').toLowerCase().includes(String(filterValue || '').toLowerCase());
+      case 'doesNotContain':
+        return !String(value || '').toLowerCase().includes(String(filterValue || '').toLowerCase());
+      case 'startsWith':
+        return String(value || '').toLowerCase().startsWith(String(filterValue || '').toLowerCase());
+      case 'endsWith':
+        return String(value || '').toLowerCase().endsWith(String(filterValue || '').toLowerCase());
+      case 'isEmpty':
+        return value === null || value === undefined || value === '';
+      case 'isNotEmpty':
+        return value !== null && value !== undefined && value !== '';
+      case 'greaterThan':
+        return Number(value) > Number(filterValue);
+      case 'greaterOrEqual':
+        return Number(value) >= Number(filterValue);
+      case 'lessThan':
+        return Number(value) < Number(filterValue);
+      case 'lessOrEqual':
+        return Number(value) <= Number(filterValue);
+      default:
+        return true;
+    }
   }
 
   /**
@@ -15543,8 +16121,17 @@ class EODataWorkbench {
     } else {
       // Fallback: open definitions tab with search
       this.openTab('definitions');
-      // TODO: implement search focus
-      this._showToast(`Search for: ${termKey}`, 'info');
+      // Focus and populate the search input after tab opens
+      setTimeout(() => {
+        const searchInput = document.querySelector('#definitions-search-input, .definitions-search input');
+        if (searchInput) {
+          searchInput.value = termKey;
+          searchInput.focus();
+          searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          this._showToast(`Search for: ${termKey}`, 'info');
+        }
+      }, 100);
     }
   }
 
@@ -38394,28 +38981,35 @@ class EODataWorkbench {
     let pipeline = this._pipelineInstances.get(set?.id);
 
     if (!pipeline) {
-      // Create new pipeline
-      pipeline = new TemporalPipeline({
-        id: `pipeline_${set?.id || 'default'}`,
-        name: `${set?.name || 'Data'} Pipeline`,
-        eventStore: this.eventStore,
-        workbench: this
-      });
+      // Try to load saved pipeline state first
+      const savedPipeline = this._loadPipelineState(set?.id);
 
-      // Add a source node for the current set if we have one
-      if (set) {
-        const sourceNode = pipeline.addNode(TemporalNodeType.SOURCE, {
-          x: 100,
-          y: 200,
-          config: {
-            setId: set.id,
-            setName: set.name
-          }
+      if (savedPipeline) {
+        pipeline = savedPipeline;
+      } else {
+        // Create new pipeline
+        pipeline = new TemporalPipeline({
+          id: `pipeline_${set?.id || 'default'}`,
+          name: `${set?.name || 'Data'} Pipeline`,
+          eventStore: this.eventStore,
+          workbench: this
         });
-      }
 
-      // Detect keyframes from event store
-      pipeline.detectKeyframes();
+        // Add a source node for the current set if we have one
+        if (set) {
+          const sourceNode = pipeline.addNode(TemporalNodeType.SOURCE, {
+            x: 100,
+            y: 200,
+            config: {
+              setId: set.id,
+              setName: set.name
+            }
+          });
+        }
+
+        // Detect keyframes from event store
+        pipeline.detectKeyframes();
+      }
 
       this._pipelineInstances.set(set?.id, pipeline);
     }
@@ -38423,14 +39017,17 @@ class EODataWorkbench {
     // Create the visual canvas
     this._currentPipelineCanvas = new TemporalPipelineCanvas(container, pipeline, {
       onNodeSelect: (node) => {
-        console.log('Node selected:', node);
+        // Show node configuration panel
+        this._showPipelineNodeConfig(node);
       },
       onNodeConfigure: (node) => {
-        console.log('Configure node:', node);
+        // Open configuration modal for the node
+        this._showPipelineNodeConfigModal(node);
       },
       onPipelineChange: (pipeline) => {
-        // Could save pipeline state here
-        console.log('Pipeline changed:', pipeline.toFormula());
+        // Persist pipeline state
+        this._savePipelineState(set?.id, pipeline);
+        this._showToast('Pipeline saved', 'success');
       }
     });
 
@@ -38462,25 +39059,32 @@ class EODataWorkbench {
     let flow = this._flowInstances.get(set?.id);
 
     if (!flow) {
-      // Create new flow pipeline
-      flow = new DataFlowPipeline({
-        id: `flow_${set?.id || 'default'}`,
-        name: `${set?.name || 'Data'} Flow`,
-        eventStore: this.eventStore,
-        workbench: this,
-        runMode: 'auto'
-      });
+      // Try to load saved flow state first
+      const savedFlow = this._loadFlowState(set?.id);
 
-      // Add a source node for the current set if we have one
-      if (set) {
-        flow.addNode(DataFlowNodeType.SET, {
-          x: 100,
-          y: 200,
-          config: {
-            setId: set.id,
-            setName: set.name
-          }
+      if (savedFlow) {
+        flow = savedFlow;
+      } else {
+        // Create new flow pipeline
+        flow = new DataFlowPipeline({
+          id: `flow_${set?.id || 'default'}`,
+          name: `${set?.name || 'Data'} Flow`,
+          eventStore: this.eventStore,
+          workbench: this,
+          runMode: 'auto'
         });
+
+        // Add a source node for the current set if we have one
+        if (set) {
+          flow.addNode(DataFlowNodeType.SET, {
+            x: 100,
+            y: 200,
+            config: {
+              setId: set.id,
+              setName: set.name
+            }
+          });
+        }
       }
 
       this._flowInstances.set(set?.id, flow);
@@ -38492,15 +39096,17 @@ class EODataWorkbench {
       timelineCollapsed: true,
       showAIButton: true,
       onNodeSelect: (node) => {
-        console.log('Flow node selected:', node);
+        // Show node details/configuration panel
+        this._showFlowNodeConfig(node);
       },
       onPipelineChange: (flow) => {
-        // Could save flow state here
-        console.log('Flow changed');
+        // Persist flow state
+        this._saveFlowState(set?.id, flow);
+        this._showToast('Flow saved', 'success');
       },
       onAIRequest: (action, flow) => {
-        console.log('AI request:', action);
-        this._showToast(`AI ${action} requested`, 'info');
+        // Handle AI-assisted flow operations
+        this._handleFlowAIRequest(action, flow);
       }
     });
 
@@ -39326,6 +39932,303 @@ class EODataWorkbench {
           }
           break;
       }
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Pipeline & Flow Persistence
+  // --------------------------------------------------------------------------
+
+  /**
+   * Save pipeline state for a set
+   */
+  _savePipelineState(setId, pipeline) {
+    if (!setId || !pipeline) return;
+
+    // Initialize storage
+    if (!this._pipelineData) {
+      this._pipelineData = {};
+    }
+
+    // Serialize and store
+    this._pipelineData[setId] = pipeline.toJSON();
+
+    // Persist to localStorage as part of main save
+    this._saveData();
+  }
+
+  /**
+   * Load pipeline state for a set
+   */
+  _loadPipelineState(setId) {
+    if (!setId || !this._pipelineData?.[setId]) return null;
+
+    try {
+      return TemporalPipeline.fromJSON(this._pipelineData[setId], {
+        eventStore: this.eventStore,
+        workbench: this
+      });
+    } catch (e) {
+      console.error('Failed to load pipeline state:', e);
+      return null;
+    }
+  }
+
+  /**
+   * Save flow state for a set
+   */
+  _saveFlowState(setId, flow) {
+    if (!setId || !flow) return;
+
+    // Initialize storage
+    if (!this._flowData) {
+      this._flowData = {};
+    }
+
+    // Serialize and store
+    this._flowData[setId] = flow.toJSON();
+
+    // Persist to localStorage as part of main save
+    this._saveData();
+  }
+
+  /**
+   * Load flow state for a set
+   */
+  _loadFlowState(setId) {
+    if (!setId || !this._flowData?.[setId]) return null;
+
+    try {
+      return DataFlowPipeline.fromJSON(this._flowData[setId], {
+        eventStore: this.eventStore,
+        workbench: this
+      });
+    } catch (e) {
+      console.error('Failed to load flow state:', e);
+      return null;
+    }
+  }
+
+  /**
+   * Show configuration panel for a pipeline node
+   */
+  _showPipelineNodeConfig(node) {
+    if (!node) return;
+
+    // Build configuration panel content based on node type
+    const content = document.createElement('div');
+    content.className = 'pipeline-node-config-panel';
+    content.innerHTML = `
+      <div class="config-panel-header">
+        <h4>${node.name || node.type}</h4>
+        <span class="node-type-badge">${node.type}</span>
+      </div>
+      <div class="config-panel-body">
+        <div class="config-section">
+          <label>Node ID</label>
+          <input type="text" value="${node.id}" readonly class="config-input readonly">
+        </div>
+        ${node.config ? `
+          <div class="config-section">
+            <label>Configuration</label>
+            <pre class="config-json">${JSON.stringify(node.config, null, 2)}</pre>
+          </div>
+        ` : ''}
+        ${node.inputs?.length ? `
+          <div class="config-section">
+            <label>Inputs</label>
+            <span class="connection-count">${node.inputs.length} connection(s)</span>
+          </div>
+        ` : ''}
+        ${node.outputs?.length ? `
+          <div class="config-section">
+            <label>Outputs</label>
+            <span class="connection-count">${node.outputs.length} connection(s)</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    // Show in a side panel or popover
+    this._showConfigPanel(content, 'Pipeline Node');
+  }
+
+  /**
+   * Show configuration modal for a pipeline node
+   */
+  _showPipelineNodeConfigModal(node) {
+    if (!node) return;
+
+    const pipeline = this._currentPipelineCanvas?.pipeline;
+    if (!pipeline) return;
+
+    // Build modal content based on node type
+    const modalContent = `
+      <div class="modal-header">
+        <h3>Configure ${node.name || node.type}</h3>
+        <button class="modal-close" data-action="close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="node-name-input" value="${node.name || ''}" placeholder="Enter node name">
+        </div>
+        ${this._getNodeTypeConfigFields(node)}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-action="close">Cancel</button>
+        <button class="btn btn-primary" data-action="save">Save</button>
+      </div>
+    `;
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `<div class="modal-content config-modal">${modalContent}</div>`;
+    document.body.appendChild(modal);
+
+    // Event handlers
+    modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
+    modal.querySelector('[data-action="save"]')?.addEventListener('click', () => {
+      const nameInput = modal.querySelector('#node-name-input');
+      if (nameInput && nameInput.value !== node.name) {
+        node.name = nameInput.value;
+        pipeline.onChange?.();
+        this._savePipelineState(this.currentSetId, pipeline);
+      }
+      modal.remove();
+      this._showToast('Node configuration saved', 'success');
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+  }
+
+  /**
+   * Get type-specific configuration fields for a pipeline node
+   */
+  _getNodeTypeConfigFields(node) {
+    switch (node.type) {
+      case 'source':
+        return `
+          <div class="form-group">
+            <label>Source Set</label>
+            <select id="node-source-select">
+              ${(this.sets || []).map(s => `
+                <option value="${s.id}" ${node.config?.setId === s.id ? 'selected' : ''}>${s.name}</option>
+              `).join('')}
+            </select>
+          </div>
+        `;
+      case 'filter':
+        return `
+          <div class="form-group">
+            <label>Filter Expression</label>
+            <textarea id="node-filter-expr" placeholder="e.g., field > 10">${node.config?.expression || ''}</textarea>
+          </div>
+        `;
+      case 'transform':
+        return `
+          <div class="form-group">
+            <label>Transform Type</label>
+            <select id="node-transform-type">
+              <option value="map" ${node.config?.transformType === 'map' ? 'selected' : ''}>Map</option>
+              <option value="aggregate" ${node.config?.transformType === 'aggregate' ? 'selected' : ''}>Aggregate</option>
+              <option value="sort" ${node.config?.transformType === 'sort' ? 'selected' : ''}>Sort</option>
+            </select>
+          </div>
+        `;
+      default:
+        return '<p class="text-muted">No additional configuration available for this node type.</p>';
+    }
+  }
+
+  /**
+   * Show configuration panel for a flow node
+   */
+  _showFlowNodeConfig(node) {
+    if (!node) return;
+
+    const content = document.createElement('div');
+    content.className = 'flow-node-config-panel';
+    content.innerHTML = `
+      <div class="config-panel-header">
+        <h4>${node.name || node.type}</h4>
+        <span class="node-type-badge ${node.type}">${node.type}</span>
+      </div>
+      <div class="config-panel-body">
+        <div class="config-section">
+          <label>Status</label>
+          <span class="status-badge ${node.status || 'idle'}">${node.status || 'Idle'}</span>
+        </div>
+        ${node.outputData ? `
+          <div class="config-section">
+            <label>Output Preview</label>
+            <div class="output-preview">
+              <span class="record-count">${Array.isArray(node.outputData) ? node.outputData.length : 1} records</span>
+            </div>
+          </div>
+        ` : ''}
+        ${node.error ? `
+          <div class="config-section error">
+            <label>Error</label>
+            <span class="error-message">${node.error}</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+
+    this._showConfigPanel(content, 'Flow Node');
+  }
+
+  /**
+   * Handle AI-assisted flow operations
+   */
+  _handleFlowAIRequest(action, flow) {
+    switch (action) {
+      case 'suggest':
+        this._showToast('AI suggestions for data flow coming soon', 'info');
+        // Future: Call AI service to suggest next nodes based on data patterns
+        break;
+      case 'optimize':
+        this._showToast('AI optimization for data flow coming soon', 'info');
+        // Future: Call AI service to optimize the flow for performance
+        break;
+      case 'explain':
+        this._showToast('AI explanation for data flow coming soon', 'info');
+        // Future: Call AI service to explain what the flow does
+        break;
+      default:
+        this._showToast(`AI action "${action}" not yet implemented`, 'info');
+    }
+  }
+
+  /**
+   * Show a configuration panel (side panel or modal)
+   */
+  _showConfigPanel(content, title) {
+    // Remove any existing config panel
+    document.querySelectorAll('.config-side-panel').forEach(p => p.remove());
+
+    const panel = document.createElement('div');
+    panel.className = 'config-side-panel';
+    panel.innerHTML = `
+      <div class="panel-header">
+        <h4>${title}</h4>
+        <button class="panel-close">&times;</button>
+      </div>
+      <div class="panel-content"></div>
+    `;
+    panel.querySelector('.panel-content').appendChild(content);
+    panel.querySelector('.panel-close').addEventListener('click', () => panel.remove());
+
+    document.body.appendChild(panel);
+
+    // Auto-close after 10 seconds of inactivity
+    let timeout = setTimeout(() => panel.remove(), 10000);
+    panel.addEventListener('mouseenter', () => clearTimeout(timeout));
+    panel.addEventListener('mouseleave', () => {
+      timeout = setTimeout(() => panel.remove(), 3000);
     });
   }
 
@@ -45837,8 +46740,213 @@ class EODataWorkbench {
   // --------------------------------------------------------------------------
 
   _showFilterPanel() {
-    // TODO: Implement filter dropdown
-    console.log('Show filter panel');
+    const set = this.getCurrentSet();
+    const view = this.getCurrentView();
+    if (!set) return;
+
+    // Remove any existing filter panel
+    document.querySelectorAll('.filter-dropdown-panel').forEach(p => p.remove());
+
+    const panel = document.createElement('div');
+    panel.className = 'filter-dropdown-panel';
+    panel.id = 'filter-panel';
+
+    const currentFilters = view?.config?.filters || [];
+    const fields = set.fields || [];
+
+    panel.innerHTML = `
+      <div class="filter-panel-header">
+        <h4><i class="ph ph-funnel"></i> Filters</h4>
+        <button class="filter-panel-close" title="Close">&times;</button>
+      </div>
+      <div class="filter-panel-body">
+        <div class="filter-rules" id="filter-rules">
+          ${currentFilters.map((filter, index) => this._renderFilterRule(filter, fields, index)).join('')}
+        </div>
+        <button class="filter-add-btn" id="add-filter-btn">
+          <i class="ph ph-plus"></i> Add filter
+        </button>
+      </div>
+      <div class="filter-panel-footer">
+        <button class="btn btn-secondary btn-sm" id="filter-clear-btn">Clear all</button>
+        <button class="btn btn-primary btn-sm" id="filter-apply-btn">Apply</button>
+      </div>
+    `;
+
+    document.body.appendChild(panel);
+
+    // Position near the filter button
+    const btn = document.getElementById('btn-filter');
+    if (btn) {
+      const rect = btn.getBoundingClientRect();
+      panel.style.position = 'fixed';
+      panel.style.top = `${rect.bottom + 4}px`;
+      panel.style.right = `${window.innerWidth - rect.right}px`;
+    }
+
+    // Event handlers
+    panel.querySelector('.filter-panel-close')?.addEventListener('click', () => {
+      panel.remove();
+    });
+
+    panel.querySelector('#add-filter-btn')?.addEventListener('click', () => {
+      this._addFilterRule(panel.querySelector('#filter-rules'), fields, currentFilters);
+    });
+
+    panel.querySelector('#filter-clear-btn')?.addEventListener('click', () => {
+      panel.querySelector('#filter-rules').innerHTML = '';
+      currentFilters.length = 0;
+    });
+
+    panel.querySelector('#filter-apply-btn')?.addEventListener('click', () => {
+      this._applyFilters(panel, view);
+      panel.remove();
+    });
+
+    // Attach handlers for existing filter rules
+    this._attachFilterRuleHandlers(panel, fields, currentFilters);
+
+    // Close when clicking outside
+    setTimeout(() => {
+      const closeHandler = (e) => {
+        if (!panel.contains(e.target) && e.target.id !== 'btn-filter') {
+          panel.remove();
+          document.removeEventListener('click', closeHandler);
+        }
+      };
+      document.addEventListener('click', closeHandler);
+    }, 100);
+  }
+
+  /**
+   * Render a single filter rule
+   */
+  _renderFilterRule(filter, fields, index) {
+    const operators = [
+      { value: 'is', label: 'is' },
+      { value: 'isNot', label: 'is not' },
+      { value: 'contains', label: 'contains' },
+      { value: 'doesNotContain', label: 'does not contain' },
+      { value: 'startsWith', label: 'starts with' },
+      { value: 'endsWith', label: 'ends with' },
+      { value: 'isEmpty', label: 'is empty' },
+      { value: 'isNotEmpty', label: 'is not empty' },
+      { value: 'greaterThan', label: '>' },
+      { value: 'greaterOrEqual', label: '>=' },
+      { value: 'lessThan', label: '<' },
+      { value: 'lessOrEqual', label: '<=' }
+    ];
+
+    const needsValue = !['isEmpty', 'isNotEmpty'].includes(filter.operator);
+
+    return `
+      <div class="filter-rule" data-rule-index="${index}">
+        <label class="filter-toggle">
+          <input type="checkbox" ${filter.enabled !== false ? 'checked' : ''}>
+        </label>
+        <select class="filter-field-select">
+          <option value="">Select field...</option>
+          ${fields.map(f => `
+            <option value="${f.id}" ${filter.fieldId === f.id ? 'selected' : ''}>${this._escapeHtml(f.name)}</option>
+          `).join('')}
+        </select>
+        <select class="filter-operator-select">
+          ${operators.map(op => `
+            <option value="${op.value}" ${filter.operator === op.value ? 'selected' : ''}>${op.label}</option>
+          `).join('')}
+        </select>
+        <input type="text" class="filter-value-input" value="${this._escapeHtml(filter.filterValue || '')}"
+               placeholder="Value" style="display: ${needsValue ? 'block' : 'none'}">
+        <button class="filter-remove-btn" title="Remove"><i class="ph ph-x"></i></button>
+      </div>
+    `;
+  }
+
+  /**
+   * Add a new filter rule
+   */
+  _addFilterRule(container, fields, filters) {
+    const newFilter = {
+      fieldId: '',
+      operator: 'contains',
+      filterValue: '',
+      enabled: true
+    };
+    filters.push(newFilter);
+
+    const ruleHtml = this._renderFilterRule(newFilter, fields, filters.length - 1);
+    container.insertAdjacentHTML('beforeend', ruleHtml);
+
+    this._attachFilterRuleHandlers(container.closest('.filter-dropdown-panel'), fields, filters);
+  }
+
+  /**
+   * Attach event handlers to filter rules
+   */
+  _attachFilterRuleHandlers(panel, fields, filters) {
+    panel.querySelectorAll('.filter-rule').forEach(rule => {
+      const index = parseInt(rule.dataset.ruleIndex, 10);
+
+      rule.querySelector('.filter-toggle input')?.addEventListener('change', (e) => {
+        if (filters[index]) filters[index].enabled = e.target.checked;
+      });
+
+      rule.querySelector('.filter-field-select')?.addEventListener('change', (e) => {
+        if (filters[index]) filters[index].fieldId = e.target.value;
+      });
+
+      rule.querySelector('.filter-operator-select')?.addEventListener('change', (e) => {
+        if (filters[index]) filters[index].operator = e.target.value;
+        const valueInput = rule.querySelector('.filter-value-input');
+        const needsValue = !['isEmpty', 'isNotEmpty'].includes(e.target.value);
+        if (valueInput) valueInput.style.display = needsValue ? 'block' : 'none';
+      });
+
+      rule.querySelector('.filter-value-input')?.addEventListener('input', (e) => {
+        if (filters[index]) filters[index].filterValue = e.target.value;
+      });
+
+      rule.querySelector('.filter-remove-btn')?.addEventListener('click', () => {
+        filters.splice(index, 1);
+        rule.remove();
+        // Re-index remaining rules
+        panel.querySelectorAll('.filter-rule').forEach((r, i) => {
+          r.dataset.ruleIndex = i;
+        });
+      });
+    });
+  }
+
+  /**
+   * Apply filters to the view
+   */
+  _applyFilters(panel, view) {
+    if (!view) return;
+
+    const filters = [];
+    panel.querySelectorAll('.filter-rule').forEach(rule => {
+      const fieldId = rule.querySelector('.filter-field-select')?.value;
+      const operator = rule.querySelector('.filter-operator-select')?.value;
+      const filterValue = rule.querySelector('.filter-value-input')?.value;
+      const enabled = rule.querySelector('.filter-toggle input')?.checked;
+
+      if (fieldId) {
+        filters.push({
+          fieldId,
+          operator: operator || 'contains',
+          filterValue: filterValue || '',
+          enabled: enabled !== false
+        });
+      }
+    });
+
+    // Update view config
+    if (!view.config) view.config = {};
+    view.config.filters = filters;
+
+    this._saveData();
+    this._renderView();
+    this._showToast(`${filters.filter(f => f.enabled).length} filter(s) applied`, 'success');
   }
 
   _showSortPanel() {
@@ -48846,7 +49954,331 @@ class EODataWorkbench {
   }
 
   _moveToNextCell(reverse = false) {
-    // TODO: Implement cell navigation
+    const table = document.querySelector('.data-table, .table-view');
+    if (!table) return;
+
+    // Get all focusable cells
+    const cells = Array.from(table.querySelectorAll(
+      'td[data-field-id], .table-cell[data-field-id], .cell-editable'
+    ));
+
+    if (cells.length === 0) return;
+
+    // Find current focused/active cell
+    let currentIndex = -1;
+    const activeCell = document.activeElement?.closest('[data-field-id]') ||
+                       table.querySelector('.cell-active, .cell-editing');
+
+    if (activeCell) {
+      currentIndex = cells.indexOf(activeCell);
+    }
+
+    // Calculate next cell index
+    let nextIndex;
+    if (reverse) {
+      nextIndex = currentIndex <= 0 ? cells.length - 1 : currentIndex - 1;
+    } else {
+      nextIndex = currentIndex >= cells.length - 1 ? 0 : currentIndex + 1;
+    }
+
+    const nextCell = cells[nextIndex];
+    if (nextCell) {
+      // Remove active state from current cell
+      cells.forEach(c => c.classList.remove('cell-active'));
+
+      // Focus and activate next cell
+      nextCell.classList.add('cell-active');
+      nextCell.focus();
+      nextCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+      // If the cell is editable, enter edit mode
+      if (nextCell.classList.contains('cell-editable') && nextCell.dataset.recordId) {
+        this._selectedCellRecordId = nextCell.dataset.recordId;
+        this._selectedCellFieldId = nextCell.dataset.fieldId;
+      }
+    }
+  }
+
+  /**
+   * Navigate cells with arrow keys
+   */
+  _navigateCellByDirection(direction) {
+    const table = document.querySelector('.data-table, .table-view');
+    if (!table) return;
+
+    const activeCell = document.activeElement?.closest('[data-field-id]') ||
+                       table.querySelector('.cell-active, .cell-editing');
+    if (!activeCell) {
+      // No active cell, select first one
+      const firstCell = table.querySelector('td[data-field-id], .table-cell[data-field-id]');
+      if (firstCell) {
+        firstCell.classList.add('cell-active');
+        firstCell.focus();
+      }
+      return;
+    }
+
+    const row = activeCell.closest('tr, .table-row');
+    if (!row) return;
+
+    let targetCell = null;
+
+    switch (direction) {
+      case 'left':
+        targetCell = activeCell.previousElementSibling;
+        while (targetCell && !targetCell.dataset.fieldId) {
+          targetCell = targetCell.previousElementSibling;
+        }
+        break;
+
+      case 'right':
+        targetCell = activeCell.nextElementSibling;
+        while (targetCell && !targetCell.dataset.fieldId) {
+          targetCell = targetCell.nextElementSibling;
+        }
+        break;
+
+      case 'up': {
+        const prevRow = row.previousElementSibling;
+        if (prevRow && !prevRow.classList.contains('header-row')) {
+          const cellIndex = Array.from(row.children).indexOf(activeCell);
+          targetCell = prevRow.children[cellIndex];
+        }
+        break;
+      }
+
+      case 'down': {
+        const nextRow = row.nextElementSibling;
+        if (nextRow) {
+          const cellIndex = Array.from(row.children).indexOf(activeCell);
+          targetCell = nextRow.children[cellIndex];
+        }
+        break;
+      }
+    }
+
+    if (targetCell && targetCell.dataset.fieldId) {
+      // Deactivate current cell
+      activeCell.classList.remove('cell-active');
+
+      // Activate target cell
+      targetCell.classList.add('cell-active');
+      targetCell.focus();
+      targetCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+      // Update selection state
+      if (targetCell.dataset.recordId) {
+        this._selectedCellRecordId = targetCell.dataset.recordId;
+        this._selectedCellFieldId = targetCell.dataset.fieldId;
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Status Indicators
+  // --------------------------------------------------------------------------
+
+  /**
+   * Initialize status bar indicators
+   */
+  _initStatusIndicators() {
+    // Update EO status indicator
+    this._updateEOStatus();
+
+    // Update last saved time display
+    this._updateLastSavedDisplay();
+
+    // Set up periodic updates
+    setInterval(() => this._updateLastSavedDisplay(), 60000); // Update every minute
+  }
+
+  /**
+   * Update EO compliance status indicator
+   */
+  _updateEOStatus() {
+    const indicator = document.getElementById('eo-status');
+    if (!indicator) return;
+
+    // Check compliance status
+    const compliance = this._checkEOCompliance();
+
+    // Update indicator
+    indicator.className = 'status-item eo-indicator';
+    indicator.innerHTML = '';
+
+    const icon = document.createElement('i');
+    const text = document.createElement('span');
+
+    if (compliance.isCompliant) {
+      indicator.classList.add('compliant');
+      icon.className = 'ph ph-shield-check';
+      text.textContent = 'EO Compliant';
+      indicator.title = 'All data is properly grounded and traceable';
+    } else if (compliance.hasWarnings) {
+      indicator.classList.add('warning');
+      icon.className = 'ph ph-warning';
+      text.textContent = 'EO Warnings';
+      indicator.title = `${compliance.warningCount} grounding warning(s)`;
+    } else {
+      indicator.classList.add('issues');
+      icon.className = 'ph ph-shield-warning';
+      text.textContent = 'EO Issues';
+      indicator.title = `${compliance.issueCount} compliance issue(s)`;
+    }
+
+    indicator.appendChild(icon);
+    indicator.appendChild(text);
+
+    // Make clickable to show details
+    indicator.style.cursor = 'pointer';
+    indicator.onclick = () => this._showEOStatusDetails(compliance);
+  }
+
+  /**
+   * Check EO compliance status
+   */
+  _checkEOCompliance() {
+    const result = {
+      isCompliant: true,
+      hasWarnings: false,
+      issueCount: 0,
+      warningCount: 0,
+      issues: [],
+      warnings: []
+    };
+
+    // Check if event store exists and has proper grounding
+    if (!this.eventStore) {
+      return result; // No event store, assume compliant
+    }
+
+    const events = this.eventStore.getAll ? this.eventStore.getAll() : [];
+
+    // Check for MEANT events without proper grounding
+    events.forEach(event => {
+      if (event.epistemicType === 'MEANT') {
+        if (!event.grounding || !event.grounding.references?.length) {
+          result.hasWarnings = true;
+          result.warningCount++;
+          result.warnings.push({
+            eventId: event.id,
+            message: 'MEANT event lacks grounding references'
+          });
+        }
+      }
+    });
+
+    // Check for orphaned records (records without origin events)
+    (this.sets || []).forEach(set => {
+      (set.records || []).forEach(record => {
+        if (!record._originEventId && !record._importEventId) {
+          result.hasWarnings = true;
+          result.warningCount++;
+        }
+      });
+    });
+
+    if (result.issueCount > 0) {
+      result.isCompliant = false;
+    }
+
+    return result;
+  }
+
+  /**
+   * Show EO status details in a modal
+   */
+  _showEOStatusDetails(compliance) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-content eo-status-modal">
+        <div class="modal-header">
+          <h3><i class="ph ph-shield-check"></i> EO Compliance Status</h3>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="compliance-summary ${compliance.isCompliant ? 'compliant' : compliance.hasWarnings ? 'warning' : 'issues'}">
+            <div class="summary-icon">
+              <i class="ph ${compliance.isCompliant ? 'ph-check-circle' : compliance.hasWarnings ? 'ph-warning' : 'ph-x-circle'}"></i>
+            </div>
+            <div class="summary-text">
+              ${compliance.isCompliant ? 'All data is EO compliant' :
+                compliance.hasWarnings ? `${compliance.warningCount} warning(s) found` :
+                `${compliance.issueCount} issue(s) found`}
+            </div>
+          </div>
+          ${compliance.warnings.length > 0 ? `
+            <div class="compliance-details">
+              <h4>Warnings</h4>
+              <ul>
+                ${compliance.warnings.slice(0, 10).map(w => `
+                  <li><code>${w.eventId?.substring(0, 8)}...</code> ${w.message}</li>
+                `).join('')}
+                ${compliance.warnings.length > 10 ? `<li>...and ${compliance.warnings.length - 10} more</li>` : ''}
+              </ul>
+            </div>
+          ` : ''}
+          <div class="compliance-info">
+            <p><strong>What is EO Compliance?</strong></p>
+            <p>Epistemic Orientation (EO) ensures all data is properly grounded, traceable, and maintains a clear chain of custody from source to presentation.</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-action="close">Close</button>
+          <button class="btn btn-primary" data-action="refresh"><i class="ph ph-arrows-clockwise"></i> Refresh</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    modal.querySelector('.modal-close')?.addEventListener('click', () => modal.remove());
+    modal.querySelector('[data-action="close"]')?.addEventListener('click', () => modal.remove());
+    modal.querySelector('[data-action="refresh"]')?.addEventListener('click', () => {
+      modal.remove();
+      this._updateEOStatus();
+      this._showToast('EO status refreshed', 'success');
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+  }
+
+  /**
+   * Update last saved time display
+   */
+  _updateLastSavedDisplay() {
+    const lastSavedEl = document.getElementById('last-saved');
+    if (!lastSavedEl) return;
+
+    const timeSpan = lastSavedEl.querySelector('span:last-child') || lastSavedEl;
+    const savedTime = this._lastSaveTime;
+
+    if (!savedTime) {
+      timeSpan.textContent = 'Not saved';
+      return;
+    }
+
+    // Format relative time
+    const now = Date.now();
+    const diff = now - savedTime;
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+
+    let text;
+    if (seconds < 60) {
+      text = 'Just now';
+    } else if (minutes < 60) {
+      text = `${minutes}m ago`;
+    } else if (hours < 24) {
+      text = `${hours}h ago`;
+    } else {
+      text = new Date(savedTime).toLocaleDateString();
+    }
+
+    timeSpan.textContent = text;
   }
 
   // --------------------------------------------------------------------------

@@ -1246,21 +1246,191 @@ class ChainExecutor {
   }
 
   _executeALT(data, columns, params) {
-    // For now, ALT is a marker that affects how we query the event store
-    // In full implementation, this would reconstruct world state at time T
+    // ALT (Δ) - Temporal projection operator
+    // Reconstructs data as it existed at a specific point in time
 
-    // TODO: Implement proper temporal reconstruction
-    // - WORLD_STATE: Replay events up to timestamp
-    // - EVENT_TIME: Filter by event occurrence time
-    // - DATA_VERSION: Pin to specific import version
+    const { mode, timestamp, version, eventId } = params;
+    const targetTime = timestamp ? new Date(timestamp).getTime() : null;
 
-    // For now, just pass through with temporal metadata attached
-    const annotatedData = data.map(row => ({
+    switch (mode) {
+      case 'WORLD_STATE':
+        // Replay events up to timestamp to reconstruct world state
+        return this._reconstructWorldState(data, columns, targetTime);
+
+      case 'EVENT_TIME':
+        // Filter records by when the event occurred
+        return this._filterByEventTime(data, columns, targetTime);
+
+      case 'DATA_VERSION':
+        // Pin to specific import/data version
+        return this._filterByDataVersion(data, columns, version, eventId);
+
+      default:
+        // Default: annotate data with temporal context
+        const annotatedData = data.map(row => ({
+          ...row,
+          _temporalContext: params
+        }));
+        return { data: annotatedData, columns };
+    }
+  }
+
+  /**
+   * Reconstruct world state at a specific timestamp
+   * Replays events up to the given time to get the state as it was
+   */
+  _reconstructWorldState(data, columns, targetTime) {
+    if (!targetTime || !this.eventStore) {
+      return { data, columns };
+    }
+
+    // Get all events up to the target time
+    const allEvents = this.eventStore.getAll ? this.eventStore.getAll() : [];
+    const eventsUpToTime = allEvents.filter(e => {
+      const eventTime = new Date(e.timestamp || e.createdAt).getTime();
+      return eventTime <= targetTime;
+    });
+
+    // Build a map of entity states at that time
+    const entityStates = new Map();
+
+    for (const event of eventsUpToTime) {
+      const entityId = event.payload?.recordId || event.payload?.entityId || event.payload?.targetId;
+      if (!entityId) continue;
+
+      const currentState = entityStates.get(entityId) || {};
+
+      // Apply the event based on its operator
+      switch (event.operator) {
+        case 'INS':
+          // Insert: set initial state
+          entityStates.set(entityId, {
+            ...event.payload,
+            _created: event.timestamp,
+            _lastModified: event.timestamp,
+            _eventId: event.id
+          });
+          break;
+
+        case 'ALT':
+          // Alter: merge changes
+          entityStates.set(entityId, {
+            ...currentState,
+            ...event.payload,
+            _lastModified: event.timestamp,
+            _eventId: event.id
+          });
+          break;
+
+        case 'NUL':
+          // Null/Delete: mark as deleted (ghost)
+          entityStates.set(entityId, {
+            ...currentState,
+            _deleted: true,
+            _deletedAt: event.timestamp,
+            _eventId: event.id
+          });
+          break;
+      }
+    }
+
+    // Filter data to only include records that existed at that time
+    const reconstructedData = data.filter(row => {
+      const rowId = row.id || row._id;
+      const state = entityStates.get(rowId);
+
+      // Include if the record existed and wasn't deleted
+      if (state && !state._deleted) {
+        // Merge historical state with row
+        Object.assign(row, {
+          _temporalState: 'historical',
+          _asOfTime: new Date(targetTime).toISOString()
+        });
+        return true;
+      }
+      return false;
+    });
+
+    // Add temporal metadata columns
+    const newColumns = [...columns];
+    if (!newColumns.includes('_temporalState')) newColumns.push('_temporalState');
+    if (!newColumns.includes('_asOfTime')) newColumns.push('_asOfTime');
+
+    return { data: reconstructedData, columns: newColumns };
+  }
+
+  /**
+   * Filter records by event occurrence time
+   */
+  _filterByEventTime(data, columns, targetTime) {
+    if (!targetTime) {
+      return { data, columns };
+    }
+
+    const filteredData = data.filter(row => {
+      // Check various timestamp fields
+      const rowTime = row._eventTime || row.createdAt || row.timestamp || row._created;
+      if (!rowTime) return true; // Include records without timestamp info
+
+      const recordTime = new Date(rowTime).getTime();
+      return recordTime <= targetTime;
+    });
+
+    // Annotate with temporal context
+    const annotatedData = filteredData.map(row => ({
       ...row,
-      _temporalContext: params
+      _temporalFilter: 'event_time',
+      _filterTimestamp: new Date(targetTime).toISOString()
     }));
 
     return { data: annotatedData, columns };
+  }
+
+  /**
+   * Filter/pin data to a specific version
+   */
+  _filterByDataVersion(data, columns, version, eventId) {
+    if (!version && !eventId) {
+      return { data, columns };
+    }
+
+    // If eventId is provided, find all records associated with that import event
+    if (eventId && this.eventStore) {
+      const importEvent = this.eventStore.get ? this.eventStore.get(eventId) : null;
+      if (importEvent) {
+        // Filter to records from this import
+        const filteredData = data.filter(row => {
+          return row._importEventId === eventId ||
+                 row._originEventId === eventId ||
+                 row._version === version;
+        });
+
+        const annotatedData = filteredData.map(row => ({
+          ...row,
+          _pinnedToVersion: version || eventId,
+          _temporalFilter: 'data_version'
+        }));
+
+        return { data: annotatedData, columns };
+      }
+    }
+
+    // If version string provided, filter by _version field
+    if (version) {
+      const filteredData = data.filter(row => {
+        return row._version === version || row._dataVersion === version;
+      });
+
+      const annotatedData = filteredData.map(row => ({
+        ...row,
+        _pinnedToVersion: version,
+        _temporalFilter: 'data_version'
+      }));
+
+      return { data: annotatedData, columns };
+    }
+
+    return { data, columns };
   }
 
   _executeAGG(data, columns, params) {
