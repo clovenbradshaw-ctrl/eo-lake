@@ -43859,6 +43859,33 @@ class EODataWorkbench {
       });
     });
 
+    // JSON toggle button handlers in detail panel
+    body.querySelectorAll('.detail-json-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const container = btn.closest('.detail-json-container');
+        const rawSection = container?.querySelector('.detail-json-raw');
+        if (rawSection) {
+          rawSection.classList.toggle('collapsed');
+          const isCollapsed = rawSection.classList.contains('collapsed');
+          btn.querySelector('span').textContent = isCollapsed ? 'Raw JSON' : 'Hide JSON';
+        }
+      });
+    });
+
+    // JSON copy button handlers in detail panel
+    body.querySelectorAll('.detail-json-copy-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const container = btn.closest('.detail-json-container');
+        const pre = container?.querySelector('.detail-json-pre');
+        if (pre) {
+          navigator.clipboard.writeText(pre.textContent);
+          this._showToast('JSON copied to clipboard', 'success');
+        }
+      });
+    });
+
     this._openDetailPanel();
   }
 
@@ -44921,12 +44948,79 @@ class EODataWorkbench {
           return `<span class="cell-formula">${formulaResult}</span>`;
         }
         return '<span class="cell-empty">-</span>';
+      case FieldTypes.JSON:
+        // Use Field Display Modes if available, with enhanced detail view
+        return this._renderDetailJsonField(field, value);
+
       default:
         if (typeof value === 'object') {
-          return `<code style="font-size: 11px;">${this._escapeHtml(JSON.stringify(value, null, 2).substring(0, 100))}...</code>`;
+          return this._renderDetailJsonField(field, value);
         }
         return this._escapeHtml(String(value));
     }
+  }
+
+  /**
+   * Render JSON field in detail panel with collapsible raw view
+   */
+  _renderDetailJsonField(field, value) {
+    if (value === null || value === undefined) {
+      return '<span class="cell-empty">Empty - click to add</span>';
+    }
+
+    // Parse if string
+    let data = value;
+    if (typeof value === 'string') {
+      try {
+        data = JSON.parse(value);
+      } catch (e) {
+        return `<span class="cell-text">${this._escapeHtml(value)}</span>`;
+      }
+    }
+
+    // Get display mode settings
+    const displayMode = field.options?.displayConfig?.defaultMode || 'chips';
+
+    // Render summary based on data type
+    let summaryHtml = '';
+    if (Array.isArray(data)) {
+      const itemCount = data.length;
+      const preview = data.slice(0, 3).map(item => {
+        if (typeof item === 'object' && item !== null) {
+          return item.name || item.title || item.id || '{...}';
+        }
+        return String(item);
+      }).join(', ');
+      const more = itemCount > 3 ? ` +${itemCount - 3} more` : '';
+      summaryHtml = `<span class="detail-json-summary">${itemCount} items: ${this._escapeHtml(preview)}${more}</span>`;
+    } else if (typeof data === 'object') {
+      const keys = Object.keys(data);
+      summaryHtml = `<span class="detail-json-summary">${keys.length} properties: ${this._escapeHtml(keys.slice(0, 4).join(', '))}${keys.length > 4 ? '...' : ''}</span>`;
+    }
+
+    // Build collapsible JSON viewer
+    const jsonStr = JSON.stringify(data, null, 2);
+    const fieldId = field.id || 'json';
+
+    return `
+      <div class="detail-json-container" data-field-id="${fieldId}">
+        <div class="detail-json-header">
+          ${summaryHtml}
+          <div class="detail-json-actions">
+            <button class="detail-json-toggle-btn" data-action="toggle-json" title="Toggle raw JSON view">
+              <i class="ph ph-brackets-curly"></i>
+              <span>Raw JSON</span>
+            </button>
+            <button class="detail-json-copy-btn" data-action="copy-json" title="Copy JSON to clipboard">
+              <i class="ph ph-copy"></i>
+            </button>
+          </div>
+        </div>
+        <div class="detail-json-raw collapsed">
+          <pre class="detail-json-pre">${this._escapeHtml(jsonStr)}</pre>
+        </div>
+      </div>
+    `;
   }
 
   _startDetailFieldEdit(el) {

@@ -48648,3 +48648,346 @@ td:hover .fdm-mode-toggle {
   background: var(--bg-tertiary, #27272a);
   color: var(--text-primary, #fafafa);
 }
+
+/* ============================================================================
+   Detail Panel - JSON Field Viewer
+   Enhanced nested JSON display with collapsible raw view
+   ============================================================================ */
+
+.detail-json-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.detail-json-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.detail-json-summary {
+  font-size: 13px;
+  color: var(--text-secondary, #a1a1aa);
+  line-height: 1.5;
+  flex: 1;
+  min-width: 120px;
+}
+
+.detail-json-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.detail-json-toggle-btn,
+.detail-json-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border-color, #2e2e32);
+  background: var(--bg-tertiary, #18181b);
+  color: var(--text-secondary, #a1a1aa);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.detail-json-toggle-btn:hover,
+.detail-json-copy-btn:hover {
+  background: var(--bg-hover, #27272a);
+  color: var(--text-primary, #fafafa);
+  border-color: var(--primary-color, #3b82f6);
+}
+
+.detail-json-toggle-btn i,
+.detail-json-copy-btn i {
+  font-size: 12px;
+}
+
+.detail-json-raw {
+  background: var(--bg-tertiary, #18181b);
+  border: 1px solid var(--border-color, #2e2e32);
+  border-radius: 6px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  max-height: 400px;
+}
+
+.detail-json-raw.collapsed {
+  display: none;
+}
+
+.detail-json-pre {
+  margin: 0;
+  padding: 12px;
+  font-family: 'IBM Plex Mono', 'Fira Code', 'Monaco', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-primary, #fafafa);
+  overflow: auto;
+  max-height: 360px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ============================================================================
+   Field Display Modes - Inline Mode Toggle (in cells)
+   ============================================================================ */
+
+.fdm-mode-toggle {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-color, #2e2e32);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+td:hover .fdm-mode-toggle,
+.fdm-mode-toggle:focus-within {
+  opacity: 1;
+}
+
+.fdm-mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary, #71717a);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.1s ease;
+  padding: 0;
+}
+
+.fdm-mode-btn:hover {
+  background: var(--bg-hover, #27272a);
+  color: var(--text-primary, #fafafa);
+}
+
+.fdm-mode-btn.active {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+}
+
+.fdm-mode-btn i {
+  font-size: 12px;
+}
+
+/* ============================================================================
+   Enhanced Chips for Nested Data
+   ============================================================================ */
+
+.fdm-chips-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+/* Show mode toggle on cell hover for chips mode */
+td:hover .fdm-chips-container + .fdm-mode-toggle {
+  opacity: 1;
+}
+
+/* ============================================================================
+   Normalized Data Modal Improvements
+   ============================================================================ */
+
+.normalized-data-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 80vh;
+}
+
+.normalized-data-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ndm-crumb {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-secondary, #a1a1aa);
+  background: var(--bg-tertiary, #f3f4f6);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ndm-crumb:hover {
+  background: var(--bg-hover, #e5e7eb);
+  color: var(--text-primary, #111827);
+}
+
+.ndm-crumb.active {
+  background: var(--primary-color, #3b82f6);
+  color: white;
+  cursor: default;
+}
+
+.ndm-crumb-sep {
+  color: var(--text-tertiary, #9ca3af);
+  font-size: 12px;
+}
+
+.normalized-data-stats {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+  color: var(--text-secondary, #6b7280);
+}
+
+.ndm-stat strong {
+  color: var(--text-primary, #111827);
+}
+
+.normalized-data-table-container {
+  overflow: auto;
+  flex: 1;
+  min-height: 200px;
+  max-height: 50vh;
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 6px;
+}
+
+.normalized-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.normalized-data-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary, #f9fafb);
+  text-align: left;
+  padding: 10px 12px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  white-space: nowrap;
+}
+
+.normalized-data-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+  vertical-align: top;
+}
+
+.ndm-th-num,
+.ndm-td-num {
+  width: 40px;
+  text-align: center;
+  color: var(--text-tertiary, #9ca3af);
+  font-size: 11px;
+}
+
+.ndm-row:hover td {
+  background: var(--bg-hover, #f3f4f6);
+}
+
+.ndm-empty {
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.ndm-json {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--text-secondary, #6b7280);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.normalized-data-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+
+/* ============================================================================
+   Light Theme Overrides for Detail JSON Viewer
+   ============================================================================ */
+
+.light-theme .detail-json-raw,
+.light-theme .detail-json-toggle-btn,
+.light-theme .detail-json-copy-btn {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+}
+
+.light-theme .detail-json-toggle-btn:hover,
+.light-theme .detail-json-copy-btn:hover {
+  background: #e5e7eb;
+}
+
+.light-theme .detail-json-pre {
+  color: #111827;
+}
+
+.light-theme .detail-json-summary {
+  color: #6b7280;
+}
+
+/* Dark Theme Overrides for Detail JSON Viewer */
+.dark-theme .detail-json-raw,
+[data-theme="dark"] .detail-json-raw {
+  background: var(--bg-tertiary, #27272a);
+  border-color: var(--border-color, #3f3f46);
+}
+
+.dark-theme .detail-json-toggle-btn,
+.dark-theme .detail-json-copy-btn,
+[data-theme="dark"] .detail-json-toggle-btn,
+[data-theme="dark"] .detail-json-copy-btn {
+  background: var(--bg-tertiary, #27272a);
+  border-color: var(--border-color, #3f3f46);
+}
+
+.dark-theme .ndm-crumb,
+[data-theme="dark"] .ndm-crumb {
+  background: var(--bg-tertiary, #27272a);
+}
+
+.dark-theme .normalized-data-table-container,
+[data-theme="dark"] .normalized-data-table-container {
+  border-color: var(--border-color, #3f3f46);
+}
+
+.dark-theme .normalized-data-table th,
+[data-theme="dark"] .normalized-data-table th {
+  background: var(--bg-secondary, #18181b);
+  border-color: var(--border-color, #3f3f46);
+}
+
+.dark-theme .normalized-data-table td,
+[data-theme="dark"] .normalized-data-table td {
+  border-color: var(--border-color, #3f3f46);
+}
+
+.dark-theme .ndm-stat strong,
+[data-theme="dark"] .ndm-stat strong {
+  color: var(--text-primary, #fafafa);
+}
+
+.dark-theme .normalized-data-actions,
+[data-theme="dark"] .normalized-data-actions {
+  border-color: var(--border-color, #3f3f46);
+}
