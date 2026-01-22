@@ -83,7 +83,7 @@ class FieldDisplayModesManager {
    */
   getDefaultDisplayConfig() {
     return {
-      defaultMode: FieldDisplayModes.CHIPS,
+      defaultMode: FieldDisplayModes.NAVIGATE,
       defaultHorizon: HorizonLevels.DETAILED,
       modes: {
         summary: { template: '{count} items' },
