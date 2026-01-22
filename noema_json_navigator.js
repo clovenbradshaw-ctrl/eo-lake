@@ -371,6 +371,7 @@ class JsonNavigatorManager {
     this.instances = new Map();
     this._boundClickHandler = this._handleClick.bind(this);
     this._initialized = false;
+    this._viewMode = new Map(); // containerId -> 'simple' | 'tree'
   }
 
   /**
@@ -413,6 +414,20 @@ class JsonNavigatorManager {
    * Handle click events for navigation
    */
   _handleClick(e) {
+    // Check for mode toggle button click
+    const modeBtn = e.target.closest('.jnav-mode-btn');
+    if (modeBtn) {
+      const wrapperId = modeBtn.dataset.wrapperId;
+      const newMode = modeBtn.dataset.mode;
+
+      if (wrapperId && newMode) {
+        e.preventDefault();
+        e.stopPropagation();
+        this.switchMode(wrapperId, newMode);
+      }
+      return;
+    }
+
     // Check for breadcrumb click
     const breadcrumb = e.target.closest('.jnav-breadcrumb');
     if (breadcrumb) {
@@ -454,6 +469,7 @@ class JsonNavigatorManager {
    */
   destroyNavigator(containerId) {
     this.instances.delete(containerId);
+    this._viewMode.delete(containerId);
   }
 
   /**
@@ -462,7 +478,132 @@ class JsonNavigatorManager {
   destroy() {
     document.removeEventListener('click', this._boundClickHandler);
     this.instances.clear();
+    this._viewMode.clear();
     this._initialized = false;
+  }
+
+  /**
+   * Create navigator with mode toggle support
+   * @param {string} containerId - Unique container ID
+   * @param {*} value - JSON data to display
+   * @param {object} options - Configuration options
+   * @param {boolean} options.showModeToggle - Show toggle between simple/tree views
+   * @param {string} options.defaultMode - 'simple' or 'tree'
+   */
+  createNavigatorWithToggle(containerId, value, options = {}) {
+    const { showModeToggle = true, defaultMode = 'simple' } = options;
+
+    this._viewMode.set(containerId, defaultMode);
+
+    if (defaultMode === 'tree' && typeof nestedJsonViewerManager !== 'undefined') {
+      return this._renderTreeMode(containerId, value, options, showModeToggle);
+    }
+
+    const navHtml = this.createNavigator(containerId, value, options);
+    if (!showModeToggle) return navHtml;
+
+    return this._wrapWithModeToggle(navHtml, containerId, 'simple', value);
+  }
+
+  /**
+   * Render tree mode view
+   */
+  _renderTreeMode(containerId, value, options, showModeToggle) {
+    // Store value for mode switching
+    this._storeValue(containerId, value);
+
+    const treeContainerId = `njv-${containerId}`;
+    nestedJsonViewerManager.init();
+
+    const treeHtml = nestedJsonViewerManager.createViewer(treeContainerId, value, {
+      maxDepth: options.maxDepth || 6,
+      showStats: options.showStats !== false,
+      showBreadcrumb: true,
+      showDepthControls: true,
+      initialExpandDepth: options.initialExpandDepth || 1
+    });
+
+    if (!showModeToggle) return treeHtml;
+
+    return this._wrapWithModeToggle(treeHtml, containerId, 'tree', value);
+  }
+
+  /**
+   * Store value for container (for mode switching)
+   */
+  _storeValue(containerId, value) {
+    if (!this._storedValues) {
+      this._storedValues = new Map();
+    }
+    this._storedValues.set(containerId, value);
+  }
+
+  /**
+   * Get stored value for container
+   */
+  _getStoredValue(containerId) {
+    return this._storedValues?.get(containerId);
+  }
+
+  /**
+   * Wrap navigator HTML with mode toggle buttons
+   */
+  _wrapWithModeToggle(html, containerId, currentMode, value) {
+    this._storeValue(containerId, value);
+
+    const isSimple = currentMode === 'simple';
+    const isTree = currentMode === 'tree';
+
+    return `
+      <div class="jnav-mode-wrapper" id="jnav-wrapper-${containerId}">
+        <div class="jnav-mode-toggle">
+          <button class="jnav-mode-btn ${isSimple ? 'jnav-mode-active' : ''}"
+                  data-wrapper-id="${containerId}"
+                  data-mode="simple"
+                  title="Simple navigation">
+            <i class="ph ph-compass"></i>
+            <span>Navigate</span>
+          </button>
+          <button class="jnav-mode-btn ${isTree ? 'jnav-mode-active' : ''}"
+                  data-wrapper-id="${containerId}"
+                  data-mode="tree"
+                  title="Tree view with depth tracking">
+            <i class="ph ph-git-branch"></i>
+            <span>Tree View</span>
+          </button>
+        </div>
+        <div class="jnav-mode-content">
+          ${html}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Switch view mode for a container
+   */
+  switchMode(containerId, newMode) {
+    const value = this._getStoredValue(containerId);
+    if (!value) return;
+
+    this._viewMode.set(containerId, newMode);
+
+    const wrapper = document.getElementById(`jnav-wrapper-${containerId}`);
+    if (!wrapper) return;
+
+    // Clean up old instances
+    this.destroyNavigator(containerId);
+    if (typeof nestedJsonViewerManager !== 'undefined') {
+      nestedJsonViewerManager.destroyViewer(`njv-${containerId}`);
+    }
+
+    // Re-render with new mode
+    const newHtml = this.createNavigatorWithToggle(containerId, value, {
+      showModeToggle: true,
+      defaultMode: newMode
+    });
+
+    wrapper.outerHTML = newHtml;
   }
 }
 
