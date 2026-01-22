@@ -33845,23 +33845,64 @@ class EODataWorkbench {
         return;
       }
 
-      // Chip click in display modes - show detail
+      // Chip click in display modes - show detail in JSON data viewer
       const fdmChip = target.closest('.fdm-chip:not(.fdm-chip-more)');
-      if (fdmChip && fdmChip.dataset.itemId) {
+      if (fdmChip) {
         e.stopPropagation();
-        // Show tooltip or detail - for now just log
-        console.log('Clicked chip:', fdmChip.dataset.itemId);
+        const cell = fdmChip.closest('td[data-field-id]');
+        const recordId = cell?.closest('tr')?.dataset.recordId;
+        const fieldId = cell?.dataset.fieldId;
+        if (recordId && fieldId) {
+          const set = this.getCurrentSet();
+          const record = set?.records.find(r => r.id === recordId);
+          const field = set?.fields.find(f => f.id === fieldId);
+          if (record && field) {
+            const value = record.values[fieldId];
+            this._showJsonDataViewer(value, field.name);
+          }
+        }
+        return;
+      }
+
+      // JSON Navigator container click - show data viewer for the full JSON
+      const jnavContainer = target.closest('.jnav-container');
+      if (jnavContainer && !target.closest('.jnav-row-drillable') && !target.closest('.jnav-breadcrumb')) {
+        e.stopPropagation();
+        const cell = jnavContainer.closest('td[data-field-id]');
+        const recordId = cell?.closest('tr')?.dataset.recordId;
+        const fieldId = cell?.dataset.fieldId;
+        if (recordId && fieldId) {
+          const set = this.getCurrentSet();
+          const record = set?.records.find(r => r.id === recordId);
+          const field = set?.fields.find(f => f.id === fieldId);
+          if (record && field) {
+            const value = record.values[fieldId];
+            this._showJsonDataViewer(value, field.name);
+          }
+        }
         return;
       }
 
       // Cell click - open semantic triplet modal for editing with history
+      // For JSON fields, open the data viewer instead
       const cell = target.closest('td.cell-editable');
       if (cell && !cell.classList.contains('cell-editing')) {
         e.stopPropagation(); // Prevent row click
         const recordId = cell.closest('tr')?.dataset.recordId;
         const fieldId = cell.dataset.fieldId;
         if (recordId && fieldId) {
-          this._showCellEditModal(recordId, fieldId);
+          const set = this.getCurrentSet();
+          const field = set?.fields.find(f => f.id === fieldId);
+          // For JSON fields, show the data viewer
+          if (field?.type === FieldTypes.JSON) {
+            const record = set?.records.find(r => r.id === recordId);
+            if (record) {
+              const value = record.values[fieldId];
+              this._showJsonDataViewer(value, field.name);
+            }
+          } else {
+            this._showCellEditModal(recordId, fieldId);
+          }
         }
         return;
       }
@@ -35336,6 +35377,296 @@ class EODataWorkbench {
         this._showNotification('JSON copied to clipboard', 'success');
       });
     }, 0);
+  }
+
+  /**
+   * Show n8n-style JSON data viewer with Schema/Table/JSON tabs
+   * @param {*} data - The JSON data to display
+   * @param {string} title - Title for the modal
+   * @param {object} options - Additional options
+   */
+  _showJsonDataViewer(data, title, options = {}) {
+    // Parse data if string
+    let parsedData = data;
+    if (typeof data === 'string') {
+      try {
+        parsedData = JSON.parse(data);
+      } catch (e) {
+        parsedData = data;
+      }
+    }
+
+    // Determine if data is array or object
+    const isArray = Array.isArray(parsedData);
+    const itemCount = isArray ? parsedData.length : (typeof parsedData === 'object' && parsedData !== null ? Object.keys(parsedData).length : 1);
+
+    // Generate Schema view HTML (tree structure)
+    const schemaHtml = this._renderJsonSchemaView(parsedData);
+
+    // Generate Table view HTML
+    const tableHtml = this._renderJsonTableView(parsedData);
+
+    // Generate JSON view HTML
+    const jsonStr = JSON.stringify(parsedData, null, 2);
+    const jsonHtml = `<pre class="jdv-json-content">${this._escapeHtml(jsonStr)}</pre>`;
+
+    const modalContent = `
+      <div class="json-data-viewer">
+        <div class="jdv-header">
+          <div class="jdv-title-row">
+            <span class="jdv-icon"><i class="ph ph-brackets-curly"></i></span>
+            <span class="jdv-item-count">${itemCount} ${isArray ? 'items' : 'keys'}</span>
+          </div>
+          <div class="jdv-tabs">
+            <button class="jdv-tab jdv-tab-active" data-tab="schema">Schema</button>
+            <button class="jdv-tab" data-tab="table">Table</button>
+            <button class="jdv-tab" data-tab="json">JSON</button>
+          </div>
+        </div>
+        <div class="jdv-content">
+          <div class="jdv-panel jdv-panel-active" data-panel="schema">
+            ${schemaHtml}
+          </div>
+          <div class="jdv-panel" data-panel="table">
+            ${tableHtml}
+          </div>
+          <div class="jdv-panel" data-panel="json">
+            ${jsonHtml}
+          </div>
+        </div>
+        <div class="jdv-actions">
+          <button class="btn btn-secondary" id="jdv-copy">
+            <i class="ph ph-copy"></i> Copy JSON
+          </button>
+        </div>
+      </div>
+    `;
+
+    this._showModal(title || 'Data Viewer', modalContent, null, {
+      hideFooter: true,
+      size: 'large'
+    });
+
+    // Attach event handlers
+    setTimeout(() => {
+      // Tab switching
+      document.querySelectorAll('.jdv-tab').forEach(tab => {
+        tab.addEventListener('click', (e) => {
+          const tabName = e.target.dataset.tab;
+          // Update active tab
+          document.querySelectorAll('.jdv-tab').forEach(t => t.classList.remove('jdv-tab-active'));
+          e.target.classList.add('jdv-tab-active');
+          // Update active panel
+          document.querySelectorAll('.jdv-panel').forEach(p => p.classList.remove('jdv-panel-active'));
+          document.querySelector(`.jdv-panel[data-panel="${tabName}"]`)?.classList.add('jdv-panel-active');
+        });
+      });
+
+      // Copy button
+      document.getElementById('jdv-copy')?.addEventListener('click', () => {
+        navigator.clipboard.writeText(jsonStr);
+        this._showNotification('JSON copied to clipboard', 'success');
+      });
+
+      // Schema tree expand/collapse
+      document.querySelectorAll('.jdv-schema-toggle').forEach(toggle => {
+        toggle.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const row = e.target.closest('.jdv-schema-row');
+          const children = row?.nextElementSibling;
+          if (children?.classList.contains('jdv-schema-children')) {
+            children.classList.toggle('jdv-schema-collapsed');
+            toggle.classList.toggle('jdv-schema-toggle-collapsed');
+          }
+        });
+      });
+    }, 0);
+  }
+
+  /**
+   * Render Schema view (tree structure like n8n)
+   */
+  _renderJsonSchemaView(data, depth = 0, parentKey = '') {
+    if (data === null) {
+      return `<div class="jdv-schema-row jdv-schema-depth-${depth}">
+        <span class="jdv-schema-key">${parentKey ? this._escapeHtml(parentKey) : 'null'}</span>
+        <span class="jdv-schema-value jdv-schema-null">null</span>
+      </div>`;
+    }
+
+    if (data === undefined) {
+      return `<div class="jdv-schema-row jdv-schema-depth-${depth}">
+        <span class="jdv-schema-key">${parentKey ? this._escapeHtml(parentKey) : 'undefined'}</span>
+        <span class="jdv-schema-value jdv-schema-undefined">undefined</span>
+      </div>`;
+    }
+
+    if (typeof data !== 'object') {
+      const typeClass = typeof data === 'string' ? 'string' :
+                        typeof data === 'number' ? 'number' :
+                        typeof data === 'boolean' ? 'boolean' : 'primitive';
+      return `<div class="jdv-schema-row jdv-schema-depth-${depth}">
+        <span class="jdv-schema-type-badge jdv-schema-type-${typeClass}"><i class="ph ${this._getTypeIcon(data)}"></i></span>
+        ${parentKey ? `<span class="jdv-schema-key">${this._escapeHtml(String(parentKey))}</span>` : ''}
+        <span class="jdv-schema-value jdv-schema-${typeClass}">${this._escapeHtml(this._formatSchemaValue(data))}</span>
+      </div>`;
+    }
+
+    const isArray = Array.isArray(data);
+    const entries = isArray ? data.map((v, i) => [i, v]) : Object.entries(data);
+    const typeBadge = isArray ? `Array(${entries.length})` : `Object(${entries.length})`;
+    const typeIcon = isArray ? 'ph-brackets-square' : 'ph-brackets-curly';
+
+    let html = `<div class="jdv-schema-row jdv-schema-depth-${depth} jdv-schema-expandable">
+      <button class="jdv-schema-toggle"><i class="ph ph-caret-down"></i></button>
+      <span class="jdv-schema-type-badge jdv-schema-type-${isArray ? 'array' : 'object'}"><i class="ph ${typeIcon}"></i></span>
+      ${parentKey !== '' ? `<span class="jdv-schema-key">${this._escapeHtml(String(parentKey))}</span>` : ''}
+      <span class="jdv-schema-type-label">${typeBadge}</span>
+    </div>`;
+
+    html += `<div class="jdv-schema-children">`;
+    entries.forEach(([key, value]) => {
+      html += this._renderJsonSchemaView(value, depth + 1, key);
+    });
+    html += `</div>`;
+
+    return html;
+  }
+
+  /**
+   * Get icon for a value type
+   */
+  _getTypeIcon(value) {
+    if (value === null) return 'ph-prohibit';
+    if (value === undefined) return 'ph-question';
+    if (typeof value === 'string') {
+      if (value.startsWith('http')) return 'ph-link';
+      if (value.includes('@')) return 'ph-envelope';
+      if (/^\d{4}-\d{2}-\d{2}/.test(value)) return 'ph-calendar';
+      return 'ph-text-t';
+    }
+    if (typeof value === 'number') return 'ph-hash';
+    if (typeof value === 'boolean') return 'ph-toggle-left';
+    if (Array.isArray(value)) return 'ph-brackets-square';
+    if (typeof value === 'object') return 'ph-brackets-curly';
+    return 'ph-question';
+  }
+
+  /**
+   * Format a value for schema display
+   */
+  _formatSchemaValue(value) {
+    if (typeof value === 'string') {
+      const maxLen = 100;
+      const display = value.length > maxLen ? value.substring(0, maxLen) + '...' : value;
+      return `"${display}"`;
+    }
+    if (typeof value === 'boolean') return value ? 'true' : 'false';
+    return String(value);
+  }
+
+  /**
+   * Render Table view for JSON data
+   */
+  _renderJsonTableView(data) {
+    // Handle non-array data
+    if (!Array.isArray(data)) {
+      if (typeof data === 'object' && data !== null) {
+        // Convert object to key-value array for display
+        const entries = Object.entries(data);
+        return `
+          <div class="jdv-table-container">
+            <table class="jdv-table">
+              <thead>
+                <tr>
+                  <th>Key</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${entries.map(([key, value]) => `
+                  <tr>
+                    <td class="jdv-table-key">${this._escapeHtml(key)}</td>
+                    <td class="jdv-table-value">${this._escapeHtml(this._formatTableValue(value))}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+      // Primitive value
+      return `<div class="jdv-table-primitive">${this._escapeHtml(String(data))}</div>`;
+    }
+
+    // Array of items - try to extract columns from first few items
+    const columns = new Set();
+    data.slice(0, 20).forEach(item => {
+      if (typeof item === 'object' && item !== null) {
+        Object.keys(item).forEach(k => columns.add(k));
+      }
+    });
+
+    const columnList = Array.from(columns).slice(0, 10); // Max 10 columns
+
+    if (columnList.length === 0) {
+      // Array of primitives
+      return `
+        <div class="jdv-table-container">
+          <table class="jdv-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.map((item, idx) => `
+                <tr>
+                  <td class="jdv-table-idx">${idx}</td>
+                  <td class="jdv-table-value">${this._escapeHtml(this._formatTableValue(item))}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    // Array of objects
+    return `
+      <div class="jdv-table-container">
+        <table class="jdv-table">
+          <thead>
+            <tr>
+              ${columnList.map(col => `<th>${this._escapeHtml(col)}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${data.map(item => `
+              <tr>
+                ${columnList.map(col => {
+                  const val = item?.[col];
+                  return `<td class="jdv-table-value">${this._escapeHtml(this._formatTableValue(val))}</td>`;
+                }).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  /**
+   * Format a value for table display
+   */
+  _formatTableValue(value) {
+    if (value === null) return '—';
+    if (value === undefined) return '—';
+    if (typeof value === 'object') {
+      return JSON.stringify(value);
+    }
+    return String(value);
   }
 
   // Cell Edit Modal - Semantic Triplet Pattern
@@ -42104,6 +42435,12 @@ class EODataWorkbench {
     modal.querySelector('.modal-title').textContent = title;
     modal.querySelector('.modal-body').innerHTML = content;
 
+    // Handle size option
+    modal.classList.remove('modal-small', 'modal-medium', 'modal-large');
+    if (options.size) {
+      modal.classList.add(`modal-${options.size}`);
+    }
+
     // Handle hideFooter option
     const footer = document.getElementById('modal-footer');
     if (footer) {
@@ -42129,6 +42466,12 @@ class EODataWorkbench {
 
   _closeModal() {
     this.elements.modal?.classList.remove('active');
+
+    // Reset modal size class
+    const modal = this.elements.modal?.querySelector('.modal');
+    if (modal) {
+      modal.classList.remove('modal-small', 'modal-medium', 'modal-large');
+    }
 
     // Restore standard modal footer buttons (some modals replace these with custom buttons)
     const modalFooter = document.getElementById('modal-footer');
