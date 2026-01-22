@@ -44741,7 +44741,36 @@ class EODataWorkbench {
       });
     });
 
-    // JSON toggle button handlers in detail panel
+    // JSON view toggle button handlers in detail panel (Tree/Raw views)
+    body.querySelectorAll('.detail-json-view-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const container = btn.closest('.detail-json-container');
+        const action = btn.dataset.action;
+        const containerId = btn.dataset.container;
+
+        if (!container) return;
+
+        const treeView = container.querySelector('.detail-json-tree-view');
+        const rawView = container.querySelector('.detail-json-raw');
+        const allBtns = container.querySelectorAll('.detail-json-view-btn');
+
+        // Update active states
+        allBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        // Toggle views based on action
+        if (action === 'view-tree') {
+          treeView?.classList.remove('collapsed');
+          rawView?.classList.add('collapsed');
+        } else if (action === 'view-raw') {
+          treeView?.classList.add('collapsed');
+          rawView?.classList.remove('collapsed');
+        }
+      });
+    });
+
+    // Legacy: JSON toggle button handlers (for backwards compatibility)
     body.querySelectorAll('.detail-json-toggle-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -45843,7 +45872,7 @@ class EODataWorkbench {
   }
 
   /**
-   * Render JSON field in detail panel with collapsible raw view
+   * Render JSON field in detail panel with multiple view options
    */
   _renderDetailJsonField(field, value) {
     if (value === null || value === undefined) {
@@ -45880,25 +45909,61 @@ class EODataWorkbench {
       summaryHtml = `<span class="detail-json-summary">${keys.length} properties: ${this._escapeHtml(keys.slice(0, 4).join(', '))}${keys.length > 4 ? '...' : ''}</span>`;
     }
 
-    // Build collapsible JSON viewer
+    // Build collapsible JSON viewer with multiple view options
     const jsonStr = JSON.stringify(data, null, 2);
     const fieldId = field.id || 'json';
+    const containerId = `detail-json-${fieldId}-${Date.now()}`;
+
+    // Check if nested viewer is available
+    const hasNestedViewer = typeof nestedJsonViewerManager !== 'undefined';
+    const hasJsonNavigator = typeof jsonNavigatorManager !== 'undefined';
+
+    let viewerHtml = '';
+    if (hasNestedViewer) {
+      nestedJsonViewerManager.init();
+      viewerHtml = nestedJsonViewerManager.createViewer(`njv-${containerId}`, data, {
+        maxDepth: 6,
+        showStats: true,
+        showBreadcrumb: true,
+        showDepthControls: true,
+        initialExpandDepth: 1
+      });
+    } else if (hasJsonNavigator) {
+      jsonNavigatorManager.init();
+      viewerHtml = jsonNavigatorManager.createNavigator(`jnav-${containerId}`, data, {
+        maxItems: 50,
+        showTypes: true
+      });
+    }
 
     return `
-      <div class="detail-json-container" data-field-id="${fieldId}">
+      <div class="detail-json-container" data-field-id="${fieldId}" data-container-id="${containerId}">
         <div class="detail-json-header">
           ${summaryHtml}
           <div class="detail-json-actions">
-            <button class="detail-json-toggle-btn" data-action="toggle-json" title="Toggle raw JSON view">
+            <button class="detail-json-view-btn ${hasNestedViewer || hasJsonNavigator ? 'active' : ''}"
+                    data-action="view-tree"
+                    data-container="${containerId}"
+                    title="Interactive tree view">
+              <i class="ph ph-git-branch"></i>
+              <span>Tree</span>
+            </button>
+            <button class="detail-json-view-btn"
+                    data-action="view-raw"
+                    data-container="${containerId}"
+                    title="Raw JSON view">
               <i class="ph ph-brackets-curly"></i>
-              <span>Raw JSON</span>
+              <span>Raw</span>
             </button>
             <button class="detail-json-copy-btn" data-action="copy-json" title="Copy JSON to clipboard">
               <i class="ph ph-copy"></i>
             </button>
           </div>
         </div>
-        <div class="detail-json-raw collapsed">
+        <div class="detail-json-tree-view" data-view="tree" data-container="${containerId}">
+          ${viewerHtml || '<div class="detail-json-fallback">Interactive viewer not available</div>'}
+        </div>
+        <div class="detail-json-raw collapsed" data-view="raw" data-container="${containerId}">
           <pre class="detail-json-pre">${this._escapeHtml(jsonStr)}</pre>
         </div>
       </div>

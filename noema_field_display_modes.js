@@ -26,6 +26,7 @@ const FieldDisplayModes = {
   GRAPH: 'graph',
   RAW: 'raw',
   NAVIGATE: 'navigate', // n8n-style drill-down navigation
+  TREE_VIEW: 'treeView', // Interactive nested tree with depth tracking
   KEY_VALUE: 'keyValue' // Legacy mode for backwards compatibility
 };
 
@@ -90,7 +91,8 @@ class FieldDisplayModesManager {
         chips: { maxVisible: 6, showTypes: true, expandable: true },
         table: { columns: null, sortBy: null, maxRows: 5 },
         graph: { layout: 'dagre', showLabels: true },
-        navigate: { maxItems: 50, showTypes: true }
+        navigate: { maxItems: 50, showTypes: true },
+        treeView: { maxDepth: 6, showStats: true, showBreadcrumb: true, showDepthControls: true, initialExpandDepth: 1 }
       }
     };
   }
@@ -246,6 +248,8 @@ class FieldDisplayModesManager {
         return this.renderRaw(value, searchTerm);
       case FieldDisplayModes.NAVIGATE:
         return this.renderNavigate(value, field, displayConfig.modes.navigate);
+      case FieldDisplayModes.TREE_VIEW:
+        return this.renderTreeView(value, field, displayConfig.modes.treeView);
       case FieldDisplayModes.KEY_VALUE:
       default:
         return this.renderChips(parsed, horizon, displayConfig.modes.chips, searchTerm);
@@ -710,11 +714,44 @@ class FieldDisplayModesManager {
   }
 
   /**
+   * Render Tree View Mode (interactive nested tree with depth tracking)
+   */
+  renderTreeView(value, field, config = {}) {
+    // Check if NestedJsonViewer is available
+    if (typeof NestedJsonViewer === 'undefined' || typeof nestedJsonViewerManager === 'undefined') {
+      // Fallback to navigate mode if viewer not loaded
+      return this.renderNavigate(value, field, config);
+    }
+
+    // Generate unique container ID
+    const containerId = `njv-${field.id}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Initialize the viewer manager if needed
+    nestedJsonViewerManager.init();
+
+    // Create and render the viewer
+    const html = nestedJsonViewerManager.createViewer(containerId, value, {
+      maxDepth: config.maxDepth || 6,
+      showStats: config.showStats !== false,
+      showBreadcrumb: config.showBreadcrumb !== false,
+      showDepthControls: config.showDepthControls !== false,
+      initialExpandDepth: config.initialExpandDepth || 1
+    });
+
+    // Wrap with mode toggle
+    let result = html;
+    result += this._renderInlineModeToggle();
+
+    return result;
+  }
+
+  /**
    * Render inline mode toggle buttons
    */
   _renderInlineModeToggle() {
     return `
       <div class="fdm-mode-toggle" title="Switch display mode">
+        <button class="fdm-mode-btn" data-mode="treeView" title="Tree View"><i class="ph ph-git-branch"></i></button>
         <button class="fdm-mode-btn" data-mode="navigate" title="Navigate"><i class="ph ph-compass"></i></button>
         <button class="fdm-mode-btn" data-mode="summary" title="Summary"><i class="ph ph-list-numbers"></i></button>
         <button class="fdm-mode-btn" data-mode="chips" title="Chips"><i class="ph ph-squares-four"></i></button>
@@ -760,6 +797,7 @@ class FieldDisplayModesManager {
    */
   renderModeSelector(currentMode = FieldDisplayModes.CHIPS) {
     const modes = [
+      { id: FieldDisplayModes.TREE_VIEW, label: 'Tree View', icon: 'ph-git-branch', desc: 'Interactive nested tree with depth tracking' },
       { id: FieldDisplayModes.NAVIGATE, label: 'Navigate', icon: 'ph-compass', desc: 'Drill-down navigation' },
       { id: FieldDisplayModes.SUMMARY, label: 'Summary', icon: 'ph-list-numbers' },
       { id: FieldDisplayModes.CHIPS, label: 'Chips', icon: 'ph-squares-four' },
